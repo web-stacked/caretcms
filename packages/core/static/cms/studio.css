@@ -1,0 +1,437 @@
+/* ========================================================================
+   Content Studio — Component Layer
+   ------------------------------------------------------------------------
+   Imports the token layer first, then defines all studio classes purely
+   in terms of those tokens. To restyle, override semantic tokens in
+   studio-tokens.css (or via the dynamic /api/cms/theme.css endpoint).
+   ======================================================================== */
+
+@import "./studio-tokens.css";
+
+/* The [hidden] attribute would normally apply `display: none`, but inline
+   `style="display:flex"` on container elements (#loading, #editor, etc.)
+   wins by specificity. Force [hidden] to take precedence. */
+[hidden] { display: none !important; }
+
+/* ─── Base ──────────────────────────────────────────────────────────── */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--studio-bg);
+  color: var(--studio-text);
+  font-family: var(--studio-font);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ─── Scrollbar ─────────────────────────────────────────────────────── */
+
+.studio-scroll::-webkit-scrollbar { width: 6px; }
+.studio-scroll::-webkit-scrollbar-track { background: transparent; }
+.studio-scroll::-webkit-scrollbar-thumb {
+  background: var(--studio-border);
+  border-radius: var(--radius-theme-xs);
+}
+.studio-scroll::-webkit-scrollbar-thumb:hover { background: var(--studio-border-hover); }
+
+/* ─── Layout: Shell + Header ────────────────────────────────────────── */
+
+.studio-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.studio-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-theme-md);
+  padding: var(--space-theme-md) var(--space-theme-lg);
+  border-bottom: 1px solid var(--studio-border);
+  background: var(--studio-surface);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.studio-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-theme-sm);
+  font-family: var(--studio-font-heading);
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  color: var(--studio-text);
+}
+
+.studio-brand-mark {
+  width: 24px;
+  height: 24px;
+  color: var(--studio-accent);
+}
+
+.studio-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-theme-sm);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--studio-text-dim);
+}
+
+.studio-breadcrumb a:hover { color: var(--studio-text-muted); }
+.studio-breadcrumb-sep { opacity: 0.4; }
+.studio-breadcrumb-current { color: var(--studio-text-muted); }
+
+.studio-main {
+  flex: 1;
+  padding: var(--space-theme-xl) var(--space-theme-lg);
+  overflow-y: auto;
+}
+
+/* ─── Drop zone ─────────────────────────────────────────────────────── */
+
+.studio-dropzone {
+  border: 2px dashed var(--studio-border-hover);
+  border-radius: var(--radius-theme-sm);
+  transition: all 0.2s ease;
+}
+
+.studio-dropzone:hover,
+.studio-dropzone.drag-over {
+  border-color: var(--studio-accent);
+  background: var(--studio-accent-soft);
+}
+
+/* ─── Image gallery drag ────────────────────────────────────────────── */
+
+.studio-gallery-item {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.studio-gallery-item.dragging {
+  opacity: 0.5;
+  transform: scale(0.95);
+}
+
+.studio-gallery-item.drag-over-item {
+  outline: 2px solid var(--studio-accent);
+  outline-offset: 2px;
+}
+
+/* ─── Animations ────────────────────────────────────────────────────── */
+
+@keyframes studio-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes studio-spin { to { transform: rotate(360deg); } }
+
+@keyframes studio-card-reveal {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.studio-fade-in { animation: studio-fade-in 0.3s ease forwards; }
+
+.studio-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: studio-spin 0.8s linear infinite;
+  color: var(--studio-accent);
+}
+
+/* ─── Upload progress ───────────────────────────────────────────────── */
+
+.studio-upload-progress {
+  height: 3px;
+  background: var(--studio-border);
+  border-radius: var(--radius-theme-xs);
+  overflow: hidden;
+}
+
+.studio-upload-progress-bar {
+  height: 100%;
+  background: var(--studio-accent);
+  transition: width 0.3s ease;
+}
+
+/* ─── Form inputs ───────────────────────────────────────────────────── */
+
+.studio-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--color-theme-surface-muted);
+  border: 1px solid var(--studio-border);
+  color: var(--studio-text);
+  font-family: var(--studio-font);
+  font-size: 13px;
+  transition: border-color 0.2s, background 0.2s;
+  outline: none;
+  border-radius: var(--radius-theme-sm);
+}
+
+.studio-input:focus {
+  border-color: var(--studio-accent);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.studio-input::placeholder { color: var(--studio-text-dim); }
+
+textarea.studio-input {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* ─── Toggle switch ─────────────────────────────────────────────────── */
+
+.studio-toggle {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  background: var(--color-theme-surface-muted);
+  border-radius: 11px;
+  cursor: pointer;
+  transition: background 0.2s;
+  border: none;
+  padding: 0;
+}
+
+.studio-toggle.active { background: var(--studio-accent); }
+
+.studio-toggle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.studio-toggle.active::after { transform: translateX(18px); }
+
+/* ─── Tag list ──────────────────────────────────────────────────────── */
+
+.studio-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--color-theme-surface-muted);
+  border: 1px solid var(--studio-border);
+  font-size: 12px;
+  color: var(--studio-text-muted);
+  border-radius: var(--radius-theme-xs);
+}
+
+.studio-tag button {
+  background: none;
+  border: none;
+  color: var(--studio-text-dim);
+  cursor: pointer;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.studio-tag button:hover { color: var(--studio-red); }
+
+/* ─── Header nav links ──────────────────────────────────────────────── */
+
+.studio-nav-link {
+  padding: 4px 12px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--studio-text-dim);
+  transition: color 0.15s, background 0.15s;
+  border-radius: var(--radius-theme-xs);
+}
+
+.studio-nav-link:hover {
+  color: var(--studio-text-muted);
+  background: var(--color-theme-surface-muted);
+}
+
+.studio-nav-link.active {
+  color: var(--studio-accent);
+  background: var(--studio-accent-soft);
+}
+
+/* ─── Buttons ───────────────────────────────────────────────────────── */
+
+.studio-btn-primary {
+  padding: 10px 18px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  background: var(--studio-accent);
+  color: var(--studio-on-accent);
+  border: none;
+  border-radius: var(--radius-theme-xs);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: var(--studio-font);
+}
+
+.studio-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+  box-shadow: 0 8px 24px var(--studio-accent-soft);
+}
+
+.studio-btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.studio-btn-ghost {
+  padding: 8px 16px;
+  font-size: 12px;
+  border: 1px solid var(--studio-border);
+  color: var(--studio-text-muted);
+  background: transparent;
+  cursor: pointer;
+  border-radius: var(--radius-theme-xs);
+  font-family: var(--studio-font);
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.studio-btn-ghost:hover {
+  color: var(--studio-text);
+  border-color: var(--studio-border-hover);
+}
+
+.studio-btn-danger {
+  padding: 8px 16px;
+  font-size: 12px;
+  border: 1px solid var(--studio-red);
+  color: var(--studio-red);
+  background: transparent;
+  cursor: pointer;
+  border-radius: var(--radius-theme-xs);
+  font-family: var(--studio-font);
+  transition: background 0.15s, color 0.15s;
+}
+
+.studio-btn-danger:hover {
+  background: var(--studio-red);
+  color: white;
+}
+
+/* ─── Cards ─────────────────────────────────────────────────────────── */
+
+.studio-card {
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-border);
+  border-radius: var(--radius-theme-xs);
+}
+
+.studio-card-interactive {
+  display: block;
+  padding: var(--space-theme-lg);
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-border);
+  border-radius: var(--radius-theme-xs);
+  transition: transform 0.2s, border-color 0.2s, background 0.2s;
+  cursor: pointer;
+}
+
+.studio-card-interactive:hover {
+  transform: translateY(-2px);
+  border-color: var(--studio-accent-strong, rgba(59, 130, 246, 0.3));
+  background: var(--studio-surface-hover);
+}
+
+/* ─── Labels ────────────────────────────────────────────────────────── */
+
+.studio-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--studio-text-muted);
+  margin-bottom: var(--space-theme-xs);
+}
+
+/* ─── Save button states ────────────────────────────────────────────── */
+
+.studio-save-dirty {
+  background: var(--studio-accent);
+  color: var(--studio-on-accent);
+  cursor: pointer;
+}
+
+.studio-save-clean {
+  background: var(--color-theme-surface-muted);
+  color: var(--studio-text-dim);
+  cursor: default;
+}
+
+.studio-save-saving {
+  background: var(--color-theme-surface-muted);
+  color: var(--studio-text-dim);
+  cursor: default;
+  opacity: 0.7;
+}
+
+/* ─── Field error ───────────────────────────────────────────────────── */
+
+.studio-field-error {
+  border-color: var(--studio-red) !important;
+}
+
+.studio-error-text {
+  color: var(--studio-red);
+  font-size: 12px;
+  margin-top: var(--space-theme-xs);
+}
+
+/* ─── Corner accent decorations (login card) ────────────────────────── */
+
+.studio-corner-accent {
+  background: var(--studio-accent);
+  opacity: 0.4;
+}
+
+/* ─── Toast ─────────────────────────────────────────────────────────── */
+
+.studio-toast {
+  position: fixed;
+  bottom: var(--space-theme-lg);
+  right: var(--space-theme-lg);
+  background: var(--studio-surface-hover);
+  border: 1px solid var(--studio-border-hover);
+  border-radius: var(--radius-theme-sm);
+  padding: var(--space-theme-md) var(--space-theme-lg);
+  color: var(--studio-text);
+  font-size: 13px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  z-index: 9999;
+  animation: studio-fade-in 0.2s ease forwards;
+}
+
+.studio-toast.error { border-left: 3px solid var(--studio-red); }
+.studio-toast.success { border-left: 3px solid var(--studio-green); }

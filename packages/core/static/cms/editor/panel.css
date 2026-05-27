@@ -1,0 +1,91 @@
+/* ---------------------------------------------------------------------------
+   Studio Panel — sliding left sidebar with iframe
+   --------------------------------------------------------------------------- */
+
+.cms-studio-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 380px;
+  z-index: 100000;
+  background: #0c0e12;
+  border-right: 1px solid rgba(59, 130, 246, 0.12);
+  box-shadow: 4px 0 30px rgba(0, 0, 0, 0.3);
+  transform: translateX(-100%);
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cms-studio-panel.open {
+  transform: translateX(0);
+}
+
+.cms-studio-panel.no-transition {
+  transition: none;
+}
+
+.cms-studio-panel iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+/* Push body content when panel is open */
+body.cms-panel-open {
+  padding-left: 380px;
+  transition: padding-left 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body.cms-panel-open.no-transition {
+  transition: none;
+}
+
+/* Shift fixed header */
+body.cms-panel-open #main-header {
+  left: 380px;
+  transition: left 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body.cms-panel-open.no-transition #main-header {
+  transition: none;
+}
+
+/* Shift fixed toolbar */
+body.cms-panel-open .cms-toolbar {
+  left: 380px;
+  transition: left 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body.cms-panel-open.no-transition .cms-toolbar {
+  transition: none;
+}
+
+/* Studio button active state */
+.cms-studio-btn.active {
+  background: rgba(59, 130, 246, 0.3);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: var(--cms-accent);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.15);
+}
+
+
+/* Mobile: full-width overlay, no content push */
+@media (max-width: 768px) {
+  .cms-studio-panel {
+    width: 100%;
+    box-shadow: none;
+  }
+
+  body.cms-panel-open {
+    padding-left: 0;
+  }
+
+  body.cms-panel-open #main-header {
+    left: 0;
+  }
+
+  body.cms-panel-open .cms-toolbar {
+    left: 0;
+  }
+}

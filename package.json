@@ -1,0 +1,37 @@
+{
+  "name": "caretcms",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
+  "scripts": {
+    "dev:starter": "npm run dev -w @caretcms/example-starter",
+    "dev:content": "npm run dev -w @caretcms/example-content-site",
+    "build:core": "npm run -w @caretcms/core build",
+    "build:cloudflare": "npm run -w @caretcms/cloudflare build",
+    "typecheck:core": "npm run -w @caretcms/core typecheck",
+    "typecheck:cloudflare": "npm run -w @caretcms/cloudflare typecheck",
+    "test": "npm run test:unit",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "validate:versions": "node ./scripts/validate-versions.mjs",
+    "check": "npm run validate:versions && npm run typecheck:core && npm run typecheck:cloudflare && npm run build:core && npm run build:cloudflare && npm run test:unit"
+  },
+  "engines": {
+    "node": "^20.19.1 || >=22.12.0",
+    "npm": ">=10.0.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.8",
+    "@playwright/test": "^1.60.0",
+    "@tailwindcss/vite": "4.2.4",
+    "astro": "6.1.8",
+    "fast-check": "^3.23.2",
+    "tailwindcss": "4.2.4",
+    "typescript": "5.9.3",
+    "vitest": "4.1.5"
+  }
+}

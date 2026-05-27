@@ -1,0 +1,300 @@
+/* ========================================================================
+   Studio Login — Decorative Layer
+   ------------------------------------------------------------------------
+   Loaded only on the login screen. All values derive from semantic tokens
+   in studio-tokens.css, so a theme override automatically restyles the
+   login card without touching this file.
+   ======================================================================== */
+
+@import "./studio-tokens.css";
+
+.studio-login-page {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--studio-bg);
+  font-family: var(--studio-font);
+}
+
+/* Background radial gradients */
+.studio-login-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.studio-login-bg::before,
+.studio-login-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.studio-login-bg::before {
+  background: radial-gradient(
+    ellipse at top right,
+    var(--studio-accent-soft) 0%,
+    transparent 60%
+  );
+}
+
+.studio-login-bg::after {
+  background: radial-gradient(
+    ellipse at bottom left,
+    var(--studio-accent-soft) 0%,
+    transparent 50%
+  );
+  opacity: 0.6;
+}
+
+/* Subtle decorative grid */
+.studio-login-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.015;
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 0L60 30L30 60L0 30Z' fill='none' stroke='%23D4AF37' stroke-width='0.5'/%3E%3C/svg%3E");
+  pointer-events: none;
+}
+
+/* Top accent line */
+.studio-login-accent-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--studio-accent-strong, rgba(59, 130, 246, 0.3)),
+    transparent
+  );
+}
+
+/* Login card */
+.studio-login-card {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 28rem;
+  margin: 0 1rem;
+  opacity: 0;
+  transform: translateY(16px);
+  animation: studio-card-reveal 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards;
+}
+
+/* Card glow */
+.studio-login-card-glow {
+  position: absolute;
+  inset: -1px;
+  background: linear-gradient(
+    to bottom,
+    var(--studio-accent-strong, rgba(59, 130, 246, 0.2)),
+    transparent,
+    var(--studio-accent-soft)
+  );
+  border-radius: var(--radius-theme-xs);
+  filter: blur(4px);
+}
+
+/* Card body */
+.studio-login-card-body {
+  position: relative;
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-border);
+  padding: 3rem;
+}
+
+/* Corner accent strokes (8 total, 4 corners) */
+.studio-corner {
+  position: absolute;
+  background: var(--studio-accent);
+  opacity: 0.4;
+}
+
+.studio-corner-h { width: 32px; height: 1px; }
+.studio-corner-v { width: 1px; height: 32px; }
+
+.studio-corner-tl-h { top: 0; left: 0; }
+.studio-corner-tl-v { top: 0; left: 0; }
+.studio-corner-tr-h { top: 0; right: 0; }
+.studio-corner-tr-v { top: 0; right: 0; }
+.studio-corner-bl-h { bottom: 0; left: 0; }
+.studio-corner-bl-v { bottom: 0; left: 0; }
+.studio-corner-br-h { bottom: 0; right: 0; }
+.studio-corner-br-v { bottom: 0; right: 0; }
+
+/* Login header */
+.studio-login-header {
+  text-align: center;
+  margin-bottom: 2.5rem;
+}
+
+.studio-login-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 1.5rem;
+  color: var(--studio-accent);
+}
+
+.studio-login-mark svg {
+  width: 40px;
+  height: 40px;
+}
+
+.studio-login-title {
+  font-family: var(--studio-font-heading);
+  font-size: 1.5rem;
+  font-weight: 500;
+  margin: 0 0 0.5rem;
+  letter-spacing: 0.04em;
+  color: var(--studio-text);
+}
+
+.studio-login-tagline {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--studio-text-dim);
+  margin: 0;
+}
+
+/* Login form */
+.studio-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.studio-login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.studio-login-field label {
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--studio-text-muted);
+}
+
+.studio-login-input-wrap {
+  position: relative;
+}
+
+.studio-login-input {
+  width: 100%;
+  padding: 14px 18px;
+  background: var(--color-theme-surface-muted);
+  border: 1px solid var(--studio-border);
+  color: var(--studio-text);
+  font-family: var(--studio-font);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.studio-login-input:focus {
+  border-color: var(--studio-accent);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.studio-login-input-icon {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--studio-text-dim);
+  pointer-events: none;
+  width: 16px;
+  height: 16px;
+}
+
+/* Submit button */
+.studio-login-submit {
+  position: relative;
+  width: 100%;
+  padding: 16px 20px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  background: var(--studio-accent);
+  color: var(--studio-on-accent);
+  border: none;
+  cursor: pointer;
+  font-family: var(--studio-font);
+  transition: box-shadow 0.5s, opacity 0.2s;
+  overflow: hidden;
+}
+
+.studio-login-submit:hover:not(:disabled) {
+  box-shadow: 0 8px 30px var(--studio-accent-strong, rgba(59, 130, 246, 0.3));
+}
+
+.studio-login-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.studio-login-submit-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.studio-login-submit-arrow {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.3s;
+}
+
+.studio-login-submit:hover:not(:disabled) .studio-login-submit-arrow {
+  transform: translateX(4px);
+}
+
+/* Inline error banner */
+.studio-login-error {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+  padding: 1rem;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--studio-red);
+  font-size: 13px;
+}
+
+.studio-login-error[hidden] { display: none; }
+
+.studio-login-error svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* Footer */
+.studio-login-footer {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  text-align: center;
+  border-top: 1px solid var(--studio-border);
+}
+
+.studio-login-footer a {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--studio-text-dim);
+  transition: opacity 0.2s;
+}
+
+.studio-login-footer a:hover { opacity: 0.7; }

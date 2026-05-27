@@ -1,0 +1,86 @@
+# CaretCMS
+
+CaretCMS is a reusable, open-core CMS for Astro:
+
+- **Live content collections** via `astro:content` live loaders
+- **Inline canvas editing** — text, images, and section layout edited directly on the page
+- **Studio admin** for structured entry editing
+- **Attribute-first binding** — add `data-caret` attributes; no schema rewrite required
+- **Pluggable storage** — filesystem out of the box, Cloudflare KV/R2 adapter included
+
+The CMS ships as `@caretcms/core`, an Astro integration you install into any Astro app.
+
+## Packages
+
+| Package | Description |
+|---------|-------------|
+| [`@caretcms/core`](packages/core) | Platform-neutral core: integration, mutation engine, studio admin, inline editor, `StorageAdapter` interface |
+| [`@caretcms/cloudflare`](packages/cloudflare) | Cloudflare storage + upload adapters (KV/R2) |
+
+## Examples
+
+| Example | What it shows |
+|---------|---------------|
+| [`examples/starter`](examples/starter) | Smallest useful CMS-enabled Astro site |
+| [`examples/content-site`](examples/content-site) | Editorial content site with scoped bindings and shared content |
+| [`examples/demo`](examples/demo) | Cloudflare deployment example |
+
+## Quick start
+
+Install the package into an existing Astro app:
+
+```sh
+npm install @caretcms/core
+```
+
+```js
+// astro.config.mjs
+import { defineConfig } from 'astro/config';
+import caret from '@caretcms/core';
+
+export default defineConfig({
+  output: 'server',
+  integrations: [caret(/* options */)],
+});
+```
+
+Then:
+
+- Set `CARET_EDIT_PASSWORD` (preferred) or `EDIT_PASSWORD`
+- Add `data-caret` / `data-caret-scope` attributes to the elements you want editable
+- Optionally create `src/caret.config.ts` with `caretLoader` to use `getLiveEntry` / `getLiveCollection`
+- Auth APIs (default `apiBasePath=/api/cms`): `POST /api/cms/auth/login`, `GET /api/cms/auth/session`, `POST /api/cms/auth/logout`
+
+The inline editor only bootstraps when `data-caret` is present **and** the `/api/cms/auth/session` check succeeds. Session cookies are `HttpOnly`, `SameSite=Lax`, and become `Secure` automatically over HTTPS.
+
+Full API reference: [`packages/core/README.md`](packages/core/README.md). Guides and docs site: **https://caretcms.com/docs**.
+
+## Develop in this repo
+
+```sh
+npm install
+
+# run the example apps
+npm run dev:starter      # minimal "ship fast" path
+npm run dev:content      # integrate into a real template
+
+# core package checks
+npm run typecheck:core
+npm run build:core
+```
+
+## Quality gates
+
+```sh
+npm run validate:versions   # pinned-version policy
+npm run typecheck:core
+npm run build:core
+npm run test:unit
+npm run test:e2e            # builds core, runs the starter, drives the editor
+```
+
+Or run the full gate with `npm run check`.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Licensed under [MIT](LICENSE).

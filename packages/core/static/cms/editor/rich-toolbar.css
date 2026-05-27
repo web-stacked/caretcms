@@ -1,0 +1,67 @@
+/* ---------------------------------------------------------------------------
+   Rich text toolbar — floating format bar for [data-caret-rich] elements
+   --------------------------------------------------------------------------- */
+
+.cms-rich-toolbar {
+  position: fixed;
+  z-index: 100002;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--cms-surface);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: 4px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  padding: 4px;
+  font-family: var(--cms-font);
+  animation: cms-popover-in 0.15s ease-out;
+  pointer-events: auto;
+}
+
+.cms-rich-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: var(--cms-font);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+  line-height: 1;
+}
+
+.cms-rich-toolbar-btn:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.cms-rich-toolbar-btn.active {
+  color: var(--cms-accent);
+  background: var(--cms-accent-soft);
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+.cms-rich-toolbar-sep {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0 2px;
+}
+
+/* Rich text editable visual indicator */
+[data-caret-rich].cms-editable:hover {
+  outline-color: rgba(59, 130, 246, 0.3);
+}
+
+[data-caret-rich].cms-editable:focus {
+  outline-color: var(--cms-accent);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}

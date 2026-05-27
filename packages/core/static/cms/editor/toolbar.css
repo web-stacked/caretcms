@@ -1,0 +1,249 @@
+/* ---------------------------------------------------------------------------
+   Toolbar — fixed bottom bar
+   --------------------------------------------------------------------------- */
+
+.cms-toolbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 99999;
+  font-family: var(--cms-font);
+  font-size: 12px;
+  opacity: 0;
+  transform: translateY(100%);
+  animation: cms-toolbar-enter 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.3s forwards;
+}
+
+/* Insulate the toolbar from consumer page resets: every descendant uses
+   border-box so padding doesn't expand widths, and inherits our font stack so
+   user-agent defaults on <button> can't bleed through. */
+.cms-toolbar,
+.cms-toolbar *,
+.cms-toolbar *::before,
+.cms-toolbar *::after {
+  box-sizing: border-box;
+}
+
+.cms-toolbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--cms-surface);
+  border-top: 1px solid rgba(59, 130, 246, 0.15);
+  box-shadow: 0 -4px 30px rgba(0, 0, 0, 0.3);
+  max-width: 100%;
+  padding: 0 24px;
+  height: 48px;
+}
+
+.cms-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cms-toolbar-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  background: var(--cms-accent-soft);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 2px;
+}
+
+.cms-toolbar-badge svg {
+  width: 14px;
+  height: 14px;
+  color: var(--cms-accent);
+}
+
+.cms-toolbar-badge-text {
+  color: var(--cms-accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.cms-toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0 4px;
+}
+
+.cms-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Shared base for every toolbar button so they can't drift visually. Individual
+   button classes below only override colors/borders. */
+.cms-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-family: var(--cms-font);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+  white-space: nowrap;
+}
+
+.cms-toolbar button:hover {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.cms-toolbar button svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+/* Status indicator */
+.cms-status-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cms-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transition: background-color 0.3s, box-shadow 0.3s;
+}
+
+.cms-status-idle {
+  background-color: var(--cms-green);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
+}
+
+.cms-status-saving {
+  background-color: var(--cms-yellow);
+  box-shadow: 0 0 6px rgba(234, 179, 8, 0.4);
+  animation: cms-dot-pulse 1s ease-in-out infinite;
+}
+
+.cms-status-error {
+  background-color: var(--cms-red);
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+}
+
+@keyframes cms-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.cms-status-text {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+/* Content Studio toggle — accent-colored */
+.cms-toolbar button.cms-studio-btn {
+  background: var(--cms-accent-soft);
+  color: var(--cms-accent);
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+.cms-toolbar button.cms-studio-btn:hover {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: var(--cms-accent);
+}
+
+/* Highlight-all active state */
+.cms-toolbar button.cms-highlight-btn-active {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: rgba(59, 130, 246, 0.9);
+}
+
+/* Highlight all mode — show every editable region */
+.cms-highlight-all [data-caret].cms-editable {
+  outline-color: var(--cms-blue-hover);
+  background: rgba(59, 130, 246, 0.04);
+}
+
+.cms-highlight-all img[data-caret] {
+  outline: 2px dashed rgba(59, 130, 246, 0.4);
+  outline-offset: 4px;
+}
+
+/* ---------------------------------------------------------------------------
+   Toolbar — page navigation links
+   --------------------------------------------------------------------------- */
+
+.cms-toolbar-nav {
+  display: none;
+  align-items: center;
+  gap: 2px;
+}
+
+@media (min-width: 768px) {
+  .cms-toolbar-nav {
+    display: flex;
+  }
+}
+
+.cms-nav-link {
+  padding: 5px 14px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: rgba(255, 255, 255, 0.35);
+  transition: color 0.15s, background 0.15s;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.cms-nav-link:hover {
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.cms-nav-link.active {
+  color: var(--cms-accent);
+  background: var(--cms-accent-soft);
+}
+
+/* Exit — red on hover */
+.cms-toolbar button.cms-exit-btn:hover {
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.3);
+  color: var(--cms-red);
+}
+
+/* Account for toolbar height */
+body:has(.cms-toolbar) {
+  padding-bottom: 48px;
+}
+
+/* Shift back-to-top button above toolbar */
+body:has(.cms-toolbar) #back-to-top {
+  bottom: 60px;
+}
+
+@keyframes cms-toolbar-enter {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

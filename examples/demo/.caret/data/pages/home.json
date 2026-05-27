@@ -1,0 +1,18 @@
+{
+  "eyebrow": "Live sandbox — click any line to change it",
+  "headline": "Quiet light, deliberate frames.",
+  "subtext": "A tiny photography page built to show the editor. Rewrite the text, replace the photo, then open the dashboard to see where it saved.",
+  "cover_src": "/cover.svg",
+  "cover_alt": "Reading room, late afternoon — pale interior, parquet floor across the frame.",
+  "cover_caption": "Click the photo to upload one of your own.",
+  "intro_marker": "Editable gallery",
+  "intro_title": "Three sample images.",
+  "intro_body": "Click a photo to replace it. Click a caption to rewrite it. Nothing here affects anyone else's demo session.",
+  "projects_marker": "Selected projects",
+  "projects_title": "Our recent work",
+  "projects_body": "Click any title, year, or description to change it. To add a new project, open the dashboard.",
+  "contact_marker": "Get in touch",
+  "contact_title": "Your contact details.",
+  "contact_body": "Click the email below to change it — this is how your visitors would reach you.",
+  "contact_email": "studio@norra.example"
+}

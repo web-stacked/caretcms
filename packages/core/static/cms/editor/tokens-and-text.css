@@ -1,0 +1,93 @@
+/* ========================================================================
+   CMS Editor Styles — only loaded when isEditor = true
+   ======================================================================== */
+
+/* ---------------------------------------------------------------------------
+   CSS Custom Properties
+   --------------------------------------------------------------------------- */
+
+:root {
+  --cms-blue: rgba(59, 130, 246, 0.8);
+  --cms-blue-dim: rgba(59, 130, 246, 0.1);
+  --cms-blue-hover: rgba(59, 130, 246, 0.4);
+  --cms-surface: #14171c;
+  --cms-accent: #3b82f6;
+  --cms-accent-soft: rgba(59, 130, 246, 0.15);
+  --cms-green: #22c55e;
+  --cms-red: #ef4444;
+  --cms-yellow: #eab308;
+  --cms-font: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* ---------------------------------------------------------------------------
+   Text editing affordances — simple blue outline
+   --------------------------------------------------------------------------- */
+
+[data-caret].cms-editable {
+  cursor: text;
+  transition: outline 0.2s, box-shadow 0.2s;
+  outline: 2px dashed transparent;
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
+[data-caret].cms-editable:hover {
+  outline-color: var(--cms-blue-hover);
+}
+
+[data-caret].cms-editable:focus {
+  outline: 2px solid var(--cms-blue);
+  outline-offset: 4px;
+  box-shadow: 0 0 0 4px var(--cms-blue-dim);
+}
+
+/* ---------------------------------------------------------------------------
+   Link/button click prevention in editor mode
+   --------------------------------------------------------------------------- */
+
+.cms-edit-mode a[data-caret],
+.cms-edit-mode button[data-caret],
+.cms-edit-mode [data-caret] a,
+.cms-edit-mode [data-caret] button {
+  pointer-events: auto;
+}
+
+/* CMS-editable links get text cursor; non-CMS links keep pointer for navigation */
+.cms-edit-mode a[data-caret],
+.cms-edit-mode a:has([data-caret]) {
+  cursor: text;
+}
+
+/* ---------------------------------------------------------------------------
+   Save / error feedback
+   --------------------------------------------------------------------------- */
+
+.cms-saving {
+  outline-color: var(--cms-yellow) !important;
+}
+
+.cms-saved {
+  animation: cms-flash-green 1.5s ease-out;
+}
+
+.cms-error {
+  animation: cms-flash-red 1.5s ease-out;
+}
+
+@keyframes cms-flash-green {
+  0% { outline: 2px solid var(--cms-green); outline-offset: 4px; }
+  100% { outline: 2px solid transparent; outline-offset: 4px; }
+}
+
+@keyframes cms-flash-red {
+  0% { outline: 2px solid var(--cms-red); outline-offset: 4px; }
+  100% { outline: 2px solid transparent; outline-offset: 4px; }
+}
+
+/* ---------------------------------------------------------------------------
+   Invisible overlays — prevent hover-state duplicates from blocking editing
+   --------------------------------------------------------------------------- */
+
+.cms-edit-mode .opacity-0 {
+  pointer-events: none !important;
+}

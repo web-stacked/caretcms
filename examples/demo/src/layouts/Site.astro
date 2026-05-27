@@ -1,0 +1,262 @@
+---
+import { getLiveEntry } from "astro:content";
+import { bindEntry } from "@caretcms/core";
+
+interface Props {
+  title: string;
+  active: "home" | "about";
+}
+
+const { title, active } = Astro.props;
+
+const { entry: siteEntry } = await getLiveEntry("site", "global");
+const site = (siteEntry?.data ?? {}) as Record<string, string>;
+const sb = bindEntry({ collection: "site", id: "global" });
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>{title}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style is:global>
+      :root {
+        --ink: #14110f;
+        --ink-2: #3d3833;
+        --ink-3: #6f685e;
+        --ink-4: #948b7c;
+        --paper: #faf7f1;
+        --paper-2: #f1ece2;
+        --paper-3: #ebe4d4;
+        --rule: #d8cfb8;
+        --rule-soft: #e6dec8;
+        --accent: #2e5cff;
+        --accent-soft: rgba(46, 92, 255, 0.08);
+        --serif: "Fraunces", "Iowan Old Style", Georgia, serif;
+        --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+        --sans: "Inter", system-ui, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 17px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+      a { color: inherit; }
+
+      /* ─── Sandbox banner ──────────────────────────────────────── */
+      .sb-bar {
+        position: sticky; top: 0; z-index: 60;
+        background: var(--ink); color: var(--paper);
+        font-family: var(--mono);
+        font-size: 12px; letter-spacing: 0.02em;
+        padding: 10px clamp(20px, 4vw, 32px);
+        display: flex; flex-wrap: wrap; align-items: center;
+        gap: 14px;
+      }
+      .sb-bar-tag {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 3px 8px;
+        border: 1px solid rgba(250, 247, 241, 0.35);
+        text-transform: uppercase; letter-spacing: 0.14em;
+        font-size: 10px;
+      }
+      .sb-bar-tag::before {
+        content: ""; width: 6px; height: 6px; border-radius: 999px;
+        background: #5be07a; box-shadow: 0 0 8px #5be07a;
+      }
+      .sb-bar-msg { opacity: 0.82; }
+      .sb-bar-msg strong { color: var(--paper); opacity: 1; font-weight: 500; }
+      .sb-bar-spacer { flex: 1; }
+      .sb-bar-link {
+        text-decoration: none; opacity: 0.85;
+        border-bottom: 1px solid rgba(250, 247, 241, 0.25);
+        padding-bottom: 1px;
+        transition: opacity 160ms ease, border-color 160ms ease;
+      }
+      .sb-bar-link:hover { opacity: 1; border-bottom-color: rgba(250, 247, 241, 0.7); }
+      .sb-bar-cta {
+        display: inline-flex; align-items: center; gap: 8px;
+        background: var(--paper); color: var(--ink);
+        text-decoration: none;
+        padding: 7px 12px 6px;
+        text-transform: uppercase;
+        font-weight: 500;
+        letter-spacing: 0.1em;
+        font-size: 11px;
+        transition: background 160ms ease, color 160ms ease;
+      }
+      .sb-bar-cta:hover { background: var(--accent); color: var(--paper); }
+      .sb-bar-cta svg { width: 11px; height: 11px; }
+
+      @media (max-width: 720px) {
+        .sb-bar { font-size: 11px; padding: 9px 18px; gap: 10px; }
+        .sb-bar-spacer { flex: 1 1 100%; height: 0; }
+      }
+
+      /* ─── Site chrome (nav, footer) ───────────────────────────── */
+      .nav {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: clamp(28px, 5vw, 44px) clamp(24px, 5vw, 56px) 0;
+        display: flex;
+        align-items: baseline;
+        gap: 32px;
+      }
+      .nav-brand {
+        font-family: var(--serif);
+        font-size: 1.05rem;
+        font-weight: 500;
+        letter-spacing: -0.005em;
+        margin: 0;
+        line-height: 1;
+      }
+      .nav-tagline {
+        font-family: var(--mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--ink-3);
+      }
+      .nav-spacer { flex: 1; }
+      .nav-links {
+        display: flex;
+        gap: 22px;
+        font-family: var(--mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        color: var(--ink-3);
+      }
+      .nav-links a {
+        text-decoration: none;
+        color: inherit;
+        padding-bottom: 3px;
+        border-bottom: 1px solid transparent;
+        transition: color 160ms ease, border-color 160ms ease;
+      }
+      .nav-links a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+      .nav-links a.is-active { color: var(--ink); border-bottom-color: var(--ink); }
+
+      @media (max-width: 640px) {
+        .nav { flex-wrap: wrap; gap: 14px 24px; }
+        .nav-spacer { display: none; }
+        .nav-tagline { display: none; }
+      }
+
+      main {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: clamp(48px, 8vw, 96px) clamp(24px, 5vw, 56px) clamp(64px, 10vw, 128px);
+      }
+
+      footer {
+        border-top: 1px solid var(--rule);
+        margin-top: 0;
+      }
+      .footer-inner {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: clamp(28px, 4vw, 44px) clamp(24px, 5vw, 56px) clamp(36px, 5vw, 56px);
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 24px;
+        font-family: var(--mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--ink-3);
+      }
+      .footer-credit { letter-spacing: 0.14em; }
+      .footer-spacer { flex: 1; }
+      .footer-link {
+        color: var(--ink-2);
+        text-decoration: none;
+        border-bottom: 1px solid var(--rule);
+        padding-bottom: 2px;
+      }
+      .footer-link:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+      /* ─── Editor hints ────────────────────────────────────────── */
+      [data-caret] { cursor: text; transition: background 140ms ease, box-shadow 140ms ease; }
+      [data-caret]:hover { background: var(--accent-soft); border-radius: 2px; box-shadow: 0 0 0 2px var(--accent-soft); }
+
+      /* Images: treat like clickable cards rather than editable text. The
+         inline editor JS adds its own "Replace image" overlay on top; this
+         CSS provides the baseline cue (pointer cursor + accent outline) so
+         visitors see "interactive" before any JS runs. */
+      img[data-caret] {
+        cursor: pointer;
+        transition: outline-color 160ms ease, filter 200ms ease;
+        outline: 2px solid transparent;
+        outline-offset: 4px;
+      }
+      img[data-caret]:hover {
+        outline-color: var(--accent);
+        filter: brightness(0.96);
+      }
+
+      /* ─── Section markers ─────────────────────────────────────── */
+      .marker {
+        display: block;
+        font-family: var(--sans);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--accent);
+        font-weight: 500;
+        margin: 0 0 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sb-bar">
+      <span class="sb-bar-tag">Free demo</span>
+      <span class="sb-bar-msg">This is a sample site. Click any text or photo to change it — only you can see your edits, and the demo resets every 2 hours.</span>
+      <span class="sb-bar-spacer"></span>
+      <a class="sb-bar-link" href="https://caretcms.com">← Back to caretcms.com</a>
+      <a class="sb-bar-cta" href="/admin/cms">
+        <span>Open dashboard</span>
+        <svg viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M3 9 L9 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/>
+          <path d="M4 3 L9 3 L9 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/>
+        </svg>
+      </a>
+    </div>
+
+    <nav class="nav" data-caret-scope="site::global">
+      <h1 class="nav-brand"><a href="/" style="text-decoration:none;color:inherit;" {...sb("studio_name")}>{site.studio_name ?? "Studio Norra"}</a></h1>
+      <span class="nav-tagline" {...sb("tagline")}>{site.tagline ?? "Independent photography"}</span>
+      <span class="nav-spacer"></span>
+      <div class="nav-links">
+        <a href="/" class={active === "home" ? "is-active" : ""} {...sb("nav_home")}>{site.nav_home ?? "Index"}</a>
+        <a href="/about" class={active === "about" ? "is-active" : ""} {...sb("nav_about")}>{site.nav_about ?? "About"}</a>
+        <a href="/admin/cms">Dashboard</a>
+      </div>
+    </nav>
+
+    <main>
+      <slot />
+    </main>
+
+    <footer data-caret-scope="site::global">
+      <div class="footer-inner">
+        <span class="footer-credit" {...sb("footer_credit")}>{site.footer_credit ?? "© Studio Norra — Stockholm"}</span>
+        <span class="footer-spacer"></span>
+        <a class="footer-link" href="https://caretcms.com" {...sb("footer_link_label")}>{site.footer_link_label ?? "caretcms.com"}</a>
+      </div>
+    </footer>
+  </body>
+</html>

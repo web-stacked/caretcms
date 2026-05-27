@@ -1,0 +1,344 @@
+---
+import { getLiveEntry, getLiveCollection } from "astro:content";
+import { bindEntry } from "@caretcms/core";
+import Site from "../layouts/Site.astro";
+
+const { entry: pageEntry } = await getLiveEntry("pages", "home");
+const page = (pageEntry?.data ?? {}) as Record<string, string>;
+
+const galleryResult = await getLiveCollection("gallery");
+const gallery = [...(galleryResult.entries ?? [])]
+  .map((entry) => ({ id: entry.id, data: (entry.data ?? {}) as Record<string, string> }))
+  .sort((a, b) => a.id.localeCompare(b.id))
+  .slice(0, 3);
+---
+
+<Site title="Studio Norra — Independent photography (sandbox)" active="home">
+  <article>
+    {/* ─── HERO ───────────────────────────────────────────────── */}
+    <section class="hero" data-caret-scope="pages::home">
+      <p class="eyebrow" data-caret="eyebrow">{page.eyebrow}</p>
+      <h2 class="hero-headline" data-caret="headline">{page.headline}</h2>
+      <p class="hero-subtext" data-caret="subtext">{page.subtext}</p>
+
+      <figure class="hero-figure">
+        <img
+          class="hero-figure-img"
+          data-caret="cover_src"
+          src={page.cover_src}
+          alt={page.cover_alt}
+          width="1600"
+          height="1000"
+        />
+        <figcaption class="hero-figure-caption" data-caret="cover_caption">{page.cover_caption}</figcaption>
+      </figure>
+    </section>
+
+    {/* ─── QUICK GUIDE ─────────────────────────────────────────── */}
+    <section class="try-card" aria-label="How to try the demo">
+      <p class="try-kicker">Three things to try</p>
+      <ol class="try-list">
+        <li>Click the headline and type a new one.</li>
+        <li>Click the hero image and upload a photo.</li>
+        <li>Open the dashboard when you want to see the saved entries.</li>
+      </ol>
+      <a class="try-link" href="/admin/cms">Open dashboard</a>
+    </section>
+
+    {/* ─── MINI GALLERY ───────────────────────────────────────── */}
+    <section class="gallery-section" data-caret-scope="pages::home">
+      <header class="section-head">
+        <span class="marker" data-caret="intro_marker">{page.intro_marker}</span>
+        <h2 class="section-title" data-caret="intro_title">{page.intro_title}</h2>
+        <p class="section-lede" data-caret="intro_body">{page.intro_body}</p>
+      </header>
+
+      <ol class="gallery-grid">
+        {gallery.map((item, i) => {
+          const bind = bindEntry({ collection: "gallery", id: item.id });
+          return (
+            <li class:list={["gallery-item", `gallery-item--${(i % 6) + 1}`]}>
+              <figure>
+                <img {...bind("src")} src={item.data.src} alt={item.data.alt} loading="lazy" />
+                <figcaption class="gallery-caption">
+                  <span class="gallery-caption-text" {...bind("caption")}>{item.data.caption}</span>
+                  <span class="gallery-caption-year" {...bind("year")}>{item.data.year}</span>
+                </figcaption>
+              </figure>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+
+    {/* ─── DEMO OUTRO (non-editable next-step card) ───────────── */}
+    <aside class="demo-outro" aria-label="About this demo">
+      <div class="demo-outro-inner">
+        <p class="demo-outro-tag">That is the whole demo.</p>
+        <h2 class="demo-outro-title">A real page, edited in place.</h2>
+        <p class="demo-outro-body">
+          Your edits are private to this browser session and reset after two
+          hours. The dashboard shows the same content as entries if you want
+          to peek behind the page.
+        </p>
+        <div class="demo-outro-actions">
+          <a class="demo-outro-cta" href="https://caretcms.com">
+            <span>Get started at caretcms.com</span>
+            <span aria-hidden="true">→</span>
+          </a>
+          <a class="demo-outro-link" href="/admin/cms">Or peek inside the dashboard</a>
+        </div>
+      </div>
+    </aside>
+  </article>
+</Site>
+
+<style>
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 24px;
+  }
+
+  /* ─── HERO ─────────────────────────────────────────────────── */
+  .hero { display: grid; grid-template-columns: 1fr; gap: 0; }
+  .hero-headline {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(2.6rem, 6.2vw, 4.8rem);
+    line-height: 1.02;
+    letter-spacing: -0.022em;
+    margin: 0 0 28px;
+    max-width: 18ch;
+    color: var(--ink);
+  }
+  .hero-subtext {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(1.1rem, 1.8vw, 1.35rem);
+    line-height: 1.45;
+    color: var(--ink-2);
+    margin: 0 0 clamp(36px, 6vw, 56px);
+    max-width: 40ch;
+    font-style: italic;
+  }
+  .hero-figure { margin: 0 0 clamp(40px, 7vw, 72px); }
+  .hero-figure-img {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16/10;
+    object-fit: cover;
+    background: var(--paper-2);
+    display: block;
+  }
+  .hero-figure-caption {
+    margin-top: 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--ink-3);
+    text-transform: uppercase;
+  }
+
+  /* ─── QUICK GUIDE ───────────────────────────────────────────── */
+  .try-card {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr) auto;
+    gap: clamp(18px, 4vw, 40px);
+    align-items: center;
+    margin: 0 0 clamp(56px, 8vw, 88px);
+    padding: clamp(22px, 4vw, 32px);
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+  }
+  .try-kicker {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .try-list {
+    margin: 0;
+    padding-left: 1.15rem;
+    color: var(--ink-2);
+  }
+  .try-list li + li { margin-top: 6px; }
+  .try-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--ink);
+    color: var(--paper);
+    text-decoration: none;
+    padding: 13px 18px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    white-space: nowrap;
+    transition: background 160ms ease, transform 160ms ease;
+  }
+  .try-link:hover {
+    background: var(--accent);
+    transform: translate(-2px, -2px);
+    box-shadow: 4px 4px 0 0 var(--ink);
+  }
+
+  @media (max-width: 820px) {
+    .try-card { grid-template-columns: 1fr; }
+    .try-link { justify-self: start; }
+  }
+
+  /* ─── Shared section heads ─────────────────────────────────── */
+  .section-head {
+    border-top: 1px solid var(--rule);
+    padding-top: 32px;
+    margin-bottom: 48px;
+    max-width: 56ch;
+  }
+  .section-title {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(1.8rem, 3.6vw, 2.6rem);
+    line-height: 1.1;
+    letter-spacing: -0.016em;
+    margin: 0 0 16px;
+  }
+  .section-lede {
+    font-family: var(--serif);
+    font-size: 1.1rem;
+    line-height: 1.55;
+    color: var(--ink-2);
+    margin: 0;
+    max-width: 50ch;
+  }
+
+  /* ─── GALLERY GRID ─────────────────────────────────────────── */
+  .gallery-section { margin-bottom: clamp(64px, 9vw, 96px); }
+  .gallery-grid {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: clamp(16px, 2.5vw, 28px) clamp(14px, 2vw, 24px);
+  }
+  .gallery-item { margin: 0; min-width: 0; }
+  .gallery-item figure { margin: 0; }
+  .gallery-item img {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4/3;
+    object-fit: cover;
+    display: block;
+    background: var(--paper-2);
+  }
+  .gallery-caption {
+    display: grid;
+    gap: 16px;
+    margin-top: 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .gallery-caption-text { color: var(--ink-2); }
+  .gallery-caption-year { color: var(--accent); }
+
+  @media (max-width: 720px) {
+    .gallery-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ─── DEMO OUTRO ───────────────────────────────────────────── */
+  .demo-outro {
+    margin: clamp(64px, 10vw, 96px) 0 0;
+    border-top: 1px solid var(--rule);
+    padding-top: clamp(48px, 6vw, 80px);
+  }
+  .demo-outro-inner {
+    background: var(--ink);
+    color: var(--paper);
+    padding: clamp(40px, 6vw, 64px);
+    max-width: 720px;
+    margin: 0 auto;
+    border-radius: 2px;
+    position: relative;
+    overflow: hidden;
+  }
+  .demo-outro-inner::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; bottom: 0;
+    width: 3px;
+    background: var(--accent);
+  }
+  .demo-outro-tag {
+    font-family: var(--sans);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgba(250, 247, 241, 0.6);
+    margin: 0 0 16px;
+    font-weight: 500;
+  }
+  .demo-outro-title {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(1.8rem, 4vw, 2.4rem);
+    line-height: 1.12;
+    letter-spacing: -0.012em;
+    margin: 0 0 16px;
+    color: var(--paper);
+    max-width: 18ch;
+  }
+  .demo-outro-body {
+    font-family: var(--serif);
+    font-size: 1.1rem;
+    line-height: 1.55;
+    color: rgba(250, 247, 241, 0.82);
+    margin: 0 0 28px;
+    max-width: 46ch;
+  }
+  .demo-outro-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 20px 24px;
+  }
+  .demo-outro-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--paper);
+    color: var(--ink);
+    text-decoration: none;
+    padding: 14px 22px 13px;
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+  }
+  .demo-outro-cta:hover {
+    background: var(--accent);
+    color: var(--paper);
+    transform: translate(-2px, -2px);
+    box-shadow: 4px 4px 0 0 var(--paper);
+  }
+  .demo-outro-link {
+    color: rgba(250, 247, 241, 0.7);
+    text-decoration: none;
+    font-size: 13px;
+    border-bottom: 1px solid rgba(250, 247, 241, 0.25);
+    padding-bottom: 2px;
+    transition: color 160ms ease, border-color 160ms ease;
+  }
+  .demo-outro-link:hover { color: var(--paper); border-color: var(--paper); }
+</style>

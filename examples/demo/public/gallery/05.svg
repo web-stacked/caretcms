@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="g5" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dfd3bd"/>
+      <stop offset="1" stop-color="#8a7a5d"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#g5)"/>
+  <rect x="200" y="220" width="400" height="40" fill="#3a2a18" opacity="0.45"/>
+  <rect x="200" y="290" width="400" height="40" fill="#3a2a18" opacity="0.45"/>
+  <rect x="200" y="360" width="400" height="40" fill="#3a2a18" opacity="0.45"/>
+  <rect x="380" y="120" width="40" height="60" fill="#fdfaf2" opacity="0.8"/>
+  <circle cx="400" cy="100" r="22" fill="#fff3c4" opacity="0.7"/>
+  <text x="40" y="560" font-family="Georgia, serif" font-size="14" fill="#3a3429" opacity="0.55" font-style="italic">05 — Tingsrätten, after hours</text>
+</svg>

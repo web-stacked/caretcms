@@ -1,0 +1,91 @@
+{
+  "name": "@caretcms/core",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Platform-neutral core for CaretCMS: attribute-first inline editing, mutation engine, studio admin, StorageAdapter interface.",
+  "license": "MIT",
+  "keywords": [
+    "astro",
+    "astro-integration",
+    "cms",
+    "inline-editing",
+    "caret",
+    "content-management",
+    "headless-cms"
+  ],
+  "homepage": "https://github.com/web-stacked/caretcms/tree/main/packages/core#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/web-stacked/caretcms.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/web-stacked/caretcms/issues"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./loader": {
+      "types": "./dist/loader.d.ts",
+      "import": "./dist/loader.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "import": "./dist/runtime/index.js"
+    },
+    "./providers/storage/filesystem": {
+      "types": "./dist/providers/storage/filesystem.d.ts",
+      "import": "./dist/providers/storage/filesystem.js"
+    },
+    "./providers/uploads/local": {
+      "types": "./dist/providers/uploads/local.d.ts",
+      "import": "./dist/providers/uploads/local.js"
+    },
+    "./schema-registry": {
+      "types": "./dist/runtime/schema-registry.d.ts",
+      "import": "./dist/runtime/schema-registry.js"
+    },
+    "./schema-utils": {
+      "types": "./dist/schema-utils.d.ts",
+      "import": "./dist/schema-utils.js"
+    },
+    "./browser-runtime": {
+      "types": "./dist/browser-runtime.d.ts",
+      "import": "./dist/browser-runtime.js"
+    },
+    "./editor-runtime": {
+      "types": "./editor-runtime.d.ts",
+      "import": "./editor-runtime.js"
+    }
+  },
+  "files": [
+    "dist",
+    "static",
+    "editor-runtime.js",
+    "editor-runtime.d.ts"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "node scripts/check-version.mjs && npm run clean && npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "astro": "^5.0.0 || ^6.0.0"
+  },
+  "dependencies": {
+    "zod": "^3.23.0 || ^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "25.6.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.5"
+  }
+}

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="g2" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#f8f3ea"/>
+      <stop offset="0.4" stop-color="#cdc4b3"/>
+      <stop offset="1" stop-color="#7a7163"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#g2)"/>
+  <polygon points="320,0 480,0 520,600 280,600" fill="#fdfaf2" opacity="0.55"/>
+  <polygon points="380,0 420,0 440,600 360,600" fill="#fdfaf2" opacity="0.6"/>
+  <circle cx="400" cy="80" r="60" fill="#ffffff" opacity="0.55"/>
+  <text x="40" y="560" font-family="Georgia, serif" font-size="14" fill="#3a3429" opacity="0.55" font-style="italic">02 — Civic stair, Östermalm</text>
+</svg>

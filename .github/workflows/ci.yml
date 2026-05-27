@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+jobs:
+  node-ci:
+    name: Node ${{ matrix.node }} checks
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["20.19.1", "22.12.0"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Validate pinned versions
+        run: npm run validate:versions
+
+      - name: Typecheck core package
+        run: npm run typecheck:core
+
+      - name: Typecheck cloudflare package
+        run: npm run typecheck:cloudflare
+
+      - name: Build core package
+        run: npm run build:core
+
+      - name: Build cloudflare package
+        run: npm run build:cloudflare
+
+      - name: Unit tests
+        run: npm run test:unit
+
+  playwright-e2e:
+    name: Playwright e2e
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.19.1"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run end-to-end tests
+        run: npm run test:e2e
+
+  bun-parity:
+    name: Bun parity checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.5"
+
+      - name: Install
+        run: bun install
+
+      - name: Validate pinned versions
+        run: bun run validate:versions
+
+      - name: Build core package
+        run: bun run build:core

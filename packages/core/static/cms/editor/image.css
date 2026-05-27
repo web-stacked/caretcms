@@ -1,0 +1,133 @@
+/* ---------------------------------------------------------------------------
+   Image editing overlay
+   --------------------------------------------------------------------------- */
+
+.cms-img-wrapper {
+  position: relative;
+  z-index: 10;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color 0.2s;
+}
+
+.cms-img-wrapper:hover {
+  outline-color: var(--cms-blue);
+}
+
+/* Corner edit badge — persistent editability indicator */
+.cms-img-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  color: white;
+  border-radius: 4px;
+  opacity: 0.6;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 12;
+  pointer-events: none;
+}
+
+.cms-img-wrapper:hover .cms-img-badge {
+  opacity: 0;
+  transform: scale(0.8);
+}
+
+.cms-img-badge-hidden {
+  opacity: 0 !important;
+}
+
+/* Full overlay */
+.cms-img-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: white;
+  font-family: var(--cms-font);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  border: none;
+  padding: 0;
+  z-index: 11;
+}
+
+.cms-img-wrapper:hover .cms-img-overlay {
+  opacity: 1;
+}
+
+.cms-img-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.cms-img-overlay-icon {
+  width: 28px;
+  height: 28px;
+  opacity: 0.9;
+}
+
+.cms-img-overlay-text {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+/* Upload state — always visible with spinner */
+.cms-img-state-uploading {
+  display: none;
+}
+
+.cms-img-overlay.uploading {
+  opacity: 1;
+  cursor: wait;
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.cms-img-overlay.uploading .cms-img-state-idle {
+  display: none;
+}
+
+.cms-img-overlay.uploading .cms-img-state-uploading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.cms-img-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid rgba(255, 255, 255, 0.2);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: cms-spin 0.7s linear infinite;
+}
+
+@keyframes cms-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Thumbnail update flash */
+.cms-thumb-updated {
+  animation: cms-thumb-flash 1s ease-out;
+}
+
+@keyframes cms-thumb-flash {
+  0% { outline: 2px solid var(--cms-green); outline-offset: 2px; }
+  100% { outline: 2px solid transparent; outline-offset: 2px; }
+}

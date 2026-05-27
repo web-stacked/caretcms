@@ -1,0 +1,14 @@
+name = "caret-demo"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# CaretCMS on Cloudflare: content lives in KV, image uploads in R2.
+# Create your own namespace + bucket and fill in the ids below (see README).
+
+[[kv_namespaces]]
+binding = "CMS_KV"
+id = "<your-kv-namespace-id>"
+
+[[r2_buckets]]
+binding = "CMS_R2"
+bucket_name = "caret-uploads"

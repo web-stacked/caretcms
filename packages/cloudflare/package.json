@@ -1,0 +1,61 @@
+{
+  "name": "@caretcms/cloudflare",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Cloudflare-native storage (KV) and uploads (R2) adapters for CaretCMS.",
+  "license": "MIT",
+  "keywords": [
+    "astro",
+    "cms",
+    "cloudflare",
+    "workers",
+    "kv",
+    "r2",
+    "caret",
+    "storage-adapter"
+  ],
+  "homepage": "https://github.com/web-stacked/caretcms/tree/main/packages/cloudflare#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/web-stacked/caretcms.git",
+    "directory": "packages/cloudflare"
+  },
+  "bugs": {
+    "url": "https://github.com/web-stacked/caretcms/issues"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./providers/storage": {
+      "types": "./dist/providers/storage.d.ts",
+      "import": "./dist/providers/storage.js"
+    },
+    "./providers/uploads": {
+      "types": "./dist/providers/uploads.d.ts",
+      "import": "./dist/providers/uploads.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "node scripts/check-version.mjs && npm run clean && npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@caretcms/core": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "25.6.0",
+    "typescript": "^5.9.3"
+  }
+}

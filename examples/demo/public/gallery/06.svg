@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="g6" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f4ead8"/>
+      <stop offset="1" stop-color="#caaf86"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#g6)"/>
+  <rect x="120" y="280" width="560" height="200" fill="#fdfaf2" opacity="0.6"/>
+  <rect x="120" y="280" width="560" height="40" fill="#9a7e58" opacity="0.4"/>
+  <rect x="120" y="360" width="560" height="40" fill="#9a7e58" opacity="0.4"/>
+  <rect x="120" y="440" width="560" height="40" fill="#9a7e58" opacity="0.4"/>
+  <rect x="80" y="220" width="40" height="280" fill="#3a2a18" opacity="0.35"/>
+  <text x="40" y="560" font-family="Georgia, serif" font-size="14" fill="#3a3429" opacity="0.55" font-style="italic">06 — Norm Magazine, issue 41</text>
+</svg>

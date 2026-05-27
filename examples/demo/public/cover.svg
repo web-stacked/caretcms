@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="cover" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#fbf6ea"/>
+      <stop offset="0.55" stop-color="#e1d2b3"/>
+      <stop offset="1" stop-color="#8a7458"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="1000" fill="url(#cover)"/>
+  <rect x="0" y="720" width="1600" height="280" fill="#7c6a4e" opacity="0.42"/>
+  <rect x="980" y="120" width="360" height="720" fill="#fdfaf2" opacity="0.75"/>
+  <rect x="1020" y="160" width="280" height="640" fill="#e8dcc5" opacity="0.85"/>
+  <line x1="0" y1="720" x2="1600" y2="720" stroke="#5a4a32" stroke-width="1" opacity="0.4"/>
+  <text x="80" y="940" font-family="Georgia, serif" font-size="22" fill="#3a2e1c" opacity="0.55" font-style="italic">Reading room, late afternoon</text>
+</svg>

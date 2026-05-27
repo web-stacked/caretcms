@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="g4" cx="0.65" cy="0.4" r="0.7">
+      <stop offset="0" stop-color="#fbf3e1"/>
+      <stop offset="1" stop-color="#7d6748"/>
+    </radialGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#g4)"/>
+  <ellipse cx="520" cy="260" rx="120" ry="160" fill="#3a2a18" opacity="0.55"/>
+  <ellipse cx="520" cy="200" rx="60" ry="70" fill="#d9be94" opacity="0.85"/>
+  <rect x="460" y="380" width="120" height="220" fill="#2a1d10" opacity="0.6"/>
+  <text x="40" y="560" font-family="Georgia, serif" font-size="14" fill="#fdfaf2" opacity="0.7" font-style="italic">04 — Portrait, Eivor</text>
+</svg>

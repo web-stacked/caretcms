@@ -1,0 +1,85 @@
+/* ========================================================================
+   Studio Design System — Token Layer
+   ------------------------------------------------------------------------
+   Two layers, in cascade order:
+
+   1. SEMANTIC tokens (--color-theme-*, --space-*, --radius-*, --font-*)
+      The contract that themes override. A theme preset only needs to
+      redeclare these to fully restyle the studio.
+
+   2. STUDIO aliases (--studio-*)
+      The names existing studio CSS classes already consume. Each alias
+      is derived from a semantic token, so semantic overrides cascade
+      automatically.
+
+   Defaults below = the "Studio" preset (neutral dark + product blue).
+   The /api/cms/theme.css endpoint (theme-stylesheet route) re-emits
+   the SEMANTIC layer for whichever preset is active, so the aliases
+   below never need to change per theme.
+   ======================================================================== */
+
+:root {
+  /* ─── Semantic: Surface ───────────────────────────────────────────── */
+  --color-theme-bg-deep: #0c0e12;
+  --color-theme-surface: #14171c;
+  --color-theme-surface-elevated: #1c2027;
+  --color-theme-surface-muted: rgba(255, 255, 255, 0.03);
+
+  /* ─── Semantic: Border ────────────────────────────────────────────── */
+  --color-theme-border-subtle: rgba(255, 255, 255, 0.06);
+  --color-theme-border: rgba(255, 255, 255, 0.10);
+
+  /* ─── Semantic: Accent ────────────────────────────────────────────── */
+  --color-theme-accent: #3b82f6;
+  --color-theme-accent-soft: rgba(59, 130, 246, 0.12);
+  --color-theme-accent-strong: rgba(59, 130, 246, 0.24);
+  --color-theme-on-accent: #ffffff;
+
+  /* ─── Semantic: Text ──────────────────────────────────────────────── */
+  --color-theme-text: rgba(255, 255, 255, 0.92);
+  --color-theme-text-muted: rgba(255, 255, 255, 0.55);
+  --color-theme-text-dim: rgba(255, 255, 255, 0.32);
+
+  /* ─── Semantic: State ─────────────────────────────────────────────── */
+  --color-theme-success: #22c55e;
+  --color-theme-danger: #ef4444;
+  --color-theme-info: #3b82f6;
+  --color-theme-warning: #eab308;
+
+  /* ─── Semantic: Typography ────────────────────────────────────────── */
+  --font-theme-body: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-theme-heading: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-theme-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+
+  /* ─── Semantic: Scale ─────────────────────────────────────────────── */
+  --radius-theme-xs: 2px;
+  --radius-theme-sm: 4px;
+  --radius-theme-md: 6px;
+  --radius-theme-lg: 12px;
+  --space-theme-xs: 0.25rem;
+  --space-theme-sm: 0.5rem;
+  --space-theme-md: 1rem;
+  --space-theme-lg: 1.5rem;
+  --space-theme-xl: 2rem;
+  --space-theme-2xl: 3rem;
+
+  /* ─── Studio Aliases (derive from semantic — do not hand-edit) ────── */
+  --studio-bg: var(--color-theme-bg-deep);
+  --studio-surface: var(--color-theme-surface);
+  --studio-surface-hover: var(--color-theme-surface-elevated);
+  --studio-border: var(--color-theme-border-subtle);
+  --studio-border-hover: var(--color-theme-border);
+  --studio-accent: var(--color-theme-accent);
+  --studio-accent-soft: var(--color-theme-accent-soft);
+  --studio-accent-strong: var(--color-theme-accent-strong);
+  --studio-on-accent: var(--color-theme-on-accent);
+  --studio-text: var(--color-theme-text);
+  --studio-text-muted: var(--color-theme-text-muted);
+  --studio-text-dim: var(--color-theme-text-dim);
+  --studio-green: var(--color-theme-success);
+  --studio-red: var(--color-theme-danger);
+  --studio-blue: var(--color-theme-info);
+  --studio-font: var(--font-theme-body);
+  --studio-font-heading: var(--font-theme-heading);
+  --studio-font-mono: var(--font-theme-mono);
+}

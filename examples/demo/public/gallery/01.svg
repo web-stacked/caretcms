@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#efe7d8"/>
+      <stop offset="1" stop-color="#c9b89a"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#g1)"/>
+  <rect x="0" y="420" width="800" height="180" fill="#a78f6c" opacity="0.55"/>
+  <rect x="540" y="60" width="180" height="380" fill="#fdfaf2" opacity="0.7"/>
+  <rect x="560" y="80" width="140" height="340" fill="#e8dcc5" opacity="0.85"/>
+  <line x1="0" y1="420" x2="800" y2="420" stroke="#7c6a4e" stroke-width="1" opacity="0.4"/>
+  <text x="40" y="560" font-family="Georgia, serif" font-size="14" fill="#5a4a32" opacity="0.55" font-style="italic">01 — Reading room, March</text>
+</svg>

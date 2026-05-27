@@ -1,0 +1,21 @@
+{
+  "name": "@caretcms/example-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "wrangler dev",
+    "deploy": "astro build && wrangler deploy"
+  },
+  "dependencies": {
+    "@caretcms/cloudflare": "*",
+    "@caretcms/core": "*",
+    "@astrojs/cloudflare": "13.3.1",
+    "astro": "6.1.8"
+  },
+  "devDependencies": {
+    "wrangler": "^4.83.0"
+  }
+}

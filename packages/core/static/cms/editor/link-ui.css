@@ -1,0 +1,199 @@
+/* ---------------------------------------------------------------------------
+   Link popover — Ctrl+K popup for hyperlinks
+   --------------------------------------------------------------------------- */
+
+.cms-link-popover {
+  position: fixed;
+  z-index: 100001;
+  width: 340px;
+  background: var(--cms-surface);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: 4px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  padding: 12px;
+  font-family: var(--cms-font);
+  animation: cms-popover-in 0.15s ease-out;
+}
+
+@keyframes cms-popover-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.cms-link-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cms-link-popover-icon {
+  color: var(--cms-accent);
+  flex-shrink: 0;
+}
+
+.cms-link-popover-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  padding: 7px 10px;
+  font-family: var(--cms-font);
+  font-size: 12px;
+  color: white;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.cms-link-popover-input:focus {
+  border-color: var(--cms-accent);
+}
+
+.cms-link-popover-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.cms-link-popover-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.cms-link-popover-hint {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.25);
+  letter-spacing: 0.05em;
+}
+
+.cms-link-popover-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.cms-link-popover-cancel,
+.cms-link-popover-apply {
+  padding: 4px 12px;
+  font-family: var(--cms-font);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.cms-link-popover-cancel {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.4);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.cms-link-popover-cancel:hover {
+  color: rgba(255, 255, 255, 0.7);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.cms-link-popover-apply {
+  background: var(--cms-accent-soft);
+  color: var(--cms-accent);
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+.cms-link-popover-apply:hover {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+/* ---------------------------------------------------------------------------
+   Link hint badge — shows above focused linkable fields
+   --------------------------------------------------------------------------- */
+
+.cms-link-hint {
+  position: fixed;
+  z-index: 100000;
+  background: var(--cms-surface);
+  color: rgba(255, 255, 255, 0.4);
+  font-family: var(--cms-font);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 2px;
+  pointer-events: none;
+  animation: cms-hint-in 0.2s ease-out;
+  white-space: nowrap;
+}
+
+@keyframes cms-hint-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Linkable field visual indicator */
+[data-caret-raw].cms-editable:hover {
+  outline-color: var(--cms-accent-soft);
+}
+
+[data-caret-raw].cms-editable:focus {
+  outline-color: var(--cms-accent);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}
+
+/* ---------------------------------------------------------------------------
+   Link-follow pill — appears on hover for editable elements that are or sit
+   inside an <a> with a real href, so visitors can open the page instead of
+   editing the text.
+   --------------------------------------------------------------------------- */
+
+.cms-link-follow {
+  position: absolute;
+  z-index: 100000;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 9px;
+  background: var(--cms-surface);
+  color: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 3px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  font-family: var(--cms-font);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  animation: cms-link-follow-in 0.16s ease-out;
+}
+
+.cms-link-follow:hover {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: var(--cms-accent);
+  color: white;
+}
+
+.cms-link-follow svg {
+  width: 13px;
+  height: 13px;
+  color: var(--cms-accent);
+  flex-shrink: 0;
+}
+
+.cms-link-follow em {
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes cms-link-follow-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}

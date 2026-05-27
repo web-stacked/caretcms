@@ -1,0 +1,16 @@
+{
+  "name": "@caretcms/example-content-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@caretcms/core": "*",
+    "@astrojs/node": "10.0.5",
+    "astro": "6.1.8"
+  }
+}

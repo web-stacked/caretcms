@@ -1,0 +1,155 @@
+---
+import { getLiveEntry } from "astro:content";
+import Site from "../layouts/Site.astro";
+
+const { entry: pageEntry } = await getLiveEntry("pages", "about");
+const page = (pageEntry?.data ?? {}) as Record<string, string>;
+---
+
+<Site title="About — Studio Norra (sandbox)" active="about">
+  <article data-caret-scope="pages::about">
+    {/* ─── HERO ───────────────────────────────────────────────── */}
+    <section class="hero">
+      <p class="eyebrow" data-caret="eyebrow">{page.eyebrow}</p>
+      <h2 class="hero-headline" data-caret="headline">{page.headline}</h2>
+      <p class="hero-subtext" data-caret="subtext">{page.subtext}</p>
+    </section>
+
+    {/* ─── BIO ────────────────────────────────────────────────── */}
+    <section class="bio-section">
+      <header class="section-head">
+        <span class="marker" data-caret="bio_marker">{page.bio_marker}</span>
+        <h2 class="section-title" data-caret="bio_title">{page.bio_title}</h2>
+      </header>
+      <p class="bio-body" data-caret="bio_body">{page.bio_body}</p>
+    </section>
+
+    {/* ─── CONTACT ────────────────────────────────────────────── */}
+    <section class="contact-section">
+      <span class="marker" data-caret="contact_marker">{page.contact_marker}</span>
+      <h2 class="section-title" data-caret="contact_title">{page.contact_title}</h2>
+      <p class="section-lede" data-caret="contact_body">{page.contact_body}</p>
+      <a class="contact-email" href={`mailto:${page.contact_email}`} data-caret="contact_email">{page.contact_email}</a>
+    </section>
+  </article>
+</Site>
+
+<style>
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 24px;
+  }
+
+  .hero { margin-bottom: 96px; max-width: 60ch; }
+  .hero-headline {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(2.4rem, 5.6vw, 4.2rem);
+    line-height: 1.04;
+    letter-spacing: -0.02em;
+    margin: 0 0 28px;
+    color: var(--ink);
+  }
+  .hero-subtext {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: clamp(1.1rem, 1.8vw, 1.3rem);
+    line-height: 1.5;
+    color: var(--ink-2);
+    margin: 0;
+    max-width: 44ch;
+  }
+
+  .section-head {
+    border-top: 1px solid var(--rule);
+    padding-top: 32px;
+    margin-bottom: 32px;
+  }
+  .section-title {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(1.6rem, 3.2vw, 2.3rem);
+    line-height: 1.12;
+    letter-spacing: -0.014em;
+    margin: 0;
+  }
+  .section-lede {
+    font-family: var(--serif);
+    font-size: 1.08rem;
+    line-height: 1.55;
+    color: var(--ink-2);
+    margin: 0;
+    max-width: 50ch;
+  }
+
+  .bio-section { margin-bottom: 96px; }
+  .bio-body {
+    font-size: 1.1rem;
+    line-height: 1.65;
+    color: var(--ink-2);
+    margin: 0;
+    max-width: 58ch;
+  }
+
+  .services-section { margin-bottom: 96px; }
+  .services-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+    border-left: 1px solid var(--rule-soft);
+  }
+  .service {
+    padding: 24px 28px;
+    border-right: 1px solid var(--rule-soft);
+  }
+  .service-num {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    margin-bottom: 18px;
+  }
+  .service-title {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 1.35rem;
+    margin: 0 0 12px;
+    line-height: 1.2;
+  }
+  .service-body {
+    font-size: 0.98rem;
+    line-height: 1.55;
+    color: var(--ink-2);
+    margin: 0;
+    max-width: 30ch;
+  }
+
+  @media (max-width: 720px) {
+    .services-list { grid-template-columns: 1fr; border-left: none; border-top: 1px solid var(--rule-soft); }
+    .service { border-right: none; border-bottom: 1px solid var(--rule-soft); padding: 28px 0; }
+  }
+
+  .contact-section {
+    border-top: 1px solid var(--rule);
+    padding-top: 48px;
+  }
+  .contact-email {
+    display: inline-block;
+    margin-top: 24px;
+    font-family: var(--serif);
+    font-size: clamp(1.4rem, 3vw, 2rem);
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid var(--accent);
+    padding-bottom: 4px;
+  }
+  .contact-email:hover { color: var(--ink); border-bottom-color: var(--ink); }
+</style>
