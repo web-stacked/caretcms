@@ -5,6 +5,44 @@ import type { CollectionMetadata, EntryData, HistoryEntry, StorageAdapter } from
 const COLLECTION_NAME_RE = /^[a-z][a-z0-9_-]*$/;
 const HISTORY_LIMIT = 50;
 
+/** workerd (incl. Astro 6's dev server) sets navigator.userAgent to this. */
+const WORKERD_USER_AGENT = "Cloudflare-Workers";
+
+/**
+ * Return a human-readable runtime name if filesystem storage cannot work here,
+ * or null when a real Node filesystem is available.
+ *
+ * Astro 6's dev server runs on the same workerd runtime as production, so a
+ * Workers-targeted project has no filesystem in dev *or* prod — the failure
+ * would otherwise surface as silently-empty reads and cryptic write errors.
+ */
+function detectUnsupportedRuntime(): string | null {
+  const g = globalThis as { navigator?: { userAgent?: string }; WebSocketPair?: unknown };
+  // navigator.userAgent === "Cloudflare-Workers" only when the `global_navigator`
+  // compat flag is on, so also check WebSocketPair — a workerd global present
+  // regardless of compat flags — to detect Workers even on an old compat date.
+  if (g.navigator?.userAgent === WORKERD_USER_AGENT || typeof g.WebSocketPair === "function") {
+    return "Cloudflare Workers (workerd)";
+  }
+  if (typeof process === "undefined" || typeof process.cwd !== "function") {
+    return "a non-Node runtime";
+  }
+  return null;
+}
+
+function assertFilesystemRuntime(): void {
+  const runtime = detectUnsupportedRuntime();
+  if (!runtime) return;
+  throw new Error(
+    `[caretcms] Filesystem storage is not available on ${runtime}.\n` +
+      `Astro 6's dev server also runs on workerd, so this fails in dev as well as production.\n\n` +
+      `Targeting Cloudflare Workers? Use the KV adapter from @caretcms/cloudflare in BOTH dev and prod:\n\n` +
+      `  import { cloudflareStorage } from '@caretcms/cloudflare';\n` +
+      `  // caret({ storage: cloudflareStorage(), ... })\n\n` +
+      `Targeting a Node host? Filesystem storage works there — make sure you are not building for an edge runtime.`,
+  );
+}
+
 function asObjectRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -22,6 +60,10 @@ function isHistoryEntry(value: unknown): value is HistoryEntry {
 }
 
 type RevisionMap = Record<string, number>;
+
+function isValidRevision(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
 
 const revisionWriteChains = new Map<string, Promise<unknown>>();
 
@@ -44,6 +86,7 @@ export class FilesystemAdapter implements StorageAdapter {
   private readonly metaRoot: string;
 
   constructor(options?: { dataRoot?: string; metaRoot?: string }) {
+    assertFilesystemRuntime();
     this.dataRoot = options?.dataRoot ?? join(process.cwd(), ".caret", "data");
     this.metaRoot = options?.metaRoot ?? join(process.cwd(), ".caretcms");
   }
@@ -154,7 +197,7 @@ export class FilesystemAdapter implements StorageAdapter {
       const map = parsed as Record<string, unknown>;
       const out: RevisionMap = {};
       Object.entries(map).forEach(([key, value]) => {
-        if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+        if (isValidRevision(value)) {
           out[key] = value;
         }
       });
@@ -173,17 +216,14 @@ export class FilesystemAdapter implements StorageAdapter {
   async getRevision(collection: string, id: string): Promise<number> {
     const map = await this.readRevisionMap();
     const value = map[this.revisionMapKey(collection, id)];
-    return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+    return isValidRevision(value) ? value : 0;
   }
 
   async bumpRevision(collection: string, id: string): Promise<number> {
     return serializeRevisionWrite(this.revisionStorePath(), async () => {
       const map = await this.readRevisionMap();
       const key = this.revisionMapKey(collection, id);
-      const current =
-        typeof map[key] === "number" && Number.isInteger(map[key]) && map[key] >= 0
-          ? map[key]
-          : 0;
+      const current = isValidRevision(map[key]) ? map[key] : 0;
       const next = current + 1;
       map[key] = next;
       await this.writeRevisionMap(map);
@@ -247,7 +287,7 @@ export class FilesystemAdapter implements StorageAdapter {
   }
 
   async deleteCollection(collection: string): Promise<void> {
-    // Delete metadata
+    // unlink has no `force` option, so guard the metadata file against ENOENT.
     const metaPath = this.collectionMetaPath(collection);
     try {
       await unlink(metaPath);
@@ -256,23 +296,9 @@ export class FilesystemAdapter implements StorageAdapter {
       if (maybeErr?.code !== "ENOENT") throw error;
     }
 
-    // Delete collection directory and all entries
-    const collectionDir = this.collectionDir(collection);
-    try {
-      await rm(collectionDir, { recursive: true, force: true });
-    } catch (error) {
-      const maybeErr = error as { code?: string };
-      if (maybeErr?.code !== "ENOENT") throw error;
-    }
-
-    // Delete history for this collection
-    const historyDir = join(this.metaRoot, "history", collection);
-    try {
-      await rm(historyDir, { recursive: true, force: true });
-    } catch (error) {
-      const maybeErr = error as { code?: string };
-      if (maybeErr?.code !== "ENOENT") throw error;
-    }
+    // rm({ force: true }) is a no-op on missing paths and still throws real errors.
+    await rm(this.collectionDir(collection), { recursive: true, force: true });
+    await rm(join(this.metaRoot, "history", collection), { recursive: true, force: true });
   }
 
   async getCollectionMetadata(collection: string): Promise<CollectionMetadata | null> {
