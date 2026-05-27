@@ -20,6 +20,9 @@ pnpm-debug.log*
 # local CMS state
 .caretcms/
 examples/*/.caretcms/
+# starter is the e2e target — its .caret data is generated/reset per run, not seed
+# content (unlike examples/demo/.caret, which is committed).
+examples/starter/.caret/
 
 # macOS-specific files
 .DS_Store
@@ -39,3 +42,6 @@ playwright-report/
 
 # Generated: synced editor assets for the /demo page
 public/__caret/
+
+# Claude Code machine-local settings (absolute paths, cross-repo access)
+.claude/settings.local.json
