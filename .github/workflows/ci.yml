@@ -44,6 +44,38 @@ jobs:
       - name: Unit tests
         run: npm run test:unit
 
+  # The node-ci job above exercises the pinned Astro 6.3.8 (the ^6 half of the
+  # peer range). This job validates the ^5 half by overriding Astro to the
+  # latest 5.x in node_modules only — package.json stays pinned, so
+  # validate:versions is intentionally skipped here.
+  astro5-compat:
+    name: Astro 5 compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.12.0"
+          cache: npm
+
+      - name: Install (pinned)
+        run: npm ci
+
+      - name: Override Astro to 5.x (not persisted to package.json)
+        run: npm install --no-save astro@^5
+
+      - name: Typecheck core against Astro 5
+        run: npm run typecheck:core
+
+      - name: Build core against Astro 5
+        run: npm run build:core
+
+      - name: Unit tests against Astro 5
+        run: npm run test:unit
+
   playwright-e2e:
     name: Playwright e2e
     runs-on: ubuntu-latest
@@ -65,6 +97,9 @@ jobs:
 
       - name: Run end-to-end tests
         run: npm run test:e2e
+
+      - name: Run CSP end-to-end tests (production build + preview)
+        run: npm run test:e2e:csp
 
   bun-parity:
     name: Bun parity checks
