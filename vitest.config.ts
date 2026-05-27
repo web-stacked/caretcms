@@ -14,6 +14,9 @@ export default defineConfig({
   },
   test: {
     include: ['tests/unit/**/*.test.ts'],
+    benchmark: {
+      include: ['tests/bench/**/*.bench.ts'],
+    },
     environment: 'node',
   },
 });
