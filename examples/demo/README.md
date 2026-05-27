@@ -1,17 +1,23 @@
-# CaretCMS on Cloudflare
+# CaretCMS on Cloudflare (public sandbox)
 
-A complete example of running CaretCMS on Cloudflare Workers, with content in
-**KV** and image uploads in **R2**. Use it as the reference for an edge
-deployment of your own site.
+The public "try it" sandbox running on Cloudflare Workers, with content in
+**KV** and image uploads in **R2**. It runs in [demo mode](https://caretcms.com/docs/demo-mode/):
+every visitor edits in a private, 2-hour session with no password, and the
+canonical content is never touched.
+
+> Building your own site? Start from `examples/starter` or `examples/content-site`
+> instead — those are the password-protected references. This one is wired as an
+> open sandbox on purpose.
 
 ## What it shows
 
 - `@astrojs/cloudflare` adapter with `output: "server"`
 - `cloudflareStorage({ binding: "CMS_KV" })` — content entries in Workers KV
 - `r2Uploads({ binding: "CMS_R2" })` — uploaded images in R2
-- Single-password editor auth via `CARET_EDIT_PASSWORD`
+- `CARET_DEMO_MODE = "true"` — per-visitor sandbox sessions (no editor password)
 
-Seed content lives in `.caret/data/**` (the "Studio Norra" sample site).
+Seed content lives in `.caret/data/**` (the "Studio Norra" sample site); it's the
+snapshot every visitor's session starts from.
 
 ## One-time Cloudflare setup
 
@@ -21,10 +27,10 @@ wrangler kv namespace create CMS_KV
 
 # 2. Create the R2 bucket (matches bucket_name in wrangler.toml)
 wrangler r2 bucket create caret-uploads
-
-# 3. Set the editor password as a secret
-wrangler secret put CARET_EDIT_PASSWORD
 ```
+
+Demo mode needs no editor password — `CARET_DEMO_MODE` is set in `wrangler.toml`
+under `[vars]`. (Set `CARET_SESSION_SECRET` as a secret if you want signed cookies.)
 
 ## Deploy
 
@@ -42,4 +48,5 @@ npm run dev       # plain Astro dev server
 npm run preview   # runs against Wrangler with the KV/R2 bindings
 ```
 
-Visit `/admin` to log in with `CARET_EDIT_PASSWORD`, then edit any page inline.
+Open the site and click any line to edit it — no login. Each browser gets its own
+isolated session. Visit `/admin/cms` to see the entries behind the page.

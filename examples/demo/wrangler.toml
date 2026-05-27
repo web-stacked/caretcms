@@ -5,6 +5,11 @@ compatibility_flags = ["nodejs_compat"]
 # CaretCMS on Cloudflare: content lives in KV, image uploads in R2.
 # Create your own namespace + bucket and fill in the ids below (see README).
 
+# Public sandbox: every visitor edits in a private, 2h session (no password).
+# Requires the Cloudflare adapters (KV + R2). See docs: Demo / Sandbox Mode.
+[vars]
+CARET_DEMO_MODE = "true"
+
 [[kv_namespaces]]
 binding = "CMS_KV"
 id = "<your-kv-namespace-id>"
