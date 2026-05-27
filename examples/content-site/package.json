@@ -9,8 +9,8 @@
     "preview": "astro preview"
   },
   "dependencies": {
+    "@astrojs/node": "10.1.1",
     "@caretcms/core": "*",
-    "@astrojs/node": "10.0.5",
-    "astro": "6.1.8"
+    "astro": "6.3.8"
   }
 }

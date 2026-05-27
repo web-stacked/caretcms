@@ -10,12 +10,12 @@
     "deploy": "astro build && wrangler deploy"
   },
   "dependencies": {
+    "@astrojs/cloudflare": "13.5.5",
     "@caretcms/cloudflare": "*",
     "@caretcms/core": "*",
-    "@astrojs/cloudflare": "13.3.1",
-    "astro": "6.1.8"
+    "astro": "6.3.8"
   },
   "devDependencies": {
-    "wrangler": "^4.83.0"
+    "wrangler": "4.95.0"
   }
 }

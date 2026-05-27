@@ -16,7 +16,9 @@
     "typecheck:cloudflare": "npm run -w @caretcms/cloudflare typecheck",
     "test": "npm run test:unit",
     "test:unit": "vitest run",
+    "bench": "vitest bench --run",
     "test:e2e": "playwright test",
+    "test:e2e:csp": "playwright test -c playwright.csp.config.ts",
     "validate:versions": "node ./scripts/validate-versions.mjs",
     "check": "npm run validate:versions && npm run typecheck:core && npm run typecheck:cloudflare && npm run build:core && npm run build:cloudflare && npm run test:unit"
   },
@@ -25,13 +27,16 @@
     "npm": ">=10.0.0"
   },
   "devDependencies": {
-    "@astrojs/check": "0.9.8",
+    "@astrojs/check": "0.9.9",
     "@playwright/test": "^1.60.0",
-    "@tailwindcss/vite": "4.2.4",
-    "astro": "6.1.8",
+    "@tailwindcss/vite": "4.3.0",
+    "astro": "6.3.8",
     "fast-check": "^3.23.2",
-    "tailwindcss": "4.2.4",
-    "typescript": "5.9.3",
-    "vitest": "4.1.5"
+    "tailwindcss": "4.3.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.7"
+  },
+  "overrides": {
+    "vite": "^7"
   }
 }
