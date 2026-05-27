@@ -2,7 +2,7 @@ import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { getRegisteredSchema } from "../schema-registry.js";
 import { inferJsonSchema, buildTemplate } from "../../schema-utils.js";
-import { generateTemplateFromSchema } from "../schema/json-to-zod.js";
+import { generateTemplateFromSchema } from "../schema/template.js";
 import { json, getAdapter } from "./_helpers.js";
 
 export async function GET(context: APIContext): Promise<Response> {
