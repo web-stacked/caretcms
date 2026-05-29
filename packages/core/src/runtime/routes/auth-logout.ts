@@ -2,6 +2,7 @@ import type { APIContext } from "astro";
 import { clearEditorSessionCookie } from "../auth/session.js";
 import { sanitizeRedirect } from "../auth/cookie-utils.js";
 import { getRuntimeConfig } from "../config.js";
+import { enforceContentLength, MAX_JSON_BODY_BYTES } from "./_helpers.js";
 
 function redirect(pathname: string, setCookie?: string): Response {
   const headers: Record<string, string> = { Location: pathname };
@@ -22,6 +23,9 @@ function json(
 }
 
 export async function POST(context: APIContext): Promise<Response> {
+  const tooLarge = enforceContentLength(context.request, MAX_JSON_BODY_BYTES);
+  if (tooLarge) return tooLarge;
+
   const runtime = getRuntimeConfig();
   const contentType = context.request.headers.get("content-type") ?? "";
   const isJson = contentType.includes("application/json");

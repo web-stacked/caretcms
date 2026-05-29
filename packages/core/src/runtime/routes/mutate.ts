@@ -2,7 +2,7 @@ import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { getRuntimeConfig } from "../config.js";
 import { executeMutation } from "../mutations/engine.js";
-import { json, getAdapter, enforceCsrfHeader } from "./_helpers.js";
+import { json, getAdapter, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
 
 export async function GET(context: APIContext): Promise<Response> {
   const runtime = getRuntimeConfig();
@@ -27,15 +27,11 @@ export async function POST(context: APIContext): Promise<Response> {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  let body: unknown;
-  try {
-    body = await context.request.json();
-  } catch {
-    return json({ error: "Invalid JSON" }, 400);
-  }
+  const parsed = await readJsonBody(context.request);
+  if (!parsed.ok) return parsed.response;
 
   const adapter = getAdapter();
-  const result = await executeMutation(adapter, body);
+  const result = await executeMutation(adapter, parsed.value);
   if (!result.ok) {
     return json(result.body as Record<string, unknown>, result.status);
   }

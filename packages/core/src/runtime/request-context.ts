@@ -6,6 +6,13 @@ export interface CaretRequestContext {
   uploadHandler: UploadHandler;
   sessionId: string | null;
   demoMode: boolean;
+  /**
+   * True only when a per-session storage overlay was actually installed for
+   * this demo request, guaranteeing writes are isolated from the shared base
+   * store. Demo editor rights are granted only when this holds — see
+   * `isEditorAuthenticated`. Absent/false means fail closed.
+   */
+  overlayActive?: boolean;
 }
 
 const storage = new AsyncLocalStorage<CaretRequestContext>();

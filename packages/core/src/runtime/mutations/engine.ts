@@ -48,6 +48,20 @@ function withLocks<T>(keys: string[], task: () => Promise<T>): Promise<T> {
 const entryKey = (collection: string, id: string) => `entry::${collection}::${id}`;
 const collectionKey = (collection: string) => `collection::${collection}`;
 
+/**
+ * Run `task` while holding the same per-entry lock the mutation engine uses,
+ * so an out-of-band write (e.g. a history restore) is serialized against any
+ * concurrent save_field/put_entry on the same entry instead of interleaving
+ * and tearing the data/revision pair.
+ */
+export function withEntryLock<T>(
+  collection: string,
+  id: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  return withLock(entryKey(collection, id), task);
+}
+
 type MutationErrorBody = {
   error: string;
   issues?: MutationIssue[];
@@ -99,12 +113,6 @@ async function applySaveField(
     const before = (await adapter.getEntry(collection, id))?.data ?? {};
     const current = { ...before };
 
-    await adapter.appendHistory(collection, id, {
-      ts: Date.now(),
-      action: "save",
-      data: before,
-    });
-
     try {
       setNestedValue(current, field, value);
     } catch (error) {
@@ -112,8 +120,15 @@ async function applySaveField(
       return fail(400, message);
     }
 
+    // Write first, then record history. If the write throws we surface the
+    // error without leaving a history event for a save that never landed.
     await adapter.writeEntry(collection, id, current);
     const nextRevision = await adapter.bumpRevision(collection, id);
+    await adapter.appendHistory(collection, id, {
+      ts: Date.now(),
+      action: "save",
+      data: before,
+    });
     return { ok: true, body: { ok: true, revision: nextRevision } };
   });
 }
@@ -128,6 +143,9 @@ async function applyPutEntry(
     if (!revision.ok) return revision.result;
 
     const before = (await adapter.getEntry(collection, id))?.data ?? null;
+
+    await adapter.writeEntry(collection, id, data);
+    const nextRevision = await adapter.bumpRevision(collection, id);
     if (before !== null) {
       await adapter.appendHistory(collection, id, {
         ts: Date.now(),
@@ -135,9 +153,6 @@ async function applyPutEntry(
         data: before,
       });
     }
-
-    await adapter.writeEntry(collection, id, data);
-    const nextRevision = await adapter.bumpRevision(collection, id);
     return { ok: true, body: { ok: true, revision: nextRevision } };
   });
 }
@@ -152,6 +167,9 @@ async function applyDeleteEntry(
     if (!revision.ok) return revision.result;
 
     const before = (await adapter.getEntry(collection, id))?.data ?? null;
+
+    await adapter.deleteEntry(collection, id);
+    const nextRevision = await adapter.bumpRevision(collection, id);
     if (before !== null) {
       await adapter.appendHistory(collection, id, {
         ts: Date.now(),
@@ -159,9 +177,6 @@ async function applyDeleteEntry(
         data: before,
       });
     }
-
-    await adapter.deleteEntry(collection, id);
-    const nextRevision = await adapter.bumpRevision(collection, id);
     return { ok: true, body: { ok: true, revision: nextRevision } };
   });
 }
@@ -197,15 +212,14 @@ async function applyReorderEntries(
       const current = currentById.get(item.id);
       if (!current) return fail(500, "Failed to load reorder item");
 
+      const nextData = { ...current.data, order: item.order };
+      await adapter.writeEntry(collection, item.id, nextData);
+      revisions[item.id] = await adapter.bumpRevision(collection, item.id);
       await adapter.appendHistory(collection, item.id, {
         ts: Date.now(),
         action: "reorder",
         data: current.data,
       });
-
-      const nextData = { ...current.data, order: item.order };
-      await adapter.writeEntry(collection, item.id, nextData);
-      revisions[item.id] = await adapter.bumpRevision(collection, item.id);
     }
 
     return { ok: true, body: { ok: true, revisions } };
@@ -222,11 +236,8 @@ async function applyUpdatePageLayout(
     if (!revision.ok) return revision.result;
 
     const current = (await adapter.getEntry(collection, id))?.data ?? {};
-    await adapter.appendHistory(collection, id, {
-      ts: Date.now(),
-      action: "put",
-      data: current,
-    });
+    // Snapshot the pre-mutation state for history before we mutate `current`.
+    const before = structuredClone(current);
 
     const layout =
       current.layout && isRecord(current.layout)
@@ -242,6 +253,11 @@ async function applyUpdatePageLayout(
 
     await adapter.writeEntry(collection, id, current);
     const nextRevision = await adapter.bumpRevision(collection, id);
+    await adapter.appendHistory(collection, id, {
+      ts: Date.now(),
+      action: "put",
+      data: before,
+    });
     return { ok: true, body: { ok: true, revision: nextRevision } };
   });
 }

@@ -152,9 +152,12 @@ type CookieBagLike = {
 export function isEditorAuthenticated(context: CookieBagLike): boolean {
   // Demo mode: any visitor with a resolved sandbox session is an editor of
   // their own private overlay. Middleware sets `demoMode` + `sessionId` in
-  // the request-scoped ALS context before this check runs.
+  // the request-scoped ALS context before this check runs. We require
+  // `overlayActive` too: without an installed per-session overlay, writes
+  // would land in the shared base store, so granting editor rights would be
+  // an unauthenticated-write hole. Fail closed when the overlay is absent.
   const ctx = getRequestContext();
-  if (ctx?.demoMode && ctx.sessionId) return true;
+  if (ctx?.demoMode && ctx.sessionId && ctx.overlayActive) return true;
 
   const token = context.cookies?.get(SESSION_COOKIE_NAME)?.value;
   if (!token) return false;
