@@ -1,4 +1,5 @@
-import { mkdir, readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { CollectionMetadata, EntryData, HistoryEntry, StorageAdapter } from "../../types.js";
 
@@ -63,6 +64,26 @@ type RevisionMap = Record<string, number>;
 
 function isValidRevision(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+/**
+ * Write a file atomically: stream into a sibling temp file, then rename over
+ * the target. rename(2) is atomic on the same filesystem, so a crash/SIGKILL
+ * mid-write can never leave a truncated or empty JSON file — readers always
+ * see either the old contents or the complete new contents. Critical for the
+ * single shared revisions.json, where a torn write would lose revision state
+ * site-wide. The temp file is a sibling (same dir → same filesystem) so the
+ * rename stays atomic and never crosses a device boundary.
+ */
+async function atomicWrite(filePath: string, contents: string): Promise<void> {
+  const tmpPath = `${filePath}.${randomUUID()}.tmp`;
+  await writeFile(tmpPath, contents, "utf8");
+  try {
+    await rename(tmpPath, filePath);
+  } catch (error) {
+    await unlink(tmpPath).catch(() => {});
+    throw error;
+  }
 }
 
 const revisionWriteChains = new Map<string, Promise<unknown>>();
@@ -172,7 +193,7 @@ export class FilesystemAdapter implements StorageAdapter {
     const dir = this.collectionDir(collection);
     await mkdir(dir, { recursive: true });
     const filePath = join(dir, `${id}.json`);
-    await writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+    await atomicWrite(filePath, `${JSON.stringify(data, null, 2)}\n`);
   }
 
   async deleteEntry(collection: string, id: string): Promise<void> {
@@ -210,7 +231,7 @@ export class FilesystemAdapter implements StorageAdapter {
   private async writeRevisionMap(map: RevisionMap): Promise<void> {
     const filePath = this.revisionStorePath();
     await mkdir(this.metaRoot, { recursive: true });
-    await writeFile(filePath, `${JSON.stringify(map, null, 2)}\n`, "utf8");
+    await atomicWrite(filePath, `${JSON.stringify(map, null, 2)}\n`);
   }
 
   async getRevision(collection: string, id: string): Promise<number> {
@@ -252,7 +273,7 @@ export class FilesystemAdapter implements StorageAdapter {
   ): Promise<void> {
     const filePath = this.historyFilePath(collection, id);
     await mkdir(join(this.metaRoot, "history", collection), { recursive: true });
-    await writeFile(filePath, `${JSON.stringify(entries, null, 2)}\n`, "utf8");
+    await atomicWrite(filePath, `${JSON.stringify(entries, null, 2)}\n`);
   }
 
   async getHistory(collection: string, id: string): Promise<HistoryEntry[]> {
@@ -279,7 +300,7 @@ export class FilesystemAdapter implements StorageAdapter {
     const dir = this.collectionsMetaDir();
     await mkdir(dir, { recursive: true });
     const filePath = this.collectionMetaPath(metadata.id);
-    await writeFile(filePath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+    await atomicWrite(filePath, `${JSON.stringify(metadata, null, 2)}\n`);
 
     // Create empty collection directory
     const collectionDir = this.collectionDir(metadata.id);

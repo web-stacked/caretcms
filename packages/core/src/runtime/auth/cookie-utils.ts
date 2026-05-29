@@ -1,4 +1,4 @@
-function isProxyTrusted(): boolean {
+export function isProxyTrusted(): boolean {
   const raw = process.env.CARET_TRUST_PROXY;
   if (!raw) return false;
   const value = raw.trim().toLowerCase();

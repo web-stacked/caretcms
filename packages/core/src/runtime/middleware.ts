@@ -18,6 +18,18 @@ type MiddlewareContext = {
 };
 
 let _cachedRuntimeEnv: Record<string, unknown> | null | undefined;
+let _overlayWarned = false;
+
+function warnMissingOverlay(): void {
+  if (_overlayWarned) return;
+  _overlayWarned = true;
+  console.warn(
+    "[caretcms] CARET_DEMO_MODE is on but the configured storage adapter does " +
+      "not implement makeSessionOverlay. Demo editor access is disabled to " +
+      "avoid unauthenticated writes to shared storage. Use an adapter with " +
+      "session-overlay support (e.g. the filesystem or Cloudflare KV adapters).",
+  );
+}
 
 async function resolveRuntimeEnv(): Promise<Record<string, unknown> | null> {
   if (_cachedRuntimeEnv !== undefined) return _cachedRuntimeEnv;
@@ -46,6 +58,7 @@ export async function onRequest(
   let uploadHandler: UploadHandler = services.uploadHandler;
   let sessionId: string | null = null;
   let setCookieHeader: string | null = null;
+  let overlayActive = false;
   const demoMode = isDemoModeEnabled(runtimeEnv);
 
   if (demoMode) {
@@ -57,6 +70,9 @@ export async function onRequest(
     if (services.adapter.makeSessionOverlay) {
       const overlay = await services.adapter.makeSessionOverlay(sessionId);
       adapter = new SessionOverlayAdapter(services.adapter, overlay);
+      overlayActive = true;
+    } else {
+      warnMissingOverlay();
     }
 
     if (services.uploadHandler.makeSessionWrapper) {
@@ -64,7 +80,9 @@ export async function onRequest(
     }
   }
 
-  return runWithRequestContext({ adapter, uploadHandler, sessionId, demoMode }, async () => {
+  return runWithRequestContext(
+    { adapter, uploadHandler, sessionId, demoMode, overlayActive },
+    async () => {
     context.locals.isEditor = isEditorAuthenticated(
       context as Parameters<typeof isEditorAuthenticated>[0],
     );

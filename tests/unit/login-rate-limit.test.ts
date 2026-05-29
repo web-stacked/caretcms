@@ -53,18 +53,37 @@ describe("login rate limiter", () => {
     ).toBe(true);
   });
 
-  it("extracts the key from common proxy headers", () => {
+  it("ignores spoofable proxy headers when the proxy is not trusted", () => {
+    // Default: CARET_TRUST_PROXY unset → forwarded headers are client-controlled
+    // and must not mint per-key buckets, so everything collapses to "unknown".
     const req = new Request("https://example.com/", {
       headers: { "cf-connecting-ip": "1.2.3.4" },
     });
-    expect(extractRateLimitKey(req)).toBe("1.2.3.4");
-
-    const xff = new Request("https://example.com/", {
-      headers: { "x-forwarded-for": "5.6.7.8, 9.10.11.12" },
-    });
-    expect(extractRateLimitKey(xff)).toBe("5.6.7.8");
+    expect(extractRateLimitKey(req)).toBe("unknown");
 
     const none = new Request("https://example.com/");
     expect(extractRateLimitKey(none)).toBe("unknown");
+  });
+
+  it("extracts the key from proxy headers only when CARET_TRUST_PROXY is set", () => {
+    const previous = process.env.CARET_TRUST_PROXY;
+    process.env.CARET_TRUST_PROXY = "true";
+    try {
+      const req = new Request("https://example.com/", {
+        headers: { "cf-connecting-ip": "1.2.3.4" },
+      });
+      expect(extractRateLimitKey(req)).toBe("1.2.3.4");
+
+      const xff = new Request("https://example.com/", {
+        headers: { "x-forwarded-for": "5.6.7.8, 9.10.11.12" },
+      });
+      expect(extractRateLimitKey(xff)).toBe("5.6.7.8");
+
+      const none = new Request("https://example.com/");
+      expect(extractRateLimitKey(none)).toBe("unknown");
+    } finally {
+      if (previous === undefined) delete process.env.CARET_TRUST_PROXY;
+      else process.env.CARET_TRUST_PROXY = previous;
+    }
   });
 });

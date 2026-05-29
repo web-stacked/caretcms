@@ -1,7 +1,8 @@
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { parseEntryId } from "../mutations/contracts.js";
-import { json, getAdapter, enforceCsrfHeader } from "./_helpers.js";
+import { withEntryLock } from "../mutations/engine.js";
+import { json, getAdapter, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
 
 export async function GET(context: APIContext): Promise<Response> {
   if (!isEditorAuthenticated(context)) {
@@ -30,9 +31,12 @@ export async function POST(context: APIContext): Promise<Response> {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  const body = (await context.request.json().catch(() => null)) as
-    | Record<string, unknown>
-    | null;
+  const parsed = await readJsonBody(context.request);
+  if (!parsed.ok) return parsed.response;
+  const body =
+    parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+      ? (parsed.value as Record<string, unknown>)
+      : null;
   if (!body) return json({ error: "Invalid payload" }, 400);
 
   const adapter = getAdapter();
@@ -52,13 +56,20 @@ export async function POST(context: APIContext): Promise<Response> {
   if (!snapshot.data || typeof snapshot.data !== "object" || Array.isArray(snapshot.data)) {
     return json({ error: "Snapshot data invalid" }, 500);
   }
+  const snapshotData = snapshot.data as Record<string, unknown>;
 
-  await adapter.writeEntry(collectionRaw, id, snapshot.data as Record<string, unknown>);
-  const revision = await adapter.bumpRevision(collectionRaw, id);
-  await adapter.appendHistory(collectionRaw, id, {
-    ts: Date.now(),
-    action: "restore",
-    data: snapshot.data,
+  // Hold the engine's per-entry lock so the restore can't interleave with a
+  // concurrent save_field/put_entry and tear the entry/revision pair. Write
+  // before appending history so a failed write doesn't record a phantom event.
+  const revision = await withEntryLock(collectionRaw, id, async () => {
+    await adapter.writeEntry(collectionRaw, id, snapshotData);
+    const next = await adapter.bumpRevision(collectionRaw, id);
+    await adapter.appendHistory(collectionRaw, id, {
+      ts: Date.now(),
+      action: "restore",
+      data: snapshotData,
+    });
+    return next;
   });
 
   return json({ ok: true, revision });

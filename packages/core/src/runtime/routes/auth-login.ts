@@ -12,6 +12,7 @@ import {
   recordLoginFailure,
 } from "../auth/rate-limiter.js";
 import { getRuntimeConfig } from "../config.js";
+import { enforceContentLength, MAX_JSON_BODY_BYTES } from "./_helpers.js";
 
 function redirect(pathname: string, setCookie?: string): Response {
   const headers: Record<string, string> = { Location: pathname };
@@ -37,6 +38,9 @@ export async function POST(context: APIContext): Promise<Response> {
   if (!hasConfiguredEditorPassword()) {
     return json({ error: "Editor password is not configured." }, 500);
   }
+
+  const tooLarge = enforceContentLength(context.request, MAX_JSON_BODY_BYTES);
+  if (tooLarge) return tooLarge;
 
   const rateLimitKey = extractRateLimitKey(context.request);
   const rateLimit = checkLoginRateLimit(rateLimitKey);

@@ -22,6 +22,7 @@ function callEntries(adapter: InMemoryAdapter, query: string) {
       uploadHandler: {} as UploadHandler,
       sessionId: 'demo-session',
       demoMode: true,
+      overlayActive: true,
     },
     () => GET(context),
   );
