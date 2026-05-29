@@ -211,21 +211,40 @@ export class FilesystemAdapter implements StorageAdapter {
 
   private async readRevisionMap(): Promise<RevisionMap> {
     const filePath = this.revisionStorePath();
+    let raw: string;
     try {
-      const raw = await readFile(filePath, "utf8");
-      const parsed = JSON.parse(raw) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-      const map = parsed as Record<string, unknown>;
-      const out: RevisionMap = {};
-      Object.entries(map).forEach(([key, value]) => {
-        if (isValidRevision(value)) {
-          out[key] = value;
-        }
-      });
-      return out;
-    } catch {
-      return {};
+      raw = await readFile(filePath, "utf8");
+    } catch (error) {
+      // A missing file is the normal greenfield state: no revisions recorded
+      // yet, so every entry is at 0.
+      if ((error as { code?: string })?.code === "ENOENT") return {};
+      throw error;
     }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (cause) {
+      // A corrupt revisions file must NOT silently read as "{}" → every entry
+      // at revision 0, which would let stale writers clobber newer data and
+      // defeat optimistic concurrency. Surface it so the operator can recover
+      // rather than losing edits silently. Atomic writes make this rare.
+      throw new Error(
+        `[caretcms] revisions store is corrupt and could not be parsed: ${filePath}. ` +
+          `Repair or remove the file to recover.`,
+        { cause },
+      );
+    }
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const map = parsed as Record<string, unknown>;
+    const out: RevisionMap = {};
+    Object.entries(map).forEach(([key, value]) => {
+      if (isValidRevision(value)) {
+        out[key] = value;
+      }
+    });
+    return out;
   }
 
   private async writeRevisionMap(map: RevisionMap): Promise<void> {

@@ -7,6 +7,20 @@
 
 export type AllowedImageKind = "jpeg" | "png" | "webp" | "avif";
 
+/**
+ * Marks an upload failure whose message is safe to show the end user (a
+ * validation/quota rejection, not an internal error). The upload route
+ * surfaces `UploadError.message` and returns an opaque message for anything
+ * else, so unexpected errors (e.g. a filesystem error carrying a path) never
+ * leak to the client.
+ */
+export class UploadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UploadError";
+  }
+}
+
 export const IMAGE_MIME_TO_KIND: Record<string, AllowedImageKind> = {
   "image/jpeg": "jpeg",
   "image/png": "png",
@@ -96,19 +110,19 @@ export async function readAndValidateImage(file: File): Promise<{
   bytes: Uint8Array;
 }> {
   if (!IMAGE_MIME_TO_KIND[file.type]) {
-    throw new Error("File type not allowed");
+    throw new UploadError("File type not allowed");
   }
   if (file.size > IMAGE_MAX_SIZE) {
-    throw new Error("File too large (max 10MB)");
+    throw new UploadError("File too large (max 10MB)");
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer());
   const detected = detectImageKind(bytes);
   if (!detected) {
-    throw new Error("File contents do not match a supported image format");
+    throw new UploadError("File contents do not match a supported image format");
   }
   if (detected !== IMAGE_MIME_TO_KIND[file.type]) {
-    throw new Error("File contents do not match the declared MIME type");
+    throw new UploadError("File contents do not match the declared MIME type");
   }
 
   return { kind: detected, bytes };

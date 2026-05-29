@@ -1,5 +1,6 @@
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
+import { UploadError } from "../storage/image-validation.js";
 import {
   json,
   getUploadHandler,
@@ -47,7 +48,13 @@ export async function POST(context: APIContext): Promise<Response> {
     );
     return json({ url: result.url });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Upload failed";
-    return json({ error: message }, 400);
+    // Only surface curated validation/quota messages. Unexpected errors (e.g.
+    // a storage error carrying a filesystem path) are logged and returned
+    // opaquely so they never leak to the client.
+    if (error instanceof UploadError) {
+      return json({ error: error.message }, 400);
+    }
+    console.error("[caretcms] Upload failed:", error);
+    return json({ error: "Upload failed" }, 500);
   }
 }
