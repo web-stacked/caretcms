@@ -13,7 +13,9 @@ export async function GET(context: APIContext): Promise<Response> {
     const collections = await adapter.listCollectionMetadata();
     return json({ collections });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to load collections";
-    return json({ error: message }, 500);
+    // Don't echo the raw error to the client — it can carry filesystem paths
+    // or other internal detail. Log it server-side, return an opaque message.
+    console.error("[caretcms] Failed to load collection metadata:", error);
+    return json({ error: "Failed to load collections" }, 500);
   }
 }

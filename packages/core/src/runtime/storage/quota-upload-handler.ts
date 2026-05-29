@@ -1,4 +1,5 @@
 import type { UploadHandler, UploadContext } from "../../types.js";
+import { UploadError } from "./image-validation.js";
 
 export interface QuotaCounter {
   read(sessionId: string): Promise<number>;
@@ -37,12 +38,12 @@ export class QuotaUploadHandler implements UploadHandler {
 
     if (file.size > this.perFileBytes) {
       const limitMb = Math.floor(this.perFileBytes / (1024 * 1024));
-      throw new Error(`File too large (${limitMb}MB max in sandbox)`);
+      throw new UploadError(`File too large (${limitMb}MB max in sandbox)`);
     }
 
     const used = await this.counter.read(ctx.sessionId);
     if (used + file.size > this.perSessionBytes) {
-      throw new Error("Sandbox storage full — close this tab to start a fresh session.");
+      throw new UploadError("Sandbox storage full — close this tab to start a fresh session.");
     }
 
     const result = await this.inner.upload(file, ctx);
