@@ -75,7 +75,7 @@ export async function POST(context: APIContext): Promise<Response> {
         : redirectTo;
   }
 
-  const safeRedirect = sanitizeRedirect(redirectTo, `${runtime.mountPath}/cms`);
+  const safeRedirect = sanitizeRedirect(redirectTo, runtime.editorHome);
 
   if (!isEditorPasswordValid(password)) {
     recordLoginFailure(rateLimitKey);

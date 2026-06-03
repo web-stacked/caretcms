@@ -2,6 +2,7 @@ import type { CaretMode } from "../types.js";
 
 declare const __ASTRO_CARET_MOUNT_PATH__: string | undefined;
 declare const __ASTRO_CARET_API_BASE_PATH__: string | undefined;
+declare const __ASTRO_CARET_EDITOR_HOME__: string | undefined;
 declare const __ASTRO_CARET_MODE__: string | undefined;
 declare const __ASTRO_CARET_THEME_CONFIG__: string | undefined;
 declare const __ASTRO_CARET_BRAND_CONFIG__: string | undefined;
@@ -20,6 +21,7 @@ export type CaretThemeConfig = {
 export type CaretRuntimeConfig = {
   mountPath: string;
   apiBasePath: string;
+  editorHome: string;
   mode: CaretMode;
   theme: CaretThemeConfig;
   brand: CaretBrandConfig;
@@ -59,6 +61,7 @@ const DEFAULT_THEME: CaretThemeConfig = {
 export function getRuntimeConfig(): CaretRuntimeConfig {
   const mountPath = normalizePath(__ASTRO_CARET_MOUNT_PATH__, "/admin");
   const apiBasePath = normalizePath(__ASTRO_CARET_API_BASE_PATH__, "/api/cms");
+  const editorHome = normalizePath(__ASTRO_CARET_EDITOR_HOME__, "/");
   const mode = (__ASTRO_CARET_MODE__ ?? "embedded") as CaretMode;
   const theme = safeParse<CaretThemeConfig>(
     __ASTRO_CARET_THEME_CONFIG__,
@@ -69,5 +72,5 @@ export function getRuntimeConfig(): CaretRuntimeConfig {
     DEFAULT_BRAND,
   );
 
-  return { mountPath, apiBasePath, mode, theme, brand };
+  return { mountPath, apiBasePath, editorHome, mode, theme, brand };
 }

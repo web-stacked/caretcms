@@ -1,0 +1,46 @@
+/**
+ * Owns the `cms-highlight-all` body class — the single source of truth for
+ * "show every editable region". Two callers share it:
+ * - the toolbar "Show All" button, via the persistent `toggleHighlight` toggle
+ * - the post-login welcome reveal, via the ephemeral `revealAndFade`
+ *
+ * Keeping `highlightActive` here (rather than in the toolbar closure) lets the
+ * ephemeral reveal defer to an active manual toggle instead of clobbering it.
+ *
+ * The fade itself is pure CSS: `[data-caret].cms-editable` already transitions
+ * its outline, so adding/removing the class animates for free. Motion is
+ * suppressed for `prefers-reduced-motion` in toolbar.css, not here.
+ */
+
+let highlightActive = false;
+
+export function toggleHighlight(highlightBtn, showToast) {
+  highlightActive = !highlightActive;
+  document.body.classList.toggle('cms-highlight-all', highlightActive);
+  highlightBtn.classList.toggle('cms-highlight-btn-active', highlightActive);
+
+  const textNode = Array.from(highlightBtn.childNodes).find(
+    (n) => n.nodeType === 3 && n.textContent?.trim(),
+  );
+
+  if (highlightActive) {
+    if (textNode) textNode.textContent = ' Hide All';
+    showToast('Showing all editable regions', 'success');
+  } else {
+    if (textNode) textNode.textContent = ' Show All';
+  }
+}
+
+/**
+ * One-time reveal: flash every editable region, then fade out after `durationMs`.
+ * No-op if the user has already turned highlighting on manually, so it never
+ * desyncs the toolbar button's state.
+ */
+export function revealAndFade(durationMs = 2500) {
+  if (highlightActive) return;
+  document.body.classList.add('cms-highlight-all');
+  setTimeout(() => {
+    if (highlightActive) return;
+    document.body.classList.remove('cms-highlight-all');
+  }, durationMs);
+}

@@ -69,6 +69,16 @@ type BaseCaretOptions = {
   enableAdmin?: boolean;
   enableInlineEditor?: boolean;
   /**
+   * The page the editor lands on after a successful login. Must be an
+   * absolute, same-origin path (starts with a single `/`). An explicit
+   * `?redirect=` on the login URL always takes precedence. Defaults to `"/"`
+   * so the user lands on a live page with the inline editor active rather
+   * than the empty Studio shell.
+   *
+   * @example caret({ editorHome: "/blog" })
+   */
+  editorHome?: string;
+  /**
    * Optional collection schemas as JSON Schema objects. When provided, Studio
    * uses these for field labels, types, and validation instead of inferring
    * schema from the first entry.
@@ -124,6 +134,7 @@ interface ResolvedCaretOptions {
   uploads: CaretUploadProvider | null;
   enableAdmin: boolean;
   enableInlineEditor: boolean;
+  editorHome: string;
   cloud: CaretCloudOptions | null;
   schemas: Record<string, JsonSchemaDefinition>;
   theme: ResolvedThemeConfig;
@@ -259,6 +270,15 @@ function resolveCaretOptions(options: CaretOptions): ResolvedCaretOptions {
       ? normalizeCloudOptions((options as Extract<CaretOptions, { mode: "cloud" }>).cloud)
       : null;
 
+  const editorHome = normalizeMountPath(options.editorHome, "/");
+  if (editorHome.startsWith("//")) {
+    throw new Error(
+      `[caretcms] editorHome must be a same-origin absolute path (got ${JSON.stringify(
+        options.editorHome,
+      )}).`,
+    );
+  }
+
   return {
     mountPath: normalizeMountPath(options.mountPath, "/admin"),
     apiBasePath: normalizeMountPath(options.apiBasePath, "/api/cms"),
@@ -271,6 +291,7 @@ function resolveCaretOptions(options: CaretOptions): ResolvedCaretOptions {
       : defaults.uploads,
     enableAdmin: options.enableAdmin ?? mode !== "cloud",
     enableInlineEditor: options.enableInlineEditor ?? mode !== "cloud",
+    editorHome,
     cloud,
     schemas: options.schemas ?? {},
     theme: resolveTheme(options.theme),
@@ -402,6 +423,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
             define: {
               __ASTRO_CARET_MOUNT_PATH__: JSON.stringify(resolved.mountPath),
               __ASTRO_CARET_API_BASE_PATH__: JSON.stringify(resolved.apiBasePath),
+              __ASTRO_CARET_EDITOR_HOME__: JSON.stringify(resolved.editorHome),
               __ASTRO_CARET_MODE__: JSON.stringify(resolved.mode),
               __ASTRO_CARET_THEME_CONFIG__: JSON.stringify(JSON.stringify(resolved.theme)),
               __ASTRO_CARET_BRAND_CONFIG__: JSON.stringify(JSON.stringify(resolved.brand)),

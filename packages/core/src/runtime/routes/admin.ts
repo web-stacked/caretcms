@@ -168,6 +168,7 @@ function renderLogin(opts: {
             })
             .then(function (result) {
               if (result.ok && result.data && result.data.redirect) {
+                try { sessionStorage.setItem('caret:welcome', '1'); } catch (e) {}
                 window.location.href = result.data.redirect;
                 return;
               }
@@ -201,7 +202,7 @@ export async function GET(context: APIContext): Promise<Response> {
   const runtime = getRuntimeConfig();
   const redirectTarget = sanitizeRedirect(
     context.url.searchParams.get("redirect"),
-    `${runtime.mountPath}/cms`,
+    runtime.editorHome,
   );
 
   if (isEditorAuthenticated(context)) {

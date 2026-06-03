@@ -186,6 +186,15 @@
   outline-offset: 4px;
 }
 
+/* The welcome reveal still flashes editable regions, but without animating the
+   transition — motion is suppressed, the information is not. */
+@media (prefers-reduced-motion: reduce) {
+  .cms-highlight-all [data-caret].cms-editable,
+  .cms-highlight-all img[data-caret] {
+    transition: none;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Toolbar — page navigation links
    --------------------------------------------------------------------------- */

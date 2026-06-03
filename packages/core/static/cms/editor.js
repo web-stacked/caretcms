@@ -25,6 +25,7 @@ import { mountSectionControls } from './editor/section-controls.js';
 import { mountContentMap } from './editor/content-map.js';
 import { mountRichToolbar } from './editor/rich-toolbar.js';
 import { mountLinkFollowAffordances } from './editor/link-follow.js';
+import { revealAndFade } from './editor/highlight.js';
 
 function redirectToEditorLogin() {
   window.location.href = getEditorLoginUrl(window.location.href);
@@ -107,6 +108,15 @@ function boot() {
   });
 
   mountInlineEditors();
+
+  // First load after login: flash every editable region once, then fade out.
+  // The flag is set by the login form just before it redirects here.
+  try {
+    if (sessionStorage.getItem('caret:welcome')) {
+      sessionStorage.removeItem('caret:welcome');
+      revealAndFade(2500);
+    }
+  } catch (e) {}
 }
 
 if (document.readyState === 'loading') {

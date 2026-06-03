@@ -1,3 +1,5 @@
+import { toggleHighlight } from './highlight.js';
+
 function getToolbarNavLinks(pagePath) {
   const links = [];
   const headerNav = document.querySelector('#main-header nav');
@@ -81,25 +83,10 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
     }
   }
 
-  let highlightActive = false;
   const highlightBtn = toolbar.querySelector('.cms-highlight-btn');
-
-  highlightBtn?.addEventListener('click', () => {
-    highlightActive = !highlightActive;
-    document.body.classList.toggle('cms-highlight-all', highlightActive);
-    highlightBtn.classList.toggle('cms-highlight-btn-active', highlightActive);
-
-    const textNode = Array.from(highlightBtn.childNodes).find(
-      (n) => n.nodeType === 3 && n.textContent?.trim(),
-    );
-
-    if (highlightActive) {
-      if (textNode) textNode.textContent = ' Hide All';
-      showToast('Showing all editable regions', 'success');
-    } else {
-      if (textNode) textNode.textContent = ' Show All';
-    }
-  });
+  highlightBtn?.addEventListener('click', () =>
+    toggleHighlight(highlightBtn, showToast),
+  );
 
   toolbar.querySelector('.cms-exit-btn')?.addEventListener('click', async () => {
     clearDirty();
