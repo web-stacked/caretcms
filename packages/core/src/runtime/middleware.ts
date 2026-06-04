@@ -4,6 +4,7 @@ import { isDemoModeEnabled, resolveDemoSession } from "./auth/demo-session.js";
 import { getRuntimeServices } from "./providers.js";
 import { runWithRequestContext } from "./request-context.js";
 import { rewriteCaretAttributes } from "./rewrite.js";
+import { hasStega, stegaClean } from "./stega.js";
 import { SessionOverlayAdapter } from "./storage/session-overlay-adapter.js";
 
 // Side-effect import: registers any user-provided schemas into the schema registry
@@ -80,12 +81,24 @@ export async function onRequest(
     }
   }
 
-  return runWithRequestContext(
-    { adapter, uploadHandler, sessionId, demoMode, overlayActive },
-    async () => {
-    context.locals.isEditor = isEditorAuthenticated(
+  const requestContext = {
+    adapter,
+    uploadHandler,
+    sessionId,
+    demoMode,
+    overlayActive,
+    editor: false,
+  };
+
+  return runWithRequestContext(requestContext, async () => {
+    const isEditor = isEditorAuthenticated(
       context as Parameters<typeof isEditorAuthenticated>[0],
     );
+    // Demo-overlay editor status depends on the request context (demoMode +
+    // overlayActive), so it can only be resolved here, inside the ALS scope.
+    // Mutate the live context object so the loaders see the gate during render.
+    requestContext.editor = isEditor;
+    context.locals.isEditor = isEditor;
     const inner = await next();
 
     const contentType = inner.headers.get("content-type") ?? "";
@@ -102,14 +115,21 @@ export async function onRequest(
     let rewritten = false;
 
     if (isHtml) {
-      const html = await inner.text();
+      let html = await inner.text();
       bodyConsumed = true;
       if (html.includes("data-caret")) {
-        body = await rewriteCaretAttributes(html, adapter);
+        html = await rewriteCaretAttributes(html, adapter);
         rewritten = true;
-      } else {
-        body = html;
       }
+      // Backstop: strip stega metadata from published output so non-editors
+      // never receive the invisible characters, even if a value was encoded
+      // outside the loader's editor gate. Editors keep it — the overlay decodes
+      // it for click-to-edit.
+      if (!requestContext.editor && hasStega(html)) {
+        html = stegaClean(html);
+        rewritten = true;
+      }
+      body = html;
     }
 
     if (!bodyConsumed && !setCookieHeader) {

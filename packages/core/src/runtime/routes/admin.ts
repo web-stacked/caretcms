@@ -1,6 +1,7 @@
 import type { APIContext } from "astro";
 import {
   hasConfiguredEditorPassword,
+  isDevEditorPasswordActive,
   isEditorAuthenticated,
 } from "../auth/session.js";
 import { sanitizeRedirect } from "../auth/cookie-utils.js";
@@ -28,6 +29,7 @@ function renderBrandMark(logoUrl: string | null): string {
 
 function renderLogin(opts: {
   hasPassword: boolean;
+  devActive: boolean;
   apiBasePath: string;
   redirectTo: string;
   brandName: string;
@@ -39,6 +41,7 @@ function renderLogin(opts: {
 }): string {
   const {
     hasPassword,
+    devActive,
     apiBasePath,
     redirectTo,
     brandName,
@@ -51,9 +54,40 @@ function renderLogin(opts: {
 
   const safeBrand = escapeHtml(brandName);
   const safeRedirect = escapeHtml(redirectTo);
-  const statusNote = hasPassword
-    ? "Sign in to manage content."
-    : "Set CARET_EDIT_PASSWORD (or EDIT_PASSWORD) to enable login.";
+  const statusNote = !hasPassword
+    ? "Caret needs an editor password before you can sign in."
+    : devActive
+      ? "Temporary dev password active — check your terminal to sign in."
+      : "Sign in to manage content.";
+
+  // When no password is configured the form is disabled, so give the developer
+  // an actionable setup guide instead of a dead end. When a dev fallback is
+  // active the form works — just nudge them toward a permanent password.
+  const docsUrl = "https://caretcms.com/docs";
+  let helperBlock = "";
+  if (!hasPassword) {
+    helperBlock = `
+        <div class="studio-login-setup" style="margin-top:1.25rem;padding:1rem 1.1rem;border:1px solid rgba(127,127,127,0.28);border-radius:10px;text-align:left;font-size:0.85rem;line-height:1.55;">
+          <p style="margin:0 0 0.6rem;font-weight:600;">Finish setting up Caret</p>
+          <ol style="margin:0;padding-left:1.2rem;display:grid;gap:0.45rem;">
+            <li>Create a <code>.env</code> file in your project root</li>
+            <li>
+              Add this line:
+              <div style="display:flex;gap:0.4rem;align-items:center;margin-top:0.35rem;">
+                <code id="caret-env-snippet" style="flex:1;padding:0.4rem 0.55rem;border-radius:6px;background:rgba(0,0,0,0.28);overflow:auto;white-space:nowrap;">CARET_EDIT_PASSWORD=your-password</code>
+                <button type="button" id="caret-copy-env" style="cursor:pointer;border:1px solid currentColor;background:transparent;color:inherit;border-radius:6px;padding:0.4rem 0.65rem;font:inherit;">Copy</button>
+              </div>
+            </li>
+            <li>Restart the dev server, then refresh this page</li>
+          </ol>
+          <a href="${docsUrl}" style="display:inline-block;margin-top:0.7rem;">Read the setup guide &rarr;</a>
+        </div>`;
+  } else if (devActive) {
+    helperBlock = `
+        <div class="studio-login-setup" style="margin-top:1rem;padding:0.8rem 1rem;border:1px dashed rgba(127,127,127,0.4);border-radius:10px;text-align:left;font-size:0.82rem;line-height:1.55;">
+          Signed in with a <strong>temporary dev password</strong> printed in your terminal. To set a permanent one, add <code>CARET_EDIT_PASSWORD</code> to a <code>.env</code> file and restart.
+        </div>`;
+  }
 
   const favicon = faviconUrl
     ? `<link rel="icon" href="${escapeHtml(faviconUrl)}" />`
@@ -132,6 +166,7 @@ function renderLogin(opts: {
             </span>
           </button>
         </form>
+        ${helperBlock}
 
         <div class="studio-login-footer">
           <a href="/">&larr; Back to site</a>
@@ -141,6 +176,18 @@ function renderLogin(opts: {
 
     <script>
       (function () {
+        var copyBtn = document.getElementById('caret-copy-env');
+        var snippet = document.getElementById('caret-env-snippet');
+        if (copyBtn && snippet && navigator.clipboard && navigator.clipboard.writeText) {
+          copyBtn.addEventListener('click', function () {
+            navigator.clipboard.writeText(snippet.textContent || '').then(function () {
+              var prev = copyBtn.textContent;
+              copyBtn.textContent = 'Copied';
+              setTimeout(function () { copyBtn.textContent = prev; }, 1500);
+            }).catch(function () {});
+          });
+        }
+
         var form = document.getElementById('login-form');
         var error = document.getElementById('login-error');
         var errorText = document.getElementById('login-error-text');
@@ -199,9 +246,12 @@ function html(content: string, status = 200, setCookie?: string): Response {
 
 export async function GET(context: APIContext): Promise<Response> {
   const runtime = getRuntimeConfig();
+  // Default post-login landing is the live site so the inline editor activates
+  // immediately (Caret is inline-first). The Studio stays reachable at
+  // `${mountPath}/cms`, and a `?redirect=` param still overrides this.
   const redirectTarget = sanitizeRedirect(
     context.url.searchParams.get("redirect"),
-    `${runtime.mountPath}/cms`,
+    "/",
   );
 
   if (isEditorAuthenticated(context)) {
@@ -214,6 +264,7 @@ export async function GET(context: APIContext): Promise<Response> {
   return html(
     renderLogin({
       hasPassword: hasConfiguredEditorPassword(),
+      devActive: isDevEditorPasswordActive(),
       apiBasePath: runtime.apiBasePath,
       redirectTo: redirectTarget,
       brandName: runtime.brand.name,

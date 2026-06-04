@@ -2,6 +2,11 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { shouldUseSecureCookies } from "./cookie-utils.js";
 import { getRequestContext } from "../request-context.js";
 
+// Injected by the integration's Vite `define` during `astro dev` (empty in
+// production builds). Read with a `typeof` guard so it is safe even where the
+// define is absent (e.g. unit tests) — a bare reference would throw.
+declare const __ASTRO_CARET_DEV_PASSWORD__: string | undefined;
+
 const SESSION_COOKIE_NAME = "caret_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 
@@ -13,20 +18,43 @@ type SessionPayload = {
 const DEV_SECRET_FALLBACK = "caretcms-dev-secret";
 let devSecretWarned = false;
 
-function getEditorPassword(): string | null {
+function getConfiguredEditorPassword(): string | null {
   const value = process.env.CARET_EDIT_PASSWORD ?? process.env.EDIT_PASSWORD ?? "";
   return value.trim().length > 0 ? value : null;
+}
+
+// During `astro dev`, the integration generates a throwaway password and exposes
+// it via the __ASTRO_CARET_DEV_PASSWORD__ define so a freshly-installed site can
+// sign in without any setup. Never honored in production: the define is empty in
+// a production build, and we additionally refuse it when NODE_ENV is production.
+function getDevFallbackPassword(): string | null {
+  if (process.env.NODE_ENV === "production") return null;
+  const dev =
+    typeof __ASTRO_CARET_DEV_PASSWORD__ === "string"
+      ? __ASTRO_CARET_DEV_PASSWORD__
+      : "";
+  return dev.length > 0 ? dev : null;
+}
+
+function getEditorPassword(): string | null {
+  return getConfiguredEditorPassword() ?? getDevFallbackPassword();
+}
+
+// True when the only thing unlocking the editor is the dev fallback — i.e. the
+// developer hasn't set a real password yet. Drives the on-page setup hint.
+export function isDevEditorPasswordActive(): boolean {
+  return getConfiguredEditorPassword() === null && getDevFallbackPassword() !== null;
 }
 
 function getSessionSecret(): string {
   const configured = process.env.CARET_SESSION_SECRET;
   if (configured && configured.trim().length > 0) return configured;
 
-  // No secret configured. Safe to fall back only when the CMS is effectively
-  // disabled (no editor password). Once a password is set, the dev fallback
-  // is a known string that lets anyone forge a session — refuse it in
-  // production and warn loudly in dev.
-  if (getEditorPassword() === null) return DEV_SECRET_FALLBACK;
+  // No secret configured. Safe to fall back when no real password is set — that
+  // includes the dev-only throwaway password, which is itself dev-gated. Once a
+  // real password is configured the dev fallback is a known string that lets
+  // anyone forge a session — refuse it in production and warn loudly in dev.
+  if (getConfiguredEditorPassword() === null) return DEV_SECRET_FALLBACK;
 
   if (process.env.NODE_ENV === "production") {
     throw new Error(
