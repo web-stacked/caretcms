@@ -3,6 +3,11 @@ import { issueEditorSessionCookie } from "../../packages/core/src/runtime/auth/s
 import { onRequest } from "../../packages/core/src/runtime/middleware";
 import { __setRuntimeServicesForTests } from "../../packages/core/src/runtime/providers";
 import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memory-adapter";
+import {
+  hasStega,
+  stegaCombine,
+  stegaDecode,
+} from "../../packages/core/src/runtime/stega";
 
 describe("middleware", () => {
   beforeEach(() => {
@@ -171,5 +176,63 @@ describe("middleware", () => {
     });
 
     expect(context.locals.isEditor).toBe(true);
+  });
+
+  it("strips stega metadata from published HTML for non-editors", async () => {
+    __setRuntimeServicesForTests({
+      adapter: new InMemoryAdapter(),
+      uploadHandler: { upload: vi.fn() },
+    });
+
+    const context = {
+      locals: {} as Record<string, unknown>,
+      cookies: { get: () => undefined },
+    };
+
+    // Stega-encoded text with NO data-caret attribute: the backstop must still
+    // clean it (independent of the rewrite path).
+    const encoded = stegaCombine("Professional Websites", "pages::home::hero_title");
+    const response = await onRequest(context, async () => {
+      return new Response(`<h1>${encoded}</h1>`, {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+    });
+
+    expect(context.locals.isEditor).toBe(false);
+    const html = await response.text();
+    expect(hasStega(html)).toBe(false);
+    expect(html).toContain("Professional Websites");
+  });
+
+  it("preserves stega metadata for an authenticated editor", async () => {
+    __setRuntimeServicesForTests({
+      adapter: new InMemoryAdapter(),
+      uploadHandler: { upload: vi.fn() },
+    });
+
+    const cookieValue = decodeURIComponent(
+      issueEditorSessionCookie().split(";")[0].split("=")[1],
+    );
+    const context = {
+      locals: {} as Record<string, unknown>,
+      cookies: {
+        get: (name: string) =>
+          name === "caret_session" ? { value: cookieValue } : undefined,
+      },
+    };
+
+    const encoded = stegaCombine("Professional Websites", "pages::home::hero_title");
+    const response = await onRequest(context, async () => {
+      return new Response(`<h1>${encoded}</h1>`, {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+    });
+
+    expect(context.locals.isEditor).toBe(true);
+    const html = await response.text();
+    expect(hasStega(html)).toBe(true);
+    expect(stegaDecode(html)).toBe("pages::home::hero_title");
   });
 });

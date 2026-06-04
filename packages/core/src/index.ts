@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { AstroIntegration } from "astro";
 import type {
   CaretMode,
@@ -394,8 +395,24 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
   return {
     name: "caretcms",
     hooks: {
-      "astro:config:setup": ({ config, logger, addMiddleware, injectRoute, injectScript, updateConfig }) => {
+      "astro:config:setup": ({ command, config, logger, addMiddleware, injectRoute, injectScript, updateConfig }) => {
         const isStaticOutput = config.output === "static";
+
+        // Zero-config dev login: when running `astro dev` in an editable
+        // (embedded, server-output) setup with no real password configured,
+        // mint a throwaway password so a freshly-installed site can sign in
+        // immediately. Only generated for `command === "dev"`, so production
+        // builds bake an empty define and stay locked.
+        const hasEnvPassword =
+          (process.env.CARET_EDIT_PASSWORD ?? process.env.EDIT_PASSWORD ?? "").trim()
+            .length > 0;
+        const devEditorPassword =
+          command === "dev" &&
+          !isStaticOutput &&
+          resolved.mode !== "cloud" &&
+          !hasEnvPassword
+            ? randomBytes(4).toString("hex")
+            : null;
 
         updateConfig({
           vite: {
@@ -405,6 +422,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
               __ASTRO_CARET_MODE__: JSON.stringify(resolved.mode),
               __ASTRO_CARET_THEME_CONFIG__: JSON.stringify(JSON.stringify(resolved.theme)),
               __ASTRO_CARET_BRAND_CONFIG__: JSON.stringify(JSON.stringify(resolved.brand)),
+              __ASTRO_CARET_DEV_PASSWORD__: JSON.stringify(devEditorPassword ?? ""),
             },
             plugins: [
               createRuntimeProvidersPlugin(resolved),
@@ -512,7 +530,10 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           injectScript(
             "page",
             `(function(){
-  if(!document.querySelector('[data-caret]'))return;
+  // Bootstrap when the page has an explicit data-caret binding OR stega-encoded
+  // content (key hidden in a string via U+E0000); the latter has no attribute
+  // until the editor hydrates it, so attribute-only detection would miss it.
+  if(!document.querySelector('[data-caret]') && !/\\u{E0000}/u.test(document.body&&document.body.textContent||''))return;
   fetch(${JSON.stringify(`${resolved.apiBasePath}/auth/session`)},{credentials:'same-origin'})
     .then(function(response){return response.ok?response.json():null;})
     .then(function(session){
@@ -531,6 +552,18 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
             resolved.storage,
           )}, uploads=${describeProvider(resolved.uploads)}, enableAdmin=${resolved.enableAdmin}, inlineEditor=${resolved.enableInlineEditor})`,
         );
+
+        if (devEditorPassword) {
+          logger.warn(
+            `[caretcms] No CARET_EDIT_PASSWORD set — temporary dev login enabled so you can sign in now:\n` +
+              `\n` +
+              `    password: ${devEditorPassword}\n` +
+              `\n` +
+              `  Sign in at ${resolved.mountPath}. To make it permanent, add\n` +
+              `  CARET_EDIT_PASSWORD=<your-password> to a .env file and restart.\n` +
+              `  This temporary password works in dev only; production stays locked.`,
+          );
+        }
       },
     },
   };
