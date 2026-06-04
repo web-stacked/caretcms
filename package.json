@@ -12,15 +12,17 @@
     "dev:content": "npm run dev -w @caretcms/example-content-site",
     "build:core": "npm run -w @caretcms/core build",
     "build:cloudflare": "npm run -w @caretcms/cloudflare build",
+    "build:caretize": "npm run -w @caretcms/caretize build",
     "typecheck:core": "npm run -w @caretcms/core typecheck",
     "typecheck:cloudflare": "npm run -w @caretcms/cloudflare typecheck",
+    "typecheck:caretize": "npm run -w @caretcms/caretize typecheck",
     "test": "npm run test:unit",
     "test:unit": "vitest run",
     "bench": "vitest bench --run",
     "test:e2e": "playwright test",
     "test:e2e:csp": "playwright test -c playwright.csp.config.ts",
     "validate:versions": "node ./scripts/validate-versions.mjs",
-    "check": "npm run validate:versions && npm run typecheck:core && npm run typecheck:cloudflare && npm run build:core && npm run build:cloudflare && npm run test:unit"
+    "check": "npm run validate:versions && npm run typecheck:core && npm run typecheck:cloudflare && npm run typecheck:caretize && npm run build:core && npm run build:cloudflare && npm run build:caretize && npm run test:unit"
   },
   "engines": {
     "node": "^20.19.1 || >=22.12.0",
