@@ -53,3 +53,5 @@ export {
   type FilePlan,
   type PlanOptions,
 } from "./plan.js";
+
+export { wrapConst, type WrapResult } from "./wrap.js";
