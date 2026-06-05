@@ -73,10 +73,11 @@ export async function planFile(
   source: string,
   relPath: string,
   options: PlanOptions = {},
+  root?: AstroNode,
 ): Promise<FilePlan> {
   const minRank = RANK[options.minConfidence ?? "high"];
-  const root = await parseAstro(source);
-  const { candidates, skipped, flags } = detect(root, walkTags);
+  const ast = root ?? (await parseAstro(source));
+  const { candidates, skipped, flags } = detect(ast, walkTags);
 
   // Resolve scope (explicit override wins; otherwise derive from path).
   let scope: Scope;
@@ -96,7 +97,7 @@ export async function planFile(
     return RANK[c.confidence] >= minRank;
   });
 
-  const fields = assignFields(accepted, existingFields(root));
+  const fields = assignFields(accepted, existingFields(ast));
 
   const tags: PlannedTag[] = accepted.map((candidate) => {
     const field = fields.get(candidate)!;
