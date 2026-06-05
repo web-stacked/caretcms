@@ -16,10 +16,19 @@
  * insertion and belongs to a separate, opt-in migrator.
  */
 
+import { deriveScope, isValidField, slugifyText } from "./name.js";
+
 const IMPORT_LINE = `import { editable } from '@caretcms/core';`;
 const IMPORT_RE =
   /import\s*\{[^}]*\beditable\b[^}]*\}\s*from\s*['"]@caretcms\/core['"]/;
 const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+export interface WrapTarget {
+  /** Frontmatter const/let/var to wrap. */
+  varName: string;
+  /** Binding key, e.g. `pages::home::services`. */
+  key: string;
+}
 
 export interface WrapResult {
   output: string;
@@ -126,4 +135,47 @@ export function wrapConst(source: string, varName: string, key: string): WrapRes
   }
 
   return { output, ok: true };
+}
+
+/**
+ * Detect Tier-1 wrap targets: frontmatter consts initialized to an array/object
+ * LITERAL that are `.map()`/`.flatMap()`'d in the template. Only literal-inited
+ * consts qualify — loops over fetched data (getCollection/await) or imports
+ * aren't inline content and are left alone. The key is derived from the file's
+ * scope (`collection::id`) plus the variable name as the field.
+ */
+export function detectWrapTargets(source: string, relPath: string): WrapTarget[] {
+  const fm = frontmatterRange(source);
+  if (!fm) return [];
+  const fmText = source.slice(fm.start, fm.end);
+  const template = source.slice(fm.end);
+
+  // 1. frontmatter consts whose initializer is an array/object literal
+  const literalConsts = new Set<string>();
+  const declRe = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([[{])/g;
+  let dm: RegExpExecArray | null;
+  while ((dm = declRe.exec(fmText))) literalConsts.add(dm[1]);
+  if (literalConsts.size === 0) return [];
+
+  // 2. of those, the ones actually iterated in the template
+  const mapped = new Set<string>();
+  const mapRe = /\b([A-Za-z_$][\w$]*)\s*\.\s*(?:map|flatMap)\b/g;
+  let mm: RegExpExecArray | null;
+  while ((mm = mapRe.exec(template))) {
+    if (literalConsts.has(mm[1])) mapped.add(mm[1]);
+  }
+  if (mapped.size === 0) return [];
+
+  // 3. derive the scope + a key per target
+  const scoped = deriveScope(relPath);
+  if ("skip" in scoped) return [];
+  const { collection, id } = scoped.scope;
+
+  const targets: WrapTarget[] = [];
+  for (const varName of mapped) {
+    const field = isValidField(varName) ? varName : slugifyText(varName);
+    if (!field) continue;
+    targets.push({ varName, key: `${collection}::${id}::${field}` });
+  }
+  return targets;
 }
