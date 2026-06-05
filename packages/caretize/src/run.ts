@@ -117,6 +117,64 @@ export async function prepareWrapFile(
   return { relPath, source, output, inserted, tagCount: inserted.length, ok: true };
 }
 
+/**
+ * Compute and verify a file's output with BOTH passes: attribute tags and
+ * editable() wraps. Tags are applied first (offset-based, in the template), then
+ * wraps (content-scan, in the frontmatter) — so the frontmatter insertions never
+ * shift the template tag offsets. Same atomicity gates; one PreparedFile out.
+ */
+export async function prepareFileFull(
+  relPath: string,
+  source: string,
+  items: TagInsertion[],
+  targets: WrapTarget[],
+): Promise<PreparedFile> {
+  const base: PreparedFile = {
+    relPath, source, output: source, inserted: [], tagCount: 0, ok: true,
+  };
+  if (items.length === 0 && targets.length === 0) return base;
+
+  let output = source;
+  const inserted: string[] = [];
+
+  // Pass 1: attribute tags (template).
+  if (items.length > 0) {
+    const tagged = applyTags(source, items);
+    if (tagged.failures.length > 0) {
+      return { ...base, ok: false, reason: `could not place ${tagged.failures.length} tag(s)` };
+    }
+    output = tagged.output;
+    inserted.push(...tagged.inserted);
+  }
+
+  // Pass 2: editable() wraps (frontmatter).
+  let wrapCount = 0;
+  for (const t of targets) {
+    const wrapped = wrapConst(output, t.varName, t.key);
+    if (!wrapped.ok) return { ...base, ok: false, reason: `${t.varName}: ${wrapped.reason}` };
+    if (wrapped.alreadyWrapped) continue;
+    inserted.push(`editable(${JSON.stringify(t.key)}) around ${t.varName}`);
+    output = wrapped.output;
+    wrapCount++;
+  }
+
+  if (output === source) return base; // nothing actually changed
+
+  // Gate 1: still valid Astro.
+  try {
+    await parseAstro(output);
+  } catch (err) {
+    return { ...base, ok: false, reason: `output failed to re-parse: ${(err as Error).message}` };
+  }
+
+  // Gate 2: pure insertion (subsequence covers both tags and wraps).
+  if (!isSubsequence(source, output)) {
+    return { ...base, ok: false, reason: "output is not a pure insertion of the original" };
+  }
+
+  return { relPath, source, output, inserted, tagCount: items.length + wrapCount, ok: true };
+}
+
 export interface CommitResult {
   written: string[];
   backups: string[];
