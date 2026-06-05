@@ -13,7 +13,8 @@ import { relative } from "node:path";
 import { discoverAstroFiles } from "./discover.js";
 import { preflight } from "./preflight.js";
 import { planFile, type FilePlan, type PlannedTag, type PlanOptions } from "./plan.js";
-import { prepareFile, commitRun, readSource, type PreparedFile } from "./run.js";
+import { prepareFileFull, commitRun, readSource, type PreparedFile } from "./run.js";
+import { detectWrapTargets, type WrapTarget } from "./wrap.js";
 import { restoreLatest } from "./backup.js";
 import { buildReport } from "./report.js";
 import { isValidField, type Scope } from "./name.js";
@@ -75,7 +76,7 @@ function fail(msg: string): never {
   process.exit(2);
 }
 
-const HELP = `caretize · add data-caret attributes to an Astro project
+const HELP = `caretize · make an Astro project editable (data-caret + editable())
 
 Usage: caretize [path] [options]
 
@@ -101,14 +102,24 @@ function ask(rl: ReturnType<typeof createInterface>, q: string): Promise<string>
   return new Promise((res) => rl.question(q, (ans) => res(ans.trim())));
 }
 
-/** Interactive per-candidate review. Returns the accepted tags per file. */
-async function review(plans: FilePlan[]): Promise<Map<string, PlannedTag[]>> {
+interface Selection {
+  tags: Map<string, PlannedTag[]>;
+  wraps: Map<string, WrapTarget[]>;
+}
+
+/** Interactive review: per-candidate tags, then a per-file wrap confirm. */
+async function review(
+  plans: FilePlan[],
+  wrapsByFile: Map<string, WrapTarget[]>,
+): Promise<Selection> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const accepted = new Map<string, PlannedTag[]>();
+  const tags = new Map<string, PlannedTag[]>();
+  const wraps = new Map<string, WrapTarget[]>();
   let acceptAll = false;
   try {
     for (const plan of plans) {
-      if (plan.tags.length === 0) continue;
+      const fileWraps = wrapsByFile.get(plan.relPath) ?? [];
+      if (plan.tags.length === 0 && fileWraps.length === 0) continue;
       const take: PlannedTag[] = [];
       let skipFile = false;
       for (let i = 0; i < plan.tags.length && !skipFile; i++) {
@@ -118,7 +129,7 @@ async function review(plans: FilePlan[]): Promise<Map<string, PlannedTag[]>> {
           `\n${plan.relPath}\n  ${tagLine(t)}\n  + data-caret="${t.binding}"  (${t.confidence})\n`,
         );
         const ans = (await ask(rl, "  [a]ccept [s]kip [e]dit [A]ll [S]kip-file [q]uit > ")) || "a";
-        if (ans === "q") { accepted.clear(); return accepted; }
+        if (ans === "q") { tags.clear(); wraps.clear(); return { tags, wraps }; }
         if (ans === "S") { skipFile = true; break; }
         if (ans === "A") { acceptAll = true; take.push(t); continue; }
         if (ans === "s") continue;
@@ -134,12 +145,21 @@ async function review(plans: FilePlan[]): Promise<Map<string, PlannedTag[]>> {
         }
         take.push(t); // default accept
       }
-      if (take.length) accepted.set(plan.relPath, take);
+      if (take.length) tags.set(plan.relPath, take);
+
+      if (fileWraps.length > 0 && !skipFile) {
+        const names = fileWraps.map((w) => w.varName).join(", ");
+        const ans = (await ask(
+          rl,
+          `\n${plan.relPath}\n  wrap ${fileWraps.length} data array(s) [${names}] with editable()? [Y/n] `,
+        )) || "y";
+        if (ans.toLowerCase() !== "n") wraps.set(plan.relPath, fileWraps);
+      }
     }
   } finally {
     rl.close();
   }
-  return accepted;
+  return { tags, wraps };
 }
 
 async function main(): Promise<void> {
@@ -175,31 +195,46 @@ async function main(): Promise<void> {
   for (const rel of files) {
     plans.push(await planFile(readSource(root, rel), rel, planOpts));
   }
-  const candidateTotal = plans.reduce((n, p) => n + p.tags.length, 0);
-  process.stdout.write(`✓ ${files.length} .astro files · ${candidateTotal} candidate(s)\n`);
+  // Detect editable() wrap targets per file (frontmatter data arrays in loops).
+  const wrapsByFile = new Map<string, WrapTarget[]>();
+  for (const rel of files) {
+    const targets = detectWrapTargets(readSource(root, rel), rel);
+    if (targets.length) wrapsByFile.set(rel, targets);
+  }
 
-  // Decide which tags to apply.
-  let selection: Map<string, PlannedTag[]>;
-  if (args.dryRun) {
-    selection = new Map(plans.map((p) => [p.relPath, p.tags]));
-  } else if (args.yes) {
-    selection = new Map(plans.map((p) => [p.relPath, p.tags]));
+  const candidateTotal = plans.reduce((n, p) => n + p.tags.length, 0);
+  const wrapTotal = [...wrapsByFile.values()].reduce((n, t) => n + t.length, 0);
+  process.stdout.write(
+    `✓ ${files.length} .astro files · ${candidateTotal} tag candidate(s) · ${wrapTotal} wrap target(s)\n`,
+  );
+
+  // Decide what to apply.
+  let sel: Selection;
+  const allTags = new Map(plans.map((p) => [p.relPath, p.tags] as [string, PlannedTag[]]));
+  if (args.dryRun || args.yes) {
+    sel = { tags: allTags, wraps: wrapsByFile };
   } else if (process.stdin.isTTY && process.stdout.isTTY) {
-    selection = await review(plans);
+    sel = await review(plans, wrapsByFile);
   } else if (args.report) {
-    selection = new Map(); // report-only in non-interactive mode
+    sel = { tags: new Map(), wraps: new Map() };
   } else {
     fail("non-interactive terminal: pass --dry-run, -y, or --report");
   }
 
-  // Prepare (verify) every selected file in memory.
+  // Prepare (verify) every touched file in memory — tags + wraps together.
+  const touched = new Set<string>([...sel.tags.keys(), ...sel.wraps.keys()]);
   const prepared: PreparedFile[] = [];
-  for (const plan of plans) {
-    const tags = selection.get(plan.relPath) ?? [];
-    if (tags.length === 0) continue;
+  for (const rel of touched) {
+    const tags = sel.tags.get(rel) ?? [];
+    const targets = sel.wraps.get(rel) ?? [];
+    if (tags.length === 0 && targets.length === 0) continue;
     prepared.push(
-      await prepareFile(plan.relPath, readSource(root, plan.relPath),
-        tags.map((t) => ({ startOffset: t.startOffset, attribute: t.attribute }))),
+      await prepareFileFull(
+        rel,
+        readSource(root, rel),
+        tags.map((t) => ({ startOffset: t.startOffset, attribute: t.attribute })),
+        targets,
+      ),
     );
   }
 
@@ -209,31 +244,42 @@ async function main(): Promise<void> {
   }
 
   if (args.dryRun) {
-    printPlan(plans);
+    printPlan(plans, wrapsByFile);
     return;
   }
 
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const { written, backups } = commitRun(root, prepared, stamp);
-  printSummary(plans, written, backups.length > 0);
+  const changes = prepared
+    .filter((p) => written.includes(p.relPath))
+    .reduce((n, p) => n + p.tagCount, 0);
+  const wrapped = written.reduce((n, rel) => n + (sel.wraps.get(rel)?.length ?? 0), 0);
+  const flagged = plans.reduce((n, p) => n + p.flags.length, 0);
+  printSummary(written.length, changes, wrapped, flagged, backups.length > 0);
 }
 
-function printPlan(plans: FilePlan[]): void {
+function printPlan(plans: FilePlan[], wrapsByFile: Map<string, WrapTarget[]>): void {
   for (const plan of plans) {
-    if (plan.tags.length === 0 && plan.flags.length === 0) continue;
+    const wraps = wrapsByFile.get(plan.relPath) ?? [];
+    if (plan.tags.length === 0 && plan.flags.length === 0 && wraps.length === 0) continue;
     process.stdout.write(`\n${plan.relPath}${plan.scopeSkip ? `  (skipped: ${plan.scopeSkip})` : ""}\n`);
     for (const t of plan.tags) process.stdout.write(`  + data-caret="${t.binding}"  ${tagLine(t)}\n`);
+    for (const w of wraps) process.stdout.write(`  ~ editable("${w.key}")  wrap const ${w.varName}\n`);
     for (const f of plan.flags) process.stdout.write(`  ⚠ ${f.method}() loop — consider a dynamic collection\n`);
   }
   process.stdout.write("\n(dry run — nothing written)\n");
 }
 
-function printSummary(plans: FilePlan[], written: string[], hadBackups: boolean): void {
-  const tagged = written.reduce(
-    (n, rel) => n + (plans.find((p) => p.relPath === rel)?.tags.length ?? 0), 0);
-  const flagged = plans.reduce((n, p) => n + p.flags.length, 0);
+function printSummary(
+  files: number,
+  changes: number,
+  wrapped: number,
+  flagged: number,
+  hadBackups: boolean,
+): void {
   process.stdout.write(`\n───────────────────────────────\n`);
-  process.stdout.write(`✓ ${tagged} tagged across ${written.length} file(s)\n`);
+  process.stdout.write(`✓ ${changes} change(s) across ${files} file(s)\n`);
+  if (wrapped) process.stdout.write(`✓ ${wrapped} data array(s) wrapped with editable()\n`);
   if (flagged) process.stdout.write(`⚠ ${flagged} loop(s) flagged → consider dynamic collections\n`);
   if (hadBackups) process.stdout.write(`⤺ backups in .caret/.caretize-bak/ (caretize --restore to undo)\n`);
   process.stdout.write(`───────────────────────────────\nNext: npm run dev → open your page → click to edit\n`);
