@@ -27,6 +27,7 @@ export { FilesystemUploadHandler } from "./runtime/storage/filesystem-upload-han
 export { bindEntry } from "./runtime/bind.js";
 export { caretLoader, CaretLoaderError } from "./loader.js";
 export type { CaretLiveLoader } from "./loader.js";
+export { editable } from "./editable.js";
 
 const VIRTUAL_PROVIDER_MODULE_ID = "virtual:caretcms/providers";
 const RESOLVED_VIRTUAL_PROVIDER_MODULE_ID = `\0${VIRTUAL_PROVIDER_MODULE_ID}`;
