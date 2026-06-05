@@ -10,11 +10,13 @@
 import { createInterface } from "node:readline";
 import { writeFileSync } from "node:fs";
 import { relative } from "node:path";
+import { parseAstro } from "./parse.js";
 import { discoverAstroFiles } from "./discover.js";
 import { preflight } from "./preflight.js";
 import { planFile, type FilePlan, type PlannedTag, type PlanOptions } from "./plan.js";
 import { prepareFileFull, commitRun, readSource, type PreparedFile } from "./run.js";
-import { detectWrapTargets, type WrapTarget } from "./wrap.js";
+import { detectWrapTargetsSafe, type WrapTarget } from "./wrap.js";
+import { detectPropWrapTargets, type FileReader } from "./props.js";
 import { restoreLatest } from "./backup.js";
 import { buildReport } from "./report.js";
 import { isValidField, type Scope } from "./name.js";
@@ -191,15 +193,33 @@ async function main(): Promise<void> {
   };
 
   process.stdout.write(`caretize · scanning ${args.target ?? "src/"}\n`);
+  // A child file that can't be read (any reason) conservatively yields null, so
+  // the cross-file prop pass simply skips that hand-off rather than guessing.
+  const readFileSafe: FileReader = (rel) => {
+    try {
+      return readSource(root, rel);
+    } catch {
+      return null;
+    }
+  };
+  // Parse each file ONCE, then drive all three passes off that single AST:
+  //   - planFile: the data-caret tag plan
+  //   - detectWrapTargetsSafe: same-file data-array loops (Tier-1), dropped when a
+  //     field would land in a native attribute
+  //   - detectPropWrapTargets: literals passed to a component whose child provably
+  //     renders them as text (Tier-2, cross-file)
   const plans: FilePlan[] = [];
-  for (const rel of files) {
-    plans.push(await planFile(readSource(root, rel), rel, planOpts));
-  }
-  // Detect editable() wrap targets per file (frontmatter data arrays in loops).
   const wrapsByFile = new Map<string, WrapTarget[]>();
   for (const rel of files) {
-    const targets = detectWrapTargets(readSource(root, rel), rel);
-    if (targets.length) wrapsByFile.set(rel, targets);
+    const src = readSource(root, rel);
+    const ast = await parseAstro(src);
+    plans.push(await planFile(src, rel, planOpts, ast));
+
+    const loops = await detectWrapTargetsSafe(src, rel, ast);
+    const props = await detectPropWrapTargets(src, rel, readFileSafe, ast);
+    const byName = new Map<string, WrapTarget>();
+    for (const t of [...loops, ...props]) byName.set(t.varName, t);
+    if (byName.size) wrapsByFile.set(rel, [...byName.values()]);
   }
 
   const candidateTotal = plans.reduce((n, p) => n + p.tags.length, 0);
@@ -264,7 +284,7 @@ function printPlan(plans: FilePlan[], wrapsByFile: Map<string, WrapTarget[]>): v
     if (plan.tags.length === 0 && plan.flags.length === 0 && wraps.length === 0) continue;
     process.stdout.write(`\n${plan.relPath}${plan.scopeSkip ? `  (skipped: ${plan.scopeSkip})` : ""}\n`);
     for (const t of plan.tags) process.stdout.write(`  + data-caret="${t.binding}"  ${tagLine(t)}\n`);
-    for (const w of wraps) process.stdout.write(`  ~ editable("${w.key}")  wrap const ${w.varName}\n`);
+    for (const w of wraps) process.stdout.write(`  ~ editable("${w.key}")  wrap const ${w.varName}${w.origin === "prop" ? " (via component prop)" : ""}\n`);
     for (const f of plan.flags) process.stdout.write(`  ⚠ ${f.method}() loop — consider a dynamic collection\n`);
   }
   process.stdout.write("\n(dry run — nothing written)\n");

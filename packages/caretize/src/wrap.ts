@@ -17,17 +17,27 @@
  */
 
 import { deriveScope, isValidField, slugifyText } from "./name.js";
+import { parseAstro, type AstroNode } from "./parse.js";
+import { classifyConstUsage } from "./usage.js";
+import { frontmatterRange, literalConstNames } from "./frontmatter.js";
+import { isIdentifier } from "./identifiers.js";
 
 const IMPORT_LINE = `import { editable } from '@caretcms/core';`;
 const IMPORT_RE =
   /import\s*\{[^}]*\beditable\b[^}]*\}\s*from\s*['"]@caretcms\/core['"]/;
-const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
-export interface WrapTarget {
+/** A literal const the wrapper could target, before its provenance is known. */
+export interface WrapCandidate {
   /** Frontmatter const/let/var to wrap. */
   varName: string;
   /** Binding key, e.g. `pages::home::services`. */
   key: string;
+}
+
+/** A safety-verified wrap target, tagged with how it was found. */
+export interface WrapTarget extends WrapCandidate {
+  /** A same-file loop (Tier-1) or a verified cross-file prop hand-off (Tier-2). */
+  origin: "loop" | "prop";
 }
 
 export interface WrapResult {
@@ -37,16 +47,6 @@ export interface WrapResult {
   reason?: string;
   /** True when the source already had the wrap (no-op, idempotent). */
   alreadyWrapped?: boolean;
-}
-
-/** Inner content range of the frontmatter fence, or null if there is none. */
-function frontmatterRange(source: string): { start: number; end: number } | null {
-  if (!source.startsWith("---")) return null;
-  const firstNL = source.indexOf("\n");
-  if (firstNL < 0) return null;
-  const close = source.indexOf("\n---", firstNL);
-  if (close < 0) return null;
-  return { start: firstNL + 1, end: close };
 }
 
 /**
@@ -87,7 +87,7 @@ function initializerEnd(source: string, eq: number, limit: number): number | nul
  * `await editable('<key>', …)` and ensure the import is present. Pure insertion.
  */
 export function wrapConst(source: string, varName: string, key: string): WrapResult {
-  if (!IDENT_RE.test(varName)) {
+  if (!isIdentifier(varName)) {
     return { output: source, ok: false, reason: `invalid identifier: ${varName}` };
   }
 
@@ -144,17 +144,14 @@ export function wrapConst(source: string, varName: string, key: string): WrapRes
  * aren't inline content and are left alone. The key is derived from the file's
  * scope (`collection::id`) plus the variable name as the field.
  */
-export function detectWrapTargets(source: string, relPath: string): WrapTarget[] {
+export function detectWrapTargets(source: string, relPath: string): WrapCandidate[] {
   const fm = frontmatterRange(source);
   if (!fm) return [];
   const fmText = source.slice(fm.start, fm.end);
   const template = source.slice(fm.end);
 
   // 1. frontmatter consts whose initializer is an array/object literal
-  const literalConsts = new Set<string>();
-  const declRe = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([[{])/g;
-  let dm: RegExpExecArray | null;
-  while ((dm = declRe.exec(fmText))) literalConsts.add(dm[1]);
+  const literalConsts = literalConstNames(fmText);
   if (literalConsts.size === 0) return [];
 
   // 2. of those, the ones actually iterated in the template
@@ -171,11 +168,34 @@ export function detectWrapTargets(source: string, relPath: string): WrapTarget[]
   if ("skip" in scoped) return [];
   const { collection, id } = scoped.scope;
 
-  const targets: WrapTarget[] = [];
+  const candidates: WrapCandidate[] = [];
   for (const varName of mapped) {
     const field = isValidField(varName) ? varName : slugifyText(varName);
     if (!field) continue;
-    targets.push({ varName, key: `${collection}::${id}::${field}` });
+    candidates.push({ varName, key: `${collection}::${id}::${field}` });
   }
-  return targets;
+  return candidates;
+}
+
+/**
+ * Safety-checked Tier-1 detection: the literal-const candidates from
+ * `detectWrapTargets`, minus any whose mapped fields flow into a native-element
+ * attribute (where `editable()`'s stega encoding would corrupt an href/src/class
+ * /…). Component prop hand-offs are tolerated here — Tier-1's long-standing
+ * behavior — and verified across files by the Tier-2 prop pass instead.
+ *
+ * Async because the safety check needs the parsed AST; `root` may be passed when
+ * the caller has already parsed `source` (the CLI does, to avoid re-parsing).
+ */
+export async function detectWrapTargetsSafe(
+  source: string,
+  relPath: string,
+  root?: AstroNode,
+): Promise<WrapTarget[]> {
+  const candidates = detectWrapTargets(source, relPath);
+  if (candidates.length === 0) return [];
+  const ast = root ?? (await parseAstro(source));
+  return candidates
+    .filter((t) => classifyConstUsage(ast, t.varName).safe)
+    .map((t) => ({ ...t, origin: "loop" as const }));
 }

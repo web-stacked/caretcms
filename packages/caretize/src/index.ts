@@ -56,7 +56,10 @@ export {
 
 export {
   wrapConst,
-  detectWrapTargets,
+  detectWrapTargetsSafe,
   type WrapResult,
+  type WrapCandidate,
   type WrapTarget,
 } from "./wrap.js";
+
+export { detectPropWrapTargets, type FileReader } from "./props.js";
