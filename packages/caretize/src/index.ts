@@ -54,4 +54,9 @@ export {
   type PlanOptions,
 } from "./plan.js";
 
-export { wrapConst, type WrapResult } from "./wrap.js";
+export {
+  wrapConst,
+  detectWrapTargets,
+  type WrapResult,
+  type WrapTarget,
+} from "./wrap.js";

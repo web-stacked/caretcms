@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseAstro } from "./parse.js";
 import { applyTags, type TagInsertion } from "./write.js";
-import { wrapConst } from "./wrap.js";
+import { wrapConst, type WrapTarget } from "./wrap.js";
 import { writeBackup, restoreLatest } from "./backup.js";
 
 export interface PreparedFile {
@@ -61,12 +61,7 @@ export async function prepareFile(
   return { relPath, source, output, inserted, tagCount: items.length, ok: true };
 }
 
-export interface WrapTarget {
-  /** Frontmatter const/let/var to wrap. */
-  varName: string;
-  /** Binding key, e.g. `pages::home::services`. */
-  key: string;
-}
+export type { WrapTarget };
 
 /** True when every character of `needle` appears in `haystack` in order. */
 function isSubsequence(needle: string, haystack: string): boolean {
