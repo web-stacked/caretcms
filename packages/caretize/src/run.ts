@@ -11,6 +11,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseAstro } from "./parse.js";
 import { applyTags, type TagInsertion } from "./write.js";
+import { wrapConst } from "./wrap.js";
 import { writeBackup, restoreLatest } from "./backup.js";
 
 export interface PreparedFile {
@@ -58,6 +59,67 @@ export async function prepareFile(
   }
 
   return { relPath, source, output, inserted, tagCount: items.length, ok: true };
+}
+
+export interface WrapTarget {
+  /** Frontmatter const/let/var to wrap. */
+  varName: string;
+  /** Binding key, e.g. `pages::home::services`. */
+  key: string;
+}
+
+/** True when every character of `needle` appears in `haystack` in order. */
+function isSubsequence(needle: string, haystack: string): boolean {
+  let i = 0;
+  for (let j = 0; j < haystack.length && i < needle.length; j++) {
+    if (haystack[j] === needle[i]) i++;
+  }
+  return i === needle.length;
+}
+
+/**
+ * Compute and verify a single file's editable()-wrapped output (Tier-1). Same
+ * atomicity contract as prepareFile, so the result feeds commitRun unchanged.
+ *
+ * Gate 2 here is a SUBSEQUENCE check rather than strip-by-string: the inserted
+ * `await editable(…, ` / `)` spans contain characters (`)`, commas) that also
+ * occur elsewhere, so verifying "original is a subsequence of output" is the
+ * robust way to prove pure insertion (no original char deleted or reordered).
+ */
+export async function prepareWrapFile(
+  relPath: string,
+  source: string,
+  targets: WrapTarget[],
+): Promise<PreparedFile> {
+  const base: PreparedFile = {
+    relPath, source, output: source, inserted: [], tagCount: 0, ok: true,
+  };
+  if (targets.length === 0) return base;
+
+  let output = source;
+  const inserted: string[] = [];
+  for (const t of targets) {
+    const result = wrapConst(output, t.varName, t.key);
+    if (!result.ok) return { ...base, ok: false, reason: `${t.varName}: ${result.reason}` };
+    if (result.alreadyWrapped) continue;
+    inserted.push(`editable(${JSON.stringify(t.key)}) around ${t.varName}`);
+    output = result.output;
+  }
+  if (inserted.length === 0) return base; // nothing applicable (already wrapped)
+
+  // Gate 1: the result must still be valid Astro.
+  try {
+    await parseAstro(output);
+  } catch (err) {
+    return { ...base, ok: false, reason: `output failed to re-parse: ${(err as Error).message}` };
+  }
+
+  // Gate 2: pure insertion — every original character survives, in order.
+  if (!isSubsequence(source, output)) {
+    return { ...base, ok: false, reason: "output is not a pure insertion of the original" };
+  }
+
+  return { relPath, source, output, inserted, tagCount: inserted.length, ok: true };
 }
 
 export interface CommitResult {
