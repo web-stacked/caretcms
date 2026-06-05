@@ -10,11 +10,25 @@
 import { parse } from "@astrojs/compiler";
 import { findOpenTagEnd, spliceAttribute } from "./splice.js";
 
+/** A single attribute on a tag node. `kind` distinguishes a static `quoted`
+ *  value from a dynamic one (`expression`, `template-literal`, `shorthand`,
+ *  `spread`) — the usage classifier needs that to know whether a value could
+ *  carry an editable field reference. */
+export interface TagAttr {
+  type: string;
+  /** Compiler attribute kind: quoted | expression | template-literal | shorthand | spread | empty. */
+  kind?: string;
+  name: string;
+  value: string;
+  /** Original source text (populated for some kinds, e.g. quoted/template). */
+  raw?: string;
+}
+
 /** A tag-like AST node (element / component / custom-element / fragment). */
 export interface TagNode {
   type: "element" | "component" | "custom-element" | "fragment";
   name: string;
-  attributes: Array<{ type: string; name: string; value: string }>;
+  attributes: TagAttr[];
   children: AstroNode[];
   position?: { start: { offset: number }; end?: { offset: number } };
 }
