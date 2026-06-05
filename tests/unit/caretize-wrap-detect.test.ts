@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { detectWrapTargets } from "../../packages/caretize/src/wrap";
+import {
+  detectWrapTargets,
+  detectWrapTargetsSafe,
+} from "../../packages/caretize/src/wrap";
 import { prepareWrapFile } from "../../packages/caretize/src/run";
 
 describe("detectWrapTargets", () => {
@@ -64,5 +67,44 @@ const features = [
     expect(prepared.output).toContain(
       'const features = await editable("pages::home::features", [',
     );
+  });
+});
+
+describe("detectWrapTargetsSafe", () => {
+  it("keeps a loop whose fields render only as text", async () => {
+    const src = `---
+const services = ['Marketing', 'Apps'];
+---
+<ul>{services.map((s) => <li>{s}</li>)}</ul>
+`;
+    const targets = await detectWrapTargetsSafe(src, "src/pages/index.astro");
+    expect(targets).toEqual([
+      { varName: "services", key: "pages::home::services", origin: "loop" },
+    ]);
+  });
+
+  it("DROPS a loop whose field lands in a native-element attribute", async () => {
+    // `editable()` would stega-encode `l.href`, corrupting the link.
+    const src = `---
+const links = [{ label: 'Home', href: '/' }];
+---
+<nav>{links.map((l) => <a href={l.href}>{l.label}</a>)}</nav>
+`;
+    expect(await detectWrapTargetsSafe(src, "src/pages/index.astro")).toEqual([]);
+    // The unsafe candidate is still *found* (it's the safety pass that drops it).
+    expect(detectWrapTargets(src, "src/pages/index.astro")).toEqual([
+      { varName: "links", key: "pages::home::links" },
+    ]);
+  });
+
+  it("keeps a loop that hands fields to a component prop (text-rendered downstream)", async () => {
+    const src = `---
+import Card from '~/components/Card.astro';
+const features = [{ title: 'Fast' }];
+---
+<div>{features.map((f) => <Card title={f.title} />)}</div>
+`;
+    const targets = await detectWrapTargetsSafe(src, "src/pages/index.astro");
+    expect(targets.map((t) => t.varName)).toEqual(["features"]);
   });
 });
