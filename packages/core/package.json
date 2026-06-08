@@ -41,6 +41,10 @@
       "types": "./dist/providers/storage/filesystem.d.ts",
       "import": "./dist/providers/storage/filesystem.js"
     },
+    "./providers/storage/markdown": {
+      "types": "./dist/providers/storage/markdown.d.ts",
+      "import": "./dist/providers/storage/markdown.js"
+    },
     "./providers/uploads/local": {
       "types": "./dist/providers/uploads/local.d.ts",
       "import": "./dist/providers/uploads/local.js"
