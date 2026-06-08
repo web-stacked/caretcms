@@ -2,54 +2,25 @@
  * Server-side HTML sanitizer for rich text fields.
  *
  * Regex-based (no DOM dependency) — works in Node, Deno, edge runtimes.
- * Same allowlist as the client sanitizer in static/cms/editor/sanitize.js.
+ * Allowlist + class matcher live in ./rich-allowlist.ts, shared with the cloud
+ * sanitizer; static/cms/editor/sanitize.js mirrors them by hand.
  */
 
-const ALLOWED_TAGS = new Set([
-  "b", "strong", "i", "em", "u", "s", "a", "br", "sub", "sup",
-]);
+import {
+  RICH_ALLOWED_TAGS as ALLOWED_TAGS,
+  RICH_ALLOWED_ATTRS as ALLOWED_ATTRS,
+  SAFE_HREF_RE,
+  filterClasses,
+  type AllowedClasses,
+} from "./rich-allowlist.js";
 
-const ALLOWED_ATTRS: Record<string, Set<string>> = {
-  a: new Set(["href", "target", "rel"]),
-};
-
-const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/)/i;
+export type { AllowedClasses } from "./rich-allowlist.js";
 
 const TOKEN_RE = /<\/?([a-zA-Z][\w-]*)\b([^>]*)\/?>|[^<]+/g;
 const ATTR_RE = /([a-zA-Z][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))/g;
 
-/**
- * Per-tag class allowlist. Keys are tag names, values are allowed class names.
- * A pattern ending in `*` is a prefix match (`text-*` allows `text-primary`);
- * a lone `*` allows any class on that tag. Anything not matched is dropped.
- * Mirrors the `allowedClasses` option of the `sanitize-html` package, and MUST
- * stay identical to the client matcher in static/cms/editor/sanitize.js.
- */
-export type AllowedClasses = Record<string, readonly string[]>;
-
 export interface SanitizeOptions {
   allowedClasses?: AllowedClasses;
-}
-
-/** Does `cls` match any pattern in `patterns`? (exact, `prefix-*`, or lone `*`) */
-function classAllowed(cls: string, patterns: readonly string[]): boolean {
-  for (const p of patterns) {
-    if (p === "*") return true;
-    if (p.endsWith("*")) {
-      if (cls.startsWith(p.slice(0, -1))) return true;
-    } else if (cls === p) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/** Filter a raw class attribute value to the tag's allowed patterns. */
-function filterClasses(value: string, patterns: readonly string[]): string {
-  return value
-    .split(/\s+/)
-    .filter((c) => c !== "" && classAllowed(c, patterns))
-    .join(" ");
 }
 
 export function sanitizeHtml(html: string, options?: SanitizeOptions): string {

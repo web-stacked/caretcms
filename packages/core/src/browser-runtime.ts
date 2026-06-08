@@ -1,3 +1,10 @@
+import {
+  RICH_ALLOWED_TAGS,
+  RICH_ALLOWED_ATTRS,
+  SAFE_HREF_RE,
+  classAllowed,
+} from "./runtime/rich-allowlist.js";
+
 export interface CloudCmsClientConfig {
   endpoint: string;
   projectId: string;
@@ -173,32 +180,8 @@ function collectBindings(root: ParentNode = document): Binding[] {
 }
 
 // --- Browser-side HTML sanitizer for rich text ---
-
-const RICH_ALLOWED_TAGS = new Set([
-  "b", "strong", "i", "em", "u", "s", "a", "br", "sub", "sup",
-]);
-
-const RICH_ALLOWED_ATTRS: Record<string, Set<string>> = {
-  a: new Set(["href", "target", "rel"]),
-};
-
-const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/)/i;
-
-/**
- * Per-tag class allowlist matcher. MUST stay identical to classAllowed() in
- * runtime/sanitize-html.ts and static/cms/editor/sanitize.js.
- */
-function classAllowed(cls: string, patterns: readonly string[]): boolean {
-  for (const p of patterns) {
-    if (p === "*") return true;
-    if (p.endsWith("*")) {
-      if (cls.startsWith(p.slice(0, -1))) return true;
-    } else if (cls === p) {
-      return true;
-    }
-  }
-  return false;
-}
+// Allowlist + matcher come from runtime/rich-allowlist.ts (shared with the
+// server sanitizer); static/cms/editor/sanitize.js mirrors them by hand.
 
 function sanitizeHtmlBrowser(html: string): string {
   if (!html) return "";
