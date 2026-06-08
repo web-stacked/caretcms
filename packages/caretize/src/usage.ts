@@ -53,7 +53,17 @@ export interface ClassifyOptions {
    * preserve its established "component prop ≈ text" behavior.
    */
   componentHandoffUnsafe?: boolean;
+  /**
+   * When true, the `set:html` / `set:text` directives count as TEXT sinks, not
+   * native attributes. They render the value as element CONTENT, where stega
+   * survives harmlessly — so a field reaching them is safe to encode. Off by
+   * default (the wrap tiers stay conservative); the prop-hoist child check sets
+   * it so a `<p set:html={prop} />` rich field can be hoisted.
+   */
+  htmlDirectivesSafe?: boolean;
 }
+
+const HTML_DIRECTIVES = new Set(["set:html", "set:text"]);
 
 /** Concatenated raw JS text of an expression node's direct text children. */
 function exprJs(node: AstroNode): string {
@@ -197,6 +207,9 @@ export function classifyConstUsage(
       if (!attrReferences(attr, names)) continue;
 
       if (node.type === "element") {
+        // set:html / set:text render the value as CONTENT, not a real attribute;
+        // stega survives there, so (when opted in) it's a safe text sink.
+        if (opts.htmlDirectivesSafe && HTML_DIRECTIVES.has(attr.name)) continue;
         // Encoded field would land in a real DOM attribute → corrupting.
         unsafe ??= `field of "${varName}" used in <${node.name}> attribute "${attr.name}"`;
       } else if (node.type === "component") {

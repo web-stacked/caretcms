@@ -60,6 +60,29 @@ export {
   type WrapResult,
   type WrapCandidate,
   type WrapTarget,
+  type WrapOrigin,
 } from "./wrap.js";
 
-export { detectPropWrapTargets, type FileReader } from "./props.js";
+export {
+  wrapImport,
+  detectImportWrapCandidates,
+  detectImportWrapTargetsSafe,
+  type ImportWrapCandidate,
+} from "./import-wrap.js";
+
+export {
+  importBindingNames,
+  literalConstNames,
+  type ImportKind,
+} from "./frontmatter.js";
+
+export { detectPropWrapTargets, childRendersPropAsText, type FileReader } from "./props.js";
+
+export {
+  detectPropHoistTargets,
+  hoistPropLiterals,
+  verifyHoistResult,
+  type PropHoistTarget,
+  type HoistProp,
+  type HoistResult,
+} from "./prop-hoist.js";
