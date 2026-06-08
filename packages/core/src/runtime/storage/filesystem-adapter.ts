@@ -1,150 +1,42 @@
-import { mkdir, readFile, readdir, rename, rm, unlink, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { mkdir, readFile, readdir, rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { CollectionMetadata, EntryData, HistoryEntry, StorageAdapter } from "../../types.js";
-
-const COLLECTION_NAME_RE = /^[a-z][a-z0-9_-]*$/;
-const HISTORY_LIMIT = 50;
-
-/** workerd (incl. Astro 6's dev server) sets navigator.userAgent to this. */
-const WORKERD_USER_AGENT = "Cloudflare-Workers";
-
-/**
- * Return a human-readable runtime name if filesystem storage cannot work here,
- * or null when a real Node filesystem is available.
- *
- * Astro 6's dev server runs on the same workerd runtime as production, so a
- * Workers-targeted project has no filesystem in dev *or* prod — the failure
- * would otherwise surface as silently-empty reads and cryptic write errors.
- */
-function detectUnsupportedRuntime(): string | null {
-  const g = globalThis as { navigator?: { userAgent?: string }; WebSocketPair?: unknown };
-  // navigator.userAgent === "Cloudflare-Workers" only when the `global_navigator`
-  // compat flag is on, so also check WebSocketPair — a workerd global present
-  // regardless of compat flags — to detect Workers even on an old compat date.
-  if (g.navigator?.userAgent === WORKERD_USER_AGENT || typeof g.WebSocketPair === "function") {
-    return "Cloudflare Workers (workerd)";
-  }
-  if (typeof process === "undefined" || typeof process.cwd !== "function") {
-    return "a non-Node runtime";
-  }
-  return null;
-}
-
-function assertFilesystemRuntime(): void {
-  const runtime = detectUnsupportedRuntime();
-  if (!runtime) return;
-  throw new Error(
-    `[caretcms] Filesystem storage is not available on ${runtime}.\n` +
-      `Astro 6's dev server also runs on workerd, so this fails in dev as well as production.\n\n` +
-      `Targeting Cloudflare Workers? Use the KV adapter from @caretcms/cloudflare in BOTH dev and prod:\n\n` +
-      `  import { cloudflareStorage } from '@caretcms/cloudflare';\n` +
-      `  // caret({ storage: cloudflareStorage(), ... })\n\n` +
-      `Targeting a Node host? Filesystem storage works there — make sure you are not building for an edge runtime.`,
-  );
-}
+import { atomicWrite } from "./atomic-write.js";
+import { assertFilesystemRuntime } from "./fs-runtime.js";
+import { SidecarMetaStore, listCollectionDirs } from "./sidecar-meta-store.js";
+import { COLLECTION_NAME_RE } from "./id-contracts.js";
 
 function asObjectRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
 }
 
-function isHistoryEntry(value: unknown): value is HistoryEntry {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const obj = value as Record<string, unknown>;
-  return (
-    typeof obj.ts === "number" &&
-    Number.isFinite(obj.ts) &&
-    typeof obj.action === "string" &&
-    "data" in obj
-  );
-}
-
-type RevisionMap = Record<string, number>;
-
-function isValidRevision(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
-}
-
 /**
- * Write a file atomically: stream into a sibling temp file, then rename over
- * the target. rename(2) is atomic on the same filesystem, so a crash/SIGKILL
- * mid-write can never leave a truncated or empty JSON file — readers always
- * see either the old contents or the complete new contents. Critical for the
- * single shared revisions.json, where a torn write would lose revision state
- * site-wide. The temp file is a sibling (same dir → same filesystem) so the
- * rename stays atomic and never crosses a device boundary.
+ * Reference StorageAdapter that stores each entry as a JSON file under
+ * `.caret/data/<collection>/<id>.json`, delegating all revision, history, and
+ * collection-metadata concerns to a shared `SidecarMetaStore` (`.caretcms/`).
  */
-async function atomicWrite(filePath: string, contents: string): Promise<void> {
-  const tmpPath = `${filePath}.${randomUUID()}.tmp`;
-  await writeFile(tmpPath, contents, "utf8");
-  try {
-    await rename(tmpPath, filePath);
-  } catch (error) {
-    await unlink(tmpPath).catch(() => {});
-    throw error;
-  }
-}
-
-const revisionWriteChains = new Map<string, Promise<unknown>>();
-
-function serializeRevisionWrite<T>(filePath: string, task: () => Promise<T>): Promise<T> {
-  const previous = revisionWriteChains.get(filePath) ?? Promise.resolve();
-  const next = previous.then(task, task);
-  revisionWriteChains.set(
-    filePath,
-    next.finally(() => {
-      if (revisionWriteChains.get(filePath) === next) {
-        revisionWriteChains.delete(filePath);
-      }
-    }),
-  );
-  return next;
-}
-
 export class FilesystemAdapter implements StorageAdapter {
   private readonly dataRoot: string;
-  private readonly metaRoot: string;
+  private readonly meta: SidecarMetaStore;
 
   constructor(options?: { dataRoot?: string; metaRoot?: string }) {
     assertFilesystemRuntime();
     this.dataRoot = options?.dataRoot ?? join(process.cwd(), ".caret", "data");
-    this.metaRoot = options?.metaRoot ?? join(process.cwd(), ".caretcms");
+    const metaRoot = options?.metaRoot ?? join(process.cwd(), ".caretcms");
+    this.meta = new SidecarMetaStore({ metaRoot });
   }
 
   private collectionDir(collection: string): string {
     return join(this.dataRoot, collection);
   }
 
-  private revisionStorePath(): string {
-    return join(this.metaRoot, "revisions.json");
-  }
-
-  private revisionMapKey(collection: string, id: string): string {
-    return `${collection}::${id}`;
-  }
-
-  private historyFilePath(collection: string, id: string): string {
-    return join(this.metaRoot, "history", collection, `${id}.json`);
-  }
-
   // --- Collections ---
-
-  private async discoverFromDir(dir: string): Promise<string[]> {
-    try {
-      const entries = await readdir(dir, { withFileTypes: true });
-      return entries
-        .filter((e) => e.isDirectory() && COLLECTION_NAME_RE.test(e.name))
-        .map((e) => e.name);
-    } catch {
-      return [];
-    }
-  }
 
   async discoverCollections(): Promise<string[]> {
     const [fromData, fromMeta] = await Promise.all([
-      this.discoverFromDir(this.dataRoot),
-      this.discoverFromDir(join(this.metaRoot, "history")),
+      listCollectionDirs(this.dataRoot),
+      this.meta.listHistoryCollections(),
     ]);
     const merged = new Set([...fromData, ...fromMeta]);
     return [...merged].sort((a, b) => a.localeCompare(b));
@@ -207,167 +99,46 @@ export class FilesystemAdapter implements StorageAdapter {
     }
   }
 
-  // --- Revisions ---
+  // --- Revisions (delegated) ---
 
-  private async readRevisionMap(): Promise<RevisionMap> {
-    const filePath = this.revisionStorePath();
-    let raw: string;
-    try {
-      raw = await readFile(filePath, "utf8");
-    } catch (error) {
-      // A missing file is the normal greenfield state: no revisions recorded
-      // yet, so every entry is at 0.
-      if ((error as { code?: string })?.code === "ENOENT") return {};
-      throw error;
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (cause) {
-      // A corrupt revisions file must NOT silently read as "{}" → every entry
-      // at revision 0, which would let stale writers clobber newer data and
-      // defeat optimistic concurrency. Surface it so the operator can recover
-      // rather than losing edits silently. Atomic writes make this rare.
-      throw new Error(
-        `[caretcms] revisions store is corrupt and could not be parsed: ${filePath}. ` +
-          `Repair or remove the file to recover.`,
-        { cause },
-      );
-    }
-
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    const map = parsed as Record<string, unknown>;
-    const out: RevisionMap = {};
-    Object.entries(map).forEach(([key, value]) => {
-      if (isValidRevision(value)) {
-        out[key] = value;
-      }
-    });
-    return out;
+  getRevision(collection: string, id: string): Promise<number> {
+    return this.meta.getRevision(collection, id);
   }
 
-  private async writeRevisionMap(map: RevisionMap): Promise<void> {
-    const filePath = this.revisionStorePath();
-    await mkdir(this.metaRoot, { recursive: true });
-    await atomicWrite(filePath, `${JSON.stringify(map, null, 2)}\n`);
+  bumpRevision(collection: string, id: string): Promise<number> {
+    return this.meta.bumpRevision(collection, id);
   }
 
-  async getRevision(collection: string, id: string): Promise<number> {
-    const map = await this.readRevisionMap();
-    const value = map[this.revisionMapKey(collection, id)];
-    return isValidRevision(value) ? value : 0;
+  // --- History (delegated) ---
+
+  getHistory(collection: string, id: string): Promise<HistoryEntry[]> {
+    return this.meta.getHistory(collection, id);
   }
 
-  async bumpRevision(collection: string, id: string): Promise<number> {
-    return serializeRevisionWrite(this.revisionStorePath(), async () => {
-      const map = await this.readRevisionMap();
-      const key = this.revisionMapKey(collection, id);
-      const current = isValidRevision(map[key]) ? map[key] : 0;
-      const next = current + 1;
-      map[key] = next;
-      await this.writeRevisionMap(map);
-      return next;
-    });
+  appendHistory(collection: string, id: string, entry: HistoryEntry): Promise<void> {
+    return this.meta.appendHistory(collection, id, entry);
   }
 
-  // --- History ---
-
-  private async readHistoryFile(collection: string, id: string): Promise<HistoryEntry[]> {
-    const filePath = this.historyFilePath(collection, id);
-    try {
-      const raw = await readFile(filePath, "utf8");
-      const parsed = JSON.parse(raw) as unknown;
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter(isHistoryEntry);
-    } catch {
-      return [];
-    }
-  }
-
-  private async writeHistoryFile(
-    collection: string,
-    id: string,
-    entries: HistoryEntry[],
-  ): Promise<void> {
-    const filePath = this.historyFilePath(collection, id);
-    await mkdir(join(this.metaRoot, "history", collection), { recursive: true });
-    await atomicWrite(filePath, `${JSON.stringify(entries, null, 2)}\n`);
-  }
-
-  async getHistory(collection: string, id: string): Promise<HistoryEntry[]> {
-    return this.readHistoryFile(collection, id);
-  }
-
-  async appendHistory(collection: string, id: string, entry: HistoryEntry): Promise<void> {
-    const current = await this.readHistoryFile(collection, id);
-    const next = [entry, ...current].slice(0, HISTORY_LIMIT);
-    await this.writeHistoryFile(collection, id, next);
-  }
-
-  // --- Collection Management ---
-
-  private collectionsMetaDir(): string {
-    return join(this.metaRoot, "collections");
-  }
-
-  private collectionMetaPath(collection: string): string {
-    return join(this.collectionsMetaDir(), `${collection}.json`);
-  }
+  // --- Collection management ---
 
   async createCollection(metadata: CollectionMetadata): Promise<void> {
-    const dir = this.collectionsMetaDir();
-    await mkdir(dir, { recursive: true });
-    const filePath = this.collectionMetaPath(metadata.id);
-    await atomicWrite(filePath, `${JSON.stringify(metadata, null, 2)}\n`);
-
-    // Create empty collection directory
-    const collectionDir = this.collectionDir(metadata.id);
-    await mkdir(collectionDir, { recursive: true });
+    await this.meta.createCollection(metadata);
+    // The JSON adapter owns its data directory, so create it eagerly.
+    await mkdir(this.collectionDir(metadata.id), { recursive: true });
   }
 
   async deleteCollection(collection: string): Promise<void> {
-    // unlink has no `force` option, so guard the metadata file against ENOENT.
-    const metaPath = this.collectionMetaPath(collection);
-    try {
-      await unlink(metaPath);
-    } catch (error) {
-      const maybeErr = error as { code?: string };
-      if (maybeErr?.code !== "ENOENT") throw error;
-    }
-
-    // rm({ force: true }) is a no-op on missing paths and still throws real errors.
+    await this.meta.deleteCollection(collection);
+    // The JSON adapter owns its entry files, so removing the collection removes
+    // its data directory too.
     await rm(this.collectionDir(collection), { recursive: true, force: true });
-    await rm(join(this.metaRoot, "history", collection), { recursive: true, force: true });
   }
 
-  async getCollectionMetadata(collection: string): Promise<CollectionMetadata | null> {
-    const filePath = this.collectionMetaPath(collection);
-    try {
-      const raw = await readFile(filePath, "utf8");
-      const parsed = JSON.parse(raw) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-      return parsed as CollectionMetadata;
-    } catch {
-      return null;
-    }
+  getCollectionMetadata(collection: string): Promise<CollectionMetadata | null> {
+    return this.meta.getCollectionMetadata(collection);
   }
 
-  async listCollectionMetadata(): Promise<CollectionMetadata[]> {
-    const dir = this.collectionsMetaDir();
-    try {
-      const files = await readdir(dir, { withFileTypes: true });
-      const metadataFiles = files
-        .filter((item) => item.isFile() && item.name.endsWith(".json"))
-        .map((item) => item.name.slice(0, -".json".length));
-
-      const metadata = await Promise.all(
-        metadataFiles.map((name) => this.getCollectionMetadata(name))
-      );
-
-      return metadata.filter((m): m is CollectionMetadata => Boolean(m));
-    } catch {
-      return [];
-    }
+  listCollectionMetadata(): Promise<CollectionMetadata[]> {
+    return this.meta.listCollectionMetadata();
   }
 }
