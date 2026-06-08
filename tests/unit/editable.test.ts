@@ -78,6 +78,30 @@ describe("editable()", () => {
     expect(out[1].title).toBe("SEO"); // default kept
   });
 
+  it("editor: leaves imported assets (ImageMetadata) unencoded, encodes sibling text", async () => {
+    // An array item carrying an Astro image import alongside editable text.
+    const items = [
+      {
+        title: "In-Home Healthcare",
+        image: { src: "/_astro/photo.jpg?origFormat=jpg", width: 1000, height: 667, format: "jpg" },
+      },
+    ];
+    const out = (await runWithRequestContext(ctx(new InMemoryAdapter(), true), () =>
+      editable("components::services::services", items),
+    )) as typeof items;
+
+    // Asset strings must stay byte-for-byte clean — stega here corrupts the
+    // image pipeline (format "jpg" → "jpg<invisible>" → UnsupportedImageFormat).
+    expect(hasStega(out[0].image.src)).toBe(false);
+    expect(hasStega(out[0].image.format)).toBe(false);
+    expect(out[0].image.format).toBe("jpg");
+    expect(out[0].image.src).toBe("/_astro/photo.jpg?origFormat=jpg");
+
+    // Sibling editable text is still encoded as normal.
+    expect(stegaClean(out[0].title)).toBe("In-Home Healthcare");
+    expect(stegaDecode(out[0].title)).toBe("components::services::services.0.title");
+  });
+
   it("passes through untouched outside a request context", async () => {
     const out = await editable("pages::home::x", "literal");
     expect(out).toBe("literal");
