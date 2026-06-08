@@ -12,7 +12,16 @@ import { resolve } from "node:path";
 import { parseAstro } from "./parse.js";
 import { applyTags, type TagInsertion } from "./write.js";
 import { wrapConst, type WrapTarget } from "./wrap.js";
+import { wrapImport } from "./import-wrap.js";
+import { hoistPropLiterals, verifyHoistResult, type PropHoistTarget } from "./prop-hoist.js";
 import { writeBackup, restoreLatest } from "./backup.js";
+
+/** Apply the right editable() wrap for a target's origin. */
+function applyWrap(source: string, t: WrapTarget) {
+  return t.origin === "import"
+    ? wrapImport(source, t.varName, t.key)
+    : wrapConst(source, t.varName, t.key);
+}
 
 export interface PreparedFile {
   relPath: string;
@@ -94,7 +103,7 @@ export async function prepareWrapFile(
   let output = source;
   const inserted: string[] = [];
   for (const t of targets) {
-    const result = wrapConst(output, t.varName, t.key);
+    const result = applyWrap(output, t);
     if (!result.ok) return { ...base, ok: false, reason: `${t.varName}: ${result.reason}` };
     if (result.alreadyWrapped) continue;
     inserted.push(`editable(${JSON.stringify(t.key)}) around ${t.varName}`);
@@ -128,11 +137,12 @@ export async function prepareFileFull(
   source: string,
   items: TagInsertion[],
   targets: WrapTarget[],
+  hoistTargets: PropHoistTarget[] = [],
 ): Promise<PreparedFile> {
   const base: PreparedFile = {
     relPath, source, output: source, inserted: [], tagCount: 0, ok: true,
   };
-  if (items.length === 0 && targets.length === 0) return base;
+  if (items.length === 0 && targets.length === 0 && hoistTargets.length === 0) return base;
 
   let output = source;
   const inserted: string[] = [];
@@ -147,15 +157,41 @@ export async function prepareFileFull(
     inserted.push(...tagged.inserted);
   }
 
-  // Pass 2: editable() wraps (frontmatter).
+  // Pass 2: editable() wraps (frontmatter) — wrapConst for consts, wrapImport
+  // for default data imports. Both are pure insertion.
   let wrapCount = 0;
   for (const t of targets) {
-    const wrapped = wrapConst(output, t.varName, t.key);
+    const wrapped = applyWrap(output, t);
     if (!wrapped.ok) return { ...base, ok: false, reason: `${t.varName}: ${wrapped.reason}` };
     if (wrapped.alreadyWrapped) continue;
     inserted.push(`editable(${JSON.stringify(t.key)}) around ${t.varName}`);
     output = wrapped.output;
     wrapCount++;
+  }
+
+  if (output === source && hoistTargets.length === 0) return base; // nothing changed
+
+  // Passes 1+2 are pure insertion: verify the running output is a subsequence of
+  // the original BEFORE the (deletion-bearing) hoist pass runs.
+  const afterWraps = output;
+  if (!isSubsequence(source, afterWraps)) {
+    return { ...base, ok: false, reason: "output is not a pure insertion of the original" };
+  }
+
+  // Pass 3 (LAST): prop-hoist rewrite. Self-locating, so it runs after the
+  // offset-based tag pass. Verified by an inverse gate against `afterWraps`.
+  let hoistCount = 0;
+  if (hoistTargets.length > 0) {
+    const h = hoistPropLiterals(afterWraps, hoistTargets);
+    if (!h.ok) return { ...base, ok: false, reason: `hoist: ${h.reason}` };
+    if (h.propsRewritten > 0) {
+      if (!verifyHoistResult(afterWraps, h.output, hoistTargets, h.addedImport)) {
+        return { ...base, ok: false, reason: "hoist not reversible to pre-hoist source" };
+      }
+      output = h.output;
+      hoistCount = h.propsRewritten;
+      inserted.push(...h.constsDeclared.map((c) => `editable() hoist → const ${c}`));
+    }
   }
 
   if (output === source) return base; // nothing actually changed
@@ -167,12 +203,10 @@ export async function prepareFileFull(
     return { ...base, ok: false, reason: `output failed to re-parse: ${(err as Error).message}` };
   }
 
-  // Gate 2: pure insertion (subsequence covers both tags and wraps).
-  if (!isSubsequence(source, output)) {
-    return { ...base, ok: false, reason: "output is not a pure insertion of the original" };
-  }
-
-  return { relPath, source, output, inserted, tagCount: items.length + wrapCount, ok: true };
+  return {
+    relPath, source, output, inserted,
+    tagCount: items.length + wrapCount + hoistCount, ok: true,
+  };
 }
 
 export interface CommitResult {

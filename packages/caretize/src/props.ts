@@ -56,7 +56,7 @@ export function propLocalName(childSource: string, prop: string): string | null 
 }
 
 /** Verify a child renders `prop`'s fields as text only (strict: no re-handoff). */
-async function childRendersPropAsText(
+export async function childRendersPropAsText(
   childSource: string,
   prop: string,
 ): Promise<boolean> {

@@ -22,8 +22,9 @@ import { classifyConstUsage } from "./usage.js";
 import { frontmatterRange, literalConstNames } from "./frontmatter.js";
 import { isIdentifier } from "./identifiers.js";
 
-const IMPORT_LINE = `import { editable } from '@caretcms/core';`;
-const IMPORT_RE =
+/** The `editable()` import line + a detector for it, shared with import-wrap.ts. */
+export const IMPORT_LINE = `import { editable } from '@caretcms/core';`;
+export const IMPORT_RE =
   /import\s*\{[^}]*\beditable\b[^}]*\}\s*from\s*['"]@caretcms\/core['"]/;
 
 /** A literal const the wrapper could target, before its provenance is known. */
@@ -34,10 +35,17 @@ export interface WrapCandidate {
   key: string;
 }
 
+/**
+ * How a wrap target was found:
+ *  - `loop`   — a same-file literal const iterated in the template (Tier-1)
+ *  - `prop`   — a literal const passed to a component that renders it as text (Tier-2)
+ *  - `import` — a default JSON/module import iterated in the template (Tier-3)
+ */
+export type WrapOrigin = "loop" | "prop" | "import";
+
 /** A safety-verified wrap target, tagged with how it was found. */
 export interface WrapTarget extends WrapCandidate {
-  /** A same-file loop (Tier-1) or a verified cross-file prop hand-off (Tier-2). */
-  origin: "loop" | "prop";
+  origin: WrapOrigin;
 }
 
 export interface WrapResult {
