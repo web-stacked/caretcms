@@ -57,6 +57,28 @@ export function mountTextEditors({
     if (isRich) el.classList.add('cms-rich');
     if (isLinkable) el.classList.add('cms-linkable');
 
+    // Plain-text fields render with HTML whitespace collapsing, but a
+    // contenteditable element exposes the raw source whitespace (newlines +
+    // indentation) verbatim. A paragraph authored across several indented
+    // source lines then shows large gaps in the editor that aren't in the
+    // final page — and, if edited, the raw whitespace leaks into the saved
+    // value. Collapse it once on mount so the editable text matches the
+    // rendered text and the snapshot/saved value stays clean. Rich fields are
+    // left alone — their whitespace is governed by their own HTML.
+    if (!isRich) {
+      if (isLinkable) {
+        const rawAttr = el.getAttribute('data-caret-raw') || '';
+        const collapsed = rawAttr.replace(/\s+/g, ' ').trim();
+        if (rawAttr !== collapsed) {
+          el.setAttribute('data-caret-raw', collapsed);
+          el.innerHTML = clientLinkify(collapsed);
+        }
+      } else {
+        const collapsed = (el.textContent || '').replace(/\s+/g, ' ').trim();
+        if (el.textContent !== collapsed) el.textContent = collapsed;
+      }
+    }
+
     el.addEventListener('focus', () => {
       if (isRich) {
         snapshots.set(el, el.innerHTML);

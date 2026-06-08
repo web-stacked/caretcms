@@ -66,6 +66,24 @@ function deepMerge(base: unknown, override: unknown): unknown {
   return override;
 }
 
+/**
+ * An imported asset (Astro `ImageMetadata`): `{ src, width, height, format }`.
+ * Its strings are machine identifiers (URL, format token) consumed by the image
+ * pipeline — NOT human-readable text. Stega-encoding them corrupts the value
+ * (e.g. `format: "jpg"` → `"jpg<invisible>"`, which `astro:assets` rejects), so
+ * these objects must pass through `encodeLeaves` untouched.
+ */
+function isAssetLike(value: unknown): boolean {
+  if (value === null || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.src === "string" &&
+    typeof v.width === "number" &&
+    typeof v.height === "number" &&
+    typeof v.format === "string"
+  );
+}
+
 /** Stega-encode every string leaf with its full `collection::id::field` key. */
 function encodeLeaves(
   value: unknown,
@@ -75,6 +93,11 @@ function encodeLeaves(
 ): unknown {
   if (typeof value === "string") {
     return stegaCombine(value, `${collection}::${id}::${fieldPath}`);
+  }
+  // Asset descriptors (ImageMetadata) carry identifiers, not editable text —
+  // leave them intact so the image pipeline receives a clean src/format.
+  if (isAssetLike(value)) {
+    return value;
   }
   if (Array.isArray(value)) {
     return value.map((v, i) =>
