@@ -30,6 +30,7 @@ interface Args {
   yes: boolean;
   minConfidence: Confidence;
   noImages: boolean;
+  rich: boolean;
   scope?: Scope;
   report?: string;
   restore: boolean;
@@ -40,7 +41,7 @@ interface Args {
 function parseArgs(argv: string[]): Args {
   const a: Args = {
     dryRun: false, yes: false, minConfidence: "high",
-    noImages: false, restore: false, help: false, version: false,
+    noImages: false, rich: false, restore: false, help: false, version: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -48,6 +49,7 @@ function parseArgs(argv: string[]): Args {
       case "--dry-run": a.dryRun = true; break;
       case "-y": case "--yes": a.yes = true; break;
       case "--no-images": a.noImages = true; break;
+      case "--rich": a.rich = true; break;
       case "--restore": a.restore = true; break;
       case "--help": case "-h": a.help = true; break;
       case "--version": case "-v": a.version = true; break;
@@ -87,6 +89,8 @@ Usage: caretize [path] [options]
   -y, --yes                auto-accept all suggestions at/above min-confidence
   --min-confidence <lvl>   high (default) | medium | low
   --no-images              skip <img> elements
+  --rich                   also tag mixed-content blocks whose markup is
+                           sanitizer-safe inline formatting (data-caret-rich)
   --scope <collection::id> override the inferred scope
   --report <file>          write a JSON report
   --restore                restore the most recent backup, then exit
@@ -97,7 +101,8 @@ Usage: caretize [path] [options]
 function tagLine(t: PlannedTag): string {
   const text = t.candidate.text.replace(/\s+/g, " ").slice(0, 50);
   const what = t.candidate.kind === "image" ? `src="${text}"` : `"${text}"`;
-  return `<${t.candidate.tag}> ${what}`;
+  const rich = t.candidate.rich ? " [rich]" : "";
+  return `<${t.candidate.tag}>${rich} ${what}`;
 }
 
 function ask(rl: ReturnType<typeof createInterface>, q: string): Promise<string> {
@@ -189,6 +194,7 @@ async function main(): Promise<void> {
   const planOpts: PlanOptions = {
     minConfidence: args.minConfidence,
     noImages: args.noImages,
+    rich: args.rich,
     scope: args.scope,
   };
 
@@ -265,6 +271,7 @@ async function main(): Promise<void> {
 
   if (args.dryRun) {
     printPlan(plans, wrapsByFile);
+    printHints(plans, args.rich);
     return;
   }
 
@@ -276,6 +283,36 @@ async function main(): Promise<void> {
   const wrapped = written.reduce((n, rel) => n + (sel.wraps.get(rel)?.length ?? 0), 0);
   const flagged = plans.reduce((n, p) => n + p.flags.length, 0);
   printSummary(written.length, changes, wrapped, flagged, backups.length > 0);
+  printHints(plans, args.rich);
+}
+
+/**
+ * Surface the actionable skips — the "why isn't this editable?" answers — so a
+ * skip reads as a checklist item, not a silent omission. Adapts to --rich:
+ * rich-eligible blocks become tags under --rich (so they won't appear here),
+ * while styled-inline blocks need allowedClasses or CSS regardless.
+ */
+function printHints(plans: FilePlan[], rich: boolean): void {
+  let eligible = 0;
+  let styled = 0;
+  for (const p of plans) {
+    for (const s of p.skipped) {
+      if (s.reason === "rich-eligible") eligible++;
+      else if (s.reason === "rich-unsafe-attrs") styled++;
+    }
+  }
+  if (eligible && !rich) {
+    process.stdout.write(
+      `\n↪ ${eligible} mixed-content block(s) are sanitizer-safe inline markup — re-run with --rich to make them editable.\n`,
+    );
+  }
+  if (styled) {
+    process.stdout.write(
+      `↪ ${styled} block(s) hold inline styling classes the rich-text sanitizer strips on save.\n` +
+        `  Move the styling to CSS (style the semantic tag), or bless the class via\n` +
+        `  caret({ allowedClasses: { tag: ["your-class"] } }) — then they're safe to tag.\n`,
+    );
+  }
 }
 
 function printPlan(plans: FilePlan[], wrapsByFile: Map<string, WrapTarget[]>): void {

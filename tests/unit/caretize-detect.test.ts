@@ -2,11 +2,11 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseAstro, walkTags } from "../../packages/caretize/src/parse";
-import { detect, type DetectResult } from "../../packages/caretize/src/detect";
+import { detect, type DetectOptions, type DetectResult } from "../../packages/caretize/src/detect";
 
-async function detectSource(source: string): Promise<DetectResult> {
+async function detectSource(source: string, options?: DetectOptions): Promise<DetectResult> {
   const ast = await parseAstro(source);
-  return detect(ast, walkTags);
+  return detect(ast, walkTags, options);
 }
 
 function fixture(name: string): string {
@@ -30,11 +30,33 @@ describe("detect — synthetic cases", () => {
     expect(r.skipped.some((s) => s.tag === "h1" && s.reason === "dynamic-content")).toBe(true);
   });
 
-  it("skips an element with mixed inline children (engine can't round-trip)", async () => {
+  it("marks sanitizer-safe inline mixed content as rich-eligible (no --rich)", async () => {
     const r = await detectSource('<main><p>see the <a href="/x">docs</a></p></main>');
-    expect(r.skipped.some((s) => s.tag === "p" && s.reason === "mixed-children")).toBe(true);
-    // ...but the inner <a> is itself a pure text leaf → a (medium) candidate
+    expect(r.skipped.some((s) => s.tag === "p" && s.reason === "rich-eligible")).toBe(true);
+    // not promoted, so the inner <a> is still its own (medium) candidate
     expect(r.candidates.some((c) => c.tag === "a" && c.text === "docs")).toBe(true);
+  });
+
+  it("promotes a sanitizer-safe inline block to a rich candidate under --rich", async () => {
+    const r = await detectSource('<main><p>see the <a href="/x">docs</a></p></main>', { rich: true });
+    const p = r.candidates.find((c) => c.tag === "p");
+    expect(p?.rich).toBe(true);
+    expect(p?.confidence).toBe("medium");
+    // the rich field owns its subtree — the inner <a> is NOT tagged separately
+    expect(r.candidates.some((c) => c.tag === "a")).toBe(false);
+    expect(r.skipped.some((s) => s.tag === "a" && s.reason === "inside-rich")).toBe(true);
+  });
+
+  it("refuses inline content carrying a stripped class as rich-unsafe-attrs", async () => {
+    const r = await detectSource('<main><p>hi <strong class="accent">there</strong></p></main>', { rich: true });
+    expect(r.skipped.some((s) => s.tag === "p" && s.reason === "rich-unsafe-attrs")).toBe(true);
+    expect(r.candidates.some((c) => c.tag === "p")).toBe(false);
+  });
+
+  it("still skips genuine block/component mixed content as mixed-children", async () => {
+    const r = await detectSource("<main><p>hi <span><em>x</em></span> there</p></main>", { rich: true });
+    // <span> is not a sanitizer-allowed inline tag → not promotable
+    expect(r.skipped.some((s) => s.tag === "p" && s.reason === "mixed-children")).toBe(true);
   });
 
   it("never tags components, and tags <img> by src", async () => {

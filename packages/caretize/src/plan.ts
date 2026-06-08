@@ -49,6 +49,8 @@ export interface PlanOptions {
   noImages?: boolean;
   /** Override the derived scope, e.g. { collection: "pages", id: "about" }. */
   scope?: Scope;
+  /** Promote sanitizer-safe mixed-content blocks to data-caret-rich (--rich). */
+  rich?: boolean;
 }
 
 const RANK: Record<Confidence, number> = { high: 3, medium: 2, low: 1 };
@@ -77,7 +79,7 @@ export async function planFile(
 ): Promise<FilePlan> {
   const minRank = RANK[options.minConfidence ?? "high"];
   const ast = root ?? (await parseAstro(source));
-  const { candidates, skipped, flags } = detect(ast, walkTags);
+  const { candidates, skipped, flags } = detect(ast, walkTags, { rich: options.rich });
 
   // Resolve scope (explicit override wins; otherwise derive from path).
   let scope: Scope;
@@ -92,8 +94,11 @@ export async function planFile(
   }
 
   // Filter candidates by confidence + image policy, preserving document order.
+  // Rich candidates only exist when --rich was requested, so they're always
+  // accepted (the confidence floor doesn't gate the explicit opt-in).
   const accepted = candidates.filter((c) => {
     if (options.noImages && c.kind === "image") return false;
+    if (c.rich) return true;
     return RANK[c.confidence] >= minRank;
   });
 
@@ -102,13 +107,16 @@ export async function planFile(
   const tags: PlannedTag[] = accepted.map((candidate) => {
     const field = fields.get(candidate)!;
     const binding = `${scope.collection}::${scope.id}::${field}`;
+    const attribute = candidate.rich
+      ? `data-caret="${binding}" data-caret-rich`
+      : `data-caret="${binding}"`;
     return {
       candidate,
       collection: scope.collection,
       id: scope.id,
       field,
       binding,
-      attribute: `data-caret="${binding}"`,
+      attribute,
       startOffset: candidate.startOffset,
       confidence: candidate.confidence,
     };
