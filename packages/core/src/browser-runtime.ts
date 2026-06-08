@@ -184,14 +184,38 @@ const RICH_ALLOWED_ATTRS: Record<string, Set<string>> = {
 
 const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/)/i;
 
+/**
+ * Per-tag class allowlist matcher. MUST stay identical to classAllowed() in
+ * runtime/sanitize-html.ts and static/cms/editor/sanitize.js.
+ */
+function classAllowed(cls: string, patterns: readonly string[]): boolean {
+  for (const p of patterns) {
+    if (p === "*") return true;
+    if (p.endsWith("*")) {
+      if (cls.startsWith(p.slice(0, -1))) return true;
+    } else if (cls === p) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function sanitizeHtmlBrowser(html: string): string {
   if (!html) return "";
+  const allowedClasses =
+    (typeof window !== "undefined"
+      ? (window as { __CARET__?: { allowedClasses?: Record<string, readonly string[]> } }).__CARET__
+          ?.allowedClasses
+      : undefined) ?? null;
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
-  sanitizeNode(doc.body);
+  sanitizeNode(doc.body, allowedClasses);
   return doc.body.innerHTML;
 }
 
-function sanitizeNode(parent: Node): void {
+function sanitizeNode(
+  parent: Node,
+  allowedClasses: Record<string, readonly string[]> | null,
+): void {
   const children = Array.from(parent.childNodes);
 
   for (const node of children) {
@@ -209,13 +233,28 @@ function sanitizeNode(parent: Node): void {
       const frag = document.createDocumentFragment();
       while (el.firstChild) frag.appendChild(el.firstChild);
       parent.replaceChild(frag, el);
-      sanitizeNode(parent);
+      sanitizeNode(parent, allowedClasses);
       return;
     }
 
     const allowed = RICH_ALLOWED_ATTRS[tag];
+    const classPatterns = allowedClasses ? allowedClasses[tag] : undefined;
     const attrs = Array.from(el.attributes);
     for (const attr of attrs) {
+      // class is gated by the per-tag allowlist, not RICH_ALLOWED_ATTRS
+      if (attr.name === "class") {
+        if (!classPatterns) {
+          el.removeAttribute("class");
+          continue;
+        }
+        const kept = attr.value
+          .split(/\s+/)
+          .filter((c) => c !== "" && classAllowed(c, classPatterns))
+          .join(" ");
+        if (kept) el.setAttribute("class", kept);
+        else el.removeAttribute("class");
+        continue;
+      }
       if (!allowed || !allowed.has(attr.name)) {
         el.removeAttribute(attr.name);
       }
@@ -232,7 +271,7 @@ function sanitizeNode(parent: Node): void {
       }
     }
 
-    sanitizeNode(el);
+    sanitizeNode(el, allowedClasses);
   }
 }
 
