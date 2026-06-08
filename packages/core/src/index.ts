@@ -22,6 +22,7 @@ export type {
   RuntimeProviderReference,
 } from "./types.js";
 export { FilesystemAdapter } from "./runtime/storage/filesystem-adapter.js";
+export { MarkdownAdapter } from "./runtime/storage/markdown-adapter.js";
 export { InMemoryAdapter } from "./runtime/storage/in-memory-adapter.js";
 export { FilesystemUploadHandler } from "./runtime/storage/filesystem-upload-handler.js";
 export { bindEntry } from "./runtime/bind.js";
@@ -34,6 +35,7 @@ const RESOLVED_VIRTUAL_PROVIDER_MODULE_ID = `\0${VIRTUAL_PROVIDER_MODULE_ID}`;
 const VIRTUAL_SCHEMAS_MODULE_ID = "virtual:caretcms/schemas";
 const RESOLVED_VIRTUAL_SCHEMAS_MODULE_ID = `\0${VIRTUAL_SCHEMAS_MODULE_ID}`;
 const FILESYSTEM_STORAGE_ENTRYPOINT = "@caretcms/core/providers/storage/filesystem";
+const MARKDOWN_STORAGE_ENTRYPOINT = "@caretcms/core/providers/storage/markdown";
 const LOCAL_UPLOADS_ENTRYPOINT = "@caretcms/core/providers/uploads/local";
 
 type ProviderDefinitionOptions = {
@@ -176,6 +178,17 @@ export function filesystemStorage(options?: {
   return defineStorageProvider({
     entrypoint: FILESYSTEM_STORAGE_ENTRYPOINT,
     exportName: "filesystemStorageProvider",
+    options,
+  });
+}
+
+export function markdownStorage(options?: {
+  contentRoot?: string;
+  metaRoot?: string;
+}): CaretStorageProvider {
+  return defineStorageProvider({
+    entrypoint: MARKDOWN_STORAGE_ENTRYPOINT,
+    exportName: "markdownStorageProvider",
     options,
   });
 }
