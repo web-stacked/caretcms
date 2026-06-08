@@ -118,7 +118,9 @@ export async function onRequest(
       let html = await inner.text();
       bodyConsumed = true;
       if (html.includes("data-caret")) {
-        html = await rewriteCaretAttributes(html, adapter);
+        html = await rewriteCaretAttributes(html, adapter, {
+          allowedClasses: services.allowedClasses,
+        });
         rewritten = true;
       }
       // Backstop: strip stega metadata from published output so non-editors

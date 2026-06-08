@@ -16,23 +16,51 @@ const ALLOWED_ATTRS = {
 const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/)/i;
 
 /**
+ * Does `cls` match any pattern? (exact, `prefix-*`, or lone `*`)
+ * MUST stay identical to classAllowed() in src/runtime/sanitize-html.ts.
+ * @param {string} cls
+ * @param {readonly string[]} patterns
+ * @returns {boolean}
+ */
+function classAllowed(cls, patterns) {
+  for (const p of patterns) {
+    if (p === '*') return true;
+    if (p.endsWith('*')) {
+      if (cls.startsWith(p.slice(0, -1))) return true;
+    } else if (cls === p) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Sanitize an HTML string, keeping only allowed inline tags and attributes.
+ * Per-tag class allowlist comes from `options.allowedClasses`, falling back to
+ * `window.__CARET__.allowedClasses` so the client matches the server config.
  * @param {string} html
+ * @param {{ allowedClasses?: Record<string, readonly string[]> }} [options]
  * @returns {string}
  */
-export function sanitizeHtml(html) {
+export function sanitizeHtml(html, options) {
   if (!html) return '';
 
+  const allowedClasses =
+    options?.allowedClasses ??
+    (typeof window !== 'undefined' ? window.__CARET__?.allowedClasses : undefined) ??
+    null;
+
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
-  sanitizeNode(doc.body);
+  sanitizeNode(doc.body, allowedClasses);
   return doc.body.innerHTML;
 }
 
 /**
  * Recursively sanitize a DOM node in place.
  * @param {Node} parent
+ * @param {Record<string, readonly string[]> | null} allowedClasses
  */
-function sanitizeNode(parent) {
+function sanitizeNode(parent, allowedClasses) {
   const children = Array.from(parent.childNodes);
 
   for (const node of children) {
@@ -57,14 +85,29 @@ function sanitizeNode(parent) {
       while (el.firstChild) frag.appendChild(el.firstChild);
       parent.replaceChild(frag, el);
       // Re-sanitize the newly promoted children
-      sanitizeNode(parent);
+      sanitizeNode(parent, allowedClasses);
       return;
     }
 
     // Strip disallowed attributes
     const allowed = ALLOWED_ATTRS[tag];
+    const classPatterns = allowedClasses ? allowedClasses[tag] : undefined;
     const attrs = Array.from(el.attributes);
     for (const attr of attrs) {
+      // class is gated by the per-tag allowlist, not ALLOWED_ATTRS
+      if (attr.name === 'class') {
+        if (!classPatterns) {
+          el.removeAttribute('class');
+          continue;
+        }
+        const kept = attr.value
+          .split(/\s+/)
+          .filter((c) => c !== '' && classAllowed(c, classPatterns))
+          .join(' ');
+        if (kept) el.setAttribute('class', kept);
+        else el.removeAttribute('class');
+        continue;
+      }
       if (!allowed || !allowed.has(attr.name)) {
         el.removeAttribute(attr.name);
       }
@@ -84,6 +127,6 @@ function sanitizeNode(parent) {
     }
 
     // Recurse into children
-    sanitizeNode(el);
+    sanitizeNode(el, allowedClasses);
   }
 }

@@ -4,11 +4,14 @@ import * as runtimeProviders from "virtual:caretcms/providers";
 type ProviderModule = {
   loadConfiguredStorage?: () => Promise<StorageAdapter | null>;
   loadConfiguredUploadHandler?: () => Promise<UploadHandler | null>;
+  allowedClasses?: Record<string, string[]>;
 };
 
 type RuntimeServices = {
   adapter: StorageAdapter;
   uploadHandler: UploadHandler;
+  /** Per-tag class allowlist for rich-text sanitization (from caret() config). */
+  allowedClasses: Record<string, string[]>;
 };
 
 let runtimeServicesPromise: Promise<RuntimeServices> | null = null;
@@ -51,6 +54,8 @@ export async function getRuntimeServices(): Promise<RuntimeServices> {
       ([adapter, uploadHandler]) => ({
         adapter,
         uploadHandler,
+        allowedClasses:
+          testServicesOverride?.allowedClasses ?? providerModule?.allowedClasses ?? {},
       }),
     );
     inflight.catch(() => {

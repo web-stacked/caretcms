@@ -197,6 +197,7 @@ function getNestedValue(
 export async function rewriteCaretAttributes(
   html: string,
   adapter: StorageAdapter,
+  options?: { allowedClasses?: Record<string, readonly string[]> },
 ): Promise<string> {
   // 1. Find all data-caret bindings and collect unique entry keys
   const bindings: Binding[] = [];
@@ -305,7 +306,7 @@ export async function rewriteCaretAttributes(
         const before = binding.fullMatch.slice(0, openTagEnd);
         const after = binding.fullMatch.slice(closeTagStart);
         const injected = binding.isRich
-          ? sanitizeHtml(storedValue)
+          ? sanitizeHtml(storedValue, { allowedClasses: options?.allowedClasses })
           : escapeHtml(storedValue);
         const newMatch = before + injected + after;
 

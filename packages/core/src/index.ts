@@ -80,6 +80,20 @@ type BaseCaretOptions = {
    */
   schemas?: Record<string, JsonSchemaDefinition>;
   /**
+   * Per-tag class allowlist for rich-text (`data-caret-rich`) fields. By default
+   * the rich-text sanitizer strips every `class` (keeping only semantic inline
+   * tags), so design-system classes inside editable content are lost on save.
+   * Use this to bless specific classes so they round-trip unchanged.
+   *
+   * Keys are tag names, values are allowed class names. A pattern ending in `*`
+   * is a prefix match (`"text-*"` allows `text-primary`); a lone `"*"` allows any
+   * class on that tag. Example: `{ strong: ["text-theme-text-primary"], a: ["cta"] }`.
+   *
+   * Prefer styling semantic tags via CSS over allowlisting classes; reach for
+   * this only when a specific class genuinely must live inside editable content.
+   */
+  allowedClasses?: Record<string, string[]>;
+  /**
    * Studio chrome theme. Defaults to 'studio' — a neutral dark chrome that
    * matches the inline editor's "click to edit" blue. Currently the only
    * built-in preset; pass `{ tokens: { ... } }` to override individual
@@ -128,6 +142,7 @@ interface ResolvedCaretOptions {
   enableInlineEditor: boolean;
   cloud: CaretCloudOptions | null;
   schemas: Record<string, JsonSchemaDefinition>;
+  allowedClasses: Record<string, string[]>;
   theme: ResolvedThemeConfig;
   brand: ResolvedBrandConfig;
 }
@@ -275,6 +290,7 @@ function resolveCaretOptions(options: CaretOptions): ResolvedCaretOptions {
     enableInlineEditor: options.enableInlineEditor ?? mode !== "cloud",
     cloud,
     schemas: options.schemas ?? {},
+    allowedClasses: options.allowedClasses ?? {},
     theme: resolveTheme(options.theme),
     brand: resolveBrand(options.brand),
   };
@@ -310,6 +326,7 @@ function createRuntimeProvidersPlugin(resolved: ResolvedCaretOptions) {
   const source = [
     buildProviderLoader("loadConfiguredStorage", resolved.storage),
     buildProviderLoader("loadConfiguredUploadHandler", resolved.uploads),
+    `export const allowedClasses = ${JSON.stringify(resolved.allowedClasses)};`,
   ].join("\n\n");
 
   return {
@@ -437,6 +454,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           mountPath: resolved.mountPath,
           apiBasePath: resolved.apiBasePath,
           cloud: resolved.cloud ?? undefined,
+          allowedClasses: resolved.allowedClasses,
         };
 
         if (resolved.mode === "cloud") {

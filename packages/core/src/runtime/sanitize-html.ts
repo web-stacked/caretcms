@@ -18,8 +18,44 @@ const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/)/i;
 const TOKEN_RE = /<\/?([a-zA-Z][\w-]*)\b([^>]*)\/?>|[^<]+/g;
 const ATTR_RE = /([a-zA-Z][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))/g;
 
-export function sanitizeHtml(html: string): string {
+/**
+ * Per-tag class allowlist. Keys are tag names, values are allowed class names.
+ * A pattern ending in `*` is a prefix match (`text-*` allows `text-primary`);
+ * a lone `*` allows any class on that tag. Anything not matched is dropped.
+ * Mirrors the `allowedClasses` option of the `sanitize-html` package, and MUST
+ * stay identical to the client matcher in static/cms/editor/sanitize.js.
+ */
+export type AllowedClasses = Record<string, readonly string[]>;
+
+export interface SanitizeOptions {
+  allowedClasses?: AllowedClasses;
+}
+
+/** Does `cls` match any pattern in `patterns`? (exact, `prefix-*`, or lone `*`) */
+function classAllowed(cls: string, patterns: readonly string[]): boolean {
+  for (const p of patterns) {
+    if (p === "*") return true;
+    if (p.endsWith("*")) {
+      if (cls.startsWith(p.slice(0, -1))) return true;
+    } else if (cls === p) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Filter a raw class attribute value to the tag's allowed patterns. */
+function filterClasses(value: string, patterns: readonly string[]): string {
+  return value
+    .split(/\s+/)
+    .filter((c) => c !== "" && classAllowed(c, patterns))
+    .join(" ");
+}
+
+export function sanitizeHtml(html: string, options?: SanitizeOptions): string {
   if (!html) return "";
+
+  const allowedClasses = options?.allowedClasses;
 
   let result = "";
   TOKEN_RE.lastIndex = 0;
@@ -47,9 +83,10 @@ export function sanitizeHtml(html: string): string {
 
     // Build sanitized opening tag
     const allowedAttrSet = ALLOWED_ATTRS[tag];
+    const classPatterns = allowedClasses?.[tag];
     let attrs = "";
 
-    if (allowedAttrSet && rawAttrs) {
+    if ((allowedAttrSet || classPatterns) && rawAttrs) {
       ATTR_RE.lastIndex = 0;
       let attrMatch: RegExpExecArray | null;
 
@@ -57,7 +94,15 @@ export function sanitizeHtml(html: string): string {
         const attrName = attrMatch[1].toLowerCase();
         const attrValue = attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? "";
 
-        if (!allowedAttrSet.has(attrName)) continue;
+        // class is gated by the per-tag allowlist, not ALLOWED_ATTRS
+        if (attrName === "class") {
+          if (!classPatterns) continue;
+          const kept = filterClasses(attrValue, classPatterns);
+          if (kept) attrs += ` class="${escapeAttr(kept)}"`;
+          continue;
+        }
+
+        if (!allowedAttrSet || !allowedAttrSet.has(attrName)) continue;
 
         if (attrName === "href") {
           if (!SAFE_HREF_RE.test(attrValue)) continue;
