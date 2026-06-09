@@ -53,54 +53,69 @@ export function sanitizeHtml(html: string, options?: SanitizeOptions): string {
     }
 
     // Build sanitized opening tag
-    const allowedAttrSet = ALLOWED_ATTRS[tag];
-    const classPatterns = allowedClasses?.[tag];
-    let attrs = "";
-
-    if ((allowedAttrSet || classPatterns) && rawAttrs) {
-      ATTR_RE.lastIndex = 0;
-      let attrMatch: RegExpExecArray | null;
-
-      while ((attrMatch = ATTR_RE.exec(rawAttrs)) !== null) {
-        const attrName = attrMatch[1].toLowerCase();
-        const attrValue = attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? "";
-
-        // class is gated by the per-tag allowlist, not ALLOWED_ATTRS
-        if (attrName === "class") {
-          if (!classPatterns) continue;
-          const kept = filterClasses(attrValue, classPatterns);
-          if (kept) attrs += ` class="${escapeAttr(kept)}"`;
-          continue;
-        }
-
-        if (!allowedAttrSet || !allowedAttrSet.has(attrName)) continue;
-
-        if (attrName === "href") {
-          if (!SAFE_HREF_RE.test(attrValue)) continue;
-        }
-
-        attrs += ` ${attrName}="${escapeAttr(attrValue)}"`;
-      }
-    }
+    let attrs = sanitizeAttributes(rawAttrs, ALLOWED_ATTRS[tag], allowedClasses?.[tag]);
 
     // Force security attrs on external <a> links
-    if (tag === "a") {
-      const hrefMatch = /\bhref\s*=\s*"([^"]*)"/i.exec(attrs);
-      const href = hrefMatch?.[1] ?? "";
-      if (href && /^https?:/i.test(href)) {
-        if (!attrs.includes("target=")) {
-          attrs += ` target="_blank"`;
-        }
-        if (!attrs.includes("rel=")) {
-          attrs += ` rel="noopener noreferrer"`;
-        }
-      }
-    }
+    if (tag === "a") attrs = enforceLinkSafety(attrs);
 
     result += isSelfClosing ? `<${tag}${attrs} />` : `<${tag}${attrs}>`;
   }
 
   return result;
+}
+
+/**
+ * Sanitize one opening tag's raw attribute text into a ` name="value"…` string.
+ * Keeps only attributes in `allowedAttrSet` (with href gated by SAFE_HREF_RE),
+ * plus `class` filtered to `classPatterns` (class is gated separately, by the
+ * per-tag allowedClasses — never by ALLOWED_ATTRS). Everything else is dropped.
+ */
+function sanitizeAttributes(
+  rawAttrs: string,
+  allowedAttrSet: Set<string> | undefined,
+  classPatterns: readonly string[] | undefined,
+): string {
+  if ((!allowedAttrSet && !classPatterns) || !rawAttrs) return "";
+
+  let attrs = "";
+  ATTR_RE.lastIndex = 0;
+  let attrMatch: RegExpExecArray | null;
+
+  while ((attrMatch = ATTR_RE.exec(rawAttrs)) !== null) {
+    const attrName = attrMatch[1].toLowerCase();
+    const attrValue = attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? "";
+
+    // class is gated by the per-tag allowlist, not ALLOWED_ATTRS
+    if (attrName === "class") {
+      if (!classPatterns) continue;
+      const kept = filterClasses(attrValue, classPatterns);
+      if (kept) attrs += ` class="${escapeAttr(kept)}"`;
+      continue;
+    }
+
+    if (!allowedAttrSet || !allowedAttrSet.has(attrName)) continue;
+
+    if (attrName === "href") {
+      if (!SAFE_HREF_RE.test(attrValue)) continue;
+    }
+
+    attrs += ` ${attrName}="${escapeAttr(attrValue)}"`;
+  }
+
+  return attrs;
+}
+
+/**
+ * Force `target="_blank"` + `rel="noopener noreferrer"` onto external (http/https)
+ * `<a>` links, without clobbering values the author already set. Relative,
+ * mailto:, and tel: links are left untouched.
+ */
+function enforceLinkSafety(attrs: string): string {
+  const href = /\bhref\s*=\s*"([^"]*)"/i.exec(attrs)?.[1] ?? "";
+  if (!href || !/^https?:/i.test(href)) return attrs;
+  if (!attrs.includes("target=")) attrs += ` target="_blank"`;
+  if (!attrs.includes("rel=")) attrs += ` rel="noopener noreferrer"`;
+  return attrs;
 }
 
 function escapeText(str: string): string {
