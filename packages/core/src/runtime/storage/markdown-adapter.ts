@@ -4,8 +4,9 @@ import type { CollectionMetadata, EntryData, HistoryEntry, StorageAdapter } from
 import { atomicWrite } from "./atomic-write.js";
 import { assertFilesystemRuntime } from "./fs-runtime.js";
 import { SidecarMetaStore, listCollectionDirs } from "./sidecar-meta-store.js";
-import { COLLECTION_NAME_RE, ENTRY_ID_RE } from "./id-contracts.js";
+import { COLLECTION_NAME_RE, ENTRY_ID_RE, assertSafeEditorId } from "./id-contracts.js";
 import { parseFrontmatter, serializeFrontmatter } from "./frontmatter-codec.js";
+import { FilesystemAdapter } from "./filesystem-adapter.js";
 
 // .md is preferred over .mdx when both exist for the same id (simpler format,
 // and an MDX body is more fragile). Order matters: first match wins on read.
@@ -26,19 +27,34 @@ const EXTENSIONS = [".md", ".mdx"] as const;
  *  - Flat collection directories only (no nested-slug subdirectories).
  *  - Filenames whose stem fails the entry-id contract are ignored.
  *  - `deleteCollection` never deletes source content — only sidecar state.
- *  - `makeSessionOverlay` is intentionally not implemented: write-isolated demo
- *    overlays make no sense for a source-file-backed adapter (mirrors
- *    `FilesystemAdapter`, which also omits it).
+ *  - `makeSessionOverlay` is intentionally not implemented: ephemeral demo
+ *    overlays make no sense for a source-file-backed adapter. `makeEditorOverlay`
+ *    (persistent drafts) IS supported — it delegates to a JSON-backed
+ *    `FilesystemAdapter` under `.caret/drafts/`, so the source `.md` files stay
+ *    pristine until an explicit Publish flushes a draft back in.
  */
 export class MarkdownAdapter implements StorageAdapter {
   private readonly contentRoot: string;
   private readonly meta: SidecarMetaStore;
+  private readonly draftsRoot: string;
 
-  constructor(options?: { contentRoot?: string; metaRoot?: string }) {
+  constructor(options?: { contentRoot?: string; metaRoot?: string; draftsRoot?: string }) {
     assertFilesystemRuntime();
     this.contentRoot = options?.contentRoot ?? join(process.cwd(), "src", "content");
     const metaRoot = options?.metaRoot ?? join(process.cwd(), ".caretcms");
     this.meta = new SidecarMetaStore({ metaRoot });
+    this.draftsRoot = options?.draftsRoot ?? join(process.cwd(), ".caret", "drafts");
+  }
+
+  /** A persistent draft overlay for one editor. Drafts are JSON-backed (a
+   *  `FilesystemAdapter`) so editing a markdown collection's frontmatter never
+   *  touches the source `.md` until Publish. Same id → same on-disk store. */
+  async makeEditorOverlay(editorId: string): Promise<StorageAdapter> {
+    const safe = assertSafeEditorId(editorId);
+    return new FilesystemAdapter({
+      dataRoot: join(this.draftsRoot, safe, "data"),
+      metaRoot: join(this.draftsRoot, safe, "meta"),
+    });
   }
 
   private collectionDir(collection: string): string {

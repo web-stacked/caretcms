@@ -1,10 +1,10 @@
 import { mkdir, readFile, readdir, rm, unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { CollectionMetadata, EntryData, HistoryEntry, StorageAdapter } from "../../types.js";
 import { atomicWrite } from "./atomic-write.js";
 import { assertFilesystemRuntime } from "./fs-runtime.js";
 import { SidecarMetaStore, listCollectionDirs } from "./sidecar-meta-store.js";
-import { COLLECTION_NAME_RE } from "./id-contracts.js";
+import { COLLECTION_NAME_RE, assertSafeEditorId } from "./id-contracts.js";
 
 function asObjectRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -19,16 +19,30 @@ function asObjectRecord(value: unknown): Record<string, unknown> | null {
 export class FilesystemAdapter implements StorageAdapter {
   private readonly dataRoot: string;
   private readonly meta: SidecarMetaStore;
+  private readonly draftsRoot: string;
 
-  constructor(options?: { dataRoot?: string; metaRoot?: string }) {
+  constructor(options?: { dataRoot?: string; metaRoot?: string; draftsRoot?: string }) {
     assertFilesystemRuntime();
     this.dataRoot = options?.dataRoot ?? join(process.cwd(), ".caret", "data");
     const metaRoot = options?.metaRoot ?? join(process.cwd(), ".caretcms");
     this.meta = new SidecarMetaStore({ metaRoot });
+    // Per-editor draft overlays live as sibling JSON stores under `<.caret>/drafts/`.
+    this.draftsRoot = options?.draftsRoot ?? join(dirname(this.dataRoot), "drafts");
   }
 
   private collectionDir(collection: string): string {
     return join(this.dataRoot, collection);
+  }
+
+  /** A persistent draft overlay for one editor, as a sibling JSON store under
+   *  `<.caret>/drafts/<editorId>/`. Same id → same on-disk store. */
+  async makeEditorOverlay(editorId: string): Promise<StorageAdapter> {
+    const safe = assertSafeEditorId(editorId);
+    return new FilesystemAdapter({
+      dataRoot: join(this.draftsRoot, safe, "data"),
+      metaRoot: join(this.draftsRoot, safe, "meta"),
+      draftsRoot: join(this.draftsRoot, safe, "nested-drafts"),
+    });
   }
 
   // --- Collections ---

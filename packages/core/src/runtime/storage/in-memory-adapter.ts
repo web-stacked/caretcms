@@ -7,6 +7,18 @@ export class InMemoryAdapter implements StorageAdapter {
   private revisions = new Map<string, number>();
   private history = new Map<string, HistoryEntry[]>();
   private collectionMeta = new Map<string, CollectionMetadata>();
+  private editorOverlays = new Map<string, InMemoryAdapter>();
+
+  /** A persistent per-editor overlay store. Same id → same store, so a draft
+   *  survives across requests within this process. */
+  async makeEditorOverlay(editorId: string): Promise<StorageAdapter> {
+    let overlay = this.editorOverlays.get(editorId);
+    if (!overlay) {
+      overlay = new InMemoryAdapter();
+      this.editorOverlays.set(editorId, overlay);
+    }
+    return overlay;
+  }
 
   private revisionKey(collection: string, id: string): string {
     return `${collection}::${id}`;
