@@ -17,6 +17,8 @@ describe("parseArgs", () => {
     expect(parseArgs(["--yes"]).yes).toBe(true);
     expect(parseArgs(["--no-images"]).noImages).toBe(true);
     expect(parseArgs(["--no-props"]).noProps).toBe(true);
+    expect(parseArgs(["--bind-collections"]).bindCollections).toBe(true);
+    expect(parseArgs([]).bindCollections).toBe(false);
     expect(parseArgs(["--rich"]).rich).toBe(true);
     expect(parseArgs(["--restore"]).restore).toBe(true);
     expect(parseArgs(["-h"]).help).toBe(true);

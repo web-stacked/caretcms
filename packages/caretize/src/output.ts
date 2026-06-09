@@ -7,6 +7,9 @@
 import type { FilePlan, PlannedTag } from "./plan.js";
 import type { WrapTarget } from "./wrap.js";
 import type { PropHoistTarget } from "./prop-hoist.js";
+import type { CollectionBindTarget } from "./bind-collection.js";
+
+type BindsByFile = Map<string, CollectionBindTarget[]>;
 
 /** One-line description of a tag candidate, e.g. `<h1> "Hello"` or `<img> src="…"`. */
 export function tagLine(t: PlannedTag): string {
@@ -22,13 +25,16 @@ export function formatScanSummary(
   plans: FilePlan[],
   wrapsByFile: Map<string, WrapTarget[]>,
   hoistsByFile: Map<string, PropHoistTarget[]>,
+  bindsByFile: BindsByFile = new Map(),
 ): string {
   const candidateTotal = plans.reduce((n, p) => n + p.tags.length, 0);
   const wrapTotal = [...wrapsByFile.values()].reduce((n, t) => n + t.length, 0);
   const hoistTotal = [...hoistsByFile.values()].reduce(
     (n, ts) => n + ts.reduce((m, t) => m + t.props.length, 0), 0,
   );
-  return `✓ ${fileCount} .astro files · ${candidateTotal} tag candidate(s) · ${wrapTotal} wrap target(s) · ${hoistTotal} prop(s)\n`;
+  const bindTotal = [...bindsByFile.values()].reduce((n, b) => n + b.length, 0);
+  const bindPart = bindTotal ? ` · ${bindTotal} collection binding(s)` : "";
+  return `✓ ${fileCount} .astro files · ${candidateTotal} tag candidate(s) · ${wrapTotal} wrap target(s) · ${hoistTotal} prop(s)${bindPart}\n`;
 }
 
 /** The full `--dry-run` plan dump, ending with the "nothing written" footer. */
@@ -36,12 +42,14 @@ export function formatPlan(
   plans: FilePlan[],
   wrapsByFile: Map<string, WrapTarget[]>,
   hoistsByFile: Map<string, PropHoistTarget[]>,
+  bindsByFile: BindsByFile = new Map(),
 ): string {
   let out = "";
   for (const plan of plans) {
     const wraps = wrapsByFile.get(plan.relPath) ?? [];
     const hoists = hoistsByFile.get(plan.relPath) ?? [];
-    if (plan.tags.length === 0 && plan.flags.length === 0 && wraps.length === 0 && hoists.length === 0) continue;
+    const binds = bindsByFile.get(plan.relPath) ?? [];
+    if (plan.tags.length === 0 && plan.flags.length === 0 && wraps.length === 0 && hoists.length === 0 && binds.length === 0) continue;
     out += `\n${plan.relPath}${plan.scopeSkip ? `  (skipped: ${plan.scopeSkip})` : ""}\n`;
     for (const t of plan.tags) out += `  + data-caret="${t.binding}"  ${tagLine(t)}\n`;
     for (const w of wraps) {
@@ -53,6 +61,9 @@ export function formatPlan(
       for (const p of h.props) {
         out += `  ⤴ editable("${p.key}")  hoist <${h.componentName}> ${p.propName}${p.isRich ? " [rich]" : ""}\n`;
       }
+    }
+    for (const b of binds) {
+      out += `  ⟳ data-caret  bind <${b.tag}> ${b.collection}::*::${b.field}  (per-row collection loop)\n`;
     }
     for (const f of plan.flags) out += `  ⚠ ${f.method}() loop — consider a dynamic collection\n`;
   }
@@ -68,11 +79,13 @@ export function formatSummary(
   hoisted: number,
   flagged: number,
   hadBackups: boolean,
+  bound = 0,
 ): string {
   let out = `\n───────────────────────────────\n`;
   out += `✓ ${changes} change(s) across ${files} file(s)\n`;
   if (wrapped) out += `✓ ${wrapped} data array(s) wrapped with editable()\n`;
   if (hoisted) out += `✓ ${hoisted} component prop(s) hoisted to editable()\n`;
+  if (bound) out += `✓ ${bound} collection field(s) bound to data-caret\n`;
   if (flagged) out += `⚠ ${flagged} loop(s) flagged → consider dynamic collections\n`;
   if (hadBackups) out += `⤺ backups in .caret/.caretize-bak/ (caretize --restore to undo)\n`;
   out += `───────────────────────────────\nNext: npm run dev → open your page → click to edit\n`;
