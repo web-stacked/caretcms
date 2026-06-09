@@ -1,8 +1,14 @@
 import { defineConfig } from "astro/config";
 import node from "@astrojs/node";
 import caret, { markdownStorage, localUploads } from "@caretcms/core";
+import { schemaFromZod } from "@caretcms/zod";
 
 import { schemas } from "./src/caret.schemas.mjs";
+import { blogSchema } from "./src/schemas.mjs";
+
+// `blog` is derived from its Zod schema (the same object content.config.ts uses)
+// instead of being hand-written a second time — single source of truth.
+const allSchemas = { ...schemas, blog: schemaFromZod(blogSchema) };
 
 // A robust editorial site that exercises the full CaretCMS + caretize surface:
 //   - markdownStorage: every collection is a real .md file under src/content,
@@ -19,7 +25,7 @@ export default defineConfig({
       brand: { name: "Atlas & Co." },
       storage: markdownStorage({ contentRoot: "./src/content" }),
       uploads: localUploads({ uploadsDir: "./public/uploads" }),
-      schemas,
+      schemas: allSchemas,
       allowedClasses: {
         a: ["link"],
         strong: ["accent"],
