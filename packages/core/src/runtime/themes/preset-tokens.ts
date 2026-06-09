@@ -41,7 +41,7 @@ const STUDIO: ThemeTokens = {
   "--font-theme-heading": "Inter, system-ui, -apple-system, 'Segoe UI', sans-serif",
 };
 
-export const PRESET_TOKENS: Record<string, ThemeTokens> = {
+const PRESET_TOKENS: Record<string, ThemeTokens> = {
   studio: STUDIO,
 };
 

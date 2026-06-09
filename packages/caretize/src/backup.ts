@@ -20,12 +20,12 @@ import { dirname, join, resolve } from "node:path";
 
 const BAK_DIR = join(".caret", ".caretize-bak");
 
-export function backupRoot(rootDir: string): string {
+function backupRoot(rootDir: string): string {
   return resolve(rootDir, BAK_DIR);
 }
 
 /** Absolute backup path for a project-relative file at a given timestamp. */
-export function backupPathFor(rootDir: string, relPath: string, stamp: string): string {
+function backupPathFor(rootDir: string, relPath: string, stamp: string): string {
   return join(backupRoot(rootDir), `${relPath}.${stamp}.bak`);
 }
 
@@ -70,7 +70,7 @@ export function listBackups(rootDir: string): BackupEntry[] {
 }
 
 /** The most recent timestamp present in the backup dir, or null. */
-export function latestStamp(rootDir: string): string | null {
+function latestStamp(rootDir: string): string | null {
   const stamps = listBackups(rootDir).map((b) => b.stamp);
   if (stamps.length === 0) return null;
   return stamps.sort().at(-1) ?? null;

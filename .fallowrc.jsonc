@@ -1,0 +1,42 @@
+{
+  // Fallow config for the CaretCMS monorepo.
+  // https://docs.fallow.tools — run `npx fallow` to analyze dead code, dupes, health.
+  //
+  // The entries below suppress *verified* false positives only (each was traced
+  // back to a real framework mechanism the static analyzer can't see). Genuine
+  // findings — e.g. the over-exports in packages/caretize/src/backup.ts and the
+  // complexity hotspot in packages/caretize/src/cli.ts — are intentionally left
+  // visible.
+
+  // Astro endpoint handlers. These files are wired in via `injectRoute()` in
+  // packages/core/src/index.ts, so their GET/POST exports are HTTP entry points
+  // the framework calls by name — never reached by a JS import. Also: Astro
+  // content/live config files, loaded by filename convention, not by import.
+  "entry": [
+    "packages/core/src/runtime/routes/**/*.ts",
+    "examples/*/src/**/*.config.ts",
+    "examples/*/src/live.config.ts"
+  ],
+
+  // The static editor assets (CSS + JS under static/cms) are served over HTTP via
+  // an `import.meta.glob("../../../static/cms/**", { query: "?raw" })` in
+  // packages/core/src/runtime/routes/editor-assets.ts and referenced as
+  // "/__caret/..." URL strings in generated HTML — never statically imported.
+  "dynamicallyLoaded": [
+    "packages/core/static/cms/**"
+  ],
+
+  // caretize test fixtures are raw-text *input* snapshots, loaded by
+  // readFileSync/readdirSync in tests/unit/caretize-*.test.ts (no import edge).
+  // Their intra-fixture imports (../components/*.astro, ../consts) are
+  // intentional stubs that are never resolved or bundled.
+  "ignorePatterns": [
+    "tests/fixtures/**"
+  ],
+
+  // Version-pinned by policy (scripts/validate-versions.mjs enforces the exact
+  // version) though not currently imported. See CLAUDE.md "exact-pinned" rule.
+  "ignoreDependencies": [
+    "@tailwindcss/vite"
+  ]
+}
