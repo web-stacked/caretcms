@@ -1,0 +1,36 @@
+---
+import { getCollection } from "astro:content";
+import Site from "../../layouts/Site.astro";
+import PostCard from "../../components/PostCard.astro";
+
+const posts = (await getCollection("blog")).sort((a, b) =>
+  a.data.date < b.data.date ? 1 : -1,
+);
+---
+
+<Site title="Journal — Atlas & Co." description="Notes on process, type, and the web." active="blog">
+  <section class="head">
+    <h1 class="head-title">Journal</h1>
+    <p class="head-lede">Notes on process, type, and the web. Every post is a
+      markdown file — editable in place, deployed as-is.</p>
+  </section>
+
+  <div class="list">
+    {posts.map((post) => (
+      <PostCard
+        id={post.id}
+        title={post.data.title}
+        excerpt={post.data.excerpt}
+        date={post.data.date}
+        author={post.data.author}
+      />
+    ))}
+  </div>
+</Site>
+
+<style>
+  .head { padding: 64px 0 8px; max-width: 56ch; }
+  .head-title { font-size: clamp(2.2rem, 5vw, 3.2rem); margin: 0 0 14px; }
+  .head-lede { color: var(--ink-2); font-size: 1.1rem; line-height: 1.6; }
+  .list { margin-top: 32px; }
+</style>

@@ -1,0 +1,47 @@
+---
+import { bindEntry } from "@caretcms/core";
+
+interface Props {
+  id: string;
+  title: string;
+  excerpt: string;
+  date: Date;
+  author: string;
+}
+const { id, title, excerpt, date, author } = Astro.props;
+
+// A blog post is an Astro content-collection entry, but its frontmatter is still
+// caret-editable: bind each field to blog::<id>::<field> so edits write back to
+// the same .md file the post is rendered from.
+const b = bindEntry({ collection: "blog", id });
+const iso = date.toISOString().slice(0, 10);
+const when = date.toLocaleDateString("en-US", {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+});
+---
+
+<article class="post-card">
+  <a class="post-card-link" href={`/blog/${id}`}>
+    <h3 class="post-card-title" {...b("title")}>{title}</h3>
+  </a>
+  <p class="post-card-excerpt" {...b("excerpt")}>{excerpt}</p>
+  <p class="post-card-meta">
+    <span {...b("author")}>{author}</span>
+    <span aria-hidden="true"> · </span>
+    <time datetime={iso}>{when}</time>
+  </p>
+</article>
+
+<style>
+  .post-card { padding: 24px 0; border-top: 1px solid var(--rule); }
+  .post-card-link { text-decoration: none; }
+  .post-card-title {
+    font-size: 1.4rem; margin: 0 0 8px; color: var(--ink);
+    transition: color 0.15s ease;
+  }
+  .post-card-link:hover .post-card-title { color: var(--accent); }
+  .post-card-excerpt { margin: 0 0 10px; color: var(--ink-2); line-height: 1.6; }
+  .post-card-meta { margin: 0; color: var(--ink-3); font-size: 13px; }
+</style>

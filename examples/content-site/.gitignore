@@ -1,2 +1,6 @@
 dist/
 .astro/
+# CaretCMS sidecar (revisions/history) — regenerated at runtime
+.caretcms/
+# Runtime image uploads — page content lives in markdown; uploads are local-only
+public/uploads/
