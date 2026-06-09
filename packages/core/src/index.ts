@@ -525,6 +525,14 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           entrypoint: new URL("./runtime/routes/schema.js", import.meta.url),
         });
         injectRoute({
+          pattern: `${resolved.apiBasePath}/publish`,
+          entrypoint: new URL("./runtime/routes/publish.js", import.meta.url),
+        });
+        injectRoute({
+          pattern: `${resolved.apiBasePath}/draft`,
+          entrypoint: new URL("./runtime/routes/draft.js", import.meta.url),
+        });
+        injectRoute({
           pattern: `${resolved.apiBasePath}/collections-metadata`,
           entrypoint: new URL("./runtime/routes/collections-metadata.js", import.meta.url),
         });
