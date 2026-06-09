@@ -34,6 +34,12 @@ export class FilesystemAdapter implements StorageAdapter {
     return join(this.dataRoot, collection);
   }
 
+  /** The data root — what git stages for commit-on-publish (a no-op if it's
+   *  gitignored, e.g. the default `.caret/data`). */
+  committablePath(): string {
+    return this.dataRoot;
+  }
+
   /** A persistent draft overlay for one editor, as a sibling JSON store under
    *  `<.caret>/drafts/<editorId>/`. Same id → same on-disk store. */
   async makeEditorOverlay(editorId: string): Promise<StorageAdapter> {

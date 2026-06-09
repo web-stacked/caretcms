@@ -2,7 +2,14 @@ import type { APIContext } from "astro";
 import { isEditorAuthenticated, getEditorId } from "../auth/session.js";
 import { getRuntimeServices } from "../providers.js";
 import { publishOverlay, type PublishScope } from "../publish.js";
+import { isGitRepo, commitPaths } from "../git-journal.js";
 import { json, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
+
+function commitMessage(scope: PublishScope, count: number): string {
+  if (scope.collection && scope.id) return `publish ${scope.collection}/${scope.id}`;
+  if (scope.collection) return `publish ${scope.collection} (${count})`;
+  return `publish content (${count} ${count === 1 ? "entry" : "entries"})`;
+}
 
 /**
  * POST /api/cms/publish — flush the current editor's draft overlay into the base.
@@ -35,5 +42,27 @@ export async function POST(context: APIContext): Promise<Response> {
   }
   const overlay = await base.makeEditorOverlay(editorId);
   const published = await publishOverlay(base, overlay, scope);
-  return json({ ok: true, published });
+
+  // Best-effort git journal (opt-in via CARET_GIT_ON_PUBLISH): turn the publish
+  // into a commit when content lives in a git repo. Runs AFTER the publish, so a
+  // git failure never blocks or reverts it; no-ops on non-filesystem adapters.
+  let commit: string | null = null;
+  if (
+    published.length > 0 &&
+    process.env.CARET_GIT_ON_PUBLISH === "true" &&
+    base.committablePath
+  ) {
+    const cwd = process.cwd();
+    if (await isGitRepo(cwd)) {
+      commit = await commitPaths({
+        cwd,
+        paths: [base.committablePath()],
+        message: commitMessage(scope, published.length),
+        authorName: `CaretCMS editor ${editorId.slice(0, 8)}`,
+        authorEmail: "editor@caretcms.local",
+      });
+    }
+  }
+
+  return json({ ok: true, published, commit });
 }
