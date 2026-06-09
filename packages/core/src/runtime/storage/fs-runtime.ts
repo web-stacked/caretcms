@@ -15,7 +15,7 @@ const WORKERD_USER_AGENT = "Cloudflare-Workers";
  * Astro 6's dev server runs on the same workerd runtime as production, so a
  * Workers-targeted project has no filesystem in dev *or* prod.
  */
-export function detectUnsupportedRuntime(): string | null {
+function detectUnsupportedRuntime(): string | null {
   const g = globalThis as { navigator?: { userAgent?: string }; WebSocketPair?: unknown };
   // navigator.userAgent === "Cloudflare-Workers" only when the `global_navigator`
   // compat flag is on, so also check WebSocketPair — a workerd global present
