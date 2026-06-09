@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { shouldUseSecureCookies } from "./cookie-utils.js";
 import { getRequestContext } from "../request-context.js";
 
@@ -13,6 +13,13 @@ const SESSION_TTL_SECONDS = 60 * 60 * 12;
 type SessionPayload = {
   editor: true;
   exp: number;
+  /**
+   * A stable id minted once per login, identifying this editor session. Used to
+   * key a per-editor draft overlay (so two editors' unpublished edits stay
+   * isolated). Optional for backward compatibility: tokens issued before editor
+   * ids existed still authenticate, they just carry no id.
+   */
+  editorId?: string;
 };
 
 const DEV_SECRET_FALLBACK = "caretcms-dev-secret";
@@ -132,6 +139,8 @@ function parseToken(token: string): SessionPayload | null {
     if (payload.editor !== true) return null;
     if (typeof payload.exp !== "number" || !Number.isFinite(payload.exp)) return null;
     if (payload.exp <= Date.now()) return null;
+    // editorId is optional (legacy tokens lack it), but reject a malformed one.
+    if (payload.editorId !== undefined && typeof payload.editorId !== "string") return null;
 
     return payload as SessionPayload;
   } catch {
@@ -154,7 +163,7 @@ export function isEditorPasswordValid(candidate: string): boolean {
 
 export function issueEditorSessionCookie(path = "/", request?: Request): string {
   const exp = Date.now() + SESSION_TTL_SECONDS * 1000;
-  const token = buildToken({ editor: true, exp });
+  const token = buildToken({ editor: true, exp, editorId: randomUUID() });
   return serializeEditorSessionCookie(
     encodeURIComponent(token),
     path,
@@ -190,4 +199,16 @@ export function isEditorAuthenticated(context: CookieBagLike): boolean {
   const token = context.cookies?.get(SESSION_COOKIE_NAME)?.value;
   if (!token) return false;
   return parseToken(token) !== null;
+}
+
+/**
+ * The per-editor id carried by the session cookie, used to key a draft overlay.
+ * Returns null when the request has no valid editor session, or when the session
+ * predates editor ids (a legacy token). Does NOT consider demo sessions — those
+ * are keyed by their own `sessionId`.
+ */
+export function getEditorId(context: CookieBagLike): string | null {
+  const token = context.cookies?.get(SESSION_COOKIE_NAME)?.value;
+  if (!token) return null;
+  return parseToken(token)?.editorId ?? null;
 }
