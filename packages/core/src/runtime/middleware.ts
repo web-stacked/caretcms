@@ -1,5 +1,5 @@
 import type { StorageAdapter, UploadHandler } from "../types.js";
-import { isEditorAuthenticated } from "./auth/session.js";
+import { isEditorAuthenticated, getEditorId } from "./auth/session.js";
 import { isDemoModeEnabled, resolveDemoSession } from "./auth/demo-session.js";
 import { getRuntimeServices } from "./providers.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -32,6 +32,15 @@ function warnMissingOverlay(): void {
   );
 }
 
+const PREVIEW_COOKIE = "caret_preview";
+
+/** Whether this request opted into draft preview (the editor toggles a cookie).
+ *  Only meaningful for an authenticated editor — the overlay install also
+ *  requires a valid editor id. */
+function isPreviewRequest(context: MiddlewareContext): boolean {
+  return context.cookies?.get(PREVIEW_COOKIE)?.value === "1";
+}
+
 async function resolveRuntimeEnv(): Promise<Record<string, unknown> | null> {
   if (_cachedRuntimeEnv !== undefined) return _cachedRuntimeEnv;
   try {
@@ -58,6 +67,7 @@ export async function onRequest(
   let adapter: StorageAdapter = services.adapter;
   let uploadHandler: UploadHandler = services.uploadHandler;
   let sessionId: string | null = null;
+  let editorId: string | null = null;
   let setCookieHeader: string | null = null;
   let overlayActive = false;
   const demoMode = isDemoModeEnabled(runtimeEnv);
@@ -79,12 +89,26 @@ export async function onRequest(
     if (services.uploadHandler.makeSessionWrapper) {
       uploadHandler = await services.uploadHandler.makeSessionWrapper(sessionId);
     }
+  } else if (isPreviewRequest(context) && services.adapter.makeEditorOverlay) {
+    // Draft/preview mode: an authenticated editor opting into preview reads and
+    // writes through their per-editor overlay (the public site keeps seeing the
+    // base). Keyed by the editor id from the session cookie; absent that, there's
+    // no editor session so we leave the base adapter in place. Publish later
+    // flushes the overlay back to the base.
+    const id = getEditorId(context as Parameters<typeof getEditorId>[0]);
+    if (id) {
+      const overlay = await services.adapter.makeEditorOverlay(id);
+      adapter = new SessionOverlayAdapter(services.adapter, overlay);
+      overlayActive = true;
+      editorId = id;
+    }
   }
 
   const requestContext = {
     adapter,
     uploadHandler,
     sessionId,
+    editorId,
     demoMode,
     overlayActive,
     editor: false,
