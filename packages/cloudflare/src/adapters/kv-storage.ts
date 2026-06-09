@@ -372,4 +372,17 @@ export class CloudflareKvStorageAdapter implements StorageAdapter {
       bundledFallback: false,
     });
   }
+
+  async makeEditorOverlay(editorId: string): Promise<StorageAdapter> {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(editorId)) {
+      throw new Error(`[caretcms] unsafe editor overlay id: ${JSON.stringify(editorId)}`);
+    }
+    // No expirationTtl: a draft persists until the editor publishes or discards it
+    // (unlike the 2h ephemeral demo session overlay above).
+    return new CloudflareKvStorageAdapter({
+      binding: this.binding,
+      keyPrefix: `draft/${editorId}/`,
+      bundledFallback: false,
+    });
+  }
 }
