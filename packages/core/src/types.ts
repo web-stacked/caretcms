@@ -69,6 +69,14 @@ export interface StorageAdapter {
    * draft survives across requests. Adapters that can't isolate writes may omit it.
    */
   makeEditorOverlay?(editorId: string): Promise<StorageAdapter>;
+
+  /**
+   * Optional: the on-disk directory holding this adapter's content, for the
+   * git-journal commit-on-publish feature. File-backed adapters return the path
+   * git should stage (e.g. the markdown content root); adapters with no
+   * filesystem presence (KV/R2, in-memory) omit it, so git-on-publish no-ops.
+   */
+  committablePath?(): string;
 }
 
 export interface UploadContext {

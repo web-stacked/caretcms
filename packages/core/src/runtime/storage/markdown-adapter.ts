@@ -61,6 +61,11 @@ export class MarkdownAdapter implements StorageAdapter {
     return join(this.contentRoot, collection);
   }
 
+  /** The content root — what git stages for commit-on-publish. */
+  committablePath(): string {
+    return this.contentRoot;
+  }
+
   /** First existing `<id>.{md,mdx}` path for an entry, honoring .md precedence. */
   private async resolveEntryPath(collection: string, id: string): Promise<string | null> {
     for (const ext of EXTENSIONS) {
