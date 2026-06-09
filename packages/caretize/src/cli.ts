@@ -20,6 +20,7 @@ import { detectWrapTargetsSafe, type WrapTarget } from "./wrap.js";
 import { detectImportWrapTargetsSafe } from "./import-wrap.js";
 import { detectPropWrapTargets, type FileReader } from "./props.js";
 import { detectPropHoistTargets, type PropHoistTarget } from "./prop-hoist.js";
+import { detectCollectionBindTargets, type CollectionBindTarget } from "./bind-collection.js";
 import { restoreLatest } from "./backup.js";
 import { buildReport } from "./report.js";
 import { isValidField } from "./name.js";
@@ -43,6 +44,7 @@ interface Selection {
   tags: Map<string, PlannedTag[]>;
   wraps: Map<string, WrapTarget[]>;
   hoists: Map<string, PropHoistTarget[]>;
+  binds: Map<string, CollectionBindTarget[]>;
 }
 
 /** Prompt for a replacement field name on one tag. Returns the tag to keep: the
@@ -118,26 +120,34 @@ async function confirmHoists(
   return take;
 }
 
-/** Interactive review: per-candidate tags, then per-file wrap + prop-hoist confirms. */
+/** Interactive review: per-candidate tags, then per-file wrap + prop-hoist confirms.
+ *  Collection bindings (opt-in via --bind-collections) are auto-accepted per file
+ *  — the flag is the consent — unless the file is skipped or the run is quit. */
 async function review(
   plans: FilePlan[],
   wrapsByFile: Map<string, WrapTarget[]>,
   hoistsByFile: Map<string, PropHoistTarget[]>,
+  bindsByFile: Map<string, CollectionBindTarget[]>,
 ): Promise<Selection> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const tags = new Map<string, PlannedTag[]>();
   const wraps = new Map<string, WrapTarget[]>();
   const hoists = new Map<string, PropHoistTarget[]>();
+  const binds = new Map<string, CollectionBindTarget[]>();
   let acceptAll = false;
   try {
     for (const plan of plans) {
       const fileWraps = wrapsByFile.get(plan.relPath) ?? [];
       const fileHoists = hoistsByFile.get(plan.relPath) ?? [];
-      if (plan.tags.length === 0 && fileWraps.length === 0 && fileHoists.length === 0) continue;
+      const fileBinds = bindsByFile.get(plan.relPath) ?? [];
+      if (plan.tags.length === 0 && fileWraps.length === 0 && fileHoists.length === 0 && fileBinds.length === 0) continue;
 
       const res = await reviewFileTags(rl, plan, acceptAll);
       acceptAll = res.acceptAll;
-      if (res.quit) { tags.clear(); wraps.clear(); hoists.clear(); return { tags, wraps, hoists }; }
+      if (res.quit) {
+        tags.clear(); wraps.clear(); hoists.clear(); binds.clear();
+        return { tags, wraps, hoists, binds };
+      }
       if (res.take.length) tags.set(plan.relPath, res.take);
       if (res.skipFile) continue;
 
@@ -148,17 +158,19 @@ async function review(
         const take = await confirmHoists(rl, plan.relPath, fileHoists);
         if (take.length) hoists.set(plan.relPath, take);
       }
+      if (fileBinds.length > 0) binds.set(plan.relPath, fileBinds);
     }
   } finally {
     rl.close();
   }
-  return { tags, wraps, hoists };
+  return { tags, wraps, hoists, binds };
 }
 
 interface Analysis {
   plans: FilePlan[];
   wrapsByFile: Map<string, WrapTarget[]>;
   hoistsByFile: Map<string, PropHoistTarget[]>;
+  bindsByFile: Map<string, CollectionBindTarget[]>;
 }
 
 /**
@@ -177,10 +189,12 @@ async function analyzeFiles(
   planOpts: PlanOptions,
   readFileSafe: FileReader,
   noProps: boolean,
+  bindCollections: boolean,
 ): Promise<Analysis> {
   const plans: FilePlan[] = [];
   const wrapsByFile = new Map<string, WrapTarget[]>();
   const hoistsByFile = new Map<string, PropHoistTarget[]>();
+  const bindsByFile = new Map<string, CollectionBindTarget[]>();
   for (const rel of files) {
     const src = readSource(root, rel);
     const ast = await parseAstro(src);
@@ -194,17 +208,24 @@ async function analyzeFiles(
     for (const t of [...loops, ...props, ...imports]) byName.set(t.varName, t);
     if (byName.size) wrapsByFile.set(rel, [...byName.values()]);
 
-    // A loop whose receiver a wrap tier just made editable (Tier-1/Tier-3) no
-    // longer warrants the "consider a dynamic collection" flag — suppress it so
-    // we don't tell the user to rethink a loop we covered in place.
-    plan.flags = plan.flags.filter((f) => !f.receiver || !byName.has(f.receiver));
+    // Tier-5 (--bind-collections): bind direct-render getCollection().map() loops.
+    const binds = bindCollections ? detectCollectionBindTargets(src, ast) : [];
+    if (binds.length) bindsByFile.set(rel, binds);
+    const boundReceivers = new Set(binds.map((b) => b.receiver));
+
+    // A loop whose receiver a wrap tier (Tier-1/Tier-3) OR a bind tier (Tier-5)
+    // just made editable no longer warrants the "consider a dynamic collection"
+    // flag — suppress it so we don't tell the user to rethink a covered loop.
+    plan.flags = plan.flags.filter(
+      (f) => !f.receiver || (!byName.has(f.receiver) && !boundReceivers.has(f.receiver)),
+    );
 
     if (!noProps) {
       const hoists = await detectPropHoistTargets(src, rel, readFileSafe, ast);
       if (hoists.length) hoistsByFile.set(rel, hoists);
     }
   }
-  return { plans, wrapsByFile, hoistsByFile };
+  return { plans, wrapsByFile, hoistsByFile, bindsByFile };
 }
 
 /** Decide what to apply: everything (dry-run / -y), the interactive review, or
@@ -212,34 +233,35 @@ async function analyzeFiles(
 async function selectChanges(args: Args, a: Analysis): Promise<Selection> {
   if (args.dryRun || args.yes) {
     const allTags = new Map(a.plans.map((p) => [p.relPath, p.tags] as [string, PlannedTag[]]));
-    return { tags: allTags, wraps: a.wrapsByFile, hoists: a.hoistsByFile };
+    return { tags: allTags, wraps: a.wrapsByFile, hoists: a.hoistsByFile, binds: a.bindsByFile };
   }
   if (process.stdin.isTTY && process.stdout.isTTY) {
-    return review(a.plans, a.wrapsByFile, a.hoistsByFile);
+    return review(a.plans, a.wrapsByFile, a.hoistsByFile, a.bindsByFile);
   }
-  if (args.report) return { tags: new Map(), wraps: new Map(), hoists: new Map() };
+  if (args.report) return { tags: new Map(), wraps: new Map(), hoists: new Map(), binds: new Map() };
   fail("non-interactive terminal: pass --dry-run, -y, or --report");
 }
 
-/** Prepare (verify) every touched file in memory — tags + wraps + hoists together. */
+/** Prepare (verify) every touched file in memory — tags + binds + wraps + hoists. */
 async function prepareTouched(root: string, sel: Selection): Promise<PreparedFile[]> {
   const touched = new Set<string>([
-    ...sel.tags.keys(), ...sel.wraps.keys(), ...sel.hoists.keys(),
+    ...sel.tags.keys(), ...sel.wraps.keys(), ...sel.hoists.keys(), ...sel.binds.keys(),
   ]);
   const prepared: PreparedFile[] = [];
   for (const rel of touched) {
     const tags = sel.tags.get(rel) ?? [];
     const targets = sel.wraps.get(rel) ?? [];
     const hoistTargets = sel.hoists.get(rel) ?? [];
-    if (tags.length === 0 && targets.length === 0 && hoistTargets.length === 0) continue;
+    const fileBinds = sel.binds.get(rel) ?? [];
+    if (tags.length === 0 && targets.length === 0 && hoistTargets.length === 0 && fileBinds.length === 0) continue;
+    // Collection bindings are dynamic data-caret attributes — they splice exactly
+    // like data-caret tags, so they ride the same offset-ordered tag pass.
+    const tagSplices = [
+      ...tags.map((t) => ({ startOffset: t.startOffset, attribute: t.attribute })),
+      ...fileBinds.map((b) => ({ startOffset: b.startOffset, attribute: b.attribute })),
+    ];
     prepared.push(
-      await prepareFileFull(
-        rel,
-        readSource(root, rel),
-        tags.map((t) => ({ startOffset: t.startOffset, attribute: t.attribute })),
-        targets,
-        hoistTargets,
-      ),
+      await prepareFileFull(rel, readSource(root, rel), tagSplices, targets, hoistTargets),
     );
   }
   return prepared;
@@ -260,8 +282,9 @@ function printCommit(
   const hoisted = written.reduce(
     (n, rel) => n + (sel.hoists.get(rel)?.reduce((m, t) => m + t.props.length, 0) ?? 0), 0,
   );
+  const bound = written.reduce((n, rel) => n + (sel.binds.get(rel)?.length ?? 0), 0);
   const flagged = plans.reduce((n, p) => n + p.flags.length, 0);
-  process.stdout.write(formatSummary(written.length, changes, wrapped, hoisted, flagged, hadBackups));
+  process.stdout.write(formatSummary(written.length, changes, wrapped, hoisted, flagged, hadBackups, bound));
 }
 
 /** Restore the most recent backup, reporting how many files came back. */
@@ -312,9 +335,9 @@ async function main(): Promise<void> {
     }
   };
 
-  const analysis = await analyzeFiles(root, files, planOpts, readFileSafe, args.noProps);
+  const analysis = await analyzeFiles(root, files, planOpts, readFileSafe, args.noProps, args.bindCollections);
   process.stdout.write(
-    formatScanSummary(files.length, analysis.plans, analysis.wrapsByFile, analysis.hoistsByFile),
+    formatScanSummary(files.length, analysis.plans, analysis.wrapsByFile, analysis.hoistsByFile, analysis.bindsByFile),
   );
 
   const sel = await selectChanges(args, analysis);
@@ -326,7 +349,7 @@ async function main(): Promise<void> {
   }
 
   if (args.dryRun) {
-    process.stdout.write(formatPlan(analysis.plans, analysis.wrapsByFile, analysis.hoistsByFile));
+    process.stdout.write(formatPlan(analysis.plans, analysis.wrapsByFile, analysis.hoistsByFile, analysis.bindsByFile));
     process.stdout.write(formatHints(analysis.plans, args.rich));
     return;
   }

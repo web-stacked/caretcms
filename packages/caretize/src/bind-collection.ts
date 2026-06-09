@@ -28,6 +28,9 @@ export interface CollectionBindTarget {
   collection: string;
   field: string;
   tag: string;
+  /** The loop variable (`posts` in `posts.map(...)`) — lets the CLI suppress the
+   *  "consider a dynamic collection" flag for a loop this tier just covered. */
+  receiver: string;
 }
 
 // `const posts = await getCollection('releases')` (also .sort()/.filter() chains —
@@ -92,12 +95,15 @@ export function detectCollectionBindTargets(source: string, ast: AstroNode): Col
 
   const targets: CollectionBindTarget[] = [];
 
-  const visit = (node: AstroNode, ctx: { collection: string; param: string } | null): void => {
+  const visit = (
+    node: AstroNode,
+    ctx: { collection: string; param: string; receiver: string } | null,
+  ): void => {
     let nextCtx = ctx;
     if (node.type === "expression") {
       const mm = MAP_RE.exec(expressionJs(node));
       const collection = mm && collections.get(mm[1]);
-      if (collection) nextCtx = { collection, param: mm[2] };
+      if (collection && mm) nextCtx = { collection, param: mm[2], receiver: mm[1] };
     }
 
     if (nextCtx && isTagNode(node) && node.type === "element" && !hasCaretAttr(node)) {
@@ -111,6 +117,7 @@ export function detectCollectionBindTargets(source: string, ast: AstroNode): Col
           collection: nextCtx.collection,
           field,
           tag: node.name,
+          receiver: nextCtx.receiver,
         });
       }
     }
