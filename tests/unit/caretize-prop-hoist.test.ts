@@ -24,9 +24,26 @@ const { src } = Astro.props;
 <img src={src} alt="" />
 `;
 
+// A layout that renders `title` ONLY inside <head> → text-safe but the editor
+// can never click it, so it must NOT be hoisted.
+const LAYOUT = `---
+const { title } = Astro.props;
+---
+<html><head><title>{title}</title></head><body><slot /></body></html>
+`;
+
+// Renders `title` in <head> AND in the body → the body sink makes it hoistable.
+const HEADERED = `---
+const { title } = Astro.props;
+---
+<html><head><title>{title}</title></head><body><h1>{title}</h1><slot /></body></html>
+`;
+
 const reader: FileReader = (rel) => {
   if (rel.includes("PageHero")) return PAGEHERO;
   if (rel.includes("Avatar")) return AVATAR;
+  if (rel.includes("Layout")) return LAYOUT;
+  if (rel.includes("Headered")) return HEADERED;
   return null;
 };
 
@@ -66,6 +83,26 @@ import Hero from "@ui/Hero.astro";
 `;
     expect(await detectPropHoistTargets(src, "src/pages/about.astro", reader)).toEqual([]);
   });
+
+  it("does NOT hoist a prop the child renders only inside <head>", async () => {
+    const src = `---
+import Layout from "../layouts/Layout.astro";
+---
+<Layout title="About — Site"><p>hi</p></Layout>
+`;
+    expect(await detectPropHoistTargets(src, "src/pages/about.astro", reader)).toEqual([]);
+  });
+
+  it("DOES hoist a prop the child renders in <head> AND the body", async () => {
+    const src = `---
+import Headered from "../layouts/Headered.astro";
+---
+<Headered title="About — Site"><p>hi</p></Headered>
+`;
+    const targets = await detectPropHoistTargets(src, "src/pages/about.astro", reader);
+    expect(targets).toHaveLength(1);
+    expect(targets[0].props.map((p) => p.propName)).toEqual(["title"]);
+  });
 });
 
 describe("hoistPropLiterals + verifyHoistResult", () => {
@@ -89,6 +126,21 @@ describe("hoistPropLiterals + verifyHoistResult", () => {
     const r = hoistPropLiterals(ABOUT, targets);
     const tampered = r.output.replace("ABOUT US", "TAMPERED");
     expect(verifyHoistResult(ABOUT, tampered, targets, r.addedImport)).toBe(false);
+  });
+
+  it("round-trips a prop value containing $ replacement-pattern chars", async () => {
+    // `$&`, `$$`, `$5` are special in String.replace's replacement arg — a naive
+    // restore would mangle them and the inverse gate would falsely reject.
+    const src = `---
+import PageHero from "../components/PageHero.astro";
+---
+<PageHero title="50% off — $5 & $$ and $& deals" description="<p>x</p>" />
+`;
+    const targets = await detectPropHoistTargets(src, "src/pages/about.astro", reader);
+    const r = hoistPropLiterals(src, targets);
+    expect(r.ok).toBe(true);
+    expect(r.output).toContain(`"50% off — $5 & $$ and $& deals"`);
+    expect(verifyHoistResult(src, r.output, targets, r.addedImport)).toBe(true);
   });
 });
 

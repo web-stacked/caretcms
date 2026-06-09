@@ -26,7 +26,7 @@
  * into an attribute unnoticed.
  */
 
-import { walkTags } from "./parse.js";
+import { walkTags, isTagNode } from "./parse.js";
 import type { AstroNode, TagNode } from "./parse.js";
 import { IDENT, identRefRe, referencesIdent } from "./identifiers.js";
 
@@ -226,4 +226,55 @@ export function classifyConstUsage(
 
   if (unsafe) return { safe: false, reason: unsafe, handoffs };
   return { safe: true, handoffs };
+}
+
+/** Elements that live in (or feed) the document `<head>`. A field rendered only
+ *  here is text-safe for stega, but the inline editor's click-to-edit can never
+ *  surface it — so it isn't a real editable sink. */
+const HEAD_ELEMENTS = new Set(["head", "title", "meta", "base", "link"]);
+
+function inHead(ancestors: AstroNode[], node?: AstroNode): boolean {
+  if (node && isTagNode(node) && HEAD_ELEMENTS.has(node.name)) return true;
+  return ancestors.some((a) => isTagNode(a) && HEAD_ELEMENTS.has(a.name));
+}
+
+/**
+ * Does the template render any of `names` in a BODY-reachable position — a text
+ * expression (`{title}`) or a `set:html`/`set:text` content sink — that is NOT
+ * inside the document `<head>`?
+ *
+ * `classifyConstUsage` proves a field never lands in a corrupting attribute, but
+ * a field that renders ONLY into `<head>` (a layout's `<title>{title}</title>`)
+ * is text-safe yet has no click-to-edit target. The prop-hoist tier requires a
+ * positive body sink so it doesn't mint `editable()` bindings the editor can't
+ * surface (and, incidentally, won't hoist a prop the child never renders at all).
+ */
+export function rendersOutsideHead(root: AstroNode, names: string[]): boolean {
+  let found = false;
+  const stack: AstroNode[] = [];
+  const visit = (node: AstroNode): void => {
+    if (found || !node || typeof node !== "object") return;
+
+    if (node.type === "expression" && referencesIdent(exprJs(node), names) && !inHead(stack)) {
+      found = true;
+      return;
+    }
+    if (isTagNode(node) && !inHead(stack, node)) {
+      for (const attr of node.attributes) {
+        if (HTML_DIRECTIVES.has(attr.name) && attrReferences(attr, names)) {
+          found = true;
+          return;
+        }
+      }
+    }
+
+    const children = node.children;
+    if (Array.isArray(children)) {
+      stack.push(node);
+      for (const child of children) visit(child);
+      stack.pop();
+    }
+  };
+  visit(root);
+  return found;
 }

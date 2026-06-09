@@ -27,7 +27,7 @@ import { parseAstro, walkTags, type AstroNode, type TagNode } from "./parse.js";
 import { deriveScope, isValidField, slugifyText } from "./name.js";
 import { resolveComponentImport } from "./resolve.js";
 import { propLocalName, type FileReader } from "./props.js";
-import { classifyConstUsage } from "./usage.js";
+import { classifyConstUsage, rendersOutsideHead } from "./usage.js";
 import { frontmatterRange } from "./frontmatter.js";
 import { IMPORT_LINE, IMPORT_RE } from "./wrap.js";
 
@@ -147,14 +147,19 @@ export async function detectPropHoistTargets(
     return childCache.get(rel) ?? null;
   };
 
-  /** Does the child render `prop` purely as text (incl. set:html), no re-handoff? */
+  /** Does the child render `prop` purely as text (incl. set:html), no re-handoff,
+   *  AND in a body-reachable position the editor can actually click? */
   const childTextSafe = (child: { src: string; ast: AstroNode }, prop: string): boolean => {
     const local = propLocalName(child.src, prop);
     if (!local) return false;
-    return classifyConstUsage(child.ast, local, {
+    const verdict = classifyConstUsage(child.ast, local, {
       componentHandoffUnsafe: true,
       htmlDirectivesSafe: true,
-    }).safe;
+    });
+    // Safe (never a corrupting attribute) AND has at least one body sink — a
+    // prop rendered only into <head> (e.g. a layout's <title>) is editable in
+    // name only, so don't hoist it.
+    return verdict.safe && rendersOutsideHead(child.ast, [local]);
   };
 
   const targets: PropHoistTarget[] = [];
@@ -267,7 +272,9 @@ export function verifyHoistResult(
     if (!restored.includes(p.constInsert)) return false;
     restored = restored.replace(p.constInsert, "");
     if (!restored.includes(p.attrAfter)) return false;
-    restored = restored.replace(p.attrAfter, p.attrBefore);
+    // Function replacement: `attrBefore` is a verbatim source token and may hold
+    // `$&`/`$$`/etc., which string-replacement would interpret as patterns.
+    restored = restored.replace(p.attrAfter, () => p.attrBefore);
   }
   return restored === intermediate;
 }

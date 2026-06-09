@@ -67,6 +67,9 @@ export interface IteratorFlag {
   startOffset: number;
   /** The iterator method that triggered the flag (map/filter/...). */
   method: string;
+  /** The variable being iterated (`faqs` in `faqs.map(...)`), when a plain
+   *  identifier — lets the CLI drop the flag for a loop a wrap tier covered. */
+  receiver?: string;
 }
 
 export interface DetectResult {
@@ -88,7 +91,12 @@ const CONFIDENCE: Record<string, Confidence> = {
   code: "low", cite: "low", b: "low", i: "low", mark: "low", q: "low",
 };
 
-const ITERATOR_RE = /\.(map|filter|forEach|flatMap|reduce)\s*\(/;
+// Always requires the method call (`.map(`); also captures the immediate
+// receiver identifier when it's a plain variable (group 1), so callers can tell
+// whether the loop iterates a name a wrap tier already made editable. Receiver
+// is optional in the capture so chained/expression receivers (`foo().map(`)
+// still flag — they just carry no receiver to match against. Group 2 = method.
+const ITERATOR_RE = /(?:([A-Za-z_$][\w$]*)\s*)?\.\s*(map|filter|forEach|flatMap|reduce)\s*\(/;
 
 // Inline formatting tags the rich-text sanitizer keeps. MUST match ALLOWED_TAGS
 // in core's sanitize-html.ts / static/cms/editor/sanitize.js — anything outside
@@ -240,7 +248,9 @@ export function detect(
       const m = ITERATOR_RE.exec(text);
       const exprOffset = expr.position?.start.offset ?? startOffset;
       if (m && !flagsByOffset.has(exprOffset)) {
-        flagsByOffset.set(exprOffset, { startOffset: exprOffset, method: m[1] });
+        flagsByOffset.set(exprOffset, {
+          startOffset: exprOffset, method: m[2], receiver: m[1],
+        });
       }
       return skip(m ? "inside-iterator" : "inside-expression");
     }

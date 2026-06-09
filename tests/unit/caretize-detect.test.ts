@@ -85,6 +85,16 @@ describe("detect — synthetic cases", () => {
     expect(r.skipped.some((s) => s.tag === "li" && s.reason === "inside-iterator")).toBe(true);
     expect(r.flags).toHaveLength(1);
     expect(r.flags[0].method).toBe("map");
+    // Receiver is captured so the CLI can drop the flag once a wrap tier covers it.
+    expect(r.flags[0].receiver).toBe("items");
+  });
+
+  it("captures no receiver for an expression-chained loop (still flags)", async () => {
+    const src = "<ul>{getItems().map((i) => <li>{i.name}</li>)}</ul>";
+    const r = await detectSource(src);
+    expect(r.flags).toHaveLength(1);
+    expect(r.flags[0].method).toBe("map");
+    expect(r.flags[0].receiver).toBeUndefined();
   });
 });
 
