@@ -12,6 +12,7 @@
   "dependencies": {
     "@astrojs/node": "10.1.1",
     "@caretcms/core": "*",
+    "@caretcms/zod": "*",
     "astro": "6.3.8"
   },
   "devDependencies": {

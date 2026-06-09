@@ -4,23 +4,16 @@
  * markdownStorage writes to, which is what lets caret edit a post's frontmatter
  * (title/excerpt/…) in place while Astro still renders the body.
  */
-import { defineCollection, z } from "astro:content";
+import { defineCollection } from "astro:content";
 import { glob } from "astro/loaders";
+import { blogSchema } from "./schemas.mjs";
 
+// Schema lives in ./schemas.mjs — the SINGLE source. astro.config derives the
+// Studio's JSON Schema from the same object via @caretcms/zod, so a field is
+// defined exactly once.
 const blog = defineCollection({
   loader: glob({ pattern: "**/*.md", base: "./src/content/blog" }),
-  schema: z.object({
-    title: z.string(),
-    excerpt: z.string(),
-    // coerce.date() accepts both the quoted "2026-05-18" we author AND the bare
-    // 2026-05-18 that caret's frontmatter codec re-emits after an inline edit
-    // (which Astro's YAML otherwise reads as a Date and rejects under z.string).
-    date: z.coerce.date(),
-    author: z.string(),
-    tags: z.array(z.string()).default([]),
-    cover: z.string().optional(),
-    cover_alt: z.string().optional(),
-  }),
+  schema: blogSchema,
 });
 
 export const collections = { blog };
