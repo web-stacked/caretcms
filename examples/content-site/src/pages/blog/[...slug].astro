@@ -1,0 +1,65 @@
+---
+import { getEntry, render } from "astro:content";
+import Site from "../../layouts/Site.astro";
+
+// SSR (output: server): resolve the post by slug at request time.
+const { slug } = Astro.params;
+const post = slug ? await getEntry("blog", slug) : undefined;
+if (!post) return Astro.redirect("/blog");
+
+// Render the markdown BODY (content collections only — not editable in v1).
+const { Content } = await render(post);
+
+const data = post.data;
+const scope = `blog::${post.id}`;
+const iso = data.date.toISOString().slice(0, 10);
+const when = data.date.toLocaleDateString("en-US", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
+---
+
+<Site title={`${data.title} — Atlas & Co.`} description={data.excerpt} active="blog">
+  {/* Frontmatter is caret-editable; the body below is rendered markdown. */}
+  <article class="post" data-caret-scope={scope}>
+    <p class="post-tags">
+      {data.tags.map((t) => <span class="tag">{t}</span>)}
+    </p>
+    <h1 class="post-title" data-caret="title">{data.title}</h1>
+    <p class="post-excerpt" data-caret="excerpt">{data.excerpt}</p>
+    <p class="post-meta">
+      <span data-caret="author">{data.author}</span>
+      <span aria-hidden="true"> · </span>
+      <time datetime={iso}>{when}</time>
+    </p>
+
+    {data.cover && (
+      <figure class="post-cover">
+        <img data-caret="cover" src={data.cover} alt={data.cover_alt ?? data.title} width="1200" height="800" />
+      </figure>
+    )}
+
+    <div class="post-body prose">
+      <Content />
+    </div>
+
+    <p class="post-back"><a class="link" href="/blog">← Back to the journal</a></p>
+  </article>
+</Site>
+
+<style>
+  .post { max-width: 64ch; margin: 0 auto; padding: 56px 0 0; }
+  .post-tags { display: flex; gap: 8px; margin: 0 0 16px; }
+  .tag {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--accent); border: 1px solid var(--rule); border-radius: 999px;
+    padding: 3px 10px;
+  }
+  .post-title { font-size: clamp(2rem, 5vw, 3rem); line-height: 1.08; margin: 0 0 12px; }
+  .post-excerpt { font-size: 1.2rem; color: var(--ink-2); margin: 0 0 14px; font-family: var(--serif); font-style: italic; }
+  .post-meta { color: var(--ink-3); font-size: 14px; margin: 0 0 28px; }
+  .post-cover img { border-radius: 12px; aspect-ratio: 3 / 2; object-fit: cover; margin-bottom: 28px; }
+  .post-body { font-size: 1.12rem; }
+  .post-back { margin-top: 40px; }
+</style>

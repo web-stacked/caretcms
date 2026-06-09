@@ -1,27 +1,125 @@
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>CaretCMS Content Site</title>
-    <style>
-      body { margin: 0; font-family: system-ui, sans-serif; background: #fafafa; color: #1a1a2e; }
-      header { border-bottom: 1px solid #eee; padding: 1rem 1.5rem; }
-      header span { font-weight: 600; }
-      main { max-width: 680px; margin: 3rem auto; padding: 0 1.5rem; }
-      h1 { font-size: 2rem; margin: 0 0 0.75rem; }
-      p { font-size: 1.1rem; line-height: 1.6; color: #555; margin: 0 0 1.5rem; }
-      .badge { display: inline-block; background: #e3f2fd; color: #1565c0; border-radius: 999px; padding: 0.2rem 0.7rem; font-size: 0.8rem; font-weight: 600; margin-bottom: 1.5rem; }
-      code { background: #f0f0f5; border-radius: 4px; padding: 0.15rem 0.4rem; font-size: 0.85em; }
-    </style>
-  </head>
-  <body>
-    <header data-caret-scope="site::global">
-      <span data-caret="company_name">Northwind Studio</span>
+---
+import { getLiveEntry, getLiveCollection, getCollection } from "astro:content";
+import { bindEntry } from "@caretcms/core";
+import Site from "../layouts/Site.astro";
+import PostCard from "../components/PostCard.astro";
+
+// Page copy — a live collection entry (markdown frontmatter), stega-encoded for
+// editors so even un-annotated strings are click-to-edit.
+const { entry: pageEntry } = await getLiveEntry("pages", "home");
+const page = (pageEntry?.data ?? {}) as Record<string, string>;
+
+// Gallery — a live collection, ordered by id.
+const galleryResult = await getLiveCollection("gallery");
+const gallery = [...(galleryResult.entries ?? [])]
+  .map((e) => ({ id: e.id, data: (e.data ?? {}) as Record<string, string> }))
+  .sort((a, b) => a.id.localeCompare(b.id));
+
+// Latest journal entries — an ASTRO CONTENT collection (markdown bodies render
+// via render() on the post page; here we just need the frontmatter).
+const posts = (await getCollection("blog"))
+  .sort((a, b) => (a.data.date < b.data.date ? 1 : -1))
+  .slice(0, 3);
+---
+
+<Site title={page.headline ?? "Atlas & Co."} description={page.eyebrow} active="work">
+  {/* ─── HERO ─────────────────────────────────────────────── */}
+  <section class="hero" data-caret-scope="pages::home">
+    <p class="eyebrow" data-caret="eyebrow">{page.eyebrow}</p>
+    <h1 class="hero-headline" data-caret="headline">{page.headline}</h1>
+    <div class="hero-intro prose" data-caret="intro" data-caret-rich set:html={page.intro} />
+    <figure class="hero-figure">
+      <img data-caret="cover" src={page.cover} alt={page.cover_alt} width="1200" height="800" />
+      <figcaption class="hero-cap" data-caret="cover_alt">{page.cover_alt}</figcaption>
+    </figure>
+  </section>
+
+  {/* ─── SELECTED WORK (gallery live collection) ──────────── */}
+  <section class="block" data-caret-scope="pages::home">
+    <header class="block-head">
+      <span class="marker" data-caret="section_marker">{page.section_marker}</span>
+      <h2 class="block-title" data-caret="section_title">{page.section_title}</h2>
+      <div class="block-body prose" data-caret="section_body" data-caret-rich set:html={page.section_body} />
     </header>
-    <main data-caret-scope="pages::home">
-      <span class="badge">CaretCMS</span>
-      <h1 data-caret="title">Ship site content without leaving the page.</h1>
-      <p data-caret="intro">Use scoped <code>data-caret</code> bindings for headlines, intros, and shared site settings while keeping the template readable.</p>
-    </main>
-  </body>
-</html>
+    <ul class="grid">
+      {gallery.map((item) => {
+        const g = bindEntry({ collection: "gallery", id: item.id });
+        return (
+          <li class="grid-item">
+            <figure>
+              <img {...g("src")} src={item.data.src} alt={item.data.alt} loading="lazy" />
+              <figcaption class="grid-cap">
+                <span {...g("caption")}>{item.data.caption}</span>
+                <span class="grid-year" {...g("year")}>{item.data.year}</span>
+              </figcaption>
+            </figure>
+          </li>
+        );
+      })}
+    </ul>
+  </section>
+
+  {/* ─── LATEST JOURNAL (blog content collection) ─────────── */}
+  <section class="block">
+    <header class="block-head">
+      <span class="marker">From the journal</span>
+      <h2 class="block-title">Recent writing</h2>
+    </header>
+    <div class="posts">
+      {posts.map((post) => (
+        <PostCard
+          id={post.id}
+          title={post.data.title}
+          excerpt={post.data.excerpt}
+          date={post.data.date}
+          author={post.data.author}
+        />
+      ))}
+    </div>
+    <p class="more">
+      <a class="link" href={page.cta_href ?? "/blog"} data-caret-scope="pages::home" data-caret="cta_label">{page.cta_label ?? "Read the journal"}</a>
+    </p>
+  </section>
+</Site>
+
+<style>
+  .hero { padding: 64px 0 8px; }
+  .eyebrow {
+    font-family: var(--sans); text-transform: uppercase; letter-spacing: 0.14em;
+    font-size: 12px; color: var(--ink-3); margin: 0 0 18px;
+  }
+  .hero-headline {
+    font-size: clamp(2.2rem, 5.5vw, 3.6rem); line-height: 1.05; margin: 0 0 22px;
+    max-width: 18ch;
+  }
+  .hero-intro { max-width: 56ch; }
+  .hero-figure { margin: 40px 0 0; }
+  .hero-figure img { border-radius: 12px; aspect-ratio: 3 / 2; object-fit: cover; }
+  .hero-cap { color: var(--ink-3); font-size: 13px; margin-top: 10px; }
+
+  .block { padding-top: 56px; }
+  .block-head { max-width: 56ch; margin-bottom: 28px; }
+  .marker {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--accent);
+  }
+  .block-title { font-size: 1.9rem; margin: 8px 0 12px; }
+
+  .grid {
+    list-style: none; margin: 0; padding: 0; display: grid; gap: 20px;
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .grid-item img { border-radius: 10px; aspect-ratio: 3 / 2; object-fit: cover; }
+  .grid-cap {
+    display: flex; justify-content: space-between; margin-top: 10px;
+    font-size: 13px; color: var(--ink-2);
+  }
+  .grid-year { color: var(--ink-3); }
+
+  .posts { margin-top: 4px; }
+  .more { margin-top: 22px; }
+
+  @media (max-width: 720px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>

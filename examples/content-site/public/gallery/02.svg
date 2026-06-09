@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+  <rect width="1200" height="800" fill="#dfe3e6"/>
+  <g fill="#414a52" opacity="0.85" font-family="Georgia, serif">
+    <text x="60" y="120" font-size="42">Atlas &amp; Co.</text>
+    <text x="60" y="170" font-size="22" opacity="0.7">sample image 02</text>
+  </g>
+  <circle cx="980" cy="560" r="150" fill="#414a52" opacity="0.12"/>
+  <rect x="60" y="640" width="520" height="14" fill="#414a52" opacity="0.25"/>
+  <rect x="60" y="676" width="360" height="14" fill="#414a52" opacity="0.18"/>
+</svg>

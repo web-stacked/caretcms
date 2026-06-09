@@ -1,0 +1,73 @@
+---
+import { getLiveEntry, getLiveCollection } from "astro:content";
+import { bindEntry } from "@caretcms/core";
+import Site from "../layouts/Site.astro";
+
+const { entry: pageEntry } = await getLiveEntry("pages", "about");
+const page = (pageEntry?.data ?? {}) as Record<string, string>;
+
+const teamResult = await getLiveCollection("team");
+const team = [...(teamResult.entries ?? [])]
+  .map((e) => ({ id: e.id, data: (e.data ?? {}) as Record<string, string> }))
+  .sort((a, b) => a.id.localeCompare(b.id));
+---
+
+<Site title="About — Atlas & Co." description={page.headline} active="about">
+  <section class="lede" data-caret-scope="pages::about">
+    <p class="eyebrow" data-caret="eyebrow">{page.eyebrow}</p>
+    <h1 class="lede-title" data-caret="headline">{page.headline}</h1>
+    <div class="lede-body prose" data-caret="intro" data-caret-rich set:html={page.intro} />
+  </section>
+
+  <section class="block" data-caret-scope="pages::about">
+    <header class="block-head">
+      <span class="marker" data-caret="section_marker">{page.section_marker}</span>
+      <h2 class="block-title" data-caret="section_title">{page.section_title}</h2>
+      <div class="block-body prose" data-caret="section_body" data-caret-rich set:html={page.section_body} />
+    </header>
+  </section>
+
+  {/* ─── TEAM (live collection) ───────────────────────────── */}
+  <section class="block">
+    <header class="block-head"><h2 class="block-title">The studio</h2></header>
+    <ul class="team">
+      {team.map((member) => {
+        const m = bindEntry({ collection: "team", id: member.id });
+        return (
+          <li class="member">
+            <img class="avatar" {...m("avatar")} src={member.data.avatar} alt={member.data.name} width="160" height="160" loading="lazy" />
+            <h3 class="member-name" {...m("name")}>{member.data.name}</h3>
+            <p class="member-role" {...m("role")}>{member.data.role}</p>
+            <div class="member-bio prose" {...m("bio", { rich: true })} set:html={member.data.bio} />
+          </li>
+        );
+      })}
+    </ul>
+  </section>
+</Site>
+
+<style>
+  .lede { padding: 64px 0 8px; }
+  .eyebrow {
+    text-transform: uppercase; letter-spacing: 0.14em; font-size: 12px;
+    color: var(--ink-3); margin: 0 0 18px;
+  }
+  .lede-title { font-size: clamp(2rem, 5vw, 3.2rem); margin: 0 0 20px; max-width: 16ch; }
+  .lede-body { max-width: 56ch; font-size: 1.15rem; }
+
+  .block { padding-top: 56px; }
+  .block-head { max-width: 56ch; margin-bottom: 24px; }
+  .marker { font-size: 12px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--accent); }
+  .block-title { font-size: 1.9rem; margin: 8px 0 12px; }
+
+  .team {
+    list-style: none; margin: 0; padding: 0; display: grid; gap: 36px;
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .avatar { width: 84px; height: 84px; border-radius: 50%; object-fit: cover; margin-bottom: 14px; }
+  .member-name { font-size: 1.25rem; margin: 0 0 2px; }
+  .member-role { color: var(--accent); font-size: 13px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .member-bio { font-size: 1rem; }
+
+  @media (max-width: 720px) { .team { grid-template-columns: 1fr; } }
+</style>
