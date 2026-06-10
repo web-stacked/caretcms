@@ -1,4 +1,17 @@
 import { toggleHighlight } from './highlight.js';
+import { buildCmsUrl } from './config.js';
+
+const PREVIEW_COOKIE = 'caret_preview';
+
+function previewActive() {
+  return document.cookie.split('; ').some((c) => c === `${PREVIEW_COOKIE}=1`);
+}
+
+function setPreviewCookie(on) {
+  document.cookie = on
+    ? `${PREVIEW_COOKIE}=1; path=/; SameSite=Lax`
+    : `${PREVIEW_COOKIE}=; path=/; Max-Age=0; SameSite=Lax`;
+}
 
 function getToolbarNavLinks(pagePath) {
   const links = [];
@@ -41,6 +54,19 @@ function renderToolbar(navLinks) {
       </div>
       ${navLinksHtml ? `<div class="cms-toolbar-nav">${navLinksHtml}</div>` : ''}
       <div class="cms-toolbar-right">
+        <button class="cms-preview-btn" type="button" title="Toggle draft preview — edit without publishing to the live site">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          Preview
+        </button>
+        <button class="cms-publish-btn" type="button" title="Publish your draft changes to the live site" hidden>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/></svg>
+          Publish
+        </button>
+        <button class="cms-discard-btn" type="button" title="Discard your draft changes" hidden>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          Discard
+        </button>
+        <div class="cms-toolbar-divider"></div>
         <button type="button" class="cms-studio-btn" title="Toggle Content Studio panel">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="9" y1="9" x2="21" y2="9"/></svg>
           Studio
@@ -91,6 +117,75 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
   toolbar.querySelector('.cms-exit-btn')?.addEventListener('click', async () => {
     clearDirty();
     await onLogout();
+  });
+
+  // --- Draft preview + publish/discard ---
+  const previewBtn = toolbar.querySelector('.cms-preview-btn');
+  const publishBtn = toolbar.querySelector('.cms-publish-btn');
+  const discardBtn = toolbar.querySelector('.cms-discard-btn');
+  const badgeText = toolbar.querySelector('.cms-toolbar-badge-text');
+
+  function reflectPreview() {
+    const on = previewActive();
+    previewBtn?.classList.toggle('cms-preview-btn-active', on);
+    if (publishBtn) publishBtn.hidden = !on;
+    if (discardBtn) discardBtn.hidden = !on;
+    if (badgeText) badgeText.textContent = on ? 'Draft' : 'Editor';
+    const label = previewBtn
+      && Array.from(previewBtn.childNodes).find((n) => n.nodeType === 3 && n.textContent?.trim());
+    if (label) label.textContent = on ? ' Previewing' : ' Preview';
+  }
+  reflectPreview();
+
+  previewBtn?.addEventListener('click', () => {
+    const turningOn = !previewActive();
+    setPreviewCookie(turningOn);
+    showToast(
+      turningOn ? 'Draft preview on — your edits stay unpublished' : 'Draft preview off',
+      'success',
+    );
+    // Reload so the server installs (or drops) the per-editor draft overlay.
+    window.location.reload();
+  });
+
+  async function draftRequest(method, path) {
+    return fetch(buildCmsUrl(path), {
+      method,
+      headers: { 'Content-Type': 'application/json', 'x-caret-request': '1' },
+      credentials: 'same-origin',
+      body: method === 'POST' ? '{}' : undefined,
+    });
+  }
+
+  publishBtn?.addEventListener('click', async () => {
+    if (!window.confirm('Publish all your draft changes to the live site?')) return;
+    setStatus('saving', 'Publishing…');
+    try {
+      const res = await draftRequest('POST', '/publish');
+      if (!res.ok) throw new Error('publish failed');
+      const data = await res.json();
+      const n = Array.isArray(data.published) ? data.published.length : 0;
+      // Drafts are flushed; leave preview so the editor sees the published site.
+      setPreviewCookie(false);
+      showToast(`Published ${n} change(s)`, 'success');
+      window.location.reload();
+    } catch {
+      setStatus('error', 'Publish failed');
+      showToast('Publish failed', 'error');
+    }
+  });
+
+  discardBtn?.addEventListener('click', async () => {
+    if (!window.confirm('Discard all your draft changes? This cannot be undone.')) return;
+    try {
+      const res = await draftRequest('DELETE', '/draft');
+      if (!res.ok) throw new Error('discard failed');
+      setPreviewCookie(false);
+      showToast('Draft discarded', 'success');
+      window.location.reload();
+    } catch {
+      showToast('Discard failed', 'error');
+    }
   });
 
   const studioButton = toolbar.querySelector('.cms-studio-btn');

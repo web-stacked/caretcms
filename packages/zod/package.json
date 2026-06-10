@@ -1,0 +1,52 @@
+{
+  "name": "@caretcms/zod",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Derive CaretCMS Studio schemas from your Zod content-collection schemas — single source of truth.",
+  "license": "MIT",
+  "keywords": [
+    "astro",
+    "cms",
+    "caret",
+    "zod",
+    "json-schema",
+    "content-collections"
+  ],
+  "homepage": "https://github.com/web-stacked/caretcms/tree/main/packages/zod#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/web-stacked/caretcms.git",
+    "directory": "packages/zod"
+  },
+  "bugs": {
+    "url": "https://github.com/web-stacked/caretcms/issues"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "25.6.0",
+    "typescript": "6.0.3",
+    "zod": "4.4.3"
+  }
+}

@@ -4,11 +4,22 @@ import * as runtimeProviders from "virtual:caretcms/providers";
 type ProviderModule = {
   loadConfiguredStorage?: () => Promise<StorageAdapter | null>;
   loadConfiguredUploadHandler?: () => Promise<UploadHandler | null>;
+  allowedClasses?: Record<string, string[]>;
+  enableInlineEditor?: boolean;
+  mountPath?: string;
+  apiBasePath?: string;
 };
 
 type RuntimeServices = {
   adapter: StorageAdapter;
   uploadHandler: UploadHandler;
+  /** Per-tag class allowlist for rich-text sanitization (from caret() config). */
+  allowedClasses: Record<string, string[]>;
+  /** Whether the inline editor is enabled — gates the authed empty-state hint. */
+  enableInlineEditor: boolean;
+  /** CMS mount/API base paths, so the empty-state hint skips CMS-owned pages. */
+  mountPath: string;
+  apiBasePath: string;
 };
 
 let runtimeServicesPromise: Promise<RuntimeServices> | null = null;
@@ -51,6 +62,16 @@ export async function getRuntimeServices(): Promise<RuntimeServices> {
       ([adapter, uploadHandler]) => ({
         adapter,
         uploadHandler,
+        allowedClasses:
+          testServicesOverride?.allowedClasses ?? providerModule?.allowedClasses ?? {},
+        enableInlineEditor:
+          testServicesOverride?.enableInlineEditor ??
+          providerModule?.enableInlineEditor ??
+          false,
+        mountPath:
+          testServicesOverride?.mountPath ?? providerModule?.mountPath ?? "/admin",
+        apiBasePath:
+          testServicesOverride?.apiBasePath ?? providerModule?.apiBasePath ?? "/api/cms",
       }),
     );
     inflight.catch(() => {

@@ -26,6 +26,7 @@ import { mountContentMap } from './editor/content-map.js';
 import { mountRichToolbar } from './editor/rich-toolbar.js';
 import { mountLinkFollowAffordances } from './editor/link-follow.js';
 import { revealAndFade } from './editor/highlight.js';
+import { hydrateStega } from './editor/stega-hydrate.js';
 
 function redirectToEditorLogin() {
   window.location.href = getEditorLoginUrl(window.location.href);
@@ -36,6 +37,10 @@ function boot() {
     dirtyEl: null,
     linkPopupEl: null,
   };
+
+  // Promote stega-tagged (loader-fed) content into data-caret bindings before
+  // any scanner runs, so prop/component/loop content is click-to-edit too.
+  hydrateStega();
 
   mountEditorGuards(state);
   mountLinkFollowAffordances();

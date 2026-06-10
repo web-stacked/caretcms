@@ -5,7 +5,9 @@ import type {
   StorageAdapter,
 } from "../../types.js";
 
-const TOMBSTONE_KEY = "__caret_tombstone__";
+/** Sentinel marking a deleted-in-overlay entry. Exported so the publish flow can
+ *  recognize a draft deletion and apply it to the base as a real delete. */
+export const TOMBSTONE_KEY = "__caret_tombstone__";
 
 function isTombstone(entry: EntryData | null): boolean {
   return Boolean(entry && entry.data?.[TOMBSTONE_KEY] === true);

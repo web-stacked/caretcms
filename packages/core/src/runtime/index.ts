@@ -25,6 +25,7 @@ export {
   IMAGE_KIND_TO_EXT,
   IMAGE_MAX_SIZE,
   IMAGE_MIME_TO_KIND,
+  UploadError,
   detectImageKind,
   readAndValidateImage,
   sanitizeImageBaseName,

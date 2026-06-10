@@ -1,9 +1,10 @@
 import type { StorageAdapter, UploadHandler } from "../types.js";
-import { isEditorAuthenticated } from "./auth/session.js";
+import { isEditorAuthenticated, getEditorId } from "./auth/session.js";
 import { isDemoModeEnabled, resolveDemoSession } from "./auth/demo-session.js";
 import { getRuntimeServices } from "./providers.js";
 import { runWithRequestContext } from "./request-context.js";
 import { rewriteCaretAttributes } from "./rewrite.js";
+import { hasStega, stegaClean } from "./stega.js";
 import { SessionOverlayAdapter } from "./storage/session-overlay-adapter.js";
 
 // Side-effect import: registers any user-provided schemas into the schema registry
@@ -18,6 +19,68 @@ type MiddlewareContext = {
 };
 
 let _cachedRuntimeEnv: Record<string, unknown> | null | undefined;
+let _overlayWarned = false;
+
+function warnMissingOverlay(): void {
+  if (_overlayWarned) return;
+  _overlayWarned = true;
+  console.warn(
+    "[caretcms] CARET_DEMO_MODE is on but the configured storage adapter does " +
+      "not implement makeSessionOverlay. Demo editor access is disabled to " +
+      "avoid unauthenticated writes to shared storage. Use an adapter with " +
+      "session-overlay support (e.g. the filesystem or Cloudflare KV adapters).",
+  );
+}
+
+const PREVIEW_COOKIE = "caret_preview";
+
+/** Is this request for a CMS-owned route (Studio, API, or editor assets)? Those
+ *  pages are infrastructure, so the authed empty-state hint must never show on
+ *  them — only on the live site. Conservative: if the path can't be read, treat
+ *  it as owned (skip the hint). */
+function isCmsOwnedPath(
+  context: MiddlewareContext,
+  mountPath: string,
+  apiBasePath: string,
+): boolean {
+  const url = context.request?.url;
+  if (!url) return true;
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return true;
+  }
+  return (
+    pathname === mountPath ||
+    pathname.startsWith(`${mountPath}/`) ||
+    pathname.startsWith(apiBasePath) ||
+    pathname.startsWith("/__caret")
+  );
+}
+
+/** Inject the authenticated empty-state hint before `</body>` (falls back to
+ *  appending). The markup is static — the only interpolation is the normalized,
+ *  config-controlled mount path — so no escaping is required. */
+function injectSigninHint(html: string, mountPath: string): string {
+  const snippet =
+    `<link rel="stylesheet" href="/__caret/signin-hint.css">` +
+    `<div class="caret-signin-hint" role="status">` +
+    `<span class="caret-signin-hint__dot" aria-hidden="true"></span>` +
+    `<span class="caret-signin-hint__text">Signed in · no editable fields on this page. ` +
+    `Run <code>caretize</code> to add some, or <a href="${mountPath}/cms">open the Studio</a>.` +
+    `</span></div>`;
+  const closeBody = html.toLowerCase().lastIndexOf("</body>");
+  if (closeBody === -1) return html + snippet;
+  return html.slice(0, closeBody) + snippet + html.slice(closeBody);
+}
+
+/** Whether this request opted into draft preview (the editor toggles a cookie).
+ *  Only meaningful for an authenticated editor — the overlay install also
+ *  requires a valid editor id. */
+function isPreviewRequest(context: MiddlewareContext): boolean {
+  return context.cookies?.get(PREVIEW_COOKIE)?.value === "1";
+}
 
 async function resolveRuntimeEnv(): Promise<Record<string, unknown> | null> {
   if (_cachedRuntimeEnv !== undefined) return _cachedRuntimeEnv;
@@ -45,7 +108,9 @@ export async function onRequest(
   let adapter: StorageAdapter = services.adapter;
   let uploadHandler: UploadHandler = services.uploadHandler;
   let sessionId: string | null = null;
+  let editorId: string | null = null;
   let setCookieHeader: string | null = null;
+  let overlayActive = false;
   const demoMode = isDemoModeEnabled(runtimeEnv);
 
   if (demoMode) {
@@ -57,17 +122,48 @@ export async function onRequest(
     if (services.adapter.makeSessionOverlay) {
       const overlay = await services.adapter.makeSessionOverlay(sessionId);
       adapter = new SessionOverlayAdapter(services.adapter, overlay);
+      overlayActive = true;
+    } else {
+      warnMissingOverlay();
     }
 
     if (services.uploadHandler.makeSessionWrapper) {
       uploadHandler = await services.uploadHandler.makeSessionWrapper(sessionId);
     }
+  } else if (isPreviewRequest(context) && services.adapter.makeEditorOverlay) {
+    // Draft/preview mode: an authenticated editor opting into preview reads and
+    // writes through their per-editor overlay (the public site keeps seeing the
+    // base). Keyed by the editor id from the session cookie; absent that, there's
+    // no editor session so we leave the base adapter in place. Publish later
+    // flushes the overlay back to the base.
+    const id = getEditorId(context as Parameters<typeof getEditorId>[0]);
+    if (id) {
+      const overlay = await services.adapter.makeEditorOverlay(id);
+      adapter = new SessionOverlayAdapter(services.adapter, overlay);
+      overlayActive = true;
+      editorId = id;
+    }
   }
 
-  return runWithRequestContext({ adapter, uploadHandler, sessionId, demoMode }, async () => {
-    context.locals.isEditor = isEditorAuthenticated(
+  const requestContext = {
+    adapter,
+    uploadHandler,
+    sessionId,
+    editorId,
+    demoMode,
+    overlayActive,
+    editor: false,
+  };
+
+  return runWithRequestContext(requestContext, async () => {
+    const isEditor = isEditorAuthenticated(
       context as Parameters<typeof isEditorAuthenticated>[0],
     );
+    // Demo-overlay editor status depends on the request context (demoMode +
+    // overlayActive), so it can only be resolved here, inside the ALS scope.
+    // Mutate the live context object so the loaders see the gate during render.
+    requestContext.editor = isEditor;
+    context.locals.isEditor = isEditor;
     const inner = await next();
 
     const contentType = inner.headers.get("content-type") ?? "";
@@ -84,14 +180,38 @@ export async function onRequest(
     let rewritten = false;
 
     if (isHtml) {
-      const html = await inner.text();
+      let html = await inner.text();
       bodyConsumed = true;
-      if (html.includes("data-caret")) {
-        body = await rewriteCaretAttributes(html, adapter);
+      const hasBindings = html.includes("data-caret");
+      if (hasBindings) {
+        html = await rewriteCaretAttributes(html, adapter, {
+          allowedClasses: services.allowedClasses,
+        });
         rewritten = true;
-      } else {
-        body = html;
       }
+      // Backstop: strip stega metadata from published output so non-editors
+      // never receive the invisible characters, even if a value was encoded
+      // outside the loader's editor gate. Editors keep it — the overlay decodes
+      // it for click-to-edit.
+      if (!requestContext.editor && hasStega(html)) {
+        html = stegaClean(html);
+        rewritten = true;
+      }
+      // Authenticated empty-state hint: a signed-in editor landing on a live
+      // page with zero data-caret bindings would otherwise get no signal that
+      // anything happened (reads as "broken"). Show a small affordance pointing
+      // at caretize / the Studio. Editors-only and skipped on CMS-owned pages,
+      // so the public never sees it and it never clutters the Studio.
+      if (
+        services.enableInlineEditor &&
+        requestContext.editor &&
+        !hasBindings &&
+        !isCmsOwnedPath(context, services.mountPath, services.apiBasePath)
+      ) {
+        html = injectSigninHint(html, services.mountPath);
+        rewritten = true;
+      }
+      body = html;
     }
 
     if (!bodyConsumed && !setCookieHeader) {

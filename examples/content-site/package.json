@@ -6,11 +6,16 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "caretize": "caretize src --dry-run"
   },
   "dependencies": {
     "@astrojs/node": "10.1.1",
     "@caretcms/core": "*",
+    "@caretcms/zod": "*",
     "astro": "6.3.8"
+  },
+  "devDependencies": {
+    "@caretcms/caretize": "*"
   }
 }

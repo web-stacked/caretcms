@@ -1,0 +1,54 @@
+{
+  "name": "@caretcms/caretize",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "CLI that scans an Astro project and interactively adds data-caret attributes, turning a static site into a CaretCMS-editable one.",
+  "license": "MIT",
+  "keywords": [
+    "astro",
+    "cms",
+    "caret",
+    "codemod",
+    "cli",
+    "data-caret",
+    "inline-editing"
+  ],
+  "homepage": "https://github.com/web-stacked/caretcms/tree/main/packages/caretize#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/web-stacked/caretcms.git",
+    "directory": "packages/caretize"
+  },
+  "bugs": {
+    "url": "https://github.com/web-stacked/caretcms/issues"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "caretize": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@astrojs/compiler": "2.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "25.6.0",
+    "typescript": "6.0.3"
+  }
+}

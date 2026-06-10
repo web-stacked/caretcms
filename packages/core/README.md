@@ -21,6 +21,28 @@ export default defineConfig({
 });
 ```
 
+**Already have Astro content collections?** If your project has collections under
+`src/content/` and you haven't set `storage`, CaretCMS auto-selects
+`markdownStorage()` so the Studio lists those collections immediately (instead of
+"No collections yet") and edits write back to your `.md` frontmatter. Pass an
+explicit `storage` to override — `storage: filesystemStorage()` opts back out.
+
+## Choose your path
+
+CaretCMS gives you two ways to make content editable. They share one storage layer and one login — you can mix them on the same site — but they answer different questions. Start at the top; reach for the next row only when you need it.
+
+| Start here if… | Use | What you write |
+|---|---|---|
+| You have static markup (a hero, an about page) and just want to click words/images and change them | **Inline editing** | `data-caret` attributes on the elements |
+| The same fields repeat or you want short attribute names | **Scoped inline editing** | a `data-caret-scope` wrapper + short `data-caret` names |
+| Your content is dynamic data you query in frontmatter (a blog index, a list of products) | **Live collections** | `caretLoader` in `src/caret.config.ts`, then `getLiveEntry` / `getLiveCollection` |
+
+**The binding model in one line:** every edit is addressed as `collection::id::field`. Inline editing lets you spell that out in pieces — `data-caret-scope="pages::home"` sets `collection::id`, and `data-caret="headline"` fills in the `field`, so the element above resolves to `pages::home::headline`. Live collections address the same `collection` + `id` from frontmatter instead. Same content, same storage — two ways to reach it.
+
+> Adding `data-caret` to an existing site by hand? `npx @caretcms/caretize` scans your Astro
+> project and interactively annotates your templates for you. The attributes below are all you
+> need either way — caretize just writes them.
+
 ## Inline editing
 
 Add `data-caret` attributes to your templates:
@@ -44,6 +66,11 @@ Log in at `/admin`, then click any annotated element on the page to edit it.
 The inline editor only bootstraps on pages that contain `data-caret` bindings and only after
 `GET /api/cms/auth/session` confirms an authenticated editor session. Session cookies are issued
 as `HttpOnly`, `SameSite=Lax`, and automatically add `Secure` on HTTPS requests.
+
+When you're signed in and land on a live page that has **no** `data-caret` bindings yet, CaretCMS
+shows a small "signed in · no editable fields on this page" hint pointing you at the next step —
+so a page that isn't annotated yet reads as "nothing to edit here" rather than "is this broken?".
+The hint is editor-only (anonymous visitors never see it) and never appears inside the Studio.
 
 ## Live content collections
 
@@ -116,6 +143,22 @@ export default defineConfig({
 
 When provided, Studio uses these for field names, types, and editor widgets instead of guessing from the first entry.
 
+**Already describe your collections with Zod?** If you have a `content.config.ts` Zod schema,
+don't write it twice — `@caretcms/zod` derives the Studio schema from that single source:
+
+```js
+// astro.config.mjs
+import { schemaFromZod } from '@caretcms/zod';
+import { blogSchema } from './src/schemas.mjs'; // the same object content.config.ts uses
+
+caret({ schemas: { blog: schemaFromZod(blogSchema) } });
+```
+
+(Keep your Zod schemas in a plain module that imports only `zod` — not `astro:content` — so both
+`content.config.ts` and `astro.config` can import them.) Schemas remain optional: with
+auto-detected `markdownStorage` the Studio already shows each collection with fields inferred from
+existing entries; deriving from Zod just adds proper labels, types, and widget hints.
+
 ## What you get
 
 - **Inline editing** on any `data-caret` element (text and images)
@@ -124,6 +167,7 @@ When provided, Studio uses these for field names, types, and editor widgets inst
 - **Section composer** for reordering and spacing page sections
 - **Response rewriting** middleware — stored edits replace template defaults at render time
 - **Scoped bindings** via `data-caret-scope` to reduce repetition
+- **Dev Toolbar app** — in `astro dev`, inspect and highlight every binding on the page (no login required), grouped by entry with deep-links into Studio
 - **Revision safety** with optimistic locking and restore from history
 - **Storage adapters** — filesystem (default), in-memory, or custom via `StorageAdapter` interface
 
@@ -174,11 +218,29 @@ caret({
   apiBasePath: '/api/cms',      // API route prefix (default: /api/cms)
   enableAdmin: true,            // Inject admin pages (default: true)
   enableInlineEditor: true,     // Inject inline editor (default: true)
-  storage: filesystemStorage(), // Storage adapter (default: filesystem)
+  storage: filesystemStorage(), // Storage adapter (default: markdownStorage when
+                                //   src/content collections exist, else filesystem)
   uploads: localUploads(),      // Upload handler (default: local filesystem)
   schemas: {},                  // Optional JSON Schema map for Studio (default: inferred)
 })
 ```
+
+## Rendering & output
+
+CaretCMS injects your stored edits at request time in middleware (the "response rewriting" step),
+so any page that shows editable content must be **server-rendered** — that's why the integration
+needs `output: 'server'`. On `output: 'static'`, the editing middleware and routes are skipped (you'll
+see a warning) because prerendered HTML is produced at build time, before there's a request to rewrite.
+
+Mostly-static site? You don't lose prerendering everywhere — under `output: 'server'` you can opt
+individual pages that *don't* show live edits back into static generation with
+`export const prerender = true`. Pages that surface editable content should stay server-rendered so
+edits appear immediately instead of only after a rebuild.
+
+> **Migrating a static site:** switching to `output: 'server'` flips the default for
+> `getStaticPaths`-based pages — they no longer receive props at build time. Add
+> `export const prerender = true` to keep such a page statically generated, or refactor it to fetch
+> its data at request time. This is standard Astro output behavior, not specific to CaretCMS.
 
 ## Requirements
 

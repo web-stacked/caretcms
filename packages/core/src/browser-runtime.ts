@@ -1,3 +1,10 @@
+import {
+  RICH_ALLOWED_TAGS,
+  RICH_ALLOWED_ATTRS,
+  SAFE_HREF_RE,
+  classAllowed,
+} from "./runtime/rich-allowlist.js";
+
 export interface CloudCmsClientConfig {
   endpoint: string;
   projectId: string;
@@ -173,25 +180,25 @@ function collectBindings(root: ParentNode = document): Binding[] {
 }
 
 // --- Browser-side HTML sanitizer for rich text ---
-
-const RICH_ALLOWED_TAGS = new Set([
-  "b", "strong", "i", "em", "u", "s", "a", "br", "sub", "sup",
-]);
-
-const RICH_ALLOWED_ATTRS: Record<string, Set<string>> = {
-  a: new Set(["href", "target", "rel"]),
-};
-
-const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/)/i;
+// Allowlist + matcher come from runtime/rich-allowlist.ts (shared with the
+// server sanitizer); static/cms/editor/sanitize.js mirrors them by hand.
 
 function sanitizeHtmlBrowser(html: string): string {
   if (!html) return "";
+  const allowedClasses =
+    (typeof window !== "undefined"
+      ? (window as { __CARET__?: { allowedClasses?: Record<string, readonly string[]> } }).__CARET__
+          ?.allowedClasses
+      : undefined) ?? null;
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
-  sanitizeNode(doc.body);
+  sanitizeNode(doc.body, allowedClasses);
   return doc.body.innerHTML;
 }
 
-function sanitizeNode(parent: Node): void {
+function sanitizeNode(
+  parent: Node,
+  allowedClasses: Record<string, readonly string[]> | null,
+): void {
   const children = Array.from(parent.childNodes);
 
   for (const node of children) {
@@ -209,13 +216,28 @@ function sanitizeNode(parent: Node): void {
       const frag = document.createDocumentFragment();
       while (el.firstChild) frag.appendChild(el.firstChild);
       parent.replaceChild(frag, el);
-      sanitizeNode(parent);
+      sanitizeNode(parent, allowedClasses);
       return;
     }
 
     const allowed = RICH_ALLOWED_ATTRS[tag];
+    const classPatterns = allowedClasses ? allowedClasses[tag] : undefined;
     const attrs = Array.from(el.attributes);
     for (const attr of attrs) {
+      // class is gated by the per-tag allowlist, not RICH_ALLOWED_ATTRS
+      if (attr.name === "class") {
+        if (!classPatterns) {
+          el.removeAttribute("class");
+          continue;
+        }
+        const kept = attr.value
+          .split(/\s+/)
+          .filter((c) => c !== "" && classAllowed(c, classPatterns))
+          .join(" ");
+        if (kept) el.setAttribute("class", kept);
+        else el.removeAttribute("class");
+        continue;
+      }
       if (!allowed || !allowed.has(attr.name)) {
         el.removeAttribute(attr.name);
       }
@@ -232,7 +254,7 @@ function sanitizeNode(parent: Node): void {
       }
     }
 
-    sanitizeNode(el);
+    sanitizeNode(el, allowedClasses);
   }
 }
 

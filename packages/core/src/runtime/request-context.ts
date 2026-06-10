@@ -6,6 +6,25 @@ export interface CaretRequestContext {
   uploadHandler: UploadHandler;
   sessionId: string | null;
   demoMode: boolean;
+  /**
+   * True when this request is from an authenticated editor (or an active demo
+   * overlay). Gates draft-only behavior such as stega encoding in the live
+   * loaders. Set by the middleware after auth is resolved; absent means false.
+   */
+  editor?: boolean;
+  /**
+   * The authenticated editor's id (from the session cookie), when present. Keys
+   * the per-editor draft overlay so unpublished edits stay isolated per editor.
+   * Absent for anonymous/public requests and legacy sessions.
+   */
+  editorId?: string | null;
+  /**
+   * True only when a per-session storage overlay was actually installed for
+   * this demo request, guaranteeing writes are isolated from the shared base
+   * store. Demo editor rights are granted only when this holds — see
+   * `isEditorAuthenticated`. Absent/false means fail closed.
+   */
+  overlayActive?: boolean;
 }
 
 const storage = new AsyncLocalStorage<CaretRequestContext>();

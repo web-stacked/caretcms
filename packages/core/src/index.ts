@@ -1,4 +1,9 @@
+import { randomBytes } from "node:crypto";
+import { readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import type { AstroIntegration } from "astro";
+import { COLLECTION_NAME_RE } from "./runtime/storage/id-contracts.js";
 import type {
   CaretMode,
   CaretStorageProvider,
@@ -21,17 +26,20 @@ export type {
   RuntimeProviderReference,
 } from "./types.js";
 export { FilesystemAdapter } from "./runtime/storage/filesystem-adapter.js";
+export { MarkdownAdapter } from "./runtime/storage/markdown-adapter.js";
 export { InMemoryAdapter } from "./runtime/storage/in-memory-adapter.js";
 export { FilesystemUploadHandler } from "./runtime/storage/filesystem-upload-handler.js";
 export { bindEntry } from "./runtime/bind.js";
 export { caretLoader, CaretLoaderError } from "./loader.js";
 export type { CaretLiveLoader } from "./loader.js";
+export { editable } from "./editable.js";
 
 const VIRTUAL_PROVIDER_MODULE_ID = "virtual:caretcms/providers";
 const RESOLVED_VIRTUAL_PROVIDER_MODULE_ID = `\0${VIRTUAL_PROVIDER_MODULE_ID}`;
 const VIRTUAL_SCHEMAS_MODULE_ID = "virtual:caretcms/schemas";
 const RESOLVED_VIRTUAL_SCHEMAS_MODULE_ID = `\0${VIRTUAL_SCHEMAS_MODULE_ID}`;
 const FILESYSTEM_STORAGE_ENTRYPOINT = "@caretcms/core/providers/storage/filesystem";
+const MARKDOWN_STORAGE_ENTRYPOINT = "@caretcms/core/providers/storage/markdown";
 const LOCAL_UPLOADS_ENTRYPOINT = "@caretcms/core/providers/uploads/local";
 
 type ProviderDefinitionOptions = {
@@ -88,6 +96,20 @@ type BaseCaretOptions = {
    */
   schemas?: Record<string, JsonSchemaDefinition>;
   /**
+   * Per-tag class allowlist for rich-text (`data-caret-rich`) fields. By default
+   * the rich-text sanitizer strips every `class` (keeping only semantic inline
+   * tags), so design-system classes inside editable content are lost on save.
+   * Use this to bless specific classes so they round-trip unchanged.
+   *
+   * Keys are tag names, values are allowed class names. A pattern ending in `*`
+   * is a prefix match (`"text-*"` allows `text-primary`); a lone `"*"` allows any
+   * class on that tag. Example: `{ strong: ["text-theme-text-primary"], a: ["cta"] }`.
+   *
+   * Prefer styling semantic tags via CSS over allowlisting classes; reach for
+   * this only when a specific class genuinely must live inside editable content.
+   */
+  allowedClasses?: Record<string, string[]>;
+  /**
    * Studio chrome theme. Defaults to 'studio' — a neutral dark chrome that
    * matches the inline editor's "click to edit" blue. Currently the only
    * built-in preset; pass `{ tokens: { ... } }` to override individual
@@ -137,6 +159,7 @@ interface ResolvedCaretOptions {
   editorHome: string;
   cloud: CaretCloudOptions | null;
   schemas: Record<string, JsonSchemaDefinition>;
+  allowedClasses: Record<string, string[]>;
   theme: ResolvedThemeConfig;
   brand: ResolvedBrandConfig;
 }
@@ -170,6 +193,17 @@ export function filesystemStorage(options?: {
   return defineStorageProvider({
     entrypoint: FILESYSTEM_STORAGE_ENTRYPOINT,
     exportName: "filesystemStorageProvider",
+    options,
+  });
+}
+
+export function markdownStorage(options?: {
+  contentRoot?: string;
+  metaRoot?: string;
+}): CaretStorageProvider {
+  return defineStorageProvider({
+    entrypoint: MARKDOWN_STORAGE_ENTRYPOINT,
+    exportName: "markdownStorageProvider",
     options,
   });
 }
@@ -294,6 +328,7 @@ function resolveCaretOptions(options: CaretOptions): ResolvedCaretOptions {
     editorHome,
     cloud,
     schemas: options.schemas ?? {},
+    allowedClasses: options.allowedClasses ?? {},
     theme: resolveTheme(options.theme),
     brand: resolveBrand(options.brand),
   };
@@ -329,6 +364,13 @@ function createRuntimeProvidersPlugin(resolved: ResolvedCaretOptions) {
   const source = [
     buildProviderLoader("loadConfiguredStorage", resolved.storage),
     buildProviderLoader("loadConfiguredUploadHandler", resolved.uploads),
+    `export const allowedClasses = ${JSON.stringify(resolved.allowedClasses)};`,
+    // Surfaced for the middleware's authenticated empty-state affordance: it
+    // needs to know the inline editor is enabled and which paths are CMS-owned
+    // (so the hint never shows inside the Studio / on API + asset routes).
+    `export const enableInlineEditor = ${JSON.stringify(resolved.enableInlineEditor)};`,
+    `export const mountPath = ${JSON.stringify(resolved.mountPath)};`,
+    `export const apiBasePath = ${JSON.stringify(resolved.apiBasePath)};`,
   ].join("\n\n");
 
   return {
@@ -409,14 +451,77 @@ function buildCloudBootstrapScript(
   ].join("\n");
 }
 
+/**
+ * Zero-config storage detection (Zod-free): does `<root>/src/content` hold any
+ * Astro content-collection directories? Mirrors `listCollectionDirs` — a child
+ * dir whose name passes the collection-id contract — so what we detect here is
+ * exactly what `MarkdownAdapter.discoverCollections()` will later surface in the
+ * Studio. A plain readdir, no `astro:content` import and no config eval, keeping
+ * core's zero-runtime-dep / Zod-agnostic boundary intact.
+ *
+ * `content.config.ts` is a file, not a dir, so it's naturally excluded. Returns
+ * the collection names (for the log line) or `[]` when src/content is absent.
+ */
+function detectContentCollections(rootDir: string): string[] {
+  const contentRoot = join(rootDir, "src", "content");
+  try {
+    return readdirSync(contentRoot, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && COLLECTION_NAME_RE.test(e.name))
+      .map((e) => e.name)
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    // src/content absent or unreadable — not a content-collection site.
+    return [];
+  }
+}
+
 export function caret(options: CaretOptions = {}): AstroIntegration {
   const resolved = resolveCaretOptions(options);
 
   return {
     name: "caretcms",
     hooks: {
-      "astro:config:setup": ({ config, logger, addMiddleware, injectRoute, injectScript, updateConfig }) => {
+      "astro:config:setup": ({ command, config, logger, addMiddleware, injectRoute, injectScript, updateConfig, addDevToolbarApp }) => {
         const isStaticOutput = config.output === "static";
+
+        // Zero-config collection detection: when the user hasn't chosen a storage
+        // adapter and the project has Astro content collections under src/content,
+        // default to markdownStorage() so the Studio surfaces those collections
+        // immediately instead of the "No collections yet" empty state. Skipped in
+        // cloud mode (storage is remote) and whenever an explicit `storage` was
+        // passed — setting `storage: filesystemStorage()` is the opt-out. This
+        // only picks the adapter; typed field labels still come from `schemas`
+        // (e.g. derived via @caretcms/zod), which stays opt-in to keep core
+        // Zod-agnostic.
+        const userSetStorage = isProviderReference(
+          (options as { storage?: unknown }).storage,
+          "storage",
+        );
+        if (!userSetStorage && resolved.mode !== "cloud") {
+          const detected = detectContentCollections(fileURLToPath(config.root));
+          if (detected.length > 0) {
+            resolved.storage = markdownStorage();
+            logger.info(
+              `[caretcms] Detected Astro content collections under src/content (${detected.join(", ")}) — defaulting storage to markdownStorage(). Pass an explicit \`storage\` to override; add \`schemas\` (e.g. via @caretcms/zod) for typed fields.`,
+            );
+          }
+        }
+
+        // Zero-config dev login: when running `astro dev` in an editable
+        // (embedded, server-output) setup with no real password configured,
+        // mint a throwaway password so a freshly-installed site can sign in
+        // immediately. Only generated for `command === "dev"`, so production
+        // builds bake an empty define and stay locked.
+        const hasEnvPassword =
+          (process.env.CARET_EDIT_PASSWORD ?? process.env.EDIT_PASSWORD ?? "").trim()
+            .length > 0;
+        const devEditorPassword =
+          command === "dev" &&
+          !isStaticOutput &&
+          resolved.mode !== "cloud" &&
+          !hasEnvPassword
+            ? randomBytes(4).toString("hex")
+            : null;
 
         updateConfig({
           vite: {
@@ -427,6 +532,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
               __ASTRO_CARET_MODE__: JSON.stringify(resolved.mode),
               __ASTRO_CARET_THEME_CONFIG__: JSON.stringify(JSON.stringify(resolved.theme)),
               __ASTRO_CARET_BRAND_CONFIG__: JSON.stringify(JSON.stringify(resolved.brand)),
+              __ASTRO_CARET_DEV_PASSWORD__: JSON.stringify(devEditorPassword ?? ""),
             },
             plugins: [
               createRuntimeProvidersPlugin(resolved),
@@ -440,7 +546,30 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           mountPath: resolved.mountPath,
           apiBasePath: resolved.apiBasePath,
           cloud: resolved.cloud ?? undefined,
+          allowedClasses: resolved.allowedClasses,
         };
+
+        // Dev Toolbar app: a login-free, dev-only view of the data-caret
+        // bindings on the current page — the complement to the in-editor
+        // "Show All" button, which needs an authenticated editor session.
+        // Registered for every mode/output (it's pure introspection and is
+        // useful even in static mode); only runs under `astro dev`, so it
+        // adds no production surface.
+        if (command === "dev") {
+          addDevToolbarApp({
+            id: "caretcms",
+            name: "CaretCMS",
+            icon: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>`,
+            entrypoint: new URL("../static/cms/dev-toolbar/app.js", import.meta.url),
+          });
+          // mountPath/apiBasePath for the toolbar's Studio deep-links. Unlike
+          // window.__CARET__ (set only after auth), this is always present in
+          // dev so the toolbar can build links before anyone signs in.
+          injectScript(
+            "page",
+            `window.__CARET_DEV__=${JSON.stringify({ mountPath: resolved.mountPath, apiBasePath: resolved.apiBasePath })};`,
+          );
+        }
 
         if (resolved.mode === "cloud") {
           injectScript("page", buildCloudBootstrapScript(clientConfig, resolved.cloud!));
@@ -497,6 +626,14 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           entrypoint: new URL("./runtime/routes/schema.js", import.meta.url),
         });
         injectRoute({
+          pattern: `${resolved.apiBasePath}/publish`,
+          entrypoint: new URL("./runtime/routes/publish.js", import.meta.url),
+        });
+        injectRoute({
+          pattern: `${resolved.apiBasePath}/draft`,
+          entrypoint: new URL("./runtime/routes/draft.js", import.meta.url),
+        });
+        injectRoute({
           pattern: `${resolved.apiBasePath}/collections-metadata`,
           entrypoint: new URL("./runtime/routes/collections-metadata.js", import.meta.url),
         });
@@ -534,7 +671,10 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           injectScript(
             "page",
             `(function(){
-  if(!document.querySelector('[data-caret]'))return;
+  // Bootstrap when the page has an explicit data-caret binding OR stega-encoded
+  // content (key hidden in a string via U+E0000); the latter has no attribute
+  // until the editor hydrates it, so attribute-only detection would miss it.
+  if(!document.querySelector('[data-caret]') && !/\\u{E0000}/u.test(document.body&&document.body.textContent||''))return;
   fetch(${JSON.stringify(`${resolved.apiBasePath}/auth/session`)},{credentials:'same-origin'})
     .then(function(response){return response.ok?response.json():null;})
     .then(function(session){
@@ -553,6 +693,18 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
             resolved.storage,
           )}, uploads=${describeProvider(resolved.uploads)}, enableAdmin=${resolved.enableAdmin}, inlineEditor=${resolved.enableInlineEditor})`,
         );
+
+        if (devEditorPassword) {
+          logger.warn(
+            `[caretcms] No CARET_EDIT_PASSWORD set — temporary dev login enabled so you can sign in now:\n` +
+              `\n` +
+              `    password: ${devEditorPassword}\n` +
+              `\n` +
+              `  Sign in at ${resolved.mountPath}. To make it permanent, add\n` +
+              `  CARET_EDIT_PASSWORD=<your-password> to a .env file and restart.\n` +
+              `  This temporary password works in dev only; production stays locked.`,
+          );
+        }
       },
     },
   };
