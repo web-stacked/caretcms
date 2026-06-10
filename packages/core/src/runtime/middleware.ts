@@ -34,6 +34,47 @@ function warnMissingOverlay(): void {
 
 const PREVIEW_COOKIE = "caret_preview";
 
+/** Is this request for a CMS-owned route (Studio, API, or editor assets)? Those
+ *  pages are infrastructure, so the authed empty-state hint must never show on
+ *  them — only on the live site. Conservative: if the path can't be read, treat
+ *  it as owned (skip the hint). */
+function isCmsOwnedPath(
+  context: MiddlewareContext,
+  mountPath: string,
+  apiBasePath: string,
+): boolean {
+  const url = context.request?.url;
+  if (!url) return true;
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return true;
+  }
+  return (
+    pathname === mountPath ||
+    pathname.startsWith(`${mountPath}/`) ||
+    pathname.startsWith(apiBasePath) ||
+    pathname.startsWith("/__caret")
+  );
+}
+
+/** Inject the authenticated empty-state hint before `</body>` (falls back to
+ *  appending). The markup is static — the only interpolation is the normalized,
+ *  config-controlled mount path — so no escaping is required. */
+function injectSigninHint(html: string, mountPath: string): string {
+  const snippet =
+    `<link rel="stylesheet" href="/__caret/signin-hint.css">` +
+    `<div class="caret-signin-hint" role="status">` +
+    `<span class="caret-signin-hint__dot" aria-hidden="true"></span>` +
+    `<span class="caret-signin-hint__text">Signed in · no editable fields on this page. ` +
+    `Run <code>caretize</code> to add some, or <a href="${mountPath}/cms">open the Studio</a>.` +
+    `</span></div>`;
+  const closeBody = html.toLowerCase().lastIndexOf("</body>");
+  if (closeBody === -1) return html + snippet;
+  return html.slice(0, closeBody) + snippet + html.slice(closeBody);
+}
+
 /** Whether this request opted into draft preview (the editor toggles a cookie).
  *  Only meaningful for an authenticated editor — the overlay install also
  *  requires a valid editor id. */
@@ -141,7 +182,8 @@ export async function onRequest(
     if (isHtml) {
       let html = await inner.text();
       bodyConsumed = true;
-      if (html.includes("data-caret")) {
+      const hasBindings = html.includes("data-caret");
+      if (hasBindings) {
         html = await rewriteCaretAttributes(html, adapter, {
           allowedClasses: services.allowedClasses,
         });
@@ -153,6 +195,20 @@ export async function onRequest(
       // it for click-to-edit.
       if (!requestContext.editor && hasStega(html)) {
         html = stegaClean(html);
+        rewritten = true;
+      }
+      // Authenticated empty-state hint: a signed-in editor landing on a live
+      // page with zero data-caret bindings would otherwise get no signal that
+      // anything happened (reads as "broken"). Show a small affordance pointing
+      // at caretize / the Studio. Editors-only and skipped on CMS-owned pages,
+      // so the public never sees it and it never clutters the Studio.
+      if (
+        services.enableInlineEditor &&
+        requestContext.editor &&
+        !hasBindings &&
+        !isCmsOwnedPath(context, services.mountPath, services.apiBasePath)
+      ) {
+        html = injectSigninHint(html, services.mountPath);
         rewritten = true;
       }
       body = html;

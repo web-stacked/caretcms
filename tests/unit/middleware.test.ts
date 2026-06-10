@@ -205,6 +205,95 @@ describe("middleware", () => {
     expect(html).toContain("Professional Websites");
   });
 
+  describe("authenticated empty-state hint", () => {
+    function authedContext(url: string) {
+      const cookieValue = decodeURIComponent(
+        issueEditorSessionCookie().split(";")[0].split("=")[1],
+      );
+      return {
+        locals: {} as Record<string, unknown>,
+        request: new Request(url),
+        cookies: {
+          get: (name: string) =>
+            name === "caret_session" ? { value: cookieValue } : undefined,
+        },
+      };
+    }
+
+    const PLAIN_PAGE = "<html><body><h1>No bindings here</h1></body></html>";
+
+    function serveServices(overrides: Record<string, unknown> = {}) {
+      __setRuntimeServicesForTests({
+        adapter: new InMemoryAdapter(),
+        uploadHandler: { upload: vi.fn() },
+        enableInlineEditor: true,
+        ...overrides,
+      });
+    }
+
+    it("injects the hint for an authed editor on a binding-less live page", async () => {
+      serveServices();
+      const response = await onRequest(authedContext("http://localhost/about"), async () =>
+        new Response(PLAIN_PAGE, {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
+      const html = await response.text();
+      expect(html).toContain("caret-signin-hint");
+      expect(html).toContain("/__caret/signin-hint.css");
+      // Injected before </body>, exactly once.
+      expect(html.indexOf("caret-signin-hint")).toBeLessThan(html.indexOf("</body>"));
+      expect(html.match(/caret-signin-hint"/g)?.length).toBe(1);
+    });
+
+    it("does not inject for an unauthenticated visitor", async () => {
+      serveServices();
+      const response = await onRequest(
+        { locals: {}, request: new Request("http://localhost/about"), cookies: { get: () => undefined } },
+        async () =>
+          new Response(PLAIN_PAGE, {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }),
+      );
+      expect(await response.text()).not.toContain("caret-signin-hint");
+    });
+
+    it("does not inject when the page already has bindings", async () => {
+      serveServices();
+      const response = await onRequest(authedContext("http://localhost/about"), async () =>
+        new Response('<h1 data-caret="pages::home::title">Hi</h1>', {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
+      expect(await response.text()).not.toContain("caret-signin-hint");
+    });
+
+    it("does not inject on CMS-owned pages (the Studio)", async () => {
+      serveServices({ mountPath: "/admin" });
+      const response = await onRequest(authedContext("http://localhost/admin/cms"), async () =>
+        new Response(PLAIN_PAGE, {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
+      expect(await response.text()).not.toContain("caret-signin-hint");
+    });
+
+    it("does not inject when the inline editor is disabled", async () => {
+      serveServices({ enableInlineEditor: false });
+      const response = await onRequest(authedContext("http://localhost/about"), async () =>
+        new Response(PLAIN_PAGE, {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
+      expect(await response.text()).not.toContain("caret-signin-hint");
+    });
+  });
+
   it("preserves stega metadata for an authenticated editor", async () => {
     __setRuntimeServicesForTests({
       adapter: new InMemoryAdapter(),
