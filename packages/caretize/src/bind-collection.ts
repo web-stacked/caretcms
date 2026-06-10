@@ -31,6 +31,10 @@ export interface CollectionBindTarget {
   /** The loop variable (`posts` in `posts.map(...)`) — lets the CLI suppress the
    *  "consider a dynamic collection" flag for a loop this tier just covered. */
   receiver: string;
+  /** `"loop"` for a getCollection().map() row (--bind-collections); `"route"` for
+   *  the current entry of a dynamic detail page (--bind-routes). Only affects how
+   *  the dry-run plan labels the bind. */
+  kind: "loop" | "route";
 }
 
 // `const posts = await getCollection('releases')` (also .sort()/.filter() chains —
@@ -50,15 +54,17 @@ function expressionJs(node: AstroNode): string {
   return out;
 }
 
-function hasCaretAttr(node: TagNode): boolean {
+export function hasCaretAttr(node: TagNode): boolean {
   return node.attributes?.some(
     (a) => a.name === "data-caret" || a.name === "data-caret-rich",
   ) ?? false;
 }
 
 /** If `el` is a leaf element whose only dynamic content is `{<param>.data.<field>}`
- *  (no literal text, no child elements, exactly one expression), return the field. */
-function soleDataField(el: TagNode, param: string): string | null {
+ *  (no literal text, no child elements, exactly one expression), return the field.
+ *  Shared with the route binder (`--bind-routes`), which resolves the same
+ *  single-entry leaf shape from a dynamic detail page's entry variable. */
+export function soleDataField(el: TagNode, param: string): string | null {
   let field: string | null = null;
   for (const child of el.children ?? []) {
     if (child.type === "text") {
@@ -118,6 +124,7 @@ export function detectCollectionBindTargets(source: string, ast: AstroNode): Col
           field,
           tag: node.name,
           receiver: nextCtx.receiver,
+          kind: "loop",
         });
       }
     }

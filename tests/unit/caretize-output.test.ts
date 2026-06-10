@@ -5,6 +5,7 @@ import {
 import type { FilePlan, PlannedTag } from "../../packages/caretize/src/plan";
 import type { WrapTarget } from "../../packages/caretize/src/wrap";
 import type { PropHoistTarget } from "../../packages/caretize/src/prop-hoist";
+import type { CollectionBindTarget } from "../../packages/caretize/src/bind-collection";
 
 function tag(over: Partial<PlannedTag> & { candidate?: Partial<PlannedTag["candidate"]> } = {}): PlannedTag {
   return {
@@ -69,6 +70,18 @@ describe("formatPlan", () => {
 
   it("skips files with nothing to show", () => {
     expect(formatPlan([plan()], new Map(), new Map())).toBe("\n(dry run — nothing written)\n");
+  });
+
+  it("labels collection-loop and route binds distinctly", () => {
+    const binds = new Map<string, CollectionBindTarget[]>([
+      ["src/pages/index.astro", [
+        { startOffset: 0, attribute: "x", collection: "blog", field: "title", tag: "h2", receiver: "posts", kind: "loop" },
+        { startOffset: 1, attribute: "y", collection: "blog", field: "title", tag: "h1", receiver: "entry", kind: "route" },
+      ]],
+    ]);
+    const out = formatPlan([plan({ tags: [tag()] })], new Map(), new Map(), binds);
+    expect(out).toContain("⟳ data-caret  bind <h2> blog::*::title  (per-row collection loop)");
+    expect(out).toContain("⟳ data-caret  bind <h1> blog::${entry}::title  (current entry)");
   });
 });
 
