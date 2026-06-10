@@ -21,6 +21,20 @@ export default defineConfig({
 });
 ```
 
+## Choose your path
+
+CaretCMS gives you two ways to make content editable. They share one storage layer and one login — you can mix them on the same site — but they answer different questions. Start at the top; reach for the next row only when you need it.
+
+| Start here if… | Use | What you write |
+|---|---|---|
+| You have static markup (a hero, an about page) and just want to click words/images and change them | **Inline editing** | `data-caret` attributes on the elements |
+| The same fields repeat or you want short attribute names | **Scoped inline editing** | a `data-caret-scope` wrapper + short `data-caret` names |
+| Your content is dynamic data you query in frontmatter (a blog index, a list of products) | **Live collections** | `caretLoader` in `src/caret.config.ts`, then `getLiveEntry` / `getLiveCollection` |
+
+**The binding model in one line:** every edit is addressed as `collection::id::field`. Inline editing lets you spell that out in pieces — `data-caret-scope="pages::home"` sets `collection::id`, and `data-caret="headline"` fills in the `field`, so the element above resolves to `pages::home::headline`. Live collections address the same `collection` + `id` from frontmatter instead. Same content, same storage — two ways to reach it.
+
+> Adding `data-caret` to an existing site by hand? A codemod that auto-annotates your templates is in the works — for now, the attributes below are all you need.
+
 ## Inline editing
 
 Add `data-caret` attributes to your templates:
@@ -124,6 +138,7 @@ When provided, Studio uses these for field names, types, and editor widgets inst
 - **Section composer** for reordering and spacing page sections
 - **Response rewriting** middleware — stored edits replace template defaults at render time
 - **Scoped bindings** via `data-caret-scope` to reduce repetition
+- **Dev Toolbar app** — in `astro dev`, inspect and highlight every binding on the page (no login required), grouped by entry with deep-links into Studio
 - **Revision safety** with optimistic locking and restore from history
 - **Storage adapters** — filesystem (default), in-memory, or custom via `StorageAdapter` interface
 
