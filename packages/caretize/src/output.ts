@@ -63,7 +63,9 @@ export function formatPlan(
       }
     }
     for (const b of binds) {
-      out += `  ⟳ data-caret  bind <${b.tag}> ${b.collection}::*::${b.field}  (per-row collection loop)\n`;
+      const id = b.kind === "route" ? "${entry}" : "*";
+      const note = b.kind === "route" ? "current entry" : "per-row collection loop";
+      out += `  ⟳ data-caret  bind <${b.tag}> ${b.collection}::${id}::${b.field}  (${note})\n`;
     }
     for (const f of plan.flags) out += `  ⚠ ${f.method}() loop — consider a dynamic collection\n`;
   }

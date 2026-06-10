@@ -21,6 +21,7 @@ import { detectImportWrapTargetsSafe } from "./import-wrap.js";
 import { detectPropWrapTargets, type FileReader } from "./props.js";
 import { detectPropHoistTargets, type PropHoistTarget } from "./prop-hoist.js";
 import { detectCollectionBindTargets, type CollectionBindTarget } from "./bind-collection.js";
+import { detectRouteBindTargets } from "./bind-route.js";
 import { restoreLatest } from "./backup.js";
 import { buildReport } from "./report.js";
 import { isValidField } from "./name.js";
@@ -190,6 +191,7 @@ async function analyzeFiles(
   readFileSafe: FileReader,
   noProps: boolean,
   bindCollections: boolean,
+  bindRoutes: boolean,
 ): Promise<Analysis> {
   const plans: FilePlan[] = [];
   const wrapsByFile = new Map<string, WrapTarget[]>();
@@ -209,7 +211,11 @@ async function analyzeFiles(
     if (byName.size) wrapsByFile.set(rel, [...byName.values()]);
 
     // Tier-5 (--bind-collections): bind direct-render getCollection().map() loops.
-    const binds = bindCollections ? detectCollectionBindTargets(src, ast) : [];
+    // Tier-6 (--bind-routes): bind a dynamic detail page to its current entry.
+    const binds = [
+      ...(bindCollections ? detectCollectionBindTargets(src, ast) : []),
+      ...(bindRoutes ? detectRouteBindTargets(src, ast) : []),
+    ];
     if (binds.length) bindsByFile.set(rel, binds);
     const boundReceivers = new Set(binds.map((b) => b.receiver));
 
@@ -335,7 +341,7 @@ async function main(): Promise<void> {
     }
   };
 
-  const analysis = await analyzeFiles(root, files, planOpts, readFileSafe, args.noProps, args.bindCollections);
+  const analysis = await analyzeFiles(root, files, planOpts, readFileSafe, args.noProps, args.bindCollections, args.bindRoutes);
   process.stdout.write(
     formatScanSummary(files.length, analysis.plans, analysis.wrapsByFile, analysis.hoistsByFile, analysis.bindsByFile),
   );
