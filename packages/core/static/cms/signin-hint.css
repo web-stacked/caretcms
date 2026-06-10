@@ -1,0 +1,74 @@
+/*
+ * The authenticated empty-state hint: shown by the middleware on a live page
+ * when an editor is signed in but the page has zero `data-caret` bindings — the
+ * silent dead-end this replaces (you land on a normal page with no sign the
+ * editor noticed you). Self-contained and isolated (`all: initial` on the host)
+ * so it can't be restyled by — or restyle — the host page, and so it needs no
+ * inline styles (CSP `style-src 'self'` covers this same-origin file).
+ */
+.caret-signin-hint {
+  all: initial;
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  z-index: 2147483000;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(92vw, 400px);
+  padding: 10px 14px;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #e5e7eb;
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.caret-signin-hint__dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18);
+}
+
+.caret-signin-hint__text {
+  color: inherit;
+  font: inherit;
+}
+
+.caret-signin-hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  color: #f9fafb;
+  background: #1f2937;
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+
+.caret-signin-hint a {
+  color: #93c5fd;
+  font: inherit;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+@media (prefers-color-scheme: light) {
+  .caret-signin-hint {
+    color: #1f2937;
+    background: #ffffff;
+    border-color: #e5e7eb;
+  }
+  .caret-signin-hint code {
+    color: #111827;
+    background: #f3f4f6;
+  }
+  .caret-signin-hint a {
+    color: #2563eb;
+  }
+}

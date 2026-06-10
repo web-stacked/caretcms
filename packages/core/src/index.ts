@@ -1,5 +1,9 @@
 import { randomBytes } from "node:crypto";
+import { readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import type { AstroIntegration } from "astro";
+import { COLLECTION_NAME_RE } from "./runtime/storage/id-contracts.js";
 import type {
   CaretMode,
   CaretStorageProvider,
@@ -340,6 +344,12 @@ function createRuntimeProvidersPlugin(resolved: ResolvedCaretOptions) {
     buildProviderLoader("loadConfiguredStorage", resolved.storage),
     buildProviderLoader("loadConfiguredUploadHandler", resolved.uploads),
     `export const allowedClasses = ${JSON.stringify(resolved.allowedClasses)};`,
+    // Surfaced for the middleware's authenticated empty-state affordance: it
+    // needs to know the inline editor is enabled and which paths are CMS-owned
+    // (so the hint never shows inside the Studio / on API + asset routes).
+    `export const enableInlineEditor = ${JSON.stringify(resolved.enableInlineEditor)};`,
+    `export const mountPath = ${JSON.stringify(resolved.mountPath)};`,
+    `export const apiBasePath = ${JSON.stringify(resolved.apiBasePath)};`,
   ].join("\n\n");
 
   return {
@@ -420,6 +430,30 @@ function buildCloudBootstrapScript(
   ].join("\n");
 }
 
+/**
+ * Zero-config storage detection (Zod-free): does `<root>/src/content` hold any
+ * Astro content-collection directories? Mirrors `listCollectionDirs` — a child
+ * dir whose name passes the collection-id contract — so what we detect here is
+ * exactly what `MarkdownAdapter.discoverCollections()` will later surface in the
+ * Studio. A plain readdir, no `astro:content` import and no config eval, keeping
+ * core's zero-runtime-dep / Zod-agnostic boundary intact.
+ *
+ * `content.config.ts` is a file, not a dir, so it's naturally excluded. Returns
+ * the collection names (for the log line) or `[]` when src/content is absent.
+ */
+function detectContentCollections(rootDir: string): string[] {
+  const contentRoot = join(rootDir, "src", "content");
+  try {
+    return readdirSync(contentRoot, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && COLLECTION_NAME_RE.test(e.name))
+      .map((e) => e.name)
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    // src/content absent or unreadable — not a content-collection site.
+    return [];
+  }
+}
+
 export function caret(options: CaretOptions = {}): AstroIntegration {
   const resolved = resolveCaretOptions(options);
 
@@ -428,6 +462,29 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
     hooks: {
       "astro:config:setup": ({ command, config, logger, addMiddleware, injectRoute, injectScript, updateConfig, addDevToolbarApp }) => {
         const isStaticOutput = config.output === "static";
+
+        // Zero-config collection detection: when the user hasn't chosen a storage
+        // adapter and the project has Astro content collections under src/content,
+        // default to markdownStorage() so the Studio surfaces those collections
+        // immediately instead of the "No collections yet" empty state. Skipped in
+        // cloud mode (storage is remote) and whenever an explicit `storage` was
+        // passed — setting `storage: filesystemStorage()` is the opt-out. This
+        // only picks the adapter; typed field labels still come from `schemas`
+        // (e.g. derived via @caretcms/zod), which stays opt-in to keep core
+        // Zod-agnostic.
+        const userSetStorage = isProviderReference(
+          (options as { storage?: unknown }).storage,
+          "storage",
+        );
+        if (!userSetStorage && resolved.mode !== "cloud") {
+          const detected = detectContentCollections(fileURLToPath(config.root));
+          if (detected.length > 0) {
+            resolved.storage = markdownStorage();
+            logger.info(
+              `[caretcms] Detected Astro content collections under src/content (${detected.join(", ")}) — defaulting storage to markdownStorage(). Pass an explicit \`storage\` to override; add \`schemas\` (e.g. via @caretcms/zod) for typed fields.`,
+            );
+          }
+        }
 
         // Zero-config dev login: when running `astro dev` in an editable
         // (embedded, server-output) setup with no real password configured,
