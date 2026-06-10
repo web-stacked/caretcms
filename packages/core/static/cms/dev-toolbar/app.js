@@ -125,7 +125,8 @@ function esc(s) {
 
 const PANEL_CSS = `
   :host{all:initial;}
-  .wrap{font-family:system-ui,-apple-system,sans-serif;color:#e2e8f0;width:340px;max-height:70vh;display:flex;flex-direction:column;}
+  astro-dev-toolbar-window{width:min(440px,100%) !important;height:auto !important;}
+  .wrap{font-family:system-ui,-apple-system,sans-serif;color:#e2e8f0;width:100%;max-height:min(70vh,520px);display:flex;flex-direction:column;}
   .head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 2px 10px;border-bottom:1px solid rgba(255,255,255,.1);}
   .title{font-size:13px;font-weight:600;}
   .count{font-size:11px;color:#94a3b8;}
