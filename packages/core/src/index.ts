@@ -426,7 +426,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
   return {
     name: "caretcms",
     hooks: {
-      "astro:config:setup": ({ command, config, logger, addMiddleware, injectRoute, injectScript, updateConfig }) => {
+      "astro:config:setup": ({ command, config, logger, addMiddleware, injectRoute, injectScript, updateConfig, addDevToolbarApp }) => {
         const isStaticOutput = config.output === "static";
 
         // Zero-config dev login: when running `astro dev` in an editable
@@ -469,6 +469,28 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           cloud: resolved.cloud ?? undefined,
           allowedClasses: resolved.allowedClasses,
         };
+
+        // Dev Toolbar app: a login-free, dev-only view of the data-caret
+        // bindings on the current page — the complement to the in-editor
+        // "Show All" button, which needs an authenticated editor session.
+        // Registered for every mode/output (it's pure introspection and is
+        // useful even in static mode); only runs under `astro dev`, so it
+        // adds no production surface.
+        if (command === "dev") {
+          addDevToolbarApp({
+            id: "caretcms",
+            name: "CaretCMS",
+            icon: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>`,
+            entrypoint: new URL("../static/cms/dev-toolbar/app.js", import.meta.url),
+          });
+          // mountPath/apiBasePath for the toolbar's Studio deep-links. Unlike
+          // window.__CARET__ (set only after auth), this is always present in
+          // dev so the toolbar can build links before anyone signs in.
+          injectScript(
+            "page",
+            `window.__CARET_DEV__=${JSON.stringify({ mountPath: resolved.mountPath, apiBasePath: resolved.apiBasePath })};`,
+          );
+        }
 
         if (resolved.mode === "cloud") {
           injectScript("page", buildCloudBootstrapScript(clientConfig, resolved.cloud!));
