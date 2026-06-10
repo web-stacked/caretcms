@@ -17,6 +17,7 @@ export interface Args {
   rich: boolean;
   noProps: boolean;
   bindCollections: boolean;
+  bindRoutes: boolean;
   scope?: Scope;
   report?: string;
   restore: boolean;
@@ -40,6 +41,10 @@ Usage: caretize [path] [options]
   --bind-collections       bind getCollection().map() loops in place — a leaf
                            element rendering {item.data.field} gets a per-row
                            data-caret (direct-render only; props stay flagged)
+  --bind-routes            bind a dynamic collection-detail route to the current
+                           entry — a leaf rendering {entry.data.field} (entry from
+                           getStaticPaths props) gets a data-caret instead of the
+                           page being skipped as a dynamic route
   --rich                   also tag mixed-content blocks whose markup is
                            sanitizer-safe inline formatting (data-caret-rich)
   --scope <collection::id> override the inferred scope
@@ -53,7 +58,7 @@ export function parseArgs(argv: string[]): Args {
   const a: Args = {
     dryRun: false, yes: false, minConfidence: "high",
     noImages: false, rich: false, noProps: false, bindCollections: false,
-    restore: false, help: false, version: false,
+    bindRoutes: false, restore: false, help: false, version: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -63,6 +68,7 @@ export function parseArgs(argv: string[]): Args {
       case "--no-images": a.noImages = true; break;
       case "--no-props": a.noProps = true; break;
       case "--bind-collections": a.bindCollections = true; break;
+      case "--bind-routes": a.bindRoutes = true; break;
       case "--rich": a.rich = true; break;
       case "--restore": a.restore = true; break;
       case "--help": case "-h": a.help = true; break;
