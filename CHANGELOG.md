@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions track the publishable `@caretcms/core` package.
 
+## [Unreleased]
+
+### Added
+
+- caretize: **named-import loop binding** — loops sourced from a named import
+  (`import { services } from "../data/site"`) are now wrapped with `editable()`;
+  previously only default imports were, so most real-site loops
+  (cards/testimonials/FAQs/nav/footer) were flagged but never bound. Pre-aliased
+  named imports (`import { data as items }`) are skipped (renaming them would
+  emit invalid JS); the `classifyConstUsage` safety gate is unchanged.
+- caretize: **`astro:assets` `<Image>` / `<Picture>` binding** — these components
+  now receive `data-caret`, which Astro forwards to the rendered `<img>` whose
+  `src` the rewrite engine already swaps (no engine change). Recognized only when
+  imported from `"astro:assets"`; `src`-only (the engine can't swap `alt`/`href`).
+- caretize: per-file storage-key registry threads used keys across all tiers
+  (existing `data-caret` attrs + prior-run `editable()` keys pre-claimed; tags,
+  then wraps, then hoisted props; collisions take a `_2` field suffix), so one run
+  can no longer mint the same `collection::id::field` twice with two value shapes.
+- core: `astro:routes:resolved` warns when a project route overlaps the injected
+  CMS route space (`/admin`, `/api/cms`, `/__caret`), naming the
+  `mountPath`/`apiBasePath` remedy.
+- core: unknown `caret()` option keys warn with a did-you-mean suggestion instead
+  of silently using defaults; `locals.isEditor` is now typed `boolean` in user code
+  via an `App.Locals` augmentation.
+
+### Fixed
+
+- core: **data-caret resolver parity** — a parity test holds all four resolvers
+  (rewrite engine, browser-runtime, editor `helpers.js`, dev-toolbar) to one
+  fixture corpus. Fixed two real drifts: browser-runtime scoped from `closest()`
+  (self-inclusive) where the server scopes from ancestors only, and the static JS
+  copies resolved scope on malformed empty-segment triples (`"::x::y"`) the server
+  rejects.
+- core: the browser rich-text sanitizer (`static/cms/editor/sanitize.js`) allowlist
+  is now guarded against drift from `rich-allowlist.ts` by a parity test — it was
+  hand-mirrored with no automated check, a latent XSS hole.
+- caretize: identifiers are escaped wherever interpolated into a `RegExp`
+  (`$post`/`$state` no longer silently never-match), with `$`-aware boundaries
+  replacing `\b`; `frontmatterRange` tolerates a leading BOM (frontmatter tiers
+  used to silently no-op on BOM files); `--dry-run` reports would-fail-verification
+  files instead of hiding them; explicit targets inside skip dirs
+  (`node_modules`/`dist`) are refused rather than walked.
+- studio: empty-state copy is adapter-agnostic (no more `.caret/data` advice for
+  markdown/KV users) and points at caretize.
+
 ## [0.1.1] - 2026-06-11
 
 ### Added
