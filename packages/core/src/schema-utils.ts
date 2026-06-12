@@ -62,6 +62,7 @@ export function buildTemplate(schema: unknown): Record<string, unknown> | null {
       if (normalized.enum && normalized.enum.length > 0) return normalized.enum[0] as Record<string, unknown> | null;
       return "" as unknown as Record<string, unknown>;
     case "number":
+    case "integer":
       return 0 as unknown as Record<string, unknown>;
     case "boolean":
       return false as unknown as Record<string, unknown>;

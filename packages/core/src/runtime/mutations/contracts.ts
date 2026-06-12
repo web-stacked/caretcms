@@ -1,4 +1,5 @@
 import type { StorageAdapter } from "../../types.js";
+import { COLLECTION_NAME_RE, ENTRY_ID_RE } from "../storage/id-contracts.js";
 
 export type MutationIssue = {
   path: string;
@@ -99,9 +100,6 @@ function asOptionalExpectedRevision(value: unknown): number | undefined | null {
   if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
   return null;
 }
-
-const COLLECTION_NAME_RE = /^[a-z][a-z0-9_-]*$/;
-const ENTRY_ID_RE = /^[a-z0-9][a-z0-9_-]*$/;
 
 /**
  * Validate a collection name's *format* (not its existence). A well-formed
@@ -387,7 +385,11 @@ async function parseCreateCollectionCommand(
   input: Record<string, unknown>,
 ): Promise<{ ok: true; command: CreateCollectionCommand } | { ok: false; issues: MutationIssue[] }> {
   const issues: MutationIssue[] = [];
-  const id = asNonEmptyString(input.id);
+  // Same normalization as every other command (save_field/put_entry/
+  // delete_collection all lowercase via parseCollectionName): without it,
+  // create_collection("Blog") was rejected while save_field on "Blog" silently
+  // wrote to "blog".
+  const id = parseCollectionName(input.id);
   const label = asNonEmptyString(input.label);
   const description = typeof input.description === "string" ? input.description : undefined;
   const icon = typeof input.icon === "string" ? input.icon : undefined;
@@ -395,7 +397,7 @@ async function parseCreateCollectionCommand(
   const orderable = typeof input.orderable === "boolean" ? input.orderable : undefined;
   const schema = input.schema;
 
-  if (!id || !/^[a-z][a-z0-9_-]*$/.test(id)) {
+  if (!id) {
     issues.push(issue("id", "invalid_type", "Collection ID must be lowercase alphanumeric with hyphens/underscores"));
   }
   if (!label) {

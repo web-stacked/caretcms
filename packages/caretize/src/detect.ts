@@ -81,15 +81,25 @@ export interface DetectResult {
 
 // Content tags we'll tag, with their confidence tier. Anything not listed is
 // treated as non-content and skipped (whitelist, not blacklist).
-const CONFIDENCE: Record<string, Confidence> = {
+//
+// The key set MUST equal core's REWRITABLE_TEXT_TAGS (runtime/rewrite.ts):
+// the rewrite engine only injects stored values into those tags, so tagging
+// anything else mints a binding that saves through the editor but never
+// renders to visitors. Held in lockstep by tests/unit/contracts-parity.test.ts.
+export const CONFIDENCE: Record<string, Confidence> = {
   h1: "high", h2: "high", h3: "high", h4: "high", h5: "high", h6: "high",
   p: "high", blockquote: "high",
   li: "medium", a: "medium", button: "medium", figcaption: "medium",
   summary: "medium", caption: "medium", dt: "medium", dd: "medium",
-  th: "medium", td: "medium", label: "medium",
-  span: "low", div: "low", strong: "low", em: "low", small: "low",
-  code: "low", cite: "low", b: "low", i: "low", mark: "low", q: "low",
+  th: "medium", td: "medium", label: "medium", legend: "medium",
+  span: "low", strong: "low", em: "low", small: "low",
 };
+
+/** Can the rewrite engine swap this tag's text content? Gate for every tier
+ *  that emits a text binding (tag pass via CONFIDENCE, bind tiers directly). */
+export function isRewritableTextTag(tag: string): boolean {
+  return tag.toLowerCase() in CONFIDENCE;
+}
 
 // Always requires the method call (`.map(`); also captures the immediate
 // receiver identifier when it's a plain variable (group 1), so callers can tell
@@ -98,21 +108,24 @@ const CONFIDENCE: Record<string, Confidence> = {
 // still flag — they just carry no receiver to match against. Group 2 = method.
 const ITERATOR_RE = /(?:([A-Za-z_$][\w$]*)\s*)?\.\s*(map|filter|forEach|flatMap|reduce)\s*\(/;
 
-// Inline formatting tags the rich-text sanitizer keeps. MUST match ALLOWED_TAGS
-// in core's sanitize-html.ts / static/cms/editor/sanitize.js — anything outside
-// this set is unwrapped on save, so promoting it would not round-trip.
-const RICH_INLINE_TAGS = new Set([
+// Inline formatting tags the rich-text sanitizer keeps. MUST match
+// RICH_ALLOWED_TAGS in core's runtime/rich-allowlist.ts (and the hand-mirrored
+// static/cms/editor/sanitize.js) — anything outside this set is unwrapped on
+// save, so promoting it would not round-trip. Held in lockstep by
+// tests/unit/contracts-parity.test.ts.
+export const RICH_INLINE_TAGS = new Set([
   "b", "strong", "i", "em", "u", "s", "a", "br", "sub", "sup",
 ]);
 
 // Attributes the sanitizer keeps. Everything else (notably `class`) is stripped
 // on save unless blessed via the runtime `allowedClasses` option — which the
 // CLI can't see — so caretize stays conservative and treats any attribute here
-// other than these as lossy.
-const RICH_SAFE_ATTRS: Record<string, Set<string>> = {
+// other than these as lossy. MUST match core's RICH_ALLOWED_ATTRS/SAFE_HREF_RE
+// (same parity test).
+export const RICH_SAFE_ATTRS: Record<string, Set<string>> = {
   a: new Set(["href", "target", "rel"]),
 };
-const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/)/i;
+export const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/)/i;
 
 /** How the inline-markup children of a mixed element classify for rich promotion. */
 type RichShape =

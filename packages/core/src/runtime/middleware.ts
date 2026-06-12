@@ -34,6 +34,11 @@ function warnMissingOverlay(): void {
 
 const PREVIEW_COOKIE = "caret_preview";
 
+/** Rendered binding attributes: `data-caret="…"` / `data-caret-scope="…"`.
+ *  Matches the attribute grammar the rewrite engine consumes (whitespace
+ *  around `=` tolerated), so prose mentions of "data-caret" don't count. */
+const BINDING_PROBE_RE = /\bdata-caret(?:-scope)?\s*=\s*"/;
+
 /** Is this request for a CMS-owned route (Studio, API, or editor assets)? Those
  *  pages are infrastructure, so the authed empty-state hint must never show on
  *  them — only on the live site. Conservative: if the path can't be read, treat
@@ -68,7 +73,7 @@ function injectSigninHint(html: string, mountPath: string): string {
     `<div class="caret-signin-hint" role="status">` +
     `<span class="caret-signin-hint__dot" aria-hidden="true"></span>` +
     `<span class="caret-signin-hint__text">Signed in · no editable fields on this page. ` +
-    `Run <code>caretize</code> to add some, or <a href="${mountPath}/cms">open the Studio</a>.` +
+    `Run <code>npx @caretcms/caretize</code> to add some, or <a href="${mountPath}/cms">open the Studio</a>.` +
     `</span></div>`;
   const closeBody = html.toLowerCase().lastIndexOf("</body>");
   if (closeBody === -1) return html + snippet;
@@ -182,7 +187,12 @@ export async function onRequest(
     if (isHtml) {
       let html = await inner.text();
       bodyConsumed = true;
-      const hasBindings = html.includes("data-caret");
+      // Probe for ATTRIBUTE syntax, not the bare substring: a page that merely
+      // mentions data-caret in prose (docs, a blog post about the CMS) must not
+      // run the rewrite engine or suppress the signed-in empty-state hint.
+      // data-caret-rich is a bare attribute but always accompanies data-caret,
+      // so the two valued forms cover every binding the engine can act on.
+      const hasBindings = BINDING_PROBE_RE.test(html);
       if (hasBindings) {
         html = await rewriteCaretAttributes(html, adapter, {
           allowedClasses: services.allowedClasses,

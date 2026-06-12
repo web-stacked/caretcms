@@ -19,6 +19,8 @@
  */
 import { isTagNode, type AstroNode, type TagNode } from "./parse.js";
 import { frontmatterRange } from "./frontmatter.js";
+import { isRewritableTextTag } from "./detect.js";
+import { escapeRe } from "./identifiers.js";
 
 export interface CollectionBindTarget {
   /** Element opening-tag start offset — where the data-caret attribute splices in. */
@@ -37,16 +39,23 @@ export interface CollectionBindTarget {
   kind: "loop" | "route";
 }
 
-// `const posts = await getCollection('releases')` (also .sort()/.filter() chains —
-// the call just has to appear in the initializer). Captures receiver + collection.
-const GET_COLLECTION_RE =
-  /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?[\s\S]*?getCollection\(\s*['"]([^'"]+)['"]\s*\)/g;
+// `const posts = await getCollection('releases')`, including a chained
+// initializer like `(await getCollection('x')).sort(...)`. The receiver must be
+// the declaration the call actually initializes: an earlier unbounded-lazy form
+// (`=\s*…[\s\S]*?getCollection`) let a PRECEDING declaration steal the capture,
+// binding the wrong variable to the collection — a corrupt permanent storage
+// key. So the initializer must START with the (optionally parenthesized,
+// optionally awaited) call. Indirect shapes (`sortBy(await getCollection(…))`)
+// now yield no binding — a silent miss is safe, a wrong receiver is not.
+// Shared with the route binder (`--bind-routes`).
+export const GET_COLLECTION_RE =
+  /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?\(?\s*(?:await\s+)?getCollection\(\s*['"]([^'"]+)['"]\s*\)/g;
 
 // `posts.map((post) => ...` — receiver + the iteration parameter.
 const MAP_RE = /([A-Za-z_$][\w$]*)\s*\.\s*map\s*\(\s*\(?\s*([A-Za-z_$][\w$]*)/;
 
 /** Concatenated JS text of an expression node's direct text children. */
-function expressionJs(node: AstroNode): string {
+export function expressionJs(node: AstroNode): string {
   let out = "";
   for (const child of node.children ?? []) {
     if (child.type === "text") out += (child as { value?: string }).value ?? "";
@@ -58,6 +67,16 @@ export function hasCaretAttr(node: TagNode): boolean {
   return node.attributes?.some(
     (a) => a.name === "data-caret" || a.name === "data-caret-rich",
   ) ?? false;
+}
+
+/** Does this expression introduce an iterator-callback param named `name`?
+ *  `team.map((post) => …)` rebinds `post` for its subtree — elements inside
+ *  render the iterated row, not whatever outer binding shares the name, so a
+ *  binder holding `name` must treat the subtree as out of scope. */
+export function iteratorParamShadows(js: string, name: string): boolean {
+  return new RegExp(
+    `\\.\\s*(?:map|filter|forEach|flatMap|reduce)\\s*\\(\\s*\\(?\\s*${escapeRe(name)}(?![\\w$])`,
+  ).test(js);
 }
 
 /** If `el` is a leaf element whose only dynamic content is `{<param>.data.<field>}`
@@ -107,12 +126,27 @@ export function detectCollectionBindTargets(source: string, ast: AstroNode): Col
   ): void => {
     let nextCtx = ctx;
     if (node.type === "expression") {
-      const mm = MAP_RE.exec(expressionJs(node));
+      const js = expressionJs(node);
+      const mm = MAP_RE.exec(js);
       const collection = mm && collections.get(mm[1]);
-      if (collection && mm) nextCtx = { collection, param: mm[2], receiver: mm[1] };
+      if (collection && mm) {
+        nextCtx = { collection, param: mm[2], receiver: mm[1] };
+      } else if (ctx && iteratorParamShadows(js, ctx.param)) {
+        // A nested non-collection loop reuses the active param name
+        // (`team.map((post) => …)` inside a `posts.map((post) => …)`): inside
+        // it, `post` is a team row. Binding there would write to the wrong
+        // collection — drop the context for this subtree.
+        nextCtx = null;
+      }
     }
 
-    if (nextCtx && isTagNode(node) && node.type === "element" && !hasCaretAttr(node)) {
+    if (
+      nextCtx &&
+      isTagNode(node) &&
+      node.type === "element" &&
+      !hasCaretAttr(node) &&
+      isRewritableTextTag(node.name)
+    ) {
       const field = soleDataField(node, nextCtx.param);
       const startOffset = node.position?.start.offset ?? -1;
       if (field && startOffset >= 0) {

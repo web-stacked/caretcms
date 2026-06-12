@@ -27,17 +27,7 @@
 
 import { getRequestContext } from "./runtime/request-context.js";
 import { stegaCombine } from "./runtime/stega.js";
-
-/** Read a nested value by dot-path (object keys + numeric array indices). */
-function getByPath(data: unknown, path: string): unknown {
-  if (!path) return data;
-  let current: unknown = data;
-  for (const key of path.split(".")) {
-    if (current === null || typeof current !== "object") return undefined;
-    current = (current as Record<string, unknown>)[key];
-  }
-  return current;
-}
+import { getNestedValue as getByPath } from "./runtime/utils.js";
 
 /**
  * Overlay `override` onto `base` (override wins where defined). Objects merge by

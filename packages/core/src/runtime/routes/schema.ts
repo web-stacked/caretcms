@@ -2,7 +2,6 @@ import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { getRegisteredSchema } from "../schema-registry.js";
 import { inferJsonSchema, buildTemplate } from "../../schema-utils.js";
-import { generateTemplateFromSchema } from "../schema/template.js";
 import { json, getAdapter } from "./_helpers.js";
 
 export async function GET(context: APIContext): Promise<Response> {
@@ -32,7 +31,10 @@ export async function GET(context: APIContext): Promise<Response> {
   // 2. Check for dynamic schema (from collection metadata)
   const metadata = await adapter.getCollectionMetadata(collectionRaw);
   if (metadata?.schema) {
-    const template = generateTemplateFromSchema(metadata.schema);
+    // Same builder as the inferred-schema path below: the default new-entry
+    // shape must not depend on HOW a collection came to exist (a second flat
+    // builder used to seed enums/integers/nested objects differently).
+    const template = buildTemplate(metadata.schema) ?? {};
     return json({
       schema: metadata.schema,
       template,

@@ -17,13 +17,68 @@ async function detect(src: string) {
 }
 
 describe("detectCollectionBindTargets", () => {
-  it("binds the direct-render leaf in the starlog fixture, not the component prop", async () => {
-    const targets = await detect(fixture("starlog-index.astro"));
-    // version_number div renders {post.data.versionNumber}; the date is a
-    // <FormattedDate> prop (cross-file) and must NOT be bound.
+  it("does not bind the starlog fixture's div leaf — the rewrite engine can't render a div", async () => {
+    // version_number is a <div> rendering {post.data.versionNumber}: the editor
+    // would accept the binding but the rewrite engine never injects stored
+    // values into a div, so binding it mints a silently inert storage key.
+    // The date is a <FormattedDate> prop (cross-file) and must NOT be bound.
+    expect(await detect(fixture("starlog-index.astro"))).toHaveLength(0);
+  });
+
+  it("does not bind leaf elements outside the rewrite-engine tag allowlist", async () => {
+    const src = `---
+import { getCollection } from 'astro:content';
+const posts = await getCollection('blog');
+---
+<ul>{posts.map((post) => (
+  <li><time>{post.data.date}</time><div>{post.data.body}</div><h2>{post.data.title}</h2></li>
+))}</ul>`;
+    const targets = await detect(src);
+    expect(targets.map((t) => t.tag)).toEqual(["h2"]);
+  });
+
+  it("binds the right receiver when another declaration precedes getCollection", async () => {
+    const src = `---
+import { getCollection } from 'astro:content';
+const navItems = [{ data: { label: 'Home' } }];
+const posts = await getCollection('blog');
+---
+<nav>{navItems.map((item) => (<span>{item.data.label}</span>))}</nav>
+<ul>{posts.map((post) => (<li><h2>{post.data.title}</h2></li>))}</ul>`;
+    const targets = await detect(src);
+    // navItems is NOT a collection — its loop must stay unbound; posts must bind.
     expect(targets).toHaveLength(1);
-    expect(targets[0]).toMatchObject({ collection: "releases", field: "versionNumber", tag: "div" });
-    expect(targets[0].attribute).toBe("data-caret={`releases::${post.id}::versionNumber`}");
+    expect(targets[0]).toMatchObject({ collection: "blog", field: "title", tag: "h2" });
+    expect(targets[0].attribute).toBe("data-caret={`blog::${post.id}::title`}");
+  });
+
+  it("binds through a chained initializer", async () => {
+    const src = `---
+import { getCollection } from 'astro:content';
+const posts = (await getCollection('blog')).sort((a, b) => a.id.localeCompare(b.id));
+---
+<ul>{posts.map((post) => (<li><h2>{post.data.title}</h2></li>))}</ul>`;
+    const targets = await detect(src);
+    expect(targets).toHaveLength(1);
+    expect(targets[0]).toMatchObject({ collection: "blog", field: "title" });
+  });
+
+  it("drops the context inside a nested loop that shadows the param name", async () => {
+    const src = `---
+import { getCollection } from 'astro:content';
+const posts = await getCollection('blog');
+const related = [{ data: { name: 'x' } }];
+---
+<ul>{posts.map((post) => (
+  <li>
+    <h2>{post.data.title}</h2>
+    <ol>{related.map((post) => (<li><span>{post.data.name}</span></li>))}</ol>
+  </li>
+))}</ul>`;
+    const targets = await detect(src);
+    // Inside the related loop, `post` is a related row, not a blog entry.
+    expect(targets).toHaveLength(1);
+    expect(targets[0]).toMatchObject({ collection: "blog", field: "title", tag: "h2" });
   });
 
   it("binds every direct-render field in a multi-field loop", async () => {

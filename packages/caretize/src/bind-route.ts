@@ -33,14 +33,13 @@ import { isTagNode, type AstroNode } from "./parse.js";
 import { frontmatterRange } from "./frontmatter.js";
 import {
   type CollectionBindTarget,
+  GET_COLLECTION_RE,
+  expressionJs,
   hasCaretAttr,
+  iteratorParamShadows,
   soleDataField,
 } from "./bind-collection.js";
-
-// `const posts = await getCollection('blog')` → receiver + collection. Mirrors
-// the loop binder's pattern (lazy across the initializer tolerates .sort()/etc).
-const GET_COLLECTION_RE =
-  /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?[\s\S]*?getCollection\(\s*['"]([^'"]+)['"]\s*\)/g;
+import { isRewritableTextTag } from "./detect.js";
 
 // `posts.map((post) => ...` — receiver + the iteration parameter.
 const MAP_PARAM_RE = /([A-Za-z_$][\w$]*)\s*\.\s*map\s*\(\s*\(?\s*([A-Za-z_$][\w$]*)/g;
@@ -122,8 +121,24 @@ export function detectRouteBindTargets(
   const { collection, entryVar } = resolved;
 
   const targets: CollectionBindTarget[] = [];
-  const visit = (node: AstroNode): void => {
-    if (isTagNode(node) && node.type === "element" && !hasCaretAttr(node)) {
+  const visit = (node: AstroNode, shadowed: boolean): void => {
+    let nextShadowed = shadowed;
+    // A template loop whose callback param reuses the entry variable's name
+    // (`{team.map((post) => <li>{post.data.name}</li>)}` on a page whose entry
+    // var is `post`) shadows it: inside, `post` is the iterated row. Binding
+    // there would write to the wrong collection — skip the whole subtree.
+    if (!nextShadowed && node.type === "expression" &&
+        iteratorParamShadows(expressionJs(node), entryVar)) {
+      nextShadowed = true;
+    }
+
+    if (
+      !nextShadowed &&
+      isTagNode(node) &&
+      node.type === "element" &&
+      !hasCaretAttr(node) &&
+      isRewritableTextTag(node.name)
+    ) {
       const field = soleDataField(node, entryVar);
       const startOffset = node.position?.start.offset ?? -1;
       if (field && startOffset >= 0) {
@@ -139,8 +154,8 @@ export function detectRouteBindTargets(
         });
       }
     }
-    for (const child of node.children ?? []) visit(child);
+    for (const child of node.children ?? []) visit(child, nextShadowed);
   };
-  visit(ast);
+  visit(ast, false);
   return targets;
 }

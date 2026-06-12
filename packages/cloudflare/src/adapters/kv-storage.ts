@@ -4,6 +4,7 @@ import type {
   HistoryEntry,
   StorageAdapter,
 } from "@caretcms/core";
+import { COLLECTION_NAME_RE, assertSafeEditorId } from "@caretcms/core/contracts";
 import { getCloudflareRuntimeEnv } from "../runtime/env.js";
 
 type KvBindingLike = {
@@ -12,7 +13,6 @@ type KvBindingLike = {
   delete(key: string): Promise<void>;
 };
 
-const COLLECTION_NAME_RE = /^[a-z][a-z0-9_-]*$/;
 const HISTORY_LIMIT = 50;
 const COLLECTIONS_KEY = "collections";
 const META_PREFIX = "meta::";
@@ -374,9 +374,7 @@ export class CloudflareKvStorageAdapter implements StorageAdapter {
   }
 
   async makeEditorOverlay(editorId: string): Promise<StorageAdapter> {
-    if (!/^[A-Za-z0-9_-]{1,64}$/.test(editorId)) {
-      throw new Error(`[caretcms] unsafe editor overlay id: ${JSON.stringify(editorId)}`);
-    }
+    assertSafeEditorId(editorId);
     // No expirationTtl: a draft persists until the editor publishes or discards it
     // (unlike the 2h ephemeral demo session overlay above).
     return new CloudflareKvStorageAdapter({

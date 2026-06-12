@@ -498,9 +498,18 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           "storage",
         );
         if (!userSetStorage && resolved.mode !== "cloud") {
-          const detected = detectContentCollections(fileURLToPath(config.root));
+          const projectRoot = fileURLToPath(config.root);
+          const detected = detectContentCollections(projectRoot);
           if (detected.length > 0) {
-            resolved.storage = markdownStorage();
+            // Pin the adapter to the SAME root the detection used — its own
+            // default is process.cwd(), which diverges from config.root under
+            // `astro dev --root`, monorepo task runners, etc., producing
+            // "detected collections" in the log while the Studio reads an
+            // empty directory somewhere else.
+            resolved.storage = markdownStorage({
+              contentRoot: join(projectRoot, "src", "content"),
+              metaRoot: join(projectRoot, ".caretcms"),
+            });
             logger.info(
               `[caretcms] Detected Astro content collections under src/content (${detected.join(", ")}) — defaulting storage to markdownStorage(). Pass an explicit \`storage\` to override; add \`schemas\` (e.g. via @caretcms/zod) for typed fields.`,
             );

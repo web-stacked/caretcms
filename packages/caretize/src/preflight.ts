@@ -71,8 +71,10 @@ export function preflight(rootDir: string): Preflight {
   const caretWired =
     config !== null && (/\bcaret\s*\(/.test(config) || /@caretcms\/core/.test(config));
 
-  // Output mode (Astro defaults to "static" when unset).
-  const outputMatch = config?.match(/output\s*:\s*["'](server|hybrid|static)["']/);
+  // Output mode (Astro defaults to "static" when unset). "hybrid" was removed
+  // in Astro 5 — a config still carrying it is treated as unknown/static so
+  // the warning below points the user at a mode that exists.
+  const outputMatch = config?.match(/output\s*:\s*["'](server|static)["']/);
   const outputMode = outputMatch ? outputMatch[1] : "static";
 
   let gitRepo = false;
@@ -105,7 +107,7 @@ export function preflight(rootDir: string): Preflight {
   }
   if (hasCaretCore && outputMode === "static") {
     warnings.push(
-      `output is "static" — embedded inline editing needs a server (output: "server" or "hybrid") plus an adapter.`,
+      `output is "static" — embedded inline editing needs output: "server" plus an SSR adapter (e.g. @astrojs/node).`,
     );
   }
   if (gitRepo && gitClean === false) {

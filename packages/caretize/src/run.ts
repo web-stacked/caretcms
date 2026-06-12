@@ -14,7 +14,7 @@ import { applyTags, type TagInsertion } from "./write.js";
 import { wrapConst, type WrapTarget } from "./wrap.js";
 import { wrapImport } from "./import-wrap.js";
 import { hoistPropLiterals, verifyHoistResult, type PropHoistTarget } from "./prop-hoist.js";
-import { writeBackup, restoreLatest } from "./backup.js";
+import { writeBackup, restoreBackups } from "./backup.js";
 
 /** Apply the right editable() wrap for a target's origin. */
 function applyWrap(source: string, t: WrapTarget) {
@@ -232,15 +232,20 @@ export function commitRun(
 
   const written: string[] = [];
   const backups: string[] = [];
+  const thisRun: Array<{ relPath: string; backupAbs: string }> = [];
   try {
     for (const file of toWrite) {
-      backups.push(writeBackup(rootDir, file.relPath, stamp));
+      const backupAbs = writeBackup(rootDir, file.relPath, stamp);
+      backups.push(backupAbs);
+      thisRun.push({ relPath: file.relPath, backupAbs });
       writeFileSync(resolve(rootDir, file.relPath), file.output, "utf8");
       written.push(file.relPath);
     }
   } catch (err) {
-    // Roll back anything already written in this run.
-    restoreLatest(rootDir);
+    // Roll back exactly the files THIS run backed up — never "the latest
+    // stamp", which could be a previous run's backups if we died before
+    // writing our first one.
+    restoreBackups(rootDir, thisRun);
     throw new Error(`write failed, rolled back: ${(err as Error).message}`);
   }
 

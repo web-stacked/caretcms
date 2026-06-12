@@ -96,19 +96,26 @@ export function formatSummary(
 
 /**
  * The actionable-skips hints — the "why isn't this editable?" answers — so a skip
- * reads as a checklist item, not a silent omission. Adapts to --rich: rich-eligible
- * blocks become tags under --rich (so they won't appear here), while styled-inline
- * blocks need allowedClasses or CSS regardless. Returns "" when there's nothing to say.
+ * reads as a checklist item, not a silent omission. Adapts to the flags already
+ * passed: a hint only appears while its unlock flag is off. Returns "" when
+ * there's nothing to say.
  */
-export function formatHints(plans: FilePlan[], rich: boolean): string {
+export function formatHints(
+  plans: FilePlan[],
+  rich: boolean,
+  opts: { bindCollections?: boolean; bindRoutes?: boolean } = {},
+): string {
   let eligible = 0;
   let styled = 0;
+  let inIterator = 0;
   for (const p of plans) {
     for (const s of p.skipped) {
       if (s.reason === "rich-eligible") eligible++;
       else if (s.reason === "rich-unsafe-attrs") styled++;
+      else if (s.reason === "inside-iterator") inIterator++;
     }
   }
+  const dynamicRoutes = plans.filter((p) => p.scopeSkip === "dynamic-route").length;
   let out = "";
   if (eligible && !rich) {
     out += `\n↪ ${eligible} mixed-content block(s) are sanitizer-safe inline markup — re-run with --rich to make them editable.\n`;
@@ -117,6 +124,12 @@ export function formatHints(plans: FilePlan[], rich: boolean): string {
     out += `↪ ${styled} block(s) hold inline styling classes the rich-text sanitizer strips on save.\n` +
       `  Move the styling to CSS (style the semantic tag), or bless the class via\n` +
       `  caret({ allowedClasses: { tag: ["your-class"] } }) — then they're safe to tag.\n`;
+  }
+  if (inIterator && !opts.bindCollections) {
+    out += `↪ ${inIterator} element(s) render inside collection loops — re-run with --bind-collections to bind them per row.\n`;
+  }
+  if (dynamicRoutes && !opts.bindRoutes) {
+    out += `↪ ${dynamicRoutes} dynamic route(s) skipped — re-run with --bind-routes to bind each detail page to its entry.\n`;
   }
   return out;
 }

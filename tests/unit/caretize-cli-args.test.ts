@@ -44,8 +44,25 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["--scope", "::"])).toThrow(/collection::id/);
   });
 
+  it("rejects --scope labels the runtime would reject", () => {
+    // Uppercase saves lowercase but renders verbatim — a binding that only
+    // "works" on case-insensitive dev filesystems. Refuse it up front.
+    expect(() => parseArgs(["--scope", "Pages::Home"])).toThrow(/\[a-z\]/);
+    expect(() => parseArgs(["--scope", "pages::My Page"])).toThrow(CliUsageError);
+    expect(parseArgs(["--scope", "pages::my-page_2"]).scope).toEqual({
+      collection: "pages",
+      id: "my-page_2",
+    });
+  });
+
   it("captures --report's file argument", () => {
     expect(parseArgs(["--report", "out.json"]).report).toBe("out.json");
+  });
+
+  it("refuses --report without a file path (a following flag is not one)", () => {
+    expect(() => parseArgs(["--report"])).toThrow(/file path/);
+    // Used to swallow the next flag as the filename and silently skip dry-run.
+    expect(() => parseArgs(["--report", "--dry-run"])).toThrow(/file path/);
   });
 
   it("rejects an unknown flag with a CliUsageError naming it", () => {

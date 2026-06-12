@@ -6,6 +6,64 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Versions track the publishable `@caretcms/core` package.
 
+## [0.1.1] - 2026-06-11
+
+### Added
+
+- First npm publish of `@caretcms/caretize` (the `data-caret` auto-tagger CLI,
+  with a README) and `@caretcms/zod` (Zod → JSON Schema bridge).
+- `@caretcms/core/contracts` subpath exporting the shared contract surface:
+  identifier grammar (`COLLECTION_NAME_RE`, `ENTRY_ID_RE`, `EDITOR_ID_RE`),
+  the rewrite engine's `REWRITABLE_TEXT_TAGS`, and the rich-text allowlist.
+  `@caretcms/cloudflare` now imports these instead of carrying copies; a
+  cross-package parity test holds caretize's deliberate mirrors byte-identical.
+- caretize: skipped-candidate hints now cover collection loops
+  (`--bind-collections`) and dynamic routes (`--bind-routes`), not just `--rich`.
+
+### Fixed
+
+- **Inert bindings**: caretize no longer tags elements the rewrite engine
+  cannot render (`div`, `code`, `cite`, `b`, `i`, `mark`, `q`), and the
+  `--bind-collections` / `--bind-routes` tiers now filter by the same tag
+  allowlist — previously such bindings saved through the editor but never
+  appeared for visitors.
+- caretize `--bind-*`: a declaration preceding `getCollection()` no longer
+  steals the receiver capture (which minted bindings like
+  `` blog::${undefined}::field `` or silently found zero targets), and
+  template loops whose callback parameter shadows the entry variable are
+  skipped instead of bound to the wrong collection.
+- caretize: failed writes roll back only the current run's files — previously
+  the rollback could restore a *previous* run's backups over newer hand edits.
+- caretize: Ctrl-C at a prompt aborts cleanly (exit 130) instead of hanging;
+  unrecognized review input re-prompts instead of accepting (`n` now skips);
+  `--scope` labels are validated against the runtime grammar; `--report`
+  requires a file path; quitting or a zero-change run no longer prints the
+  success footer.
+- Missing `CARET_SESSION_SECRET` in production no longer 500s every request
+  carrying a session cookie: session checks fail closed as signed-out (logged
+  once) and the login route returns an explanatory configuration error.
+- `FilesystemAdapter` validates collection/entry ids on reads and filters
+  invalid stems from listings — uppercase bindings now fail consistently
+  everywhere instead of resolving only on case-insensitive (macOS) dev
+  filesystems; `create_collection` normalizes ids (lowercase) like every
+  other mutation instead of rejecting what `save_field` accepts.
+- Middleware binding probe matches attribute syntax, so pages that merely
+  mention "data-caret" in prose no longer run the rewrite engine or lose the
+  signed-in empty-state hint.
+- Collection auto-detection pins `markdownStorage()` to the detected
+  `config.root` instead of `process.cwd()`.
+- Cloud live-sync resolves array dot-paths (`items.0.title`) the same as the
+  server rewrite engine; Studio entry templates no longer differ between
+  user-created and inferred collections (single `buildTemplate`, with
+  `integer` seeding `0`).
+
+### Documentation
+
+- Quick starts now include the required SSR adapter; core README documents the
+  production env vars (`CARET_SESSION_SECRET`), what gets written to disk +
+  recommended `.gitignore`, markdownStorage/localUploads production caveats,
+  and the `/admin` · `/admin/cms` entry points.
+
 ## [0.1.0] - 2026-05-26
 
 ### Added
@@ -21,4 +79,5 @@ Versions track the publishable `@caretcms/core` package.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
+[0.1.1]: https://github.com/web-stacked/caretcms/releases/tag/v0.1.1
 [0.1.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.1.0

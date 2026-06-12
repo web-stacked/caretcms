@@ -271,6 +271,33 @@ describe("middleware", () => {
       expect(await response.text()).not.toContain("caret-signin-hint");
     });
 
+    it("injects when the page only MENTIONS data-caret in prose (no attributes)", async () => {
+      serveServices();
+      const prosePage =
+        "<html><body><h1>A page about data-caret bindings</h1>" +
+        "<p>Annotate HTML with <code>data-caret</code> attributes.</p></body></html>";
+      const response = await onRequest(authedContext("http://localhost/docs"), async () =>
+        new Response(prosePage, {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
+      // The substring probe used to count prose as bindings, suppressing the
+      // hint and running the rewrite engine on pages with nothing to rewrite.
+      expect(await response.text()).toContain("caret-signin-hint");
+    });
+
+    it("treats a scope attribute as bindings", async () => {
+      serveServices();
+      const response = await onRequest(authedContext("http://localhost/about"), async () =>
+        new Response('<main data-caret-scope="pages::home"><h1>Hi</h1></main>', {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
+      expect(await response.text()).not.toContain("caret-signin-hint");
+    });
+
     it("does not inject on CMS-owned pages (the Studio)", async () => {
       serveServices({ mountPath: "/admin" });
       const response = await onRequest(authedContext("http://localhost/admin/cms"), async () =>

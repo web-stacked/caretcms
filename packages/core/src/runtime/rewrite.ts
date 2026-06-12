@@ -11,6 +11,7 @@
 
 import type { StorageAdapter, EntryData } from "../types.js";
 import { sanitizeHtml } from "./sanitize-html.js";
+import { getNestedValue } from "./utils.js";
 
 // --- Types ---
 
@@ -38,6 +39,20 @@ type ScopeFrame = {
 
 // --- Patterns ---
 
+/**
+ * Tags whose text content the rewrite engine can swap (`data-caret` bindings).
+ * `<img>` (src swap) is handled separately. This list is a PUBLIC CONTRACT:
+ * caretize mirrors it as its candidate set (a parity test asserts equality) —
+ * a `data-caret` on any tag outside this list saves through the editor but is
+ * never injected into the public render (a silently inert binding).
+ */
+export const REWRITABLE_TEXT_TAGS = [
+  "h1", "h2", "h3", "h4", "h5", "h6",
+  "p", "span", "small", "strong", "em", "a", "li", "td", "th", "label",
+  "button", "figcaption", "blockquote", "dt", "dd", "summary", "caption",
+  "legend",
+] as const;
+
 // Matches any element with data-caret attribute.
 // Captures: tag name, full opening tag, data-caret value, content between tags, closing tag
 //
@@ -47,8 +62,9 @@ type ScopeFrame = {
 // capture the inner content. <img> is handled separately by IMG_ELEMENT_PATTERN
 // because it is a void element with no closing tag and (in standard HTML5
 // output) no self-closing slash — it would never match this pattern.
-const CARET_ELEMENT_PATTERN =
-  /<(h[1-6]|p|span|small|strong|em|a|li|td|th|label|button|figcaption|blockquote|dt|dd|summary|caption|legend)\b([^>]*?\bdata-caret\s*=\s*"([^"]*)"[^>]*?)(?:\/>|>([\s\S]*?)<\/\1>)/;
+const CARET_ELEMENT_PATTERN = new RegExp(
+  `<(${REWRITABLE_TEXT_TAGS.join("|")})\\b([^>]*?\\bdata-caret\\s*=\\s*"([^"]*)"[^>]*?)(?:\\/>|>([\\s\\S]*?)<\\/\\1>)`,
+);
 
 // Void <img> with a data-caret binding. Closes on a bare `>` or a self-closing
 // `/>` — never on a closing tag. Captures: 1 = attribute string, 2 = data-caret value.
@@ -178,18 +194,12 @@ async function batchLoadEntries(
   return entries;
 }
 
-function getNestedValue(
+function getNestedString(
   data: Record<string, unknown>,
   path: string,
 ): string | undefined {
-  const keys = path.split(".");
-  let current: unknown = data;
-  for (const key of keys) {
-    if (current === null || current === undefined) return undefined;
-    if (typeof current !== "object") return undefined;
-    current = (current as Record<string, unknown>)[key];
-  }
-  return typeof current === "string" ? current : undefined;
+  const value = getNestedValue(data, path);
+  return typeof value === "string" ? value : undefined;
 }
 
 // --- Main rewrite ---
@@ -272,7 +282,7 @@ export async function rewriteCaretAttributes(
     const entry = entries.get(entryKey);
     if (!entry) continue;
 
-    const storedValue = getNestedValue(entry.data, binding.field);
+    const storedValue = getNestedString(entry.data, binding.field);
     if (storedValue === undefined) continue;
 
     if (binding.isImg) {

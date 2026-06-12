@@ -1,5 +1,9 @@
 /**
- * Shared deep-value helper used by bind and mutation engine.
+ * Shared deep-value helpers used by the bind/mutation engine, the rewrite
+ * engine, editable(), and the browser runtime. One definition of dot-path
+ * semantics: object keys and numeric array indices both traverse (the getter
+ * existed as three hand-rolled copies, one of which refused arrays — so
+ * `items.0.title` resolved server-side but not in the cloud live-sync path).
  */
 
 const FORBIDDEN_KEYS = new Set(["__proto__", "prototype", "constructor"]);
@@ -34,4 +38,18 @@ export function setNestedValue(
   const last = keys[keys.length - 1];
   assertSafeKey(last);
   current[last] = value;
+}
+
+/** Read a deeply nested value by dot-path (object keys + numeric array
+ *  indices). Counterpart to setNestedValue. The prototype-polluting keys it
+ *  refuses make reads fail soft (undefined) where writes fail loud. */
+export function getNestedValue(data: unknown, path: string): unknown {
+  if (!path) return data;
+  let current: unknown = data;
+  for (const key of path.split(".")) {
+    if (FORBIDDEN_KEYS.has(key)) return undefined;
+    if (current === null || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
 }

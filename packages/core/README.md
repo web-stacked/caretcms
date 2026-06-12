@@ -5,18 +5,23 @@ Inline editing and live content collections for Astro. Add one HTML attribute to
 ## Install
 
 ```bash
-npm install @caretcms/core
+npm install @caretcms/core @astrojs/node
 ```
+
+Embedded editing renders on the server, so `output: 'server'` needs an SSR
+adapter — `@astrojs/node` above, or whichever adapter matches your host.
 
 ## Setup
 
 ```js
 // astro.config.mjs
 import { defineConfig } from 'astro/config';
+import node from '@astrojs/node';
 import caret from '@caretcms/core';
 
 export default defineConfig({
   output: 'server',
+  adapter: node({ mode: 'standalone' }),
   integrations: [caret()],
 });
 ```
@@ -55,13 +60,18 @@ Add `data-caret` attributes to your templates:
 </main>
 ```
 
-Set a password and start the dev server:
+Start the dev server:
 
 ```bash
-CARET_EDIT_PASSWORD=devpass npm run dev
+npm run dev
 ```
 
-Log in at `/admin`, then click any annotated element on the page to edit it.
+With no password configured, a **temporary dev password is printed in the terminal** (dev only —
+production stays locked). To set a permanent one, add `CARET_EDIT_PASSWORD=<your-password>` to a
+`.env` file.
+
+Log in at `/admin`, then click any annotated element on the page to edit it. The content Studio
+lives at `/admin/cms`.
 
 The inline editor only bootstraps on pages that contain `data-caret` bindings and only after
 `GET /api/cms/auth/session` confirms an authenticated editor session. Session cookies are issued
@@ -242,11 +252,50 @@ edits appear immediately instead of only after a rebuild.
 > `export const prerender = true` to keep such a page statically generated, or refactor it to fetch
 > its data at request time. This is standard Astro output behavior, not specific to CaretCMS.
 
+## What gets written to disk
+
+The default (embedded) providers write inside your project:
+
+| Path | What | Written by |
+|---|---|---|
+| `.caret/data/` | entry JSON | `filesystemStorage()` (default) |
+| `.caret/drafts/` | per-editor draft overlays | `filesystemStorage()` |
+| `.caretcms/` | revisions + history sidecar | both filesystem and markdown storage |
+| `src/content/**.md` | frontmatter edits | `markdownStorage()` (auto-selected when you have content collections) |
+| `public/uploads/` | uploaded images | `localUploads()` (default) |
+
+Recommended `.gitignore` for the transient state (keep `.caret/data/` or your
+`src/content` edits if git IS your content store — see the commit-on-publish
+workflow in [docs/deployment.md](../../docs/deployment.md)):
+
+```gitignore
+.caretcms/
+.caret/drafts/
+public/uploads/
+```
+
+## Production checklist
+
+- `CARET_EDIT_PASSWORD` — the editor password. Without it, production is locked (no dev fallback).
+- `CARET_SESSION_SECRET` — **required in production** when a password is set; sessions are
+  HMAC-signed with it. Generate one with `openssl rand -base64 32`. If it's missing, logins
+  return a configuration error and existing sessions are treated as signed out.
+- `markdownStorage()` edits `src/content/*.md` **at request time** — a dev/git workflow. In
+  production, pair it with commit-on-publish + a CI rebuild (fields rendered through
+  `getCollection()` are baked at build time and only refresh on rebuild), or use a server-side
+  adapter like [`@caretcms/cloudflare`](https://www.npmjs.com/package/@caretcms/cloudflare).
+- `localUploads()` writes to `public/uploads`, which built sites serve from `dist/client` —
+  files uploaded *after* the build won't be served. Treat it as dev-only and use R2 (or your
+  own `UploadHandler`) in production.
+- Defaults resolve paths from the **server process's working directory**; run the built server
+  from your project root, or pass explicit paths (`filesystemStorage({ dataRoot })`,
+  `markdownStorage({ contentRoot })`, `localUploads({ uploadsDir })`).
+
 ## Requirements
 
 - Astro 5 or 6
 - Node 20.19.1+ or 22.12.0+
-- Server output mode (for embedded editing routes)
+- Server output mode (for embedded editing routes) plus an SSR adapter
 
 ## License
 

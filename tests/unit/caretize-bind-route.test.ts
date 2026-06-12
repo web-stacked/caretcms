@@ -118,4 +118,53 @@ const { entry } = Astro.props;
     );
     expect(targets).toHaveLength(0);
   });
+
+  it("still resolves when another declaration precedes getCollection", async () => {
+    const src = `---
+import { getCollection } from 'astro:content';
+const SITE_NAME = 'My Blog';
+export async function getStaticPaths() {
+  const posts = await getCollection('blog');
+  return posts.map((post) => ({ params: { slug: post.id }, props: { post } }));
+}
+const { post } = Astro.props;
+---
+<h1>{post.data.title}</h1>`;
+    // The old unbounded-lazy receiver regex let `SITE_NAME` steal the capture,
+    // silently yielding zero targets for the whole file.
+    const targets = await detect(src);
+    expect(targets).toHaveLength(1);
+    expect(targets[0]).toMatchObject({ collection: "blog", field: "title" });
+  });
+
+  it("does not bind inside a template loop that shadows the entry variable", async () => {
+    const src = `---
+import { getCollection } from 'astro:content';
+export async function getStaticPaths() {
+  const posts = await getCollection('blog');
+  return posts.map((post) => ({ params: { slug: post.id }, props: { post } }));
+}
+const { post } = Astro.props;
+const team = [{ data: { name: 'Ada' } }];
+---
+<h1>{post.data.title}</h1>
+<ul>{team.map((post) => (<li><span>{post.data.name}</span></li>))}</ul>`;
+    // Inside the team loop, `post` is a team row — binding the <span> would
+    // write team edits into the blog collection under fabricated entry ids.
+    const targets = await detect(src);
+    expect(targets).toHaveLength(1);
+    expect(targets[0]).toMatchObject({ collection: "blog", field: "title", tag: "h1" });
+  });
+
+  it("does not bind leaf elements outside the rewrite-engine tag allowlist", async () => {
+    const targets = await detect(
+      route(
+        "{ post }",
+        "const { post } = Astro.props;",
+        "<title>{post.data.title}</title>\n<h1>{post.data.title}</h1>\n<time>{post.data.date}</time>",
+      ),
+    );
+    // <title> (head-only) and <time> can never be rewritten or clicked-to-edit.
+    expect(targets.map((t) => t.tag)).toEqual(["h1"]);
+  });
 });

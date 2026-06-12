@@ -84,6 +84,30 @@ function signPayload(payloadB64: string): string {
   return createHmac("sha256", getSessionSecret()).update(payloadB64).digest("base64url");
 }
 
+let secretErrorLogged = false;
+
+/**
+ * The missing-secret misconfiguration must hard-fail where a session is MINTED
+ * (login) — but it must not take the whole site down: the pre-middleware checks
+ * every request that carries a `caret_session` cookie, so an unguarded throw
+ * here turns one missing env var into a 500 on every page for every visitor
+ * with a stale cookie. Verification therefore fails closed ("not an editor")
+ * and logs the cause once for the operator.
+ */
+function trySignPayload(payloadB64: string): string | null {
+  try {
+    return signPayload(payloadB64);
+  } catch (err) {
+    if (!secretErrorLogged) {
+      secretErrorLogged = true;
+      console.error(
+        `${(err as Error).message} Editor sessions are disabled until it is set.`,
+      );
+    }
+    return null;
+  }
+}
+
 function serializeEditorSessionCookie(
   value: string,
   path: string,
@@ -117,7 +141,8 @@ function parseToken(token: string): SessionPayload | null {
   const [payloadB64, signature] = parts;
   if (!payloadB64 || !signature) return null;
 
-  const expected = signPayload(payloadB64);
+  const expected = trySignPayload(payloadB64);
+  if (expected === null) return null;
   let sigBuf: Buffer;
   let expectedBuf: Buffer;
   try {

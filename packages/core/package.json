@@ -1,6 +1,6 @@
 {
   "name": "@caretcms/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Platform-neutral core for CaretCMS: attribute-first inline editing, mutation engine, studio admin, StorageAdapter interface.",
   "license": "MIT",
@@ -48,6 +48,10 @@
     "./providers/uploads/local": {
       "types": "./dist/providers/uploads/local.d.ts",
       "import": "./dist/providers/uploads/local.js"
+    },
+    "./contracts": {
+      "types": "./dist/contracts.d.ts",
+      "import": "./dist/contracts.js"
     },
     "./schema-registry": {
       "types": "./dist/runtime/schema-registry.d.ts",

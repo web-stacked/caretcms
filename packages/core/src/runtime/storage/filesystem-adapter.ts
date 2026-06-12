@@ -4,7 +4,7 @@ import type { CollectionMetadata, EntryData, HistoryEntry, StorageAdapter } from
 import { atomicWrite } from "./atomic-write.js";
 import { assertFilesystemRuntime } from "./fs-runtime.js";
 import { SidecarMetaStore, listCollectionDirs } from "./sidecar-meta-store.js";
-import { COLLECTION_NAME_RE, assertSafeEditorId } from "./id-contracts.js";
+import { COLLECTION_NAME_RE, ENTRY_ID_RE, assertSafeEditorId } from "./id-contracts.js";
 
 function asObjectRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -71,6 +71,13 @@ export class FilesystemAdapter implements StorageAdapter {
   // --- Entries ---
 
   async getEntry(collection: string, id: string): Promise<EntryData | null> {
+    // Defense in depth, mirroring the markdown adapter: the mutation engine
+    // validates before writes, but READS arrive straight from data-caret
+    // attributes via the rewrite engine. An unvalidated id here both joins
+    // arbitrary segments into a path and lets case-insensitive filesystems
+    // (macOS dev) resolve ids that a case-sensitive deploy (Linux) won't —
+    // a works-in-dev, breaks-in-prod trap.
+    if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) return null;
     const filePath = join(this.collectionDir(collection), `${id}.json`);
     try {
       const raw = await readFile(filePath, "utf8");
@@ -84,11 +91,13 @@ export class FilesystemAdapter implements StorageAdapter {
   }
 
   async listEntryIds(collection: string): Promise<string[]> {
+    if (!COLLECTION_NAME_RE.test(collection)) return [];
     try {
       const files = await readdir(this.collectionDir(collection), { withFileTypes: true });
       return files
         .filter((item) => item.isFile() && item.name.endsWith(".json"))
         .map((item) => item.name.slice(0, -".json".length))
+        .filter((stem) => ENTRY_ID_RE.test(stem))
         .sort((a, b) => a.localeCompare(b));
     } catch {
       return [];
@@ -102,6 +111,9 @@ export class FilesystemAdapter implements StorageAdapter {
   }
 
   async writeEntry(collection: string, id: string, data: Record<string, unknown>): Promise<void> {
+    if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) {
+      throw new Error(`[caretcms] invalid entry path ${collection}/${id}`);
+    }
     const dir = this.collectionDir(collection);
     await mkdir(dir, { recursive: true });
     const filePath = join(dir, `${id}.json`);
@@ -109,6 +121,7 @@ export class FilesystemAdapter implements StorageAdapter {
   }
 
   async deleteEntry(collection: string, id: string): Promise<void> {
+    if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) return;
     const filePath = join(this.collectionDir(collection), `${id}.json`);
     try {
       await unlink(filePath);

@@ -7,8 +7,16 @@ embedded mode; cloud mode is alpha).
 
 ## Packages
 - **`packages/core`** → `@caretcms/core` (published). The integration + runtime.
+  `@caretcms/core/contracts` exposes the shared contract surface (id grammar,
+  rewrite tag allowlist, rich allowlist).
 - **`packages/cloudflare`** → `@caretcms/cloudflare` (published). KV storage + R2
-  upload adapters. Depends on core via interfaces only.
+  upload adapters. Depends on core via interfaces + the contracts subpath only.
+- **`packages/caretize`** → `@caretcms/caretize` (published). CLI that scans an
+  Astro project and inserts `data-caret` attributes. Deliberately has NO core
+  dependency — it mirrors core's contracts as copies, held byte-identical by
+  `tests/unit/contracts-parity.test.ts`.
+- **`packages/zod`** → `@caretcms/zod` (published). Optional Zod→JSON-Schema
+  bridge for `caret({ schemas })`; zod is a peer dep. Core stays Zod-agnostic.
 - **`examples/*`** (private): `starter` (Node + filesystem, the E2E target),
   `content-site` (editorial showcase), `demo` (Cloudflare KV/R2 deployment).
 
@@ -20,15 +28,18 @@ via root `overrides` (Astro/Cloudflare require it; tailwind/vitest would pull 8)
 Core has no runtime deps — schemas arrive as JSON Schema, so it's Zod-agnostic.
 
 ## Commands
-- `npm run build:core` / `build:cloudflare` — `tsc -p tsconfig.build.json` → `dist/`.
-- `npm run typecheck:core` / `typecheck:cloudflare` — strict, no emit.
+- `npm run build:<pkg>` / `typecheck:<pkg>` for `core`, `cloudflare`, `caretize`,
+  `zod` — `tsc -p tsconfig.build.json` → `dist/` (typecheck: strict, no emit).
+  Note: cloudflare's typecheck resolves core via its built `dist/`, so build
+  core first on a fresh clone.
 - `npm run test:unit` — `vitest run` (`tests/unit/**/*.test.ts`).
 - `npm run test:e2e` — `playwright test`; builds core, boots `examples/starter`,
   runs `tests/e2e/*.spec.ts`. **Serial (1 worker)** — starter uses filesystem
   storage and parallel writers corrupt the JSON. Run separately from unit tests.
 - `npm run validate:versions` — enforces exact-pinned (no `^`/`~`) versions for
   astro, tailwind, typescript, vitest via `scripts/validate-versions.mjs`.
-- `npm run check` — gate: validate:versions → typecheck → build → test:unit (no e2e).
+- `npm run check` — gate: validate:versions → typecheck (all 4 pkgs) → build
+  (all 4 pkgs) → test:unit (no e2e).
 - `npm run dev:starter` / `dev:content` — run an example dev server.
 
 ## Architecture

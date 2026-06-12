@@ -16,6 +16,8 @@ The CMS ships as `@caretcms/core`, an Astro integration you install into any Ast
 |---------|-------------|
 | [`@caretcms/core`](packages/core) | Platform-neutral core: integration, mutation engine, studio admin, inline editor, `StorageAdapter` interface |
 | [`@caretcms/cloudflare`](packages/cloudflare) | Cloudflare storage + upload adapters (KV/R2) |
+| [`@caretcms/caretize`](packages/caretize) | CLI that scans an existing Astro site and adds `data-caret` attributes interactively |
+| [`@caretcms/zod`](packages/zod) | Optional Zod → JSON Schema bridge for `caret({ schemas })` |
 
 ## Examples
 
@@ -27,27 +29,32 @@ The CMS ships as `@caretcms/core`, an Astro integration you install into any Ast
 
 ## Quick start
 
-Install the package into an existing Astro app:
+Install the package into an existing Astro app. Embedded editing renders on the
+server, so you also need an SSR adapter (the example below uses `@astrojs/node`):
 
 ```sh
-npm install @caretcms/core
+npm install @caretcms/core @astrojs/node
 ```
 
 ```js
 // astro.config.mjs
 import { defineConfig } from 'astro/config';
+import node from '@astrojs/node';
 import caret from '@caretcms/core';
 
 export default defineConfig({
   output: 'server',
+  adapter: node({ mode: 'standalone' }),
   integrations: [caret(/* options */)],
 });
 ```
 
 Then:
 
-- Set `CARET_EDIT_PASSWORD` (preferred) or `EDIT_PASSWORD`
-- Add `data-caret` / `data-caret-scope` attributes to the elements you want editable
+- Run `npm run dev` — with no password configured, a temporary dev password is printed in the terminal
+- **Sign in at `/admin`**; the content Studio lives at `/admin/cms`
+- Add `data-caret` / `data-caret-scope` attributes to the elements you want editable — or run `npx @caretcms/caretize` to tag an existing site interactively
+- For production, set `CARET_EDIT_PASSWORD` (preferred) or `EDIT_PASSWORD`, **and** `CARET_SESSION_SECRET` (see [deployment](docs/deployment.md))
 - Optionally create `src/caret.config.ts` with `caretLoader` to use `getLiveEntry` / `getLiveCollection`
 - Auth APIs (default `apiBasePath=/api/cms`): `POST /api/cms/auth/login`, `GET /api/cms/auth/session`, `POST /api/cms/auth/logout`
 

@@ -1,14 +1,11 @@
 import type { StorageAdapter, UploadHandler } from "../types.js";
+// virtual.d.ts declares the full export shape the integration generates — keep
+// the two in sync (the vitest stub in tests/unit/stubs mirrors them too). The
+// `Partial` wrapper below keeps runtime null-safety for environments that load
+// this module without the Vite plugin (every access still has a fallback).
 import * as runtimeProviders from "virtual:caretcms/providers";
 
-type ProviderModule = {
-  loadConfiguredStorage?: () => Promise<StorageAdapter | null>;
-  loadConfiguredUploadHandler?: () => Promise<UploadHandler | null>;
-  allowedClasses?: Record<string, string[]>;
-  enableInlineEditor?: boolean;
-  mountPath?: string;
-  apiBasePath?: string;
-};
+type ProviderModule = Partial<typeof runtimeProviders>;
 
 type RuntimeServices = {
   adapter: StorageAdapter;

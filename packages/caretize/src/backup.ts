@@ -76,6 +76,23 @@ function latestStamp(rootDir: string): string | null {
   return stamps.sort().at(-1) ?? null;
 }
 
+/** Restore an explicit set of backups (the files one run actually wrote).
+ *  Used for failure rollback: restoring "the latest stamp" instead could
+ *  resurrect a PREVIOUS run's backups over files the user has since edited,
+ *  when the failing run dies before writing its own first backup. */
+export function restoreBackups(
+  rootDir: string,
+  entries: ReadonlyArray<{ relPath: string; backupAbs: string }>,
+): string[] {
+  const restored: string[] = [];
+  for (const entry of entries) {
+    if (!existsSync(entry.backupAbs)) continue;
+    cp(entry.backupAbs, resolve(rootDir, entry.relPath));
+    restored.push(entry.relPath);
+  }
+  return restored;
+}
+
 /** Restore every file captured under the most recent run. Returns restored paths. */
 export function restoreLatest(rootDir: string): string[] {
   const stamp = latestStamp(rootDir);

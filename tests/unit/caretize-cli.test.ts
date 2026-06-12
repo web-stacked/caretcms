@@ -107,4 +107,38 @@ describe("commitRun + backups + restore", () => {
     expect(readFileSync(join(dir, "a.astro"), "utf8")).toBe(goodSrc);
     expect(existsSync(join(dir, ".caret"))).toBe(false);
   });
+
+  it("a failed write rolls back only this run — older backups stay untouched", async () => {
+    // Run 1 tags a.astro, leaving a backup at an older stamp.
+    const srcA = "<main><h1>A</h1></main>";
+    write("a.astro", srcA);
+    commitRun(
+      dir,
+      [
+        await prepareFile("a.astro", srcA, [
+          { startOffset: srcA.indexOf("<h1>"), attribute: 'data-caret="pages::a::headline"' },
+        ]),
+      ],
+      "2026-01-01T00-00-00-000Z",
+    );
+
+    // The user then hand-edits a.astro.
+    const handEdited = "<main><h1>USER EDIT</h1></main>";
+    write("a.astro", handEdited);
+
+    // Run 2 targets only b.astro and fails mid-write (its target dir vanished —
+    // writeBackup succeeds, writeFileSync throws on the missing parent).
+    const srcB = "<main><h1>B</h1></main>";
+    write("deep/b.astro", srcB);
+    const prepared = [
+      await prepareFile("deep/b.astro", srcB, [
+        { startOffset: srcB.indexOf("<h1>"), attribute: 'data-caret="pages::b::headline"' },
+      ]),
+    ];
+    rmSync(join(dir, "deep"), { recursive: true, force: true });
+
+    expect(() => commitRun(dir, prepared, "2026-01-02T00-00-00-000Z")).toThrow(/rolled back/);
+    // The rollback must NOT have restored run 1's stamp over the user's edit.
+    expect(readFileSync(join(dir, "a.astro"), "utf8")).toBe(handEdited);
+  });
 });

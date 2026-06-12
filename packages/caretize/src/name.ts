@@ -11,10 +11,12 @@
 
 import type { Candidate } from "./detect.js";
 
-// Mirror the runtime's mutation-contract regexes exactly. A label the runtime
-// would reject must never be emitted.
-const COLLECTION_RE = /^[a-z][a-z0-9_-]*$/;
-const ID_RE = /^[a-z0-9][a-z0-9_-]*$/;
+// Mirror the runtime's id-contract regexes exactly (core's
+// runtime/storage/id-contracts.ts) — a label the runtime would reject must
+// never be emitted. caretize deliberately has no dependency on core, so these
+// are copies, held byte-identical by tests/unit/contracts-parity.test.ts.
+export const COLLECTION_RE = /^[a-z][a-z0-9_-]*$/;
+export const ID_RE = /^[a-z0-9][a-z0-9_-]*$/;
 const FIELD_RE = /^[a-z][a-z0-9_]*$/; // generated fields: keep them clean identifiers
 
 export function isValidCollection(s: string): boolean {

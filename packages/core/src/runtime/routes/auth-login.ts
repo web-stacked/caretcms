@@ -83,14 +83,23 @@ export async function POST(context: APIContext): Promise<Response> {
   // `editorHome` (default "/") makes that landing page configurable.
   const safeRedirect = sanitizeRedirect(redirectTo, runtime.editorHome);
 
-  if (!isEditorPasswordValid(password)) {
-    recordLoginFailure(rateLimitKey);
-    if (wantsJsonResponse) return json({ error: "Invalid password" }, 401);
-    return redirect(`${runtime.mountPath}?error=invalid`);
+  // Password check + session minting both derive HMACs from the session
+  // secret, which throws in production when CARET_SESSION_SECRET is unset.
+  // Surface that as a configuration error instead of an unhandled 500.
+  let passwordValid: boolean;
+  let cookie: string;
+  try {
+    passwordValid = isEditorPasswordValid(password);
+    if (!passwordValid) {
+      recordLoginFailure(rateLimitKey);
+      if (wantsJsonResponse) return json({ error: "Invalid password" }, 401);
+      return redirect(`${runtime.mountPath}?error=invalid`);
+    }
+    clearLoginAttempts(rateLimitKey);
+    cookie = issueEditorSessionCookie("/", context.request);
+  } catch (err) {
+    return json({ error: (err as Error).message }, 500);
   }
-
-  clearLoginAttempts(rateLimitKey);
-  const cookie = issueEditorSessionCookie("/", context.request);
 
   if (wantsJsonResponse) {
     return json({ ok: true, redirect: safeRedirect }, 200, { "Set-Cookie": cookie });

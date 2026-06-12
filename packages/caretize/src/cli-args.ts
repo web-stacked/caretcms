@@ -6,7 +6,7 @@
  */
 
 import type { Confidence } from "./detect.js";
-import type { Scope } from "./name.js";
+import { isValidCollection, isValidId, type Scope } from "./name.js";
 
 export interface Args {
   target?: string;
@@ -83,10 +83,30 @@ export function parseArgs(argv: string[]): Args {
         const v = argv[++i] ?? "";
         const [collection, id] = v.split("::");
         if (!collection || !id) throw new CliUsageError(`--scope must be "collection::id"`);
+        // The scope becomes a permanent storage key: a label the runtime
+        // rejects would mint bindings that save but never render (and only
+        // case-insensitive dev filesystems would mask it).
+        if (!isValidCollection(collection)) {
+          throw new CliUsageError(
+            `--scope collection "${collection}" is invalid — must match ^[a-z][a-z0-9_-]*$`,
+          );
+        }
+        if (!isValidId(id)) {
+          throw new CliUsageError(
+            `--scope id "${id}" is invalid — must match ^[a-z0-9][a-z0-9_-]*$`,
+          );
+        }
         a.scope = { collection, id };
         break;
       }
-      case "--report": a.report = argv[++i]; break;
+      case "--report": {
+        const v = argv[++i];
+        if (!v || v.startsWith("-")) {
+          throw new CliUsageError(`--report needs a file path`);
+        }
+        a.report = v;
+        break;
+      }
       default:
         if (arg.startsWith("-")) throw new CliUsageError(`unknown flag: ${arg}`);
         a.target = arg;

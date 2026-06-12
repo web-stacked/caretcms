@@ -46,6 +46,9 @@ interface Selection {
   wraps: Map<string, WrapTarget[]>;
   hoists: Map<string, PropHoistTarget[]>;
   binds: Map<string, CollectionBindTarget[]>;
+  /** The user quit the interactive review — abort instead of committing an
+   *  empty run (which used to print the success footer). */
+  quit: boolean;
 }
 
 /** Prompt for a replacement field name on one tag. Returns the tag to keep: the
@@ -76,13 +79,24 @@ async function reviewFileTags(
     process.stdout.write(
       `\n${plan.relPath}\n  ${tagLine(t)}\n  + data-caret="${t.binding}"  (${t.confidence})\n`,
     );
-    const ans = (await ask(rl, "  [a]ccept [s]kip [e]dit [A]ll [S]kip-file [q]uit > ")) || "a";
-    if (ans === "q") return { take, skipFile, quit: true, acceptAll };
-    if (ans === "S") { skipFile = true; break; }
-    if (ans === "A") { acceptAll = true; take.push(t); continue; }
-    if (ans === "s") continue;
-    if (ans === "e") { const edited = await editField(rl, t); if (edited) take.push(edited); continue; }
-    take.push(t); // default accept
+    // Only explicit answers act; anything unrecognized re-prompts. The old
+    // fall-through-to-accept made a typo — including the natural "n" — mint a
+    // permanent storage key.
+    let answered = false;
+    while (!answered) {
+      const ans = (await ask(rl, "  [a]ccept [s]kip [e]dit [A]ll [S]kip-file [q]uit > ")) || "a";
+      answered = true;
+      if (ans === "q") return { take, skipFile, quit: true, acceptAll };
+      else if (ans === "S") skipFile = true;
+      else if (ans === "A") { acceptAll = true; take.push(t); }
+      else if (ans === "s" || ans === "n" || ans === "N") { /* skip */ }
+      else if (ans === "e") { const edited = await editField(rl, t); if (edited) take.push(edited); }
+      else if (ans === "a" || ans === "y" || ans === "Y") take.push(t);
+      else {
+        process.stdout.write("  unrecognized — a(ccept) s(kip) e(dit) A(ll) S(kip-file) q(uit)\n");
+        answered = false;
+      }
+    }
   }
   return { take, skipFile, quit: false, acceptAll };
 }
@@ -131,6 +145,13 @@ async function review(
   bindsByFile: Map<string, CollectionBindTarget[]>,
 ): Promise<Selection> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
+  // Without a listener, readline swallows Ctrl-C and the process hangs at the
+  // prompt. Nothing is written until commitRun (after the review), so exiting
+  // here is always safe.
+  rl.on("SIGINT", () => {
+    process.stdout.write("\naborted — nothing written\n");
+    process.exit(130);
+  });
   const tags = new Map<string, PlannedTag[]>();
   const wraps = new Map<string, WrapTarget[]>();
   const hoists = new Map<string, PropHoistTarget[]>();
@@ -147,7 +168,7 @@ async function review(
       acceptAll = res.acceptAll;
       if (res.quit) {
         tags.clear(); wraps.clear(); hoists.clear(); binds.clear();
-        return { tags, wraps, hoists, binds };
+        return { tags, wraps, hoists, binds, quit: true };
       }
       if (res.take.length) tags.set(plan.relPath, res.take);
       if (res.skipFile) continue;
@@ -164,7 +185,7 @@ async function review(
   } finally {
     rl.close();
   }
-  return { tags, wraps, hoists, binds };
+  return { tags, wraps, hoists, binds, quit: false };
 }
 
 interface Analysis {
@@ -239,12 +260,12 @@ async function analyzeFiles(
 async function selectChanges(args: Args, a: Analysis): Promise<Selection> {
   if (args.dryRun || args.yes) {
     const allTags = new Map(a.plans.map((p) => [p.relPath, p.tags] as [string, PlannedTag[]]));
-    return { tags: allTags, wraps: a.wrapsByFile, hoists: a.hoistsByFile, binds: a.bindsByFile };
+    return { tags: allTags, wraps: a.wrapsByFile, hoists: a.hoistsByFile, binds: a.bindsByFile, quit: false };
   }
   if (process.stdin.isTTY && process.stdout.isTTY) {
     return review(a.plans, a.wrapsByFile, a.hoistsByFile, a.bindsByFile);
   }
-  if (args.report) return { tags: new Map(), wraps: new Map(), hoists: new Map(), binds: new Map() };
+  if (args.report) return { tags: new Map(), wraps: new Map(), hoists: new Map(), binds: new Map(), quit: false };
   fail("non-interactive terminal: pass --dry-run, -y, or --report");
 }
 
@@ -347,6 +368,11 @@ async function main(): Promise<void> {
   );
 
   const sel = await selectChanges(args, analysis);
+  const hintOpts = { bindCollections: args.bindCollections, bindRoutes: args.bindRoutes };
+  if (sel.quit) {
+    process.stdout.write("\naborted — nothing written\n");
+    return;
+  }
   const prepared = await prepareTouched(root, sel);
 
   if (args.report) {
@@ -356,14 +382,21 @@ async function main(): Promise<void> {
 
   if (args.dryRun) {
     process.stdout.write(formatPlan(analysis.plans, analysis.wrapsByFile, analysis.hoistsByFile, analysis.bindsByFile));
-    process.stdout.write(formatHints(analysis.plans, args.rich));
+    process.stdout.write(formatHints(analysis.plans, args.rich, hintOpts));
     return;
   }
 
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const { written, backups } = commitRun(root, prepared, stamp);
+  if (written.length === 0) {
+    // Don't print the "click to edit" success footer for a no-op run — say
+    // why nothing matched and which flag unlocks the skipped candidates.
+    process.stdout.write("\nno changes written.\n");
+    process.stdout.write(formatHints(analysis.plans, args.rich, hintOpts));
+    return;
+  }
   printCommit(written, backups.length > 0, prepared, sel, analysis.plans);
-  process.stdout.write(formatHints(analysis.plans, args.rich));
+  process.stdout.write(formatHints(analysis.plans, args.rich, hintOpts));
 }
 
 main().catch((err: unknown) => {

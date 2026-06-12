@@ -4,6 +4,7 @@ import {
   SAFE_HREF_RE,
   classAllowed,
 } from "./runtime/rich-allowlist.js";
+import { getNestedValue } from "./runtime/utils.js";
 
 export interface CloudCmsClientConfig {
   endpoint: string;
@@ -259,17 +260,11 @@ function sanitizeNode(
 }
 
 function getNestedString(data: Record<string, unknown>, path: string): string | undefined {
-  const keys = path.split(".");
-  let current: unknown = data;
-
-  for (const key of keys) {
-    if (!current || typeof current !== "object" || Array.isArray(current)) {
-      return undefined;
-    }
-    current = (current as Record<string, unknown>)[key];
-  }
-
-  return typeof current === "string" ? current : undefined;
+  // Shared dot-path semantics: arrays traverse by numeric index. The previous
+  // local copy bailed on arrays, so `items.0.title` resolved server-side (the
+  // rewrite engine) but silently failed here in the cloud live-sync path.
+  const value = getNestedValue(data, path);
+  return typeof value === "string" ? value : undefined;
 }
 
 function applyBindingValue(binding: Binding, value: string): void {
