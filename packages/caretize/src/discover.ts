@@ -7,7 +7,7 @@
  */
 
 import { readdirSync, statSync, lstatSync, realpathSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const SKIP_DIRS = new Set([
   "node_modules",
@@ -28,7 +28,8 @@ function isSkippedFile(name: string): boolean {
 /** True if `child` resolves to a path inside `root` (no symlink escape). */
 function isInside(root: string, child: string): boolean {
   const rel = relative(root, child);
-  return rel === "" || (!rel.startsWith("..") && !resolve(rel).startsWith(".."));
+  // `relative` is absolute only when the paths share no root (other drive).
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 /**
@@ -38,6 +39,10 @@ function isInside(root: string, child: string): boolean {
 export function discoverAstroFiles(rootDir: string, target?: string): string[] {
   const root = resolve(rootDir);
   const start = resolve(root, target ?? "src");
+  // SKIP_DIRS guards descent below, but an EXPLICIT target like
+  // `node_modules/pkg/src` starts inside one — check every ancestor segment.
+  const startRel = relative(root, start);
+  if (startRel.split(sep).some((segment) => SKIP_DIRS.has(segment))) return [];
   const found: string[] = [];
 
   const visit = (abs: string): void => {

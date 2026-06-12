@@ -20,7 +20,7 @@ import { deriveScope, isValidField, slugifyText } from "./name.js";
 import { parseAstro, type AstroNode } from "./parse.js";
 import { classifyConstUsage } from "./usage.js";
 import { frontmatterRange, literalConstNames } from "./frontmatter.js";
-import { isIdentifier } from "./identifiers.js";
+import { escapeRe, isIdentifier } from "./identifiers.js";
 
 /** The `editable()` import line + a detector for it, shared with import-wrap.ts. */
 export const IMPORT_LINE = `import { editable } from '@caretcms/core';`;
@@ -103,7 +103,8 @@ export function wrapConst(source: string, varName: string, key: string): WrapRes
   if (!fm) return { output: source, ok: false, reason: "no frontmatter block" };
 
   const fmText = source.slice(fm.start, fm.end);
-  const declRe = new RegExp(`\\b(?:const|let|var)\\s+${varName}\\b`);
+  // Escaped + $-aware closing boundary (\b never closes a name ending in $).
+  const declRe = new RegExp(`\\b(?:const|let|var)\\s+${escapeRe(varName)}(?![\\w$])`);
   const m = declRe.exec(fmText);
   if (!m) {
     return { output: source, ok: false, reason: `declaration of ${varName} not found in frontmatter` };

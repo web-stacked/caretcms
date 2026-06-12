@@ -14,7 +14,11 @@ export function parseCaretAttr(attr) {
  */
 export function resolveBinding(el, parsed) {
   if (!parsed) return null;
-  if (parsed.collection && parsed.id) return parsed;
+  // Explicit null check, not truthiness: a malformed triple with an EMPTY
+  // segment ("::x::y") must stay a (rejected) triple like the server treats
+  // it, not silently fall back to scope resolution and save elsewhere.
+  // Held to the rewrite engine by tests/unit/caret-parser-parity.test.ts.
+  if (parsed.collection !== null && parsed.id !== null) return parsed;
 
   // Walk up to find nearest data-caret-scope
   let node = el.parentElement;

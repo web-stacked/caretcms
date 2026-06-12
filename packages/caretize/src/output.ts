@@ -94,6 +94,20 @@ export function formatSummary(
   return out;
 }
 
+/** Files whose prepared output failed verification — shown in --dry-run too,
+ *  so the user learns BEFORE the real run aborts on them. */
+export function formatFailures(
+  prepared: ReadonlyArray<{ relPath: string; ok: boolean; reason?: string }>,
+): string {
+  const failing = prepared.filter((p) => !p.ok);
+  if (failing.length === 0) return "";
+  return (
+    failing
+      .map((p) => `✗ ${p.relPath} would fail verification: ${p.reason ?? "unknown reason"}`)
+      .join("\n") + "\n"
+  );
+}
+
 /**
  * The actionable-skips hints — the "why isn't this editable?" answers — so a skip
  * reads as a checklist item, not a silent omission. Adapts to the flags already

@@ -155,7 +155,15 @@ function findNearestScope(stack: ScopeFrame[]): ScopeMatch | null {
   return null;
 }
 
-function resolveBinding(
+/**
+ * CANONICAL data-caret value resolution (exported for the parser parity test):
+ * full triple as-is; bare field resolved against the nearest enclosing scope;
+ * anything else (2 or 4+ parts) is not a binding. The hand-mirrored copies in
+ * browser-runtime.ts, static/cms/editor/helpers.js, and
+ * static/cms/dev-toolbar/app.js are held to this behavior by
+ * tests/unit/caret-parser-parity.test.ts.
+ */
+export function resolveBinding(
   caretValue: string,
   scope: ScopeMatch | null,
 ): { collection: string; id: string; field: string } | null {

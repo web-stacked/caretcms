@@ -53,8 +53,11 @@ export async function GET(context: APIContext): Promise<Response> {
     })
     .join("");
 
+  // Adapter-agnostic copy: where entries live depends on the configured
+  // storage (.caret/data for the filesystem adapter, src/content for markdown,
+  // KV for Cloudflare) — naming one path here misleads every other setup.
   const emptyState = `<div class="studio-card" style="padding:2rem;text-align:center;color:var(--studio-text-dim);font-size:0.85rem;">
-    No collections yet. Add data under <code style="font-family:var(--studio-font-mono);">.caret/data/&lt;collection&gt;/</code> or create one from Studio.
+    No collections yet. Create one from Studio, edit any <code style="font-family:var(--studio-font-mono);">data-caret</code> element on your site, or run <code style="font-family:var(--studio-font-mono);">npx @caretcms/caretize</code> to make existing pages editable.
   </div>`;
 
   const body = `<div class="studio-fade-in" style="max-width:64rem;margin:0 auto;">

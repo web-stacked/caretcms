@@ -92,7 +92,7 @@ export function soleDataField(el: TagNode, param: string): string | null {
     }
     if (child.type === "expression") {
       if (field) return null; // more than one expression
-      const m = new RegExp(`^${param}\\.data\\.([A-Za-z_$][\\w$]*)$`).exec(
+      const m = new RegExp(`^${escapeRe(param)}\\.data\\.([A-Za-z_$][\\w$]*)$`).exec(
         expressionJs(child).trim(),
       );
       if (!m) return null;

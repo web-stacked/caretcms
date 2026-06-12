@@ -27,7 +27,7 @@ import { buildReport } from "./report.js";
 import { applyKeyRegistry } from "./keys.js";
 import { isValidField } from "./name.js";
 import { parseArgs, CliUsageError, HELP, type Args } from "./cli-args.js";
-import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints } from "./output.js";
+import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures } from "./output.js";
 
 const VERSION = "0.1.0";
 
@@ -397,6 +397,7 @@ async function main(): Promise<void> {
 
   if (args.dryRun) {
     process.stdout.write(formatPlan(analysis.plans, analysis.wrapsByFile, analysis.hoistsByFile, analysis.bindsByFile));
+    process.stdout.write(formatFailures(prepared));
     process.stdout.write(formatHints(analysis.plans, args.rich, hintOpts));
     return;
   }

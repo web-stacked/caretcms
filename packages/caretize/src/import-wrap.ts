@@ -30,7 +30,7 @@ import {
   importBindingNames,
   type ImportKind,
 } from "./frontmatter.js";
-import { isIdentifier } from "./identifiers.js";
+import { escapeRe, identRefRe, isIdentifier } from "./identifiers.js";
 import { IMPORT_LINE, IMPORT_RE, type WrapResult, type WrapTarget } from "./wrap.js";
 
 /** An import binding the wrapper could target, before safety is verified. */
@@ -49,7 +49,8 @@ export interface ImportWrapCandidate {
 function rawNameFor(source: string, varName: string): string | null {
   for (const suffix of ["Raw", "Source", "Data"]) {
     const candidate = `${varName}${suffix}`;
-    if (!new RegExp(`\\b${candidate}\\b`).test(source)) return candidate;
+    // identRefRe: $-aware boundaries + escaping (`\b$faqsRaw\b` never matches).
+    if (!identRefRe(candidate).test(source)) return candidate;
   }
   return null;
 }
@@ -70,12 +71,12 @@ export function wrapImport(source: string, varName: string, key: string): WrapRe
   const fmText = source.slice(fm.start, fm.end);
 
   // Idempotent: bail if this binding is already an editable() rebind.
-  if (new RegExp(`\\bconst\\s+${varName}\\s*=\\s*await\\s+editable\\s*\\(`).test(fmText)) {
+  if (new RegExp(`\\bconst\\s+${escapeRe(varName)}\\s*=\\s*await\\s+editable\\s*\\(`).test(fmText)) {
     return { output: source, ok: true, alreadyWrapped: true };
   }
 
   const importRe = new RegExp(
-    `\\bimport\\s+(?!type\\b)(${varName})\\s+from\\s*['"][^'"]+['"]`,
+    `\\bimport\\s+(?!type\\b)(${escapeRe(varName)})\\s+from\\s*['"][^'"]+['"]`,
   );
   const m = importRe.exec(fmText);
   if (!m) {
@@ -149,7 +150,7 @@ export function detectImportWrapCandidates(
   const candidates: ImportWrapCandidate[] = [];
   for (const varName of mapped) {
     // Already rebound on a prior run → not a candidate.
-    if (new RegExp(`\\bconst\\s+${varName}\\s*=\\s*await\\s+editable\\s*\\(`).test(fmText)) {
+    if (new RegExp(`\\bconst\\s+${escapeRe(varName)}\\s*=\\s*await\\s+editable\\s*\\(`).test(fmText)) {
       continue;
     }
     const field = isValidField(varName) ? varName : slugifyText(varName);

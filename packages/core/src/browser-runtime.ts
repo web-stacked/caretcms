@@ -124,13 +124,18 @@ function parseScopeValue(value: string | null): Scope | null {
   return { collection, id };
 }
 
-function getNearestScope(element: Element): Scope | null {
-  const scopeElement = element.closest("[data-caret-scope]");
+export function getNearestScope(element: Element): Scope | null {
+  // ANCESTORS only — never the element itself. The server's rewrite engine
+  // processes scope frames for tags opened BEFORE the bound element, so an
+  // element carrying both data-caret-scope and data-caret does not scope its
+  // own binding; a bare `closest()` here (which matches self) silently
+  // resolved such bindings differently from the published render.
+  const scopeElement = element.parentElement?.closest("[data-caret-scope]") ?? null;
   if (!scopeElement) return null;
   return parseScopeValue(scopeElement.getAttribute("data-caret-scope"));
 }
 
-function resolveBindingValue(value: string, scope: Scope | null): Omit<Binding, "element" | "isImage" | "isRich" | "hasChildMarkup"> | null {
+export function resolveBindingValue(value: string, scope: Scope | null): Omit<Binding, "element" | "isImage" | "isRich" | "hasChildMarkup"> | null {
   const parts = value.split("::");
   if (parts.length === 3) {
     return {

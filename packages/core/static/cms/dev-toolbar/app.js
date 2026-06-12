@@ -19,7 +19,9 @@ function parseCaretAttr(attr) {
 
 function resolveBinding(el, parsed) {
   if (!parsed) return null;
-  if (parsed.collection && parsed.id) return parsed;
+  // Explicit null check, not truthiness — mirrors helpers.js; see the parity
+  // test (tests/unit/caret-parser-parity.test.ts).
+  if (parsed.collection !== null && parsed.id !== null) return parsed;
   let node = el.parentElement;
   while (node) {
     const scope = node.getAttribute("data-caret-scope");

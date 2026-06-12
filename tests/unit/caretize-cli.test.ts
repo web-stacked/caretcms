@@ -38,6 +38,15 @@ describe("discoverAstroFiles", () => {
     write("src/pages/about.astro", "<h1>y</h1>");
     expect(discoverAstroFiles(dir, "src/pages/about.astro")).toEqual(["src/pages/about.astro"]);
   });
+
+  it("refuses an explicit target inside a skip dir", () => {
+    // SKIP_DIRS used to only guard descent — pointing caretize AT
+    // node_modules/pkg/src walked (and could have edited) vendor files.
+    write("node_modules/pkg/src/x.astro", "<h1>vendor</h1>");
+    write("dist/out.astro", "<h1>built</h1>");
+    expect(discoverAstroFiles(dir, "node_modules/pkg/src")).toEqual([]);
+    expect(discoverAstroFiles(dir, "dist/out.astro")).toEqual([]);
+  });
 });
 
 describe("prepareFile verification gate", () => {

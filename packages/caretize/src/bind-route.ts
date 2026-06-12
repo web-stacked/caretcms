@@ -40,13 +40,16 @@ import {
   soleDataField,
 } from "./bind-collection.js";
 import { isRewritableTextTag } from "./detect.js";
+import { escapeRe } from "./identifiers.js";
 
 // `posts.map((post) => ...` — receiver + the iteration parameter.
 const MAP_PARAM_RE = /([A-Za-z_$][\w$]*)\s*\.\s*map\s*\(\s*\(?\s*([A-Za-z_$][\w$]*)/g;
 
-/** A standalone identifier inside an object/destructure body (shorthand key). */
+/** A standalone identifier inside an object/destructure body (shorthand key).
+ *  Identifiers are escaped — `$post` is a legal name whose `$` would otherwise
+ *  anchor mid-pattern and silently never match. */
 function shorthand(name: string): RegExp {
-  return new RegExp(`(?:^|[{,\\s])${name}(?:\\s*[,}]|\\s*$)`);
+  return new RegExp(`(?:^|[{,\\s])${escapeRe(name)}(?:\\s*[,}]|\\s*$)`);
 }
 
 /**
@@ -82,7 +85,9 @@ function resolveEntryBinding(
   const propsObj = /\bprops\s*:\s*\{([^}]*)\}/.exec(fmText);
   if (!propsObj) return null;
   const propsInner = propsObj[1];
-  const explicit = new RegExp(`([A-Za-z_$][\\w$]*)\\s*:\\s*${param}\\b`).exec(propsInner);
+  // (?![\w$]) instead of \b: \b sits between word/non-word chars, so it never
+  // closes an identifier that ENDS in `$` (post$ followed by "," has no \b).
+  const explicit = new RegExp(`([A-Za-z_$][\\w$]*)\\s*:\\s*${escapeRe(param)}(?![\\w$])`).exec(propsInner);
   const propKey = explicit
     ? explicit[1]
     : shorthand(param).test(propsInner)
@@ -94,7 +99,7 @@ function resolveEntryBinding(
   const destruct = /\bconst\s*\{([^}]*)\}\s*=\s*Astro\.props/.exec(fmText);
   if (!destruct) return null;
   const dInner = destruct[1];
-  const rename = new RegExp(`\\b${propKey}\\s*:\\s*([A-Za-z_$][\\w$]*)`).exec(dInner);
+  const rename = new RegExp(`(?<![\\w$])${escapeRe(propKey)}\\s*:\\s*([A-Za-z_$][\\w$]*)`).exec(dInner);
   const entryVar = rename
     ? rename[1]
     : shorthand(propKey).test(dInner)

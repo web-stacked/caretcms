@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  tagLine, formatScanSummary, formatPlan, formatSummary, formatHints,
+  tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures,
 } from "../../packages/caretize/src/output";
 import type { FilePlan, PlannedTag } from "../../packages/caretize/src/plan";
 import type { WrapTarget } from "../../packages/caretize/src/wrap";
@@ -113,5 +113,32 @@ describe("formatHints", () => {
   });
   it("says nothing when there is nothing to hint", () => {
     expect(formatHints([plan()], false)).toBe("");
+  });
+});
+
+describe("formatHints — bind-tier unlocks", () => {
+  it("points inside-iterator skips at --bind-collections until the flag is on", () => {
+    const plans = [plan({ skipped: [{ reason: "inside-iterator" }] as unknown as FilePlan["skipped"] })];
+    expect(formatHints(plans, false)).toContain("--bind-collections");
+    expect(formatHints(plans, false, { bindCollections: true })).toBe("");
+  });
+  it("points dynamic-route skips at --bind-routes until the flag is on", () => {
+    const plans = [plan({ scopeSkip: "dynamic-route" })];
+    expect(formatHints(plans, false)).toContain("--bind-routes");
+    expect(formatHints(plans, false, { bindRoutes: true })).toBe("");
+  });
+});
+
+describe("formatFailures", () => {
+  it("names each would-fail file with its reason", () => {
+    const out = formatFailures([
+      { relPath: "a.astro", ok: true },
+      { relPath: "b.astro", ok: false, reason: "could not place 1 tag(s)" },
+    ]);
+    expect(out).toContain("✗ b.astro would fail verification: could not place 1 tag(s)");
+    expect(out).not.toContain("a.astro");
+  });
+  it("is silent when everything verifies", () => {
+    expect(formatFailures([{ relPath: "a.astro", ok: true }])).toBe("");
   });
 });

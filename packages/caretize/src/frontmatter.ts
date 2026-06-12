@@ -4,9 +4,13 @@
  * those two passes are siblings rather than one depending on the other.
  */
 
-/** Inner content range of the frontmatter fence, or null if there is none. */
+/** Inner content range of the frontmatter fence, or null if there is none.
+ *  Tolerates a leading UTF-8 BOM — the compiler does too, and a bare
+ *  startsWith("---") used to silently disable every frontmatter tier for
+ *  BOM-prefixed files. */
 export function frontmatterRange(source: string): { start: number; end: number } | null {
-  if (!source.startsWith("---")) return null;
+  const fenceAt = source.charCodeAt(0) === 0xfeff ? 1 : 0;
+  if (!source.startsWith("---", fenceAt)) return null;
   const firstNL = source.indexOf("\n");
   if (firstNL < 0) return null;
   const close = source.indexOf("\n---", firstNL);

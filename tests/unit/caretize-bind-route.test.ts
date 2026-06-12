@@ -156,6 +156,31 @@ const team = [{ data: { name: 'Ada' } }];
     expect(targets[0]).toMatchObject({ collection: "blog", field: "title", tag: "h1" });
   });
 
+  it("resolves $-prefixed identifiers (escaped regex interpolation)", async () => {
+    const src = `---
+import { getCollection } from 'astro:content';
+export async function getStaticPaths() {
+  const $posts = await getCollection('blog');
+  return $posts.map(($post) => ({ params: { slug: $post.id }, props: { post: $post } }));
+}
+const { post } = Astro.props;
+---
+<h1>{post.data.title}</h1>`;
+    // A bare "$post" in a built regex acts as an anchor and silently never
+    // matches; escaping makes $-identifiers (nanostores convention) resolve.
+    const targets = await detect(src);
+    expect(targets).toHaveLength(1);
+    expect(targets[0]).toMatchObject({ collection: "blog", field: "title" });
+  });
+
+  it("tolerates a leading BOM (frontmatter tiers used to silently no-op)", async () => {
+    const src =
+      "﻿" +
+      route("{ post }", "const { post } = Astro.props;", "<h1>{post.data.title}</h1>");
+    const targets = await detect(src);
+    expect(targets).toHaveLength(1);
+  });
+
   it("does not bind leaf elements outside the rewrite-engine tag allowlist", async () => {
     const targets = await detect(
       route(
