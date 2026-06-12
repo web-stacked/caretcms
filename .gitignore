@@ -47,3 +47,6 @@ public/__caret/
 
 # Claude Code machine-local settings (absolute paths, cross-repo access)
 .claude/settings.local.json
+
+# local-only planning docs (internal PRDs/notes — never published)
+docs/private/
