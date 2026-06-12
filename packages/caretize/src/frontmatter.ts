@@ -45,11 +45,89 @@ export function importBindingNames(
   let m: RegExpExecArray | null;
   while ((m = re.exec(fmText))) {
     const [, name, spec] = m;
-    let importKind: ImportKind;
-    if (/\.json$/.test(spec)) importKind = "json";
-    else if (/\.(?:js|ts|mjs|cjs|mts|cts)$/.test(spec)) importKind = "module";
-    else continue; // bare/package or extensionless — shape unknown, leave alone
+    const importKind = classifyDataSpecifier(spec);
+    if (!importKind) continue; // bare/package or extensionless — shape unknown
     out.set(name, { specifier: spec, importKind });
   }
+  return out;
+}
+
+/** Shared specifier filter: a relative `.json` data file or a JS/TS module, else null. */
+function classifyDataSpecifier(spec: string): ImportKind | null {
+  if (/\.json$/.test(spec)) return "json";
+  if (/\.(?:js|ts|mjs|cjs|mts|cts)$/.test(spec)) return "module";
+  return null;
+}
+
+/**
+ * NAMED-import bindings whose data could be wrapped with `editable()`, mapped to
+ * their specifier + kind. The named counterpart to {@link importBindingNames}:
+ * `import { services } from "../data/site.ts"` → `services → {module}`.
+ *
+ * Same specifier filter (relative `.json`/JS-TS module only). Handles multiple
+ * bindings per statement (`import { a, b }`), an inline `type` specifier
+ * (`import { type T, a }` → only `a`), and a leading default binding
+ * (`import def, { a }` → the named half). Namespace imports and `import type {…}`
+ * are excluded.
+ *
+ * IMPORTANT — pre-aliased bindings are SKIPPED. A binding already written as
+ * `X as Y` was renamed deliberately, and the named-import wrapper renames by
+ * inserting ` as <raw>` after the local name; doing that to an aliased binding
+ * would emit `{ X as Y as Yraw }` (invalid JS). So `import { data as items }`
+ * yields nothing here.
+ */
+export function namedImportBindingNames(
+  fmText: string,
+): Map<string, { specifier: string; importKind: ImportKind }> {
+  const out = new Map<string, { specifier: string; importKind: ImportKind }>();
+  // Optional leading default binding (`def,`) then the `{ … }` named group.
+  const re =
+    /\bimport\s+(?!type\b)(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]+)\}\s+from\s*['"]([^'"]+)['"]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(fmText))) {
+    const importKind = classifyDataSpecifier(m[2]);
+    if (!importKind) continue;
+    for (const raw of m[1].split(",")) {
+      const token = raw.trim();
+      if (!token) continue;
+      if (/\bas\b/.test(token)) continue; // pre-aliased — skip (see doc above)
+      if (/^type\b/.test(token)) continue; // inline `type` specifier
+      if (!/^[A-Za-z_$][\w$]*$/.test(token)) continue;
+      out.set(token, { specifier: m[2], importKind });
+    }
+  }
+  return out;
+}
+
+/**
+ * Local names that `astro:assets` `Image`/`Picture` are imported under, e.g.
+ * `import { Image, Picture as Pic } from "astro:assets"` → `{"Image","Pic"}`.
+ *
+ * Used by `detect.ts` to recognize these components (which render to a native
+ * `<img>` Astro forwards `data-caret` to) instead of skipping them as opaque
+ * components. The specifier must be exactly `"astro:assets"`, so a user's own
+ * `import { Image } from "./my-image"` is NOT matched. Unlike data-import
+ * wrapping, aliasing is fine here — we only need the local name to match against,
+ * nothing is renamed.
+ */
+export function imageComponentNames(fmText: string): Set<string> {
+  const out = new Set<string>();
+  let m: RegExpExecArray | null;
+  // Named (incl. a leading default binding): import [Def,] { Image, … } from "astro:assets"
+  const named =
+    /\bimport\s+(?!type\b)(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]+)\}\s+from\s*['"]astro:assets['"]/g;
+  while ((m = named.exec(fmText))) {
+    for (const raw of m[1].split(",")) {
+      const token = raw.trim();
+      if (!token || /^type\b/.test(token)) continue;
+      // `Image as Img` → local name is the alias; plain `Image` → itself.
+      const aliased = /^[A-Za-z_$][\w$]*\s+as\s+([A-Za-z_$][\w$]*)$/.exec(token);
+      const local = aliased ? aliased[1] : token;
+      if (/^[A-Za-z_$][\w$]*$/.test(local)) out.add(local);
+    }
+  }
+  // Default (rare/legacy): import Image from "astro:assets"
+  const def = /\bimport\s+(?!type\b)([A-Za-z_$][\w$]*)\s+from\s*['"]astro:assets['"]/g;
+  while ((m = def.exec(fmText))) out.add(m[1]);
   return out;
 }

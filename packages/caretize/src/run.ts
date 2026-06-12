@@ -12,15 +12,15 @@ import { resolve } from "node:path";
 import { parseAstro } from "./parse.js";
 import { applyTags, type TagInsertion } from "./write.js";
 import { wrapConst, type WrapTarget } from "./wrap.js";
-import { wrapImport } from "./import-wrap.js";
+import { wrapImport, wrapNamedImport } from "./import-wrap.js";
 import { hoistPropLiterals, verifyHoistResult, type PropHoistTarget } from "./prop-hoist.js";
 import { writeBackup, restoreBackups } from "./backup.js";
 
 /** Apply the right editable() wrap for a target's origin. */
 function applyWrap(source: string, t: WrapTarget) {
-  return t.origin === "import"
-    ? wrapImport(source, t.varName, t.key)
-    : wrapConst(source, t.varName, t.key);
+  if (t.origin === "import") return wrapImport(source, t.varName, t.key);
+  if (t.origin === "named-import") return wrapNamedImport(source, t.varName, t.key);
+  return wrapConst(source, t.varName, t.key);
 }
 
 export interface PreparedFile {

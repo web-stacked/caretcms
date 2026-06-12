@@ -37,11 +37,16 @@ export interface WrapCandidate {
 
 /**
  * How a wrap target was found:
- *  - `loop`   — a same-file literal const iterated in the template (Tier-1)
- *  - `prop`   — a literal const passed to a component that renders it as text (Tier-2)
- *  - `import` — a default JSON/module import iterated in the template (Tier-3)
+ *  - `loop`         — a same-file literal const iterated in the template (Tier-1)
+ *  - `prop`         — a literal const passed to a component that renders it as text (Tier-2)
+ *  - `import`       — a DEFAULT JSON/module import iterated in the template (Tier-3)
+ *  - `named-import` — a NAMED import (`import { x } from …`) iterated in the
+ *                     template (Tier-3, named variant). Different applier
+ *                     (`wrapNamedImport`) because the rebind renames inside the
+ *                     destructure (`{ x as xRaw }`) rather than suffixing a
+ *                     top-level binding.
  */
-export type WrapOrigin = "loop" | "prop" | "import";
+export type WrapOrigin = "loop" | "prop" | "import" | "named-import";
 
 /** A safety-verified wrap target, tagged with how it was found. */
 export interface WrapTarget extends WrapCandidate {

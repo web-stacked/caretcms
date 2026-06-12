@@ -17,7 +17,10 @@ import { preflight } from "./preflight.js";
 import { planFile, type FilePlan, type PlannedTag, type PlanOptions } from "./plan.js";
 import { prepareFileFull, commitRun, readSource, type PreparedFile } from "./run.js";
 import { detectWrapTargetsSafe, type WrapTarget } from "./wrap.js";
-import { detectImportWrapTargetsSafe } from "./import-wrap.js";
+import {
+  detectImportWrapTargetsSafe,
+  detectNamedImportWrapTargetsSafe,
+} from "./import-wrap.js";
 import { detectPropWrapTargets, type FileReader } from "./props.js";
 import { detectPropHoistTargets, type PropHoistTarget } from "./prop-hoist.js";
 import { detectCollectionBindTargets, type CollectionBindTarget } from "./bind-collection.js";
@@ -203,7 +206,8 @@ interface Analysis {
  *     field would land in a native attribute
  *   - detectPropWrapTargets: literals passed to a component whose child provably
  *     renders them as text (Tier-2, cross-file)
- *   - detectImportWrapTargetsSafe: arrays pulled in from a data import (Tier-3)
+ *   - detectImportWrapTargetsSafe: arrays from a DEFAULT data import (Tier-3)
+ *   - detectNamedImportWrapTargetsSafe: arrays from a NAMED import (Tier-3, named)
  *   - detectPropHoistTargets: static component-prop strings (unless --no-props)
  */
 async function analyzeFiles(
@@ -227,7 +231,10 @@ async function analyzeFiles(
 
     const loops = await detectWrapTargetsSafe(src, rel, ast);
     const props = await detectPropWrapTargets(src, rel, readFileSafe, ast);
-    const imports = await detectImportWrapTargetsSafe(src, rel, ast);
+    const imports = [
+      ...(await detectImportWrapTargetsSafe(src, rel, ast)),
+      ...(await detectNamedImportWrapTargetsSafe(src, rel, ast)),
+    ];
     const byName = new Map<string, WrapTarget>();
     for (const t of [...loops, ...props, ...imports]) byName.set(t.varName, t);
     if (byName.size) wrapsByFile.set(rel, [...byName.values()]);
