@@ -5,15 +5,19 @@
  * Only inline formatting elements are permitted — no block-level tags.
  */
 
-const ALLOWED_TAGS = new Set([
+// NOTE: these three constants + classAllowed() below are a HAND MIRROR of
+// src/runtime/rich-allowlist.ts (this file ships as raw unbundled JS and can't
+// import it). They are `export`ed so tests/unit/sanitizer-parity.test.ts can
+// assert they never drift from the source of truth — CI fails on divergence.
+export const ALLOWED_TAGS = new Set([
   'b', 'strong', 'i', 'em', 'u', 's', 'a', 'br', 'sub', 'sup',
 ]);
 
-const ALLOWED_ATTRS = {
+export const ALLOWED_ATTRS = {
   a: new Set(['href', 'target', 'rel']),
 };
 
-const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/)/i;
+export const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/)/i;
 
 /**
  * Does `cls` match any pattern? (exact, `prefix-*`, or lone `*`)
@@ -22,7 +26,7 @@ const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/)/i;
  * @param {readonly string[]} patterns
  * @returns {boolean}
  */
-function classAllowed(cls, patterns) {
+export function classAllowed(cls, patterns) {
   for (const p of patterns) {
     if (p === '*') return true;
     if (p.endsWith('*')) {

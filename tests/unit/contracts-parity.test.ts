@@ -7,6 +7,11 @@
  * copies. These tests are the lockstep mechanism: if either side changes
  * without the other, the gate fails here instead of users discovering
  * silently-inert bindings or rejected storage keys.
+ *
+ * The browser-sanitizer block additionally guards the editor-save sanitizer
+ * (static/cms/editor/sanitize.js), which ships as raw unbundled JS and so
+ * hand-mirrors the allowlist instead of importing it — a drift there is a
+ * latent XSS hole (W0). This is the only automated check on that copy.
  */
 import { describe, expect, it } from "vitest";
 
@@ -19,6 +24,7 @@ import {
   RICH_ALLOWED_ATTRS,
   RICH_ALLOWED_TAGS,
   SAFE_HREF_RE as CORE_SAFE_HREF_RE,
+  classAllowed as coreClassAllowed,
 } from "../../packages/core/src/runtime/rich-allowlist";
 
 import {
@@ -28,6 +34,13 @@ import {
   SAFE_HREF_RE as CARETIZE_SAFE_HREF_RE,
 } from "../../packages/caretize/src/detect";
 import { COLLECTION_RE, ID_RE } from "../../packages/caretize/src/name";
+
+import {
+  ALLOWED_TAGS as JS_ALLOWED_TAGS,
+  ALLOWED_ATTRS as JS_ALLOWED_ATTRS,
+  SAFE_HREF_RE as JS_SAFE_HREF_RE,
+  classAllowed as jsClassAllowed,
+} from "../../packages/core/static/cms/editor/sanitize.js";
 
 describe("contracts parity (core ↔ caretize)", () => {
   it("identifier grammar: caretize mirrors core's id-contracts byte-for-byte", () => {
@@ -53,5 +66,44 @@ describe("contracts parity (core ↔ caretize)", () => {
     }
     expect(CARETIZE_SAFE_HREF_RE.source).toBe(CORE_SAFE_HREF_RE.source);
     expect(CARETIZE_SAFE_HREF_RE.flags).toBe(CORE_SAFE_HREF_RE.flags);
+  });
+});
+
+describe("browser sanitizer parity (core ↔ static editor sanitize.js)", () => {
+  it("allowed tags: the editor sanitizer keeps exactly the source-of-truth set", () => {
+    expect(JS_ALLOWED_TAGS).toEqual(RICH_ALLOWED_TAGS);
+  });
+
+  it("allowed attrs: same per-tag attribute allowlist", () => {
+    expect(Object.keys(JS_ALLOWED_ATTRS).sort()).toEqual(
+      Object.keys(RICH_ALLOWED_ATTRS).sort(),
+    );
+    for (const tag of Object.keys(RICH_ALLOWED_ATTRS)) {
+      expect(JS_ALLOWED_ATTRS[tag]).toEqual(RICH_ALLOWED_ATTRS[tag]);
+    }
+  });
+
+  it("safe-href regex: byte-identical source + flags", () => {
+    expect(JS_SAFE_HREF_RE.source).toBe(CORE_SAFE_HREF_RE.source);
+    expect(JS_SAFE_HREF_RE.flags).toBe(CORE_SAFE_HREF_RE.flags);
+  });
+
+  it("classAllowed: identical verdicts across a behavioural battery", () => {
+    // Exercise exact, prefix-`*`, lone-`*`, and reject paths — the divergence
+    // a hand copy is most likely to introduce.
+    const cases: Array<[string, readonly string[]]> = [
+      ["gold", ["gold"]],
+      ["gold", ["silver"]],
+      ["text-primary", ["text-*"]],
+      ["text", ["text-*"]],
+      ["anything", ["*"]],
+      ["x", []],
+      ["accent", ["accent", "text-*"]],
+      ["text-", ["text-*"]],
+      ["", ["*"]],
+    ];
+    for (const [cls, patterns] of cases) {
+      expect(jsClassAllowed(cls, patterns)).toBe(coreClassAllowed(cls, patterns));
+    }
   });
 });

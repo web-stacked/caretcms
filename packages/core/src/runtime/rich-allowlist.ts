@@ -7,7 +7,9 @@
  *
  * The editor-save sanitizer in static/cms/editor/sanitize.js is shipped as raw,
  * unbundled JS, so it can't import this module — it MUST mirror these values
- * and the classAllowed() logic by hand. Keep all three in lockstep.
+ * and the classAllowed() logic by hand. That hand mirror is held in lockstep by
+ * tests/unit/contracts-parity.test.ts ("browser sanitizer parity"), which fails
+ * CI on any drift (W0). Keep all three sanitizers in lockstep.
  */
 
 /** Inline formatting tags the rich-text sanitizer preserves. */
