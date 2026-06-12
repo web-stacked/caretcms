@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseAstro, walkTags } from "../../packages/caretize/src/parse";
 import { detect, type DetectOptions, type DetectResult } from "../../packages/caretize/src/detect";
+import { imageComponentNames } from "../../packages/caretize/src/frontmatter";
+import { planFile } from "../../packages/caretize/src/plan";
 
 async function detectSource(source: string, options?: DetectOptions): Promise<DetectResult> {
   const ast = await parseAstro(source);
@@ -95,6 +97,111 @@ describe("detect — synthetic cases", () => {
     expect(r.flags).toHaveLength(1);
     expect(r.flags[0].method).toBe("map");
     expect(r.flags[0].receiver).toBeUndefined();
+  });
+});
+
+// ─── W2: astro:assets <Image>/<Picture> ─────────────────────────────────────
+
+const IMG_COMPONENTS = new Set(["Image", "Picture"]);
+
+describe("imageComponentNames", () => {
+  it("extracts Image and Picture from an astro:assets import", () => {
+    const fm = `import { Image, Picture } from "astro:assets";`;
+    expect([...imageComponentNames(fm)].sort()).toEqual(["Image", "Picture"]);
+  });
+
+  it("resolves an alias to its local name", () => {
+    expect([...imageComponentNames(`import { Image as Img } from "astro:assets";`)]).toEqual([
+      "Img",
+    ]);
+  });
+
+  it("captures a (legacy) default import of astro:assets", () => {
+    expect([...imageComponentNames(`import Image from "astro:assets";`)]).toEqual(["Image"]);
+  });
+
+  it("does NOT match a same-named import from another specifier", () => {
+    expect([...imageComponentNames(`import { Image } from "./my-image";`)]).toEqual([]);
+  });
+});
+
+describe("detect — astro:assets image components", () => {
+  it("tags a top-level <Image> as an image candidate by its static src", async () => {
+    const r = await detectSource('<main><Image src="/hero.png" alt="Hero" /></main>', {
+      imageComponents: IMG_COMPONENTS,
+    });
+    const img = r.candidates.find((c) => c.tag === "Image");
+    expect(img?.kind).toBe("image");
+    expect(img?.confidence).toBe("high");
+    expect(img?.text).toBe("/hero.png");
+  });
+
+  it("recognizes an aliased component name", async () => {
+    const r = await detectSource('<main><Img src="/hero.png" alt="x" /></main>', {
+      imageComponents: new Set(["Img"]),
+    });
+    expect(r.candidates.some((c) => c.tag === "Img" && c.kind === "image")).toBe(true);
+  });
+
+  it("tags <Picture> as well", async () => {
+    const r = await detectSource('<main><Picture src="/photo.jpg" alt="x" /></main>', {
+      imageComponents: IMG_COMPONENTS,
+    });
+    expect(r.candidates.some((c) => c.tag === "Picture" && c.kind === "image")).toBe(true);
+  });
+
+  it("emits a candidate with empty text for an expression src (no author-time URL)", async () => {
+    const r = await detectSource("<main><Image src={heroImage} alt=\"x\" /></main>", {
+      imageComponents: IMG_COMPONENTS,
+    });
+    const img = r.candidates.find((c) => c.tag === "Image");
+    expect(img?.kind).toBe("image");
+    expect(img?.text).toBe("");
+  });
+
+  it("defers an <Image> inside a .map() — skipped inside-iterator, not tagged", async () => {
+    const r = await detectSource(
+      "<ul>{photos.map((p) => <Image src={p.src} alt={p.alt} />)}</ul>",
+      { imageComponents: IMG_COMPONENTS },
+    );
+    expect(r.candidates).toHaveLength(0);
+    expect(r.skipped.some((s) => s.tag === "Image" && s.reason === "inside-iterator")).toBe(true);
+  });
+
+  it("leaves a user's OWN component alone when it isn't an astro:assets import", async () => {
+    const r = await detectSource('<main><Image src="/x.png" /></main>'); // no imageComponents
+    expect(r.candidates.some((c) => c.tag === "Image")).toBe(false);
+    expect(r.skipped.some((s) => s.tag === "Image" && s.reason === "component")).toBe(true);
+  });
+
+  it("skips an <Image> with no src as empty", async () => {
+    const r = await detectSource('<main><Image alt="x" /></main>', {
+      imageComponents: IMG_COMPONENTS,
+    });
+    expect(r.candidates.some((c) => c.tag === "Image")).toBe(false);
+    expect(r.skipped.some((s) => s.tag === "Image" && s.reason === "empty")).toBe(true);
+  });
+});
+
+describe("planFile — astro:assets end to end", () => {
+  const PAGE = `---
+import { Image } from "astro:assets";
+import hero from "../assets/hero.png";
+---
+<main><Image src={hero} alt="Hero" /></main>
+`;
+
+  it("resolves Image components and plans a data-caret binding for the rendered <img> src", async () => {
+    const plan = await planFile(PAGE, "src/pages/index.astro");
+    const img = plan.tags.find((t) => t.candidate.tag === "Image");
+    expect(img).toBeDefined();
+    expect(img!.candidate.kind).toBe("image");
+    expect(img!.binding).toBe("pages::home::hero");
+  });
+
+  it("--no-images suppresses the Image binding", async () => {
+    const plan = await planFile(PAGE, "src/pages/index.astro", { noImages: true });
+    expect(plan.tags.some((t) => t.candidate.tag === "Image")).toBe(false);
   });
 });
 

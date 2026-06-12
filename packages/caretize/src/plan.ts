@@ -18,6 +18,7 @@ import {
   type Skipped,
 } from "./detect.js";
 import { assignFields, deriveScope, type Scope, type ScopeReason } from "./name.js";
+import { frontmatterRange, imageComponentNames } from "./frontmatter.js";
 
 export interface PlannedTag {
   candidate: Candidate;
@@ -79,7 +80,14 @@ export async function planFile(
 ): Promise<FilePlan> {
   const minRank = RANK[options.minConfidence ?? "high"];
   const ast = root ?? (await parseAstro(source));
-  const { candidates, skipped, flags } = detect(ast, walkTags, { rich: options.rich });
+  // Resolve astro:assets <Image>/<Picture> local names so detect can recognize
+  // them as image candidates (forwarded data-caret → rendered <img> src).
+  const fm = frontmatterRange(source);
+  const imageComponents = imageComponentNames(fm ? source.slice(fm.start, fm.end) : "");
+  const { candidates, skipped, flags } = detect(ast, walkTags, {
+    rich: options.rich,
+    imageComponents,
+  });
 
   // Resolve scope (explicit override wins; otherwise derive from path).
   let scope: Scope;

@@ -39,7 +39,16 @@ export interface DetectOptions {
    * call, so it's opt-in via the CLI `--rich` flag.
    */
   rich?: boolean;
+  /**
+   * Local names that `astro:assets` `Image`/`Picture` are imported under (from
+   * `imageComponentNames`). These component nodes render to a native `<img>`
+   * Astro forwards `data-caret` to, so they're treated as image candidates.
+   * Empty/absent by default → components are skipped as before.
+   */
+  imageComponents?: ReadonlySet<string>;
 }
+
+const NO_IMAGE_COMPONENTS: ReadonlySet<string> = new Set();
 
 export interface Skipped {
   decision: "skip";
@@ -233,6 +242,7 @@ export function detect(
 ): DetectResult {
   const candidates: Candidate[] = [];
   const skipped: Skipped[] = [];
+  const imageComponents = options.imageComponents ?? NO_IMAGE_COMPONENTS;
   const flagsByOffset = new Map<number, IteratorFlag>();
   // Nodes promoted to data-caret-rich. Their descendants must NOT be tagged
   // separately (the rich field owns the whole subtree); walkTags is preorder,
@@ -251,7 +261,14 @@ export function detect(
     // Inside a node we already promoted to rich → the rich field owns it.
     if (ancestors.some((a) => richHosts.has(a as TagNode))) return skip("inside-rich");
 
-    if (node.type !== "element") return skip("component"); // component/custom-element/fragment
+    // astro:assets <Image>/<Picture> are component nodes, but they render to a
+    // native <img> that Astro forwards data-caret to — so they're image
+    // candidates, not opaque components. Recognized only when resolved from an
+    // `import … from "astro:assets"` (via options.imageComponents); they still
+    // fall through the iterator/expression skip below, so an <Image> inside a
+    // .map() is deferred, not mis-tagged.
+    const isImageComponent = node.type === "component" && imageComponents.has(node.name);
+    if (node.type !== "element" && !isImageComponent) return skip("component");
 
     // Dynamic context: inside any {expression}. Record an iterator flag if the
     // enclosing expression looks like a .map()/.filter() loop.
@@ -268,12 +285,16 @@ export function detect(
       return skip(m ? "inside-iterator" : "inside-expression");
     }
 
-    if (tag === "img") {
-      const src = attr(node, "src");
-      if (src === undefined || src.trim() === "") return skip("empty");
+    if (tag === "img" || isImageComponent) {
+      const srcAttr = node.attributes.find((a) => a.name === "src");
+      if (srcAttr === undefined || srcAttr.value.trim() === "") return skip("empty");
+      // A dynamic src (`src={expr}`, template literal, shorthand) has no
+      // author-time URL to surface in review; the binding key is assigned by
+      // assignFields regardless, and the engine swaps the rendered <img> src.
+      const staticSrc = srcAttr.kind === "quoted" || srcAttr.kind === undefined;
       candidates.push({
         decision: "tag", kind: "image", node, tag, startOffset,
-        confidence: "high", text: src,
+        confidence: "high", text: staticSrc ? srcAttr.value : "",
       });
       return;
     }
