@@ -296,6 +296,25 @@ function resolveBrand(input: CaretBrandOption | undefined): ResolvedBrandConfig 
   };
 }
 
+/** Every key resolveCaretOptions reads. Anything else in the options object is
+ *  a typo (`mountpath`) silently falling back to a default — name it instead. */
+const KNOWN_OPTION_KEYS = new Set([
+  "mode", "cloud", "storage", "uploads", "mountPath", "apiBasePath",
+  "enableAdmin", "enableInlineEditor", "editorHome", "schemas",
+  "allowedClasses", "theme", "brand",
+]);
+
+/** Unknown option keys, each with its closest known key when one is plausible. */
+function unknownOptionWarnings(options: CaretOptions): string[] {
+  return Object.keys(options)
+    .filter((key) => !KNOWN_OPTION_KEYS.has(key))
+    .map((key) => {
+      const lower = key.toLowerCase();
+      const near = [...KNOWN_OPTION_KEYS].find((k) => k.toLowerCase() === lower);
+      return near ? `"${key}" (did you mean "${near}"?)` : `"${key}"`;
+    });
+}
+
 function resolveCaretOptions(options: CaretOptions): ResolvedCaretOptions {
   const mode = normalizeMode(options.mode);
   const defaults = defaultProviders(mode);
@@ -478,11 +497,22 @@ function detectContentCollections(rootDir: string): string[] {
 export function caret(options: CaretOptions = {}): AstroIntegration {
   const resolved = resolveCaretOptions(options);
 
+  // Path prefixes the integration owns once its routes are injected; null until
+  // (and unless) config:setup actually injects them (static output / cloud
+  // variants skip injection). Read by the routes:resolved collision check.
+  let ownedRoutePrefixes: string[] | null = null;
+
   return {
     name: "caretcms",
     hooks: {
       "astro:config:setup": ({ command, config, logger, addMiddleware, injectRoute, injectScript, updateConfig, addDevToolbarApp }) => {
         const isStaticOutput = config.output === "static";
+
+        // A typo'd option (`mountpath`) used to silently fall back to its
+        // default — the user "configured" something that never took effect.
+        for (const unknown of unknownOptionWarnings(options)) {
+          logger.warn(`[caretcms] unknown option ${unknown} — ignored.`);
+        }
 
         // Zero-config collection detection: when the user hasn't chosen a storage
         // adapter and the project has Astro content collections under src/content,
@@ -603,6 +633,12 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           entrypoint: new URL("./runtime/middleware.js", import.meta.url),
         });
 
+        ownedRoutePrefixes = [
+          ...(resolved.enableAdmin ? [resolved.mountPath] : []),
+          resolved.apiBasePath,
+          "/__caret",
+        ];
+
         if (resolved.enableAdmin) {
           injectRoute({
             pattern: resolved.mountPath,
@@ -712,6 +748,43 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
               `  Sign in at ${resolved.mountPath}. To make it permanent, add\n` +
               `  CARET_EDIT_PASSWORD=<your-password> to a .env file and restart.\n` +
               `  This temporary password works in dev only; production stays locked.`,
+          );
+        }
+      },
+
+      // Type the middleware's contribution to Astro.locals so user code gets
+      // `locals.isEditor: boolean` with autocomplete instead of `any`.
+      "astro:config:done": ({ injectTypes }) => {
+        injectTypes({
+          filename: "types.d.ts",
+          content: [
+            "declare namespace App {",
+            "  interface Locals {",
+            "    /** True when the request carries an authenticated CaretCMS editor session (set by the caretcms middleware). */",
+            "    isEditor: boolean;",
+            "  }",
+            "}",
+            "",
+          ].join("\n"),
+        });
+      },
+
+      // An existing site may already own a route under /admin or /api/cms —
+      // Astro resolves the conflict by file-vs-injected precedence, which
+      // silently shadows either the user's page or the CMS login. Name the
+      // overlap and the remedy instead of letting it read as "CMS is broken".
+      "astro:routes:resolved": ({ routes, logger }) => {
+        if (!ownedRoutePrefixes) return; // nothing injected (static/cloud skip)
+        const owned = ownedRoutePrefixes;
+        for (const route of routes) {
+          if (route.origin !== "project") continue;
+          const hit = owned.find(
+            (p) => route.pattern === p || route.pattern.startsWith(`${p}/`),
+          );
+          if (!hit) continue;
+          logger.warn(
+            `[caretcms] your route ${route.pattern} (${route.entrypoint}) overlaps the CMS route space "${hit}" — one of them will be shadowed. ` +
+              `Move your route, or relocate the CMS with caret({ ${hit === resolved.apiBasePath ? 'apiBasePath: "/your-api-path"' : 'mountPath: "/your-admin-path"'} }).`,
           );
         }
       },

@@ -24,6 +24,7 @@ import { detectCollectionBindTargets, type CollectionBindTarget } from "./bind-c
 import { detectRouteBindTargets } from "./bind-route.js";
 import { restoreLatest } from "./backup.js";
 import { buildReport } from "./report.js";
+import { applyKeyRegistry } from "./keys.js";
 import { isValidField } from "./name.js";
 import { parseArgs, CliUsageError, HELP, type Args } from "./cli-args.js";
 import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints } from "./output.js";
@@ -251,6 +252,20 @@ async function analyzeFiles(
       const hoists = await detectPropHoistTargets(src, rel, readFileSafe, ast);
       if (hoists.length) hoistsByFile.set(rel, hoists);
     }
+
+    // Cross-tier key registry: existing data-caret/editable() keys are
+    // pre-claimed; tags claim first (content-derived, shown in review), then
+    // wraps, then hoists. A collision takes a `_2` field suffix — without
+    // this, one run could mint the same storage key twice with two value
+    // shapes (a tag's string vs a wrap's array), or re-mint a key a prior
+    // run's editable() already owns.
+    applyKeyRegistry(
+      src,
+      plan.scope,
+      plan.tags,
+      wrapsByFile.get(rel) ?? [],
+      hoistsByFile.get(rel) ?? [],
+    );
   }
   return { plans, wrapsByFile, hoistsByFile, bindsByFile };
 }
