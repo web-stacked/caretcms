@@ -99,6 +99,15 @@ describe("caretize CLI · scan + apply", () => {
     expect(readFileSync(join(dir, "src/pages/index.astro"), "utf8")).toBe(original);
   });
 
+  it("--diff previews the before→after and writes nothing", () => {
+    const original = project();
+    const r = run(dir, "--diff");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("src/pages/index.astro");
+    expect(r.stdout).toContain(`+ <h1 data-caret="pages::home::`); // shows the insertion
+    expect(readFileSync(join(dir, "src/pages/index.astro"), "utf8")).toBe(original); // untouched
+  });
+
   it("-y applies tags, writes a backup, and --restore reverts", () => {
     const original = project();
 

@@ -9,6 +9,7 @@ import type { WrapTarget } from "./wrap.js";
 import type { PropHoistTarget } from "./prop-hoist.js";
 import type { CollectionBindTarget } from "./bind-collection.js";
 import type { Preflight } from "./preflight.js";
+import { lineDiff, formatHunks } from "./diff.js";
 import { TIERS, type TierId } from "./tiers.js";
 
 type BindsByFile = Map<string, CollectionBindTarget[]>;
@@ -151,6 +152,24 @@ export function formatEscalationOffer(counts: Partial<Record<TierId, number>>): 
   }
   if (lines.length === 0) return "";
   return `\n  I can also make these editable:\n${lines.join("\n")}\n`;
+}
+
+/**
+ * The `--diff` preview: the actual before→after for every file that would change,
+ * as hunks (changed lines + context). Makes the codemod tangible — "show me
+ * exactly what you'd insert" — and pairs with the backup/--restore safety net.
+ * Files that failed verification are surfaced via `formatFailures` separately.
+ */
+export function formatDiff(
+  prepared: ReadonlyArray<{ relPath: string; source: string; output: string; tagCount: number; ok: boolean }>,
+): string {
+  let out = "";
+  for (const p of prepared) {
+    if (!p.ok || p.tagCount === 0 || p.output === p.source) continue;
+    const body = formatHunks(lineDiff(p.source, p.output));
+    if (body) out += `\n${p.relPath}\n${body}`;
+  }
+  return out || "\n(no changes to preview)\n";
 }
 
 /** Files whose prepared output failed verification — shown in --dry-run too,

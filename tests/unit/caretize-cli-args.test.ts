@@ -13,6 +13,8 @@ describe("parseArgs", () => {
 
   it("parses the boolean flags (long + short forms)", () => {
     expect(parseArgs(["--dry-run"]).dryRun).toBe(true);
+    expect(parseArgs(["--diff"]).diff).toBe(true);
+    expect(parseArgs([]).diff).toBe(false);
     expect(parseArgs(["-y"]).yes).toBe(true);
     expect(parseArgs(["--yes"]).yes).toBe(true);
     expect(parseArgs(["--no-images"]).noImages).toBe(true);

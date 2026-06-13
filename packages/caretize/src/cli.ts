@@ -30,7 +30,7 @@ import { buildReport } from "./report.js";
 import { applyKeyRegistry } from "./keys.js";
 import { isValidField } from "./name.js";
 import { parseArgs, CliUsageError, HELP, type Args } from "./cli-args.js";
-import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, formatEscalationOffer, formatNextStep, type HintOpts } from "./output.js";
+import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, formatEscalationOffer, formatNextStep, formatDiff, type HintOpts } from "./output.js";
 import { selectTiers, type Intent } from "./select-policy.js";
 import { tierById, type TierId } from "./tiers.js";
 import {
@@ -287,7 +287,7 @@ async function analyzeFiles(
 /** Decide what to apply: everything (dry-run / -y), the interactive review, or
  *  nothing (report-only). Errors out on a non-interactive run with no directive. */
 async function selectChanges(args: Args, a: Analysis): Promise<Selection> {
-  if (args.dryRun || args.yes) {
+  if (args.dryRun || args.yes || args.diff) {
     const allTags = new Map(a.plans.map((p) => [p.relPath, p.tags] as [string, PlannedTag[]]));
     return { tags: allTags, wraps: a.wrapsByFile, hoists: a.hoistsByFile, binds: a.bindsByFile, quit: false };
   }
@@ -556,7 +556,7 @@ async function main(): Promise<void> {
   // keep Phase A's gated behavior.
   let summaryPlans = analysis.plans;
   let effectiveTiers = tiers;
-  const interactive = !args.dryRun && !args.yes && process.stdin.isTTY && process.stdout.isTTY;
+  const interactive = !args.dryRun && !args.yes && !args.diff && process.stdin.isTTY && process.stdout.isTTY;
   if (interactive) {
     const esc = await offerEscalation(
       { root, files, basePlanOpts: planOpts, readFileSafe, noProps: args.noProps, minConfidenceBase: args.minConfidence },
@@ -579,6 +579,13 @@ async function main(): Promise<void> {
   if (args.report) {
     writeFileSync(args.report, JSON.stringify(buildReport(analysis.plans, prepared), null, 2));
     process.stdout.write(`⤓ report → ${relative(root, args.report) || args.report}\n`);
+  }
+
+  if (args.diff) {
+    process.stdout.write(formatDiff(prepared));
+    process.stdout.write(formatFailures(prepared));
+    process.stdout.write(formatHints(summaryPlans, hintOpts));
+    return;
   }
 
   if (args.dryRun) {

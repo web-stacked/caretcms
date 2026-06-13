@@ -11,6 +11,7 @@ import { isValidCollection, isValidId, type Scope } from "./name.js";
 export interface Args {
   target?: string;
   dryRun: boolean;
+  diff: boolean;
   yes: boolean;
   minConfidence: Confidence;
   noImages: boolean;
@@ -37,6 +38,7 @@ Usage: caretize [path] [options]
 
   path                     file or directory to scan (default: src/)
   --dry-run                print the plan, write nothing
+  --diff                   preview the exact before→after changes, write nothing
   -y, --yes                auto-accept all suggestions at/above min-confidence
   --min-confidence <lvl>   high (default) | medium | low
   --no-images              skip <img> elements
@@ -63,7 +65,7 @@ Usage: caretize [path] [options]
 
 export function parseArgs(argv: string[]): Args {
   const a: Args = {
-    dryRun: false, yes: false, minConfidence: "high",
+    dryRun: false, diff: false, yes: false, minConfidence: "high",
     noImages: false, rich: false, noProps: false, bindCollections: false,
     bindRoutes: false, all: false, restore: false, help: false, version: false,
   };
@@ -71,6 +73,7 @@ export function parseArgs(argv: string[]): Args {
     const arg = argv[i];
     switch (arg) {
       case "--dry-run": a.dryRun = true; break;
+      case "--diff": a.diff = true; break;
       case "-y": case "--yes": a.yes = true; break;
       case "--no-images": a.noImages = true; break;
       case "--no-props": a.noProps = true; break;
