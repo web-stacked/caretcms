@@ -171,6 +171,31 @@ describe("formatHints", () => {
     expect(out).not.toContain("More can be made editable");
   });
 
+  it("names the exact tag+class to bless in the allowedClasses hint", () => {
+    // Host block whose inline children carry classes the sanitizer strips.
+    const host = {
+      type: "element",
+      name: "p",
+      attributes: [],
+      children: [
+        { type: "element", name: "strong", attributes: [{ name: "class", value: "hl big" }], children: [] },
+        { type: "element", name: "a", attributes: [{ name: "class", value: "gold" }], children: [] },
+      ],
+    };
+    const plans = [
+      plan({ skipped: [{ reason: "rich-unsafe-attrs", node: host }] as unknown as FilePlan["skipped"] }),
+    ];
+    const out = formatHints(plans, {});
+    // Concrete, copy-pasteable — alphabetized by tag, classes sorted & deduped.
+    expect(out).toContain(`allowedClasses: { a: ["gold"], strong: ["big", "hl"] }`);
+    expect(out).not.toContain(`["your-class"]`);
+  });
+
+  it("falls back to the generic snippet when the skip carries no node", () => {
+    const plans = [plan({ skipped: [{ reason: "rich-unsafe-attrs" }] as unknown as FilePlan["skipped"] })];
+    expect(formatHints(plans, {})).toContain(`{ tag: ["your-class"] }`);
+  });
+
   it("says nothing when there is nothing to hint", () => {
     expect(formatHints([plan()], {})).toBe("");
   });

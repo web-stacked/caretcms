@@ -11,6 +11,7 @@ import type { CollectionBindTarget } from "./bind-collection.js";
 import type { Preflight } from "./preflight.js";
 import { lineDiff, formatHunks } from "./diff.js";
 import { TIERS, type TierId } from "./tiers.js";
+import { isTagNode, type TagNode } from "./parse.js";
 
 type BindsByFile = Map<string, CollectionBindTarget[]>;
 
@@ -195,6 +196,40 @@ export interface HintOpts {
 }
 
 /**
+ * Collect, from a skipped rich block, the inline descendants carrying a `class`
+ * the sanitizer would strip — `tag → class tokens`. A `rich-unsafe-attrs` skip
+ * only happens when every descendant is an inline tag, so walking them all is
+ * safe. Dynamic class values (`class={x}`) are ignored — only literal tokens are
+ * actionable in an `allowedClasses` config.
+ */
+function collectStyledClasses(node: TagNode | undefined, into: Map<string, Set<string>>): void {
+  if (!node) return;
+  for (const child of node.children ?? []) {
+    if (!isTagNode(child)) continue;
+    const cls = child.attributes.find((a) => a.name === "class")?.value;
+    if (cls) {
+      for (const token of cls.split(/\s+/)) {
+        if (!/^[\w-]+$/.test(token)) continue; // skip dynamic/garbage tokens
+        const tag = child.name.toLowerCase();
+        (into.get(tag) ?? into.set(tag, new Set()).get(tag)!).add(token);
+      }
+    }
+    collectStyledClasses(child, into);
+  }
+}
+
+/** Render `tag → classes` as a copy-pasteable `allowedClasses` object literal. */
+function renderAllowedClasses(byTag: Map<string, Set<string>>): string {
+  const entries = [...byTag.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([tag, classes]) => {
+      const list = [...classes].sort().map((c) => `"${c}"`).join(", ");
+      return `${tag}: [${list}]`;
+    });
+  return `{ ${entries.join(", ")} }`;
+}
+
+/**
  * The "what's left + how to get it" summary — so skipped coverage reads as one
  * unmissable checklist line, not four scattered re-run incantations. Every
  * remaining opt-in tier that's still OFF is rolled into a single line that
@@ -211,12 +246,15 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
   let styled = 0; // rich-unsafe-attrs (sanitizer strips the class)
   let inIterator = 0; // inside-iterator (would bind with --bind-collections)
   let belowConfidence = 0; // dropped by the --min-confidence floor
+  const styledClasses = new Map<string, Set<string>>(); // tag → classes to bless
   for (const p of plans) {
     belowConfidence += p.belowConfidence ?? 0;
     for (const s of p.skipped) {
       if (s.reason === "rich-eligible") eligible++;
-      else if (s.reason === "rich-unsafe-attrs") styled++;
-      else if (s.reason === "inside-iterator") inIterator++;
+      else if (s.reason === "rich-unsafe-attrs") {
+        styled++;
+        collectStyledClasses(s.node, styledClasses);
+      } else if (s.reason === "inside-iterator") inIterator++;
     }
   }
   const dynamicRoutes = plans.filter((p) => p.scopeSkip === "dynamic-route").length;
@@ -235,9 +273,12 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
       `--bind-collections --bind-routes --rich --min-confidence low).\n`;
   }
   if (styled) {
+    const snippet = styledClasses.size
+      ? renderAllowedClasses(styledClasses)
+      : `{ tag: ["your-class"] }`;
     out += `↪ ${styled} block(s) hold inline styling classes the rich-text sanitizer strips on save.\n` +
-      `  Move the styling to CSS (style the semantic tag), or bless the class via\n` +
-      `  caret({ allowedClasses: { tag: ["your-class"] } }) — then they're safe to tag.\n`;
+      `  Move the styling to CSS (style the semantic tag), or bless the classes via\n` +
+      `  caret({ allowedClasses: ${snippet} }) — then they're safe to tag.\n`;
   }
   return out;
 }
