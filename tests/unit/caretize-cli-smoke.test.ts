@@ -105,6 +105,9 @@ describe("caretize CLI · scan + apply", () => {
     const apply = run(dir, "-y");
     expect(apply.status).toBe(0);
     expect(apply.stdout).toContain("change(s) across");
+    // core isn't installed in the temp project → CTA points at install, not "click to edit"
+    expect(apply.stdout).toContain("npm i @caretcms/core");
+    expect(apply.stdout).not.toContain("click to edit");
     const tagged = readFileSync(join(dir, "src/pages/index.astro"), "utf8");
     expect(tagged).toContain(`data-caret="pages::home::`);
     expect(existsSync(join(dir, ".caret", ".caretize-bak"))).toBe(true);
@@ -187,6 +190,8 @@ const posts = await getCollection("blog");
     const second = run(dir, "-y", "--all");
     expect(second.status).toBe(0);
     expect(second.stdout).toContain("no changes written");
+    // the re-run scan frames existing coverage as "already editable"
+    expect(second.stdout).toContain("already editable");
     expect(readFileSync(join(dir, "src/pages/index.astro"), "utf8")).toBe(first);
   });
 });

@@ -30,7 +30,7 @@ import { buildReport } from "./report.js";
 import { applyKeyRegistry } from "./keys.js";
 import { isValidField } from "./name.js";
 import { parseArgs, CliUsageError, HELP, type Args } from "./cli-args.js";
-import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, formatEscalationOffer, type HintOpts } from "./output.js";
+import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, formatEscalationOffer, formatNextStep, type HintOpts } from "./output.js";
 import { selectTiers, type Intent } from "./select-policy.js";
 import { tierById, type TierId } from "./tiers.js";
 import {
@@ -534,8 +534,14 @@ async function main(): Promise<void> {
   };
 
   const analysis = await analyzeFiles(root, files, planOpts, readFileSafe, args.noProps, bindCollections, bindRoutes);
+  // A re-run signal: elements the scan skipped because they already carry a
+  // data-caret. Lets the scan line read as incremental ("N new … · M already
+  // editable") rather than a cold scan.
+  const priorTagged = analysis.plans.reduce(
+    (n, p) => n + p.skipped.filter((s) => s.reason === "already-tagged").length, 0,
+  );
   process.stdout.write(
-    formatScanSummary(files.length, analysis.plans, analysis.wrapsByFile, analysis.hoistsByFile, analysis.bindsByFile),
+    formatScanSummary(files.length, analysis.plans, analysis.wrapsByFile, analysis.hoistsByFile, analysis.bindsByFile, priorTagged),
   );
 
   let sel = await selectChanges(args, analysis);
@@ -592,6 +598,7 @@ async function main(): Promise<void> {
     return;
   }
   printCommit(written, backups.length > 0, prepared, sel, summaryPlans);
+  process.stdout.write(formatNextStep(pf));
   process.stdout.write(formatHints(summaryPlans, hintOpts));
 }
 

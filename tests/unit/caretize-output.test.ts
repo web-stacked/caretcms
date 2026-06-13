@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
-  tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures,
+  tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, formatNextStep,
 } from "../../packages/caretize/src/output";
+import type { Preflight } from "../../packages/caretize/src/preflight";
 import type { FilePlan, PlannedTag } from "../../packages/caretize/src/plan";
 import type { WrapTarget } from "../../packages/caretize/src/wrap";
 import type { PropHoistTarget } from "../../packages/caretize/src/prop-hoist";
@@ -49,6 +50,33 @@ describe("formatScanSummary", () => {
     const hoists = new Map([["f", [hoist()]]]);
     expect(formatScanSummary(3, plans, wraps, hoists))
       .toBe("✓ 3 .astro files · 2 tag candidate(s) · 2 wrap target(s) · 1 prop(s)\n");
+  });
+
+  it("frames a re-run as new + already-editable when priorTagged > 0", () => {
+    const out = formatScanSummary(3, [plan({ tags: [tag()] })], new Map(), new Map(), new Map(), 8);
+    expect(out).toContain("1 new tag candidate(s)");
+    expect(out).toContain("8 already editable");
+  });
+});
+
+describe("formatNextStep", () => {
+  const pf = (over: Partial<Preflight>): Preflight =>
+    ({ isAstroProject: true, hasCaretCore: true, caretWired: true, outputMode: "server",
+       gitRepo: true, gitClean: true, errors: [], warnings: [], ...over } as Preflight);
+
+  it("tells an un-installed project to install + wire core", () => {
+    expect(formatNextStep(pf({ hasCaretCore: false }))).toContain("npm i @caretcms/core");
+  });
+  it("tells an installed-but-unwired project to add caret()", () => {
+    const out = formatNextStep(pf({ caretWired: false }));
+    expect(out).toContain("caret()");
+    expect(out).not.toContain("npm i");
+  });
+  it("tells a static-output project to switch to server", () => {
+    expect(formatNextStep(pf({ outputMode: "static" }))).toContain('output: "server"');
+  });
+  it("tells a fully-wired project to run dev and click to edit", () => {
+    expect(formatNextStep(pf({}))).toBe("Next: npm run dev → open your page → click to edit\n");
   });
 });
 
