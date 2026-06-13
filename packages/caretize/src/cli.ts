@@ -30,8 +30,13 @@ import { buildReport } from "./report.js";
 import { applyKeyRegistry } from "./keys.js";
 import { isValidField } from "./name.js";
 import { parseArgs, CliUsageError, HELP, type Args } from "./cli-args.js";
-import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, type HintOpts } from "./output.js";
-import { selectTiers, type Intent } from "./select-policy.js";
+import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, formatEscalationOffer, type HintOpts } from "./output.js";
+import { selectTiers, type Intent, type PromptAnswer } from "./select-policy.js";
+import { TIERS, type TierId } from "./tiers.js";
+import {
+  escalationCounts, totalOffer, deltaTags, mergeTagMaps, parseAnswer, parseToggle,
+} from "./escalation.js";
+import type { Confidence } from "./detect.js";
 
 const VERSION = "0.1.0";
 
@@ -337,6 +342,115 @@ function printCommit(
   process.stdout.write(formatSummary(written.length, changes, wrapped, hoisted, flagged, hadBackups, bound));
 }
 
+interface EscalationCtx {
+  root: string;
+  files: string[];
+  basePlanOpts: PlanOptions;
+  readFileSafe: FileReader;
+  noProps: boolean;
+  minConfidenceBase: Confidence;
+}
+
+/** Ask the top-level [Y/n/customize] choice, re-prompting on garbage. */
+async function askEscalationAnswer(rl: Readline, counts: Record<TierId, number>): Promise<PromptAnswer> {
+  let top = parseAnswer(
+    await ask(rl, "\n  Include the recommended set (dynamic lists, routes, rich)? [Y/n/customize] "),
+  );
+  while (top === "unknown") {
+    process.stdout.write("  please answer y, n, or c(ustomize)\n");
+    top = parseAnswer(await ask(rl, "  [Y/n/customize] "));
+  }
+  if (top === "no") return "no";
+  if (top === "yes") return "yes";
+  // customize: ask per non-empty tier; blank keeps the tier's recommendation.
+  const picked: TierId[] = [];
+  for (const t of TIERS) {
+    if ((counts[t.id] ?? 0) <= 0) continue;
+    const def = t.recommended ? "Y/n" : "y/N";
+    const on = parseToggle(await ask(rl, `    include ${t.label} (${counts[t.id]})? [${def}] `), t.recommended);
+    if (on) picked.push(t.id);
+  }
+  return picked;
+}
+
+/**
+ * The in-flow escalation step (interactive only). After the conservative review,
+ * offer the opt-in tiers as ONE grouped prompt; on accept, re-analyze gated to
+ * exactly the chosen tiers and merge the escalation delta into the reviewed
+ * selection.
+ *
+ * The detection here is the "detect-always" the prompt needs, but it lives only
+ * in this interactive branch — it never widens what `-y` / `--dry-run` apply
+ * (those skip this path). The re-analysis is gated to the user's chosen tiers,
+ * so the safety/regression contract from Phase A holds. Returns the (possibly
+ * augmented) selection, the plans to summarize, and the tiers actually applied.
+ */
+async function offerEscalation(
+  ctx: EscalationCtx,
+  analysis: Analysis,
+  sel: Selection,
+): Promise<{ sel: Selection; plans: FilePlan[]; tiers: Set<TierId> }> {
+  const declined = { sel, plans: analysis.plans, tiers: new Set<TierId>() };
+
+  // Detect-for-offer: collection + route bind targets (cheap, side-effect-free).
+  // rich/lowconf counts come from the conservative analysis (rich-eligible skips
+  // + belowConfidence), so no entangled rich pass is needed just to count.
+  const offer = await analyzeFiles(
+    ctx.root, ctx.files, ctx.basePlanOpts, ctx.readFileSafe, ctx.noProps, true, true,
+  );
+  const counts = escalationCounts(analysis.plans, offer.bindsByFile);
+  if (totalOffer(counts) === 0) return declined;
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  rl.on("SIGINT", () => { process.stdout.write("\naborted — nothing written\n"); process.exit(130); });
+  let answer: PromptAnswer;
+  try {
+    process.stdout.write(formatEscalationOffer(counts));
+    process.stdout.write("  ⚠ = per-row binding that assumes each entry's .id is its identity\n");
+    answer = await askEscalationAnswer(rl, counts);
+  } finally {
+    rl.close();
+  }
+
+  const chosen = selectTiers({ promptAnswer: answer });
+  if (chosen.size === 0) return declined;
+
+  // Re-analyze gated to exactly the chosen tiers — one pass, so keys are
+  // assigned coherently and the rich/low entanglement is correct (a rich host
+  // suppresses its inline children rather than double-tagging them).
+  const finalPlanOpts: PlanOptions = {
+    ...ctx.basePlanOpts,
+    rich: chosen.has("rich"),
+    minConfidence: chosen.has("lowconf") ? "low" : ctx.minConfidenceBase,
+  };
+  const final = await analyzeFiles(
+    ctx.root, ctx.files, finalPlanOpts, ctx.readFileSafe, ctx.noProps,
+    chosen.has("collections"), chosen.has("routes"),
+  );
+
+  // Merge the escalation-only tags (rich + below-floor) into the reviewed set,
+  // then re-key each touched file with the reviewed defaults claimed FIRST, so a
+  // field name a default and an escalation tag both derive can't mint a duplicate
+  // storage key (the run.ts gates accept duplicate keys — they're valid HTML).
+  const delta = deltaTags(analysis.plans, final.plans);
+  const mergedTags = mergeTagMaps(sel.tags, delta);
+  const scopeByPath = new Map(final.plans.map((p) => [p.relPath, p.scope]));
+  for (const rel of delta.keys()) {
+    applyKeyRegistry(
+      readSource(ctx.root, rel),
+      scopeByPath.get(rel),
+      mergedTags.get(rel) ?? [],
+      sel.wraps.get(rel) ?? [],
+      sel.hoists.get(rel) ?? [],
+    );
+  }
+
+  const merged: Selection = {
+    tags: mergedTags, wraps: sel.wraps, hoists: sel.hoists, binds: final.bindsByFile, quit: false,
+  };
+  return { sel: merged, plans: final.plans, tiers: chosen };
+}
+
 /** Restore the most recent backup, reporting how many files came back. */
 function runRestore(root: string): void {
   const restored = restoreLatest(root);
@@ -412,14 +526,36 @@ async function main(): Promise<void> {
     formatScanSummary(files.length, analysis.plans, analysis.wrapsByFile, analysis.hoistsByFile, analysis.bindsByFile),
   );
 
-  const sel = await selectChanges(args, analysis);
-  const hintOpts: HintOpts = {
-    rich, collections: bindCollections, routes: bindRoutes, lowconf: minConfidence === "low",
-  };
+  let sel = await selectChanges(args, analysis);
   if (sel.quit) {
     process.stdout.write("\naborted — nothing written\n");
     return;
   }
+
+  // Interactive only: after the conservative review, offer the opt-in tiers
+  // in-flow so a first-timer reaches full coverage in one command — never asked
+  // to learn the four tier flags. `-y` / `--dry-run` / non-TTY skip this and
+  // keep Phase A's gated behavior.
+  let summaryPlans = analysis.plans;
+  let effectiveTiers = tiers;
+  const interactive = !args.dryRun && !args.yes && process.stdin.isTTY && process.stdout.isTTY;
+  if (interactive) {
+    const esc = await offerEscalation(
+      { root, files, basePlanOpts: planOpts, readFileSafe, noProps: args.noProps, minConfidenceBase: args.minConfidence },
+      analysis, sel,
+    );
+    sel = esc.sel;
+    summaryPlans = esc.plans;
+    effectiveTiers = esc.tiers;
+  }
+
+  const hintOpts: HintOpts = {
+    rich: effectiveTiers.has("rich"),
+    collections: effectiveTiers.has("collections"),
+    routes: effectiveTiers.has("routes"),
+    lowconf: effectiveTiers.has("lowconf"),
+  };
+
   const prepared = await prepareTouched(root, sel);
 
   if (args.report) {
@@ -430,7 +566,7 @@ async function main(): Promise<void> {
   if (args.dryRun) {
     process.stdout.write(formatPlan(analysis.plans, analysis.wrapsByFile, analysis.hoistsByFile, analysis.bindsByFile));
     process.stdout.write(formatFailures(prepared));
-    process.stdout.write(formatHints(analysis.plans, hintOpts));
+    process.stdout.write(formatHints(summaryPlans, hintOpts));
     return;
   }
 
@@ -440,11 +576,11 @@ async function main(): Promise<void> {
     // Don't print the "click to edit" success footer for a no-op run — say
     // why nothing matched and which flag unlocks the skipped candidates.
     process.stdout.write("\nno changes written.\n");
-    process.stdout.write(formatHints(analysis.plans, hintOpts));
+    process.stdout.write(formatHints(summaryPlans, hintOpts));
     return;
   }
-  printCommit(written, backups.length > 0, prepared, sel, analysis.plans);
-  process.stdout.write(formatHints(analysis.plans, hintOpts));
+  printCommit(written, backups.length > 0, prepared, sel, summaryPlans);
+  process.stdout.write(formatHints(summaryPlans, hintOpts));
 }
 
 main().catch((err: unknown) => {

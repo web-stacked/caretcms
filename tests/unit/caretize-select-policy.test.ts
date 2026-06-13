@@ -49,6 +49,24 @@ describe("selectTiers", () => {
     expect(ids(selectTiers({ flags: { rich: true, lowconf: false } }))).toEqual(["rich"]);
   });
 
+  it("prompt 'yes' selects the recommended bundle (no lowconf)", () => {
+    expect(ids(selectTiers({ promptAnswer: "yes" }))).toEqual(["collections", "rich", "routes"]);
+  });
+
+  it("prompt 'no' selects nothing", () => {
+    expect(ids(selectTiers({ promptAnswer: "no" }))).toEqual([]);
+  });
+
+  it("prompt with a custom id list selects exactly those", () => {
+    expect(ids(selectTiers({ promptAnswer: ["rich", "lowconf"] }))).toEqual(["lowconf", "rich"]);
+  });
+
+  it("--all still wins over a prompt answer", () => {
+    expect(ids(selectTiers({ all: true, promptAnswer: "no" }))).toEqual([
+      "collections", "lowconf", "rich", "routes",
+    ]);
+  });
+
   it("returns a fresh set each call (no shared mutable state)", () => {
     const a = selectTiers({ all: true });
     a.delete("rich");

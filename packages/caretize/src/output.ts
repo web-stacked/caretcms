@@ -8,6 +8,7 @@ import type { FilePlan, PlannedTag } from "./plan.js";
 import type { WrapTarget } from "./wrap.js";
 import type { PropHoistTarget } from "./prop-hoist.js";
 import type { CollectionBindTarget } from "./bind-collection.js";
+import { TIERS, type TierId } from "./tiers.js";
 
 type BindsByFile = Map<string, CollectionBindTarget[]>;
 
@@ -92,6 +93,27 @@ export function formatSummary(
   if (hadBackups) out += `⤺ backups in .caret/.caretize-bak/ (caretize --restore to undo)\n`;
   out += `───────────────────────────────\nNext: npm run dev → open your page → click to edit\n`;
   return out;
+}
+
+/**
+ * The grouped "I can also make these editable" offer shown after the default
+ * review (interactive mode). Lists only tiers with a non-zero count, in TIERS
+ * order, each tagged with its risk note (so the identity-guessing binders are
+ * labeled before consent). Returns "" when there's nothing to offer.
+ *
+ * The prompt question itself (`[Y/n/customize]`) is asked by cli.ts via readline;
+ * this renders only the menu body so it stays pure + testable.
+ */
+export function formatEscalationOffer(counts: Partial<Record<TierId, number>>): string {
+  const lines: string[] = [];
+  for (const t of TIERS) {
+    const n = counts[t.id] ?? 0;
+    if (n <= 0) continue;
+    const flag = t.risk === "guess" ? " ⚠" : "";
+    lines.push(`    •${flag} ${String(n).padStart(3)} ${t.label} — ${t.note}`);
+  }
+  if (lines.length === 0) return "";
+  return `\n  I can also make these editable:\n${lines.join("\n")}\n`;
 }
 
 /** Files whose prepared output failed verification — shown in --dry-run too,
