@@ -44,7 +44,8 @@ By default caretize applies the safe edits, then shows a diff you can undo with
 --restore. Use --review to approve each change first, or --diff to preview only.
 
   path                     file or directory to scan (default: src/)
-  --review                 approve each change before writing (per-file review)
+  --review                 approve each default change before writing; the richer
+                           tiers are still offered (decline with n)
   --dry-run                print the plan, write nothing
   --diff                   preview the exact before→after changes, write nothing
   -y, --yes                auto-accept all suggestions at/above min-confidence
