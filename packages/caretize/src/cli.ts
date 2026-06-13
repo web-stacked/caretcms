@@ -74,14 +74,46 @@ async function editField(rl: Readline, t: PlannedTag): Promise<PlannedTag | null
   return field ? null : t;
 }
 
-/** Per-candidate prompt for one file. Returns the accepted tags plus control
- *  signals: `quit` aborts the whole run, `skipFile` skips this file's wrap/hoist
- *  prompts, and `acceptAll` carries the sticky [A]ll choice on to later files. */
-async function reviewFileTags(
+interface TagReview { take: PlannedTag[]; skipFile: boolean; quit: boolean; acceptAll: boolean }
+
+/**
+ * File-level tag review (the default unit). High-confidence content tags are
+ * safe by the engine's own definition, so interrogating each one is ceremony —
+ * show the file's tags as a batch and accept them in one keystroke. Drop to the
+ * per-candidate loop only when the user asks ([r]eview each), where edits live.
+ */
+async function reviewFileTags(rl: Readline, plan: FilePlan, acceptAll: boolean): Promise<TagReview> {
+  if (acceptAll) return { take: [...plan.tags], skipFile: false, quit: false, acceptAll: true };
+
+  process.stdout.write(`\n${plan.relPath}\n`);
+  for (const t of plan.tags) {
+    process.stdout.write(`  ${tagLine(t)}  → data-caret="${t.binding}" (${t.confidence})\n`);
+  }
+  for (;;) {
+    const ans = (await ask(
+      rl,
+      `  accept all ${plan.tags.length} tag(s)? [Y]es · [r]eview each · [s]kip file · [A]ll files · [q]uit > `,
+    )) || "y";
+    if (ans === "q") return { take: [], skipFile: false, quit: true, acceptAll };
+    if (ans === "s" || ans === "S") return { take: [], skipFile: true, quit: false, acceptAll };
+    if (ans === "A") return { take: [...plan.tags], skipFile: false, quit: false, acceptAll: true };
+    if (ans === "r") return reviewEachTag(rl, plan, acceptAll);
+    if (ans === "y" || ans === "Y" || ans === "a") {
+      return { take: [...plan.tags], skipFile: false, quit: false, acceptAll };
+    }
+    process.stdout.write("  unrecognized — Y(es) r(eview each) s(kip file) A(ll files) q(uit)\n");
+  }
+}
+
+/** Per-candidate prompt for one file (entered via [r]eview each). Returns the
+ *  accepted tags plus control signals: `quit` aborts the whole run, `skipFile`
+ *  skips this file's wrap/hoist prompts, and `acceptAll` carries the sticky
+ *  [A]ll choice on to later files. */
+async function reviewEachTag(
   rl: Readline,
   plan: FilePlan,
   acceptAll: boolean,
-): Promise<{ take: PlannedTag[]; skipFile: boolean; quit: boolean; acceptAll: boolean }> {
+): Promise<TagReview> {
   const take: PlannedTag[] = [];
   let skipFile = false;
   for (let i = 0; i < plan.tags.length && !skipFile; i++) {
