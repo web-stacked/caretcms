@@ -31,10 +31,11 @@ import { applyKeyRegistry } from "./keys.js";
 import { isValidField } from "./name.js";
 import { parseArgs, CliUsageError, HELP, type Args } from "./cli-args.js";
 import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, formatEscalationOffer, type HintOpts } from "./output.js";
-import { selectTiers, type Intent, type PromptAnswer } from "./select-policy.js";
-import { TIERS, type TierId } from "./tiers.js";
+import { selectTiers, type Intent } from "./select-policy.js";
+import { tierById, type TierId } from "./tiers.js";
 import {
-  escalationCounts, totalOffer, deltaTags, mergeTagMaps, parseAnswer, parseToggle,
+  escalationCounts, offerableCounts, offeredTiers, recommendedBundle,
+  totalOffer, deltaTags, mergeTagMaps, parseAnswer, parseToggle,
 } from "./escalation.js";
 import type { Confidence } from "./detect.js";
 
@@ -351,24 +352,26 @@ interface EscalationCtx {
   minConfidenceBase: Confidence;
 }
 
-/** Ask the top-level [Y/n/customize] choice, re-prompting on garbage. */
-async function askEscalationAnswer(rl: Readline, counts: Record<TierId, number>): Promise<PromptAnswer> {
-  let top = parseAnswer(
-    await ask(rl, "\n  Include the recommended set (dynamic lists, routes, rich)? [Y/n/customize] "),
-  );
+/** Ask the top-level [Y/n/customize] choice (re-prompting on garbage) and return
+ *  the tier ids the user newly accepts. `counts` is already offerable (tiers
+ *  already on have been zeroed), so this only ever offers genuinely-new tiers. */
+async function askEscalationAnswer(rl: Readline, counts: Record<TierId, number>): Promise<TierId[]> {
+  const bundle = recommendedBundle(counts);
+  const bundleLabels = bundle.map((id) => tierById(id).label).join(", ");
+  let top = parseAnswer(await ask(rl, `\n  Include ${bundleLabels}? [Y/n/customize] `));
   while (top === "unknown") {
     process.stdout.write("  please answer y, n, or c(ustomize)\n");
     top = parseAnswer(await ask(rl, "  [Y/n/customize] "));
   }
-  if (top === "no") return "no";
-  if (top === "yes") return "yes";
-  // customize: ask per non-empty tier; blank keeps the tier's recommendation.
+  if (top === "no") return [];
+  if (top === "yes") return bundle;
+  // customize: ask per offered tier; blank keeps the tier's recommendation.
   const picked: TierId[] = [];
-  for (const t of TIERS) {
-    if ((counts[t.id] ?? 0) <= 0) continue;
+  for (const id of offeredTiers(counts)) {
+    const t = tierById(id);
     const def = t.recommended ? "Y/n" : "y/N";
-    const on = parseToggle(await ask(rl, `    include ${t.label} (${counts[t.id]})? [${def}] `), t.recommended);
-    if (on) picked.push(t.id);
+    const on = parseToggle(await ask(rl, `    include ${t.label} (${counts[id]})? [${def}] `), t.recommended);
+    if (on) picked.push(id);
   }
   return picked;
 }
@@ -387,45 +390,54 @@ async function askEscalationAnswer(rl: Readline, counts: Record<TierId, number>)
  */
 async function offerEscalation(
   ctx: EscalationCtx,
+  active: Set<TierId>,
   analysis: Analysis,
   sel: Selection,
 ): Promise<{ sel: Selection; plans: FilePlan[]; tiers: Set<TierId> }> {
-  const declined = { sel, plans: analysis.plans, tiers: new Set<TierId>() };
+  // No new tiers accepted → keep the Phase A set (which the conservative pass
+  // already applied + the user reviewed). Returning `active`, not an empty set,
+  // keeps the closing hint honest when individual flags were combined with the
+  // interactive run.
+  const unchanged = { sel, plans: analysis.plans, tiers: active };
 
   // Detect-for-offer: collection + route bind targets (cheap, side-effect-free).
   // rich/lowconf counts come from the conservative analysis (rich-eligible skips
-  // + belowConfidence), so no entangled rich pass is needed just to count.
+  // + belowConfidence), so no entangled rich pass is needed just to count. Tiers
+  // already on (Phase A flags / --all) are zeroed — never offer what's applied.
   const offer = await analyzeFiles(
     ctx.root, ctx.files, ctx.basePlanOpts, ctx.readFileSafe, ctx.noProps, true, true,
   );
-  const counts = escalationCounts(analysis.plans, offer.bindsByFile);
-  if (totalOffer(counts) === 0) return declined;
+  const counts = offerableCounts(escalationCounts(analysis.plans, offer.bindsByFile), active);
+  if (totalOffer(counts) === 0) return unchanged;
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   rl.on("SIGINT", () => { process.stdout.write("\naborted — nothing written\n"); process.exit(130); });
-  let answer: PromptAnswer;
+  let chosenNew: TierId[];
   try {
     process.stdout.write(formatEscalationOffer(counts));
     process.stdout.write("  ⚠ = per-row binding that assumes each entry's .id is its identity\n");
-    answer = await askEscalationAnswer(rl, counts);
+    chosenNew = await askEscalationAnswer(rl, counts);
   } finally {
     rl.close();
   }
 
-  const chosen = selectTiers({ promptAnswer: answer });
-  if (chosen.size === 0) return declined;
+  if (chosenNew.length === 0) return unchanged;
 
-  // Re-analyze gated to exactly the chosen tiers — one pass, so keys are
+  // Apply the union of the already-active tiers and the newly accepted ones, so
+  // a Phase A flag is never silently dropped by the re-analysis.
+  const effective = new Set<TierId>([...active, ...chosenNew]);
+
+  // Re-analyze gated to exactly the effective tiers — one pass, so keys are
   // assigned coherently and the rich/low entanglement is correct (a rich host
   // suppresses its inline children rather than double-tagging them).
   const finalPlanOpts: PlanOptions = {
     ...ctx.basePlanOpts,
-    rich: chosen.has("rich"),
-    minConfidence: chosen.has("lowconf") ? "low" : ctx.minConfidenceBase,
+    rich: effective.has("rich"),
+    minConfidence: effective.has("lowconf") ? "low" : ctx.minConfidenceBase,
   };
   const final = await analyzeFiles(
     ctx.root, ctx.files, finalPlanOpts, ctx.readFileSafe, ctx.noProps,
-    chosen.has("collections"), chosen.has("routes"),
+    effective.has("collections"), effective.has("routes"),
   );
 
   // Merge the escalation-only tags (rich + below-floor) into the reviewed set,
@@ -448,7 +460,7 @@ async function offerEscalation(
   const merged: Selection = {
     tags: mergedTags, wraps: sel.wraps, hoists: sel.hoists, binds: final.bindsByFile, quit: false,
   };
-  return { sel: merged, plans: final.plans, tiers: chosen };
+  return { sel: merged, plans: final.plans, tiers: effective };
 }
 
 /** Restore the most recent backup, reporting how many files came back. */
@@ -542,7 +554,7 @@ async function main(): Promise<void> {
   if (interactive) {
     const esc = await offerEscalation(
       { root, files, basePlanOpts: planOpts, readFileSafe, noProps: args.noProps, minConfidenceBase: args.minConfidence },
-      analysis, sel,
+      tiers, analysis, sel,
     );
     sel = esc.sel;
     summaryPlans = esc.plans;

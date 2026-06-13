@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
-  escalationCounts, totalOffer, deltaTags, mergeTagMaps, parseAnswer, parseToggle,
+  escalationCounts, totalOffer, offerableCounts, offeredTiers, recommendedBundle,
+  deltaTags, mergeTagMaps, parseAnswer, parseToggle,
 } from "../../packages/caretize/src/escalation";
+import type { TierId } from "../../packages/caretize/src/tiers";
 import { formatEscalationOffer } from "../../packages/caretize/src/output";
 import { planFile, type FilePlan, type PlannedTag } from "../../packages/caretize/src/plan";
 import { applyKeyRegistry } from "../../packages/caretize/src/keys";
@@ -34,6 +36,41 @@ describe("escalationCounts / totalOffer", () => {
 
   it("totalOffer is 0 when there is nothing to offer", () => {
     expect(totalOffer(escalationCounts([plan()], new Map()))).toBe(0);
+  });
+});
+
+describe("offerableCounts (don't re-offer already-active tiers)", () => {
+  const full = { collections: 3, routes: 1, rich: 2, lowconf: 4 };
+  it("zeroes tiers that are already on, leaving the rest", () => {
+    expect(offerableCounts(full, new Set<TierId>(["collections", "rich"])))
+      .toEqual({ collections: 0, routes: 1, rich: 0, lowconf: 4 });
+  });
+  it("is a copy — does not mutate the input", () => {
+    offerableCounts(full, new Set<TierId>(["routes"]));
+    expect(full.routes).toBe(1);
+  });
+  it("returns all-zero when every tier is active", () => {
+    const z = offerableCounts(full, new Set<TierId>(["collections", "routes", "rich", "lowconf"]));
+    expect(totalOffer(z)).toBe(0);
+  });
+});
+
+describe("offeredTiers / recommendedBundle", () => {
+  it("offeredTiers lists non-zero tiers in TIERS order", () => {
+    expect(offeredTiers({ collections: 5, routes: 0, rich: 1, lowconf: 2 }))
+      .toEqual(["collections", "rich", "lowconf"]);
+  });
+  it("recommendedBundle = recommended tiers that are on offer", () => {
+    expect(recommendedBundle({ collections: 5, routes: 2, rich: 1, lowconf: 9 }).sort())
+      .toEqual(["collections", "rich", "routes"]); // lowconf excluded — not recommended
+  });
+  it("recommendedBundle falls back to all offered when none are recommended", () => {
+    // only low-confidence left → [Y] should still do something
+    expect(recommendedBundle({ collections: 0, routes: 0, rich: 0, lowconf: 4 }))
+      .toEqual(["lowconf"]);
+  });
+  it("recommendedBundle is empty when nothing is offered", () => {
+    expect(recommendedBundle({})).toEqual([]);
   });
 });
 

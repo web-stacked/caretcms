@@ -8,7 +8,8 @@
 
 import type { FilePlan, PlannedTag } from "./plan.js";
 import type { CollectionBindTarget } from "./bind-collection.js";
-import type { TierId } from "./tiers.js";
+import { TIERS, type TierId } from "./tiers.js";
+import { recommendedTiers } from "./select-policy.js";
 
 export type EscalationCounts = Record<TierId, number>;
 
@@ -43,6 +44,32 @@ export function escalationCounts(
 /** Total across all tiers — 0 means there's nothing to offer. */
 export function totalOffer(counts: EscalationCounts): number {
   return counts.collections + counts.routes + counts.rich + counts.lowconf;
+}
+
+/** Zero out tiers that are already on (Phase A flags / --all) so the offer never
+ *  re-counts coverage the conservative pass already applied. Returns a copy. */
+export function offerableCounts(
+  counts: EscalationCounts,
+  active: ReadonlySet<TierId>,
+): EscalationCounts {
+  const out = { ...counts };
+  for (const id of active) out[id] = 0;
+  return out;
+}
+
+/** Tier ids with a non-zero count, in TIERS order — what the prompt can offer. */
+export function offeredTiers(counts: Partial<Record<TierId, number>>): TierId[] {
+  return TIERS.filter((t) => (counts[t.id] ?? 0) > 0).map((t) => t.id);
+}
+
+/** The set the in-flow [Y] applies: the recommended tiers that are actually on
+ *  offer. Falls back to ALL offered tiers when none of the offered ones are
+ *  recommended (e.g. only low-confidence is left), so [Y] is never a no-op. */
+export function recommendedBundle(counts: Partial<Record<TierId, number>>): TierId[] {
+  const offered = offeredTiers(counts);
+  const rec = recommendedTiers();
+  const recOffered = offered.filter((id) => rec.has(id));
+  return recOffered.length > 0 ? recOffered : offered;
 }
 
 /**
