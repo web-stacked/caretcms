@@ -319,15 +319,23 @@ async function analyzeFiles(
   return { plans, wrapsByFile, hoistsByFile, bindsByFile };
 }
 
-/** Decide what to apply: everything (dry-run / -y), the interactive review, or
- *  nothing (report-only). Errors out on a non-interactive run with no directive. */
+/** Select every default-tier candidate (no per-item review). The safe tier is
+ *  lossless + reversible, so this is the optimistic default; the escalation
+ *  prompt still gates the risky tiers, and --restore undoes everything. */
+function selectAll(a: Analysis): Selection {
+  const allTags = new Map(a.plans.map((p) => [p.relPath, p.tags] as [string, PlannedTag[]]));
+  return { tags: allTags, wraps: a.wrapsByFile, hoists: a.hoistsByFile, binds: a.bindsByFile, quit: false };
+}
+
+/** Decide what to apply: everything (dry-run / -y / --diff / optimistic default),
+ *  the opt-in per-file review (--review), or nothing (report-only). Errors out on
+ *  a non-interactive run with no directive. */
 async function selectChanges(args: Args, a: Analysis): Promise<Selection> {
-  if (args.dryRun || args.yes || args.diff) {
-    const allTags = new Map(a.plans.map((p) => [p.relPath, p.tags] as [string, PlannedTag[]]));
-    return { tags: allTags, wraps: a.wrapsByFile, hoists: a.hoistsByFile, binds: a.bindsByFile, quit: false };
-  }
+  if (args.dryRun || args.yes || args.diff) return selectAll(a);
   if (process.stdin.isTTY && process.stdout.isTTY) {
-    return review(a.plans, a.wrapsByFile, a.hoistsByFile, a.bindsByFile);
+    // Optimistic by default: apply the safe tier, then show a diff you can undo.
+    // --review opts back into approving each change before it's written.
+    return args.review ? review(a.plans, a.wrapsByFile, a.hoistsByFile, a.bindsByFile) : selectAll(a);
   }
   if (args.report) return { tags: new Map(), wraps: new Map(), hoists: new Map(), binds: new Map(), quit: false };
   fail("non-interactive terminal: pass --dry-run, -y, or --report");
@@ -592,6 +600,9 @@ async function main(): Promise<void> {
   let summaryPlans = analysis.plans;
   let effectiveTiers = tiers;
   const interactive = !args.dryRun && !args.yes && !args.diff && process.stdin.isTTY && process.stdout.isTTY;
+  // Optimistic default: applied without a per-file gate → show the diff after and
+  // point at undo. (--review opts out of optimistic, so it doesn't re-show it.)
+  const optimistic = interactive && !args.review;
   if (interactive) {
     const esc = await offerEscalation(
       { root, files, basePlanOpts: planOpts, readFileSafe, noProps: args.noProps, minConfidenceBase: args.minConfidence },
@@ -639,9 +650,18 @@ async function main(): Promise<void> {
     process.stdout.write(formatHints(summaryPlans, hintOpts));
     return;
   }
+  if (optimistic) {
+    // "Show, don't ask": surface exactly what was just written, then make undo
+    // the most visible next move.
+    process.stdout.write("\napplied — here's what changed:\n");
+    process.stdout.write(formatDiff(prepared));
+  }
   printCommit(written, backups.length > 0, prepared, sel, summaryPlans);
   process.stdout.write(formatNextStep(pf));
   process.stdout.write(formatHints(summaryPlans, hintOpts));
+  if (optimistic) {
+    process.stdout.write("\n  not what you wanted? caretize --restore  ·  approve each change next time? caretize --review\n");
+  }
 }
 
 main().catch((err: unknown) => {

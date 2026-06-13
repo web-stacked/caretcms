@@ -13,6 +13,10 @@ export interface Args {
   dryRun: boolean;
   diff: boolean;
   yes: boolean;
+  /** Approve each change before it's written (opt back into the per-file review).
+   *  Without it, the default is optimistic: apply the safe tier, then show a diff
+   *  you can --restore. */
+  review: boolean;
   minConfidence: Confidence;
   noImages: boolean;
   rich: boolean;
@@ -36,7 +40,11 @@ export const HELP = `caretize · make an Astro project editable (data-caret + ed
 
 Usage: caretize [path] [options]
 
+By default caretize applies the safe edits, then shows a diff you can undo with
+--restore. Use --review to approve each change first, or --diff to preview only.
+
   path                     file or directory to scan (default: src/)
+  --review                 approve each change before writing (per-file review)
   --dry-run                print the plan, write nothing
   --diff                   preview the exact before→after changes, write nothing
   -y, --yes                auto-accept all suggestions at/above min-confidence
@@ -65,7 +73,7 @@ Usage: caretize [path] [options]
 
 export function parseArgs(argv: string[]): Args {
   const a: Args = {
-    dryRun: false, diff: false, yes: false, minConfidence: "high",
+    dryRun: false, diff: false, yes: false, review: false, minConfidence: "high",
     noImages: false, rich: false, noProps: false, bindCollections: false,
     bindRoutes: false, all: false, restore: false, help: false, version: false,
   };
@@ -74,6 +82,7 @@ export function parseArgs(argv: string[]): Args {
     switch (arg) {
       case "--dry-run": a.dryRun = true; break;
       case "--diff": a.diff = true; break;
+      case "--review": a.review = true; break;
       case "-y": case "--yes": a.yes = true; break;
       case "--no-images": a.noImages = true; break;
       case "--no-props": a.noProps = true; break;

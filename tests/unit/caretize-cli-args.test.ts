@@ -15,6 +15,8 @@ describe("parseArgs", () => {
     expect(parseArgs(["--dry-run"]).dryRun).toBe(true);
     expect(parseArgs(["--diff"]).diff).toBe(true);
     expect(parseArgs([]).diff).toBe(false);
+    expect(parseArgs(["--review"]).review).toBe(true);
+    expect(parseArgs([]).review).toBe(false);
     expect(parseArgs(["-y"]).yes).toBe(true);
     expect(parseArgs(["--yes"]).yes).toBe(true);
     expect(parseArgs(["--no-images"]).noImages).toBe(true);
@@ -88,6 +90,7 @@ describe("HELP", () => {
     expect(HELP).toContain("--dry-run");
     expect(HELP).toContain("--min-confidence");
     expect(HELP).toContain("--all");
+    expect(HELP).toContain("--review");
     expect(HELP).toContain("--restore");
   });
 });
