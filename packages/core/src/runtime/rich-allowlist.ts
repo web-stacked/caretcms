@@ -12,9 +12,13 @@
  * CI on any drift (W0). Keep all three sanitizers in lockstep.
  */
 
-/** Inline formatting tags the rich-text sanitizer preserves. */
+// `span` (W4) lets styled inline runs (`<span class="gold">…</span>`, common in
+// headings) survive in rich content — but it carries NO attributes of its own
+// (see RICH_ALLOWED_ATTRS): its `class` is kept only when blessed via the per-tag
+// `allowedClasses` config, and everything else (incl. on*=, style=) is stripped.
+// Fuzzed in tests/unit/sanitize-html-properties.test.ts.
 export const RICH_ALLOWED_TAGS = new Set([
-  "b", "strong", "i", "em", "u", "s", "a", "br", "sub", "sup",
+  "b", "strong", "i", "em", "u", "s", "a", "br", "sub", "sup", "span",
 ]);
 
 /** Attributes preserved per tag (class is gated separately, by allowedClasses). */

@@ -87,6 +87,10 @@ describe("sanitizeHtml — XSS invariants (examples)", () => {
     ["drops inline <style>", "<style>body{background:url(javascript:1)}</style>"],
     ["drops <svg onload>", "<svg/onload=alert(1)>"],
     ["strips style= attributes", '<strong style="position:fixed">x</strong>'],
+    // span is an allowed rich tag (W4) but carries NO attrs except class-via-allowedClasses:
+    ["strips event handlers off a span", "<span onclick=alert(1)>x</span>"],
+    ["strips style off a span", '<span style="position:fixed">x</span>'],
+    ["drops an unblessed class off a span", '<span class="evil">x</span>'],
   ];
   for (const [name, payload] of cases) {
     it(name, () => {
@@ -129,6 +133,8 @@ const ADVERSARIAL = [
   '<STRONG STYLE="x" CLASS="lead">x</STRONG>',
   "< script >",
   "<a href='/ok' onclick='x'>l</a>",
+  '<span onclick="x()" style="z" class="gold">x</span>',
+  '<span class="gold">styled</span>',
   "<>", "</b>", "<a>", "<b/>", "a < b && c > d",
 ];
 
@@ -153,6 +159,7 @@ const classesOpt = fc.option(
     { a: ["cta"] },
     { em: ["*"] },
     { strong: ["lead"], a: ["cta"] },
+    { span: ["gold", "text-*"] },
   ),
   { nil: undefined },
 );

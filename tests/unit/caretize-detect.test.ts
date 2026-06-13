@@ -56,9 +56,17 @@ describe("detect — synthetic cases", () => {
   });
 
   it("still skips genuine block/component mixed content as mixed-children", async () => {
-    const r = await detectSource("<main><p>hi <span><em>x</em></span> there</p></main>", { rich: true });
-    // <span> is not a sanitizer-allowed inline tag → not promotable
+    const r = await detectSource("<main><p>hi <Widget>x</Widget> there</p></main>", { rich: true });
+    // a component child is not a sanitizer-allowed inline tag → not promotable
     expect(r.skipped.some((s) => s.tag === "p" && s.reason === "mixed-children")).toBe(true);
+  });
+
+  it("promotes a <span>-wrapped run as rich (span is now sanitizer-allowed, W4)", async () => {
+    const r = await detectSource("<main><p>hi <span><em>x</em></span> there</p></main>", { rich: true });
+    // <span> joined the rich inline allowlist → the <p> is now rich, not mixed-children
+    const p = r.candidates.find((c) => c.tag === "p");
+    expect(p?.rich).toBe(true);
+    expect(r.skipped.some((s) => s.tag === "p" && s.reason === "mixed-children")).toBe(false);
   });
 
   it("never tags components, and tags <img> by src", async () => {

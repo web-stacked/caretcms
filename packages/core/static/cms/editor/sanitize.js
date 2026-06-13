@@ -10,7 +10,7 @@
 // import it). They are `export`ed so tests/unit/sanitizer-parity.test.ts can
 // assert they never drift from the source of truth — CI fails on divergence.
 export const ALLOWED_TAGS = new Set([
-  'b', 'strong', 'i', 'em', 'u', 's', 'a', 'br', 'sub', 'sup',
+  'b', 'strong', 'i', 'em', 'u', 's', 'a', 'br', 'sub', 'sup', 'span',
 ]);
 
 export const ALLOWED_ATTRS = {
