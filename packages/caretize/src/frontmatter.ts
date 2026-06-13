@@ -33,9 +33,10 @@ export type ImportKind = "json" | "module";
  * Default-import bindings whose data could be wrapped with `editable()`, mapped
  * to their specifier + kind. Only DEFAULT imports of a `.json` data file or a
  * `.js`/`.ts` module are returned — named imports (`import { x }`), namespace
- * imports (`import * as`), `import type`, and bare/package or extensionless
- * specifiers are excluded, because their value shape can't be assumed safe to
- * stega-encode. `import faqs from "./data/faqs.json"` → `faqs → {json}`.
+ * imports (`import * as`), `import type`, and bare/package specifiers are excluded,
+ * because their value shape can't be assumed safe to stega-encode. Relative/aliased
+ * extensionless paths (`../data/site`) ARE included — see {@link classifyDataSpecifier}.
+ * `import faqs from "./data/faqs.json"` → `faqs → {json}`.
  */
 export function importBindingNames(
   fmText: string,
@@ -52,11 +53,37 @@ export function importBindingNames(
   return out;
 }
 
-/** Shared specifier filter: a relative `.json` data file or a JS/TS module, else null. */
+/**
+ * Shared specifier filter → the data kind, or null when the shape can't be assumed.
+ * A `.json` file is `json`; a JS/TS module file is `module`; a relative or aliased
+ * EXTENSIONLESS path (the user's own `../data/site`, `@/data/site`) is treated as a
+ * `module` too — the most common way data files are actually imported. Bare package
+ * specifiers (`react`, `@scope/pkg`) and non-data extensions (`.astro`, `.css`,
+ * `.png`) stay null. The real wrap safety is enforced downstream by
+ * `classifyConstUsage` on the AST, not by this specifier shape.
+ */
 function classifyDataSpecifier(spec: string): ImportKind | null {
   if (/\.json$/.test(spec)) return "json";
   if (/\.(?:js|ts|mjs|cjs|mts|cts)$/.test(spec)) return "module";
+  if (isExtensionlessLocalPath(spec)) return "module";
   return null;
+}
+
+/**
+ * A relative (`./`, `../`) or common-alias (`~/`, `@/`) path whose last segment has
+ * no file extension — i.e. a local JS/TS module imported by its extensionless path
+ * (`../data/site`). Excludes bare packages and any path ending in `.ext` (those are
+ * handled by the explicit extension checks above, or intentionally left out).
+ */
+function isExtensionlessLocalPath(spec: string): boolean {
+  const isLocal =
+    spec.startsWith("./") ||
+    spec.startsWith("../") ||
+    spec.startsWith("~/") ||
+    spec.startsWith("@/");
+  if (!isLocal) return false;
+  const lastSegment = spec.slice(spec.lastIndexOf("/") + 1);
+  return lastSegment.length > 0 && !lastSegment.includes(".");
 }
 
 /**

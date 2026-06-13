@@ -24,7 +24,7 @@ import items from "../lib/items.ts";
     expect(map.get("items")).toEqual({ specifier: "../lib/items.ts", importKind: "module" });
   });
 
-  it("ignores named, namespace, type, and bare/extensionless imports", () => {
+  it("ignores named, namespace, type, .astro, and bare-package imports", () => {
     const fm = `
 import { editable } from "@caretcms/core";
 import * as utils from "./utils.js";
@@ -35,6 +35,27 @@ import React from "react";
     const map = importBindingNames(fm);
     // `* as` and named are excluded; `import type` excluded; `.astro` is a
     // component (handled elsewhere); bare package excluded.
+    expect([...map.keys()]).toEqual([]);
+  });
+
+  it("captures extensionless local default imports as modules", () => {
+    const fm = `
+import site from "../data/site";
+import nav from "@/data/nav";
+`;
+    const map = importBindingNames(fm);
+    expect(map.get("site")).toEqual({ specifier: "../data/site", importKind: "module" });
+    expect(map.get("nav")).toEqual({ specifier: "@/data/nav", importKind: "module" });
+  });
+
+  it("still excludes bare packages and non-data local extensions", () => {
+    const fm = `
+import logo from "./logo.png";
+import lodash from "lodash";
+import fp from "lodash/fp";
+`;
+    const map = importBindingNames(fm);
+    // `.png` is a non-data extension; `lodash` and `lodash/fp` are bare packages.
     expect([...map.keys()]).toEqual([]);
   });
 });
@@ -178,13 +199,22 @@ describe("namedImportBindingNames", () => {
     expect([...map.keys()]).toEqual(["services"]);
   });
 
-  it("ignores `import type {…}`, namespace, and extensionless/bare specifiers", () => {
+  it("ignores `import type {…}`, namespace, bare, and non-data specifiers", () => {
     const fm = `
 import type { Foo } from "./foo.ts";
 import { Bar } from "some-package";
 import { Layout } from "../layouts/Layout.astro";
 `;
     expect([...namedImportBindingNames(fm).keys()]).toEqual([]);
+  });
+
+  it("captures an extensionless local named import (the common data-file case)", () => {
+    // e.g. justma-astro: `import { serviceCards } from "../data/site"`
+    const map = namedImportBindingNames(`import { serviceCards } from "../data/site";`);
+    expect(map.get("serviceCards")).toEqual({
+      specifier: "../data/site",
+      importKind: "module",
+    });
   });
 
   it("is independent from importBindingNames (default vs named)", () => {
@@ -224,13 +254,30 @@ import { services, team } from "../data/site.ts";
     expect(got.map((c) => c.varName)).toEqual(["services"]);
   });
 
-  it("excludes a non-relative/extensionless specifier", () => {
+  it("excludes a bare-package specifier", () => {
     const src = `---
 import { services } from "some-package";
 ---
 {services.map((s) => <h3>{s.title}</h3>)}
 `;
     expect(detectNamedImportWrapCandidates(src, "src/pages/index.astro")).toEqual([]);
+  });
+
+  it("detects an EXTENSIONLESS local named import that is .map()'d", () => {
+    // The justma-astro shape: data imported from "../data/site" (no extension).
+    const src = `---
+import { serviceCards } from "../data/site";
+---
+{serviceCards.map((s) => <h3>{s.title}</h3>)}
+`;
+    expect(detectNamedImportWrapCandidates(src, "src/pages/index.astro")).toEqual([
+      {
+        varName: "serviceCards",
+        key: "pages::home::servicecards",
+        specifier: "../data/site",
+        importKind: "module",
+      },
+    ]);
   });
 });
 
