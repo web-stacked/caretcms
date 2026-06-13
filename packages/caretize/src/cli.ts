@@ -98,7 +98,10 @@ async function reviewFileTags(rl: Readline, plan: FilePlan, acceptAll: boolean):
     if (ans === "s" || ans === "S") return { take: [], skipFile: true, quit: false, acceptAll };
     if (ans === "A") return { take: [...plan.tags], skipFile: false, quit: false, acceptAll: true };
     if (ans === "r") return reviewEachTag(rl, plan, acceptAll);
-    if (ans === "y" || ans === "Y" || ans === "a") {
+    // Only y/Y/<enter> accept this file — NOT lowercase "a", which would collide
+    // with "[A]ll files" in the same prompt (a fat-fingered A must never silently
+    // mean "this file only").
+    if (ans === "y" || ans === "Y") {
       return { take: [...plan.tags], skipFile: false, quit: false, acceptAll };
     }
     process.stdout.write("  unrecognized — Y(es) r(eview each) s(kip file) A(ll files) q(uit)\n");

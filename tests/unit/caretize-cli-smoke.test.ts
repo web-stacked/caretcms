@@ -108,6 +108,24 @@ describe("caretize CLI · scan + apply", () => {
     expect(readFileSync(join(dir, "src/pages/index.astro"), "utf8")).toBe(original); // untouched
   });
 
+  it("--diff --report writes the report artifact but never the source", () => {
+    const original = project();
+    const r = run(dir, "--diff", "--report", "rep.json");
+    expect(r.status).toBe(0);
+    // --report is an explicit artifact request → written even under --diff…
+    expect(JSON.parse(readFileSync(join(dir, "rep.json"), "utf8"))).toBeTypeOf("object");
+    // …but the source file is still untouched (the safety invariant is about source).
+    expect(readFileSync(join(dir, "src/pages/index.astro"), "utf8")).toBe(original);
+  });
+
+  it("--diff on an already-tagged project says there's nothing to preview", () => {
+    project();
+    run(dir, "-y"); // tag everything first
+    const r = run(dir, "--diff");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("(no changes to preview)");
+  });
+
   it("-y applies tags, writes a backup, and --restore reverts", () => {
     const original = project();
 
