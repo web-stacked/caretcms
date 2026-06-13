@@ -102,30 +102,49 @@ describe("formatSummary", () => {
 });
 
 describe("formatHints", () => {
-  it("suggests --rich for sanitizer-safe blocks only when not already rich", () => {
-    const plans = [plan({ skipped: [{ reason: "rich-eligible" }] as unknown as FilePlan["skipped"] })];
-    expect(formatHints(plans, false)).toContain("re-run with --rich");
-    expect(formatHints(plans, true)).toBe("");
+  it("rolls remaining coverage into one line pointing at --all", () => {
+    const plans = [plan({
+      skipped: [{ reason: "rich-eligible" }, { reason: "inside-iterator" }] as unknown as FilePlan["skipped"],
+      belowConfidence: 4,
+    })];
+    const out = formatHints(plans, {});
+    expect(out).toContain("More can be made editable:");
+    expect(out).toContain("1 rich heading(s)");
+    expect(out).toContain("1 item(s) in dynamic lists");
+    expect(out).toContain("4 lower-confidence spot(s)");
+    expect(out).toContain("Re-run with --all");
   });
-  it("flags styled-inline blocks regardless of --rich", () => {
-    const plans = [plan({ skipped: [{ reason: "rich-unsafe-attrs" }] as unknown as FilePlan["skipped"] })];
-    expect(formatHints(plans, true)).toContain("allowedClasses");
-  });
-  it("says nothing when there is nothing to hint", () => {
-    expect(formatHints([plan()], false)).toBe("");
-  });
-});
 
-describe("formatHints — bind-tier unlocks", () => {
-  it("points inside-iterator skips at --bind-collections until the flag is on", () => {
-    const plans = [plan({ skipped: [{ reason: "inside-iterator" }] as unknown as FilePlan["skipped"] })];
-    expect(formatHints(plans, false)).toContain("--bind-collections");
-    expect(formatHints(plans, false, { bindCollections: true })).toBe("");
+  it("omits a tier from the line once that tier is on", () => {
+    const plans = [plan({ skipped: [{ reason: "rich-eligible" }] as unknown as FilePlan["skipped"] })];
+    expect(formatHints(plans, {})).toContain("rich heading(s)");
+    expect(formatHints(plans, { rich: true })).toBe("");
   });
-  it("points dynamic-route skips at --bind-routes until the flag is on", () => {
-    const plans = [plan({ scopeSkip: "dynamic-route" })];
-    expect(formatHints(plans, false)).toContain("--bind-routes");
-    expect(formatHints(plans, false, { bindRoutes: true })).toBe("");
+
+  it("suppresses each tier under its own flag", () => {
+    const iter = [plan({ skipped: [{ reason: "inside-iterator" }] as unknown as FilePlan["skipped"] })];
+    expect(formatHints(iter, {})).toContain("--all");
+    expect(formatHints(iter, { collections: true })).toBe("");
+
+    const route = [plan({ scopeSkip: "dynamic-route" })];
+    expect(formatHints(route, {})).toContain("dynamic detail route(s)");
+    expect(formatHints(route, { routes: true })).toBe("");
+
+    const low = [plan({ belowConfidence: 3 })];
+    expect(formatHints(low, {})).toContain("lower-confidence spot(s)");
+    expect(formatHints(low, { lowconf: true })).toBe("");
+  });
+
+  it("flags styled-inline blocks separately (not unlocked by a tier flag)", () => {
+    const plans = [plan({ skipped: [{ reason: "rich-unsafe-attrs" }] as unknown as FilePlan["skipped"] })];
+    // Present even when every tier is on — it needs a CSS move, not a flag.
+    const out = formatHints(plans, { rich: true, collections: true, routes: true, lowconf: true });
+    expect(out).toContain("allowedClasses");
+    expect(out).not.toContain("More can be made editable");
+  });
+
+  it("says nothing when there is nothing to hint", () => {
+    expect(formatHints([plan()], {})).toBe("");
   });
 });
 

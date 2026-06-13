@@ -30,7 +30,8 @@ import { buildReport } from "./report.js";
 import { applyKeyRegistry } from "./keys.js";
 import { isValidField } from "./name.js";
 import { parseArgs, CliUsageError, HELP, type Args } from "./cli-args.js";
-import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures } from "./output.js";
+import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, type HintOpts } from "./output.js";
+import { selectTiers, type Intent } from "./select-policy.js";
 
 const VERSION = "0.1.0";
 
@@ -366,10 +367,32 @@ async function main(): Promise<void> {
   if (pf.errors.length) { for (const e of pf.errors) process.stderr.write(`✗ ${e}\n`); process.exit(1); }
 
   const files = discoverAstroFiles(root, args.target);
+
+  // Resolve which opt-in tiers apply through the single policy function: the
+  // individual flags, plus `--all` (every tier, incl. low-confidence). The CLI
+  // never decides this inline — it only renders + applies what selectTiers
+  // returns. Detection below stays gated by this set (no detect-always yet; the
+  // in-flow prompt that needs it is a later step), so existing flag behavior is
+  // byte-identical and `--all` simply turns the four tiers on at once.
+  const intent: Intent = {
+    all: args.all,
+    flags: {
+      collections: args.bindCollections,
+      routes: args.bindRoutes,
+      rich: args.rich,
+      lowconf: args.minConfidence === "low",
+    },
+  };
+  const tiers = selectTiers(intent);
+  const bindCollections = tiers.has("collections");
+  const bindRoutes = tiers.has("routes");
+  const rich = tiers.has("rich");
+  const minConfidence = tiers.has("lowconf") ? "low" : args.minConfidence;
+
   const planOpts: PlanOptions = {
-    minConfidence: args.minConfidence,
+    minConfidence,
     noImages: args.noImages,
-    rich: args.rich,
+    rich,
     scope: args.scope,
   };
 
@@ -384,13 +407,15 @@ async function main(): Promise<void> {
     }
   };
 
-  const analysis = await analyzeFiles(root, files, planOpts, readFileSafe, args.noProps, args.bindCollections, args.bindRoutes);
+  const analysis = await analyzeFiles(root, files, planOpts, readFileSafe, args.noProps, bindCollections, bindRoutes);
   process.stdout.write(
     formatScanSummary(files.length, analysis.plans, analysis.wrapsByFile, analysis.hoistsByFile, analysis.bindsByFile),
   );
 
   const sel = await selectChanges(args, analysis);
-  const hintOpts = { bindCollections: args.bindCollections, bindRoutes: args.bindRoutes };
+  const hintOpts: HintOpts = {
+    rich, collections: bindCollections, routes: bindRoutes, lowconf: minConfidence === "low",
+  };
   if (sel.quit) {
     process.stdout.write("\naborted — nothing written\n");
     return;
@@ -405,7 +430,7 @@ async function main(): Promise<void> {
   if (args.dryRun) {
     process.stdout.write(formatPlan(analysis.plans, analysis.wrapsByFile, analysis.hoistsByFile, analysis.bindsByFile));
     process.stdout.write(formatFailures(prepared));
-    process.stdout.write(formatHints(analysis.plans, args.rich, hintOpts));
+    process.stdout.write(formatHints(analysis.plans, hintOpts));
     return;
   }
 
@@ -415,11 +440,11 @@ async function main(): Promise<void> {
     // Don't print the "click to edit" success footer for a no-op run — say
     // why nothing matched and which flag unlocks the skipped candidates.
     process.stdout.write("\nno changes written.\n");
-    process.stdout.write(formatHints(analysis.plans, args.rich, hintOpts));
+    process.stdout.write(formatHints(analysis.plans, hintOpts));
     return;
   }
   printCommit(written, backups.length > 0, prepared, sel, analysis.plans);
-  process.stdout.write(formatHints(analysis.plans, args.rich, hintOpts));
+  process.stdout.write(formatHints(analysis.plans, hintOpts));
 }
 
 main().catch((err: unknown) => {

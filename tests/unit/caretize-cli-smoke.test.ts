@@ -124,3 +124,69 @@ describe("caretize CLI · scan + apply", () => {
     expect(report).toBeTypeOf("object");
   });
 });
+
+describe("caretize CLI · --all escalation", () => {
+  // One page that exercises every opt-in tier at once:
+  //   - <h1>           → default high-confidence tag (always)
+  //   - posts.map h2   → collection bind (--bind-collections / --all)
+  //   - <p>…<strong>   → rich-eligible heading  (--rich / --all)
+  //   - <span>         → low-confidence leaf     (--min-confidence low / --all)
+  const PAGE = `---
+import { getCollection } from "astro:content";
+const posts = await getCollection("blog");
+---
+<h1>Blog index</h1>
+<ul>
+  {posts.map((post) => <li><h2>{post.data.title}</h2></li>)}
+</ul>
+<p>Read <strong>more</strong> here</p>
+<span>tiny label</span>
+`;
+
+  function blogProject(): void {
+    write("astro.config.mjs", "export default {};\n");
+    write("src/pages/index.astro", PAGE);
+  }
+
+  it("-y WITHOUT --all stays conservative — no binds, no rich, no low-confidence (R1 regression guard)", () => {
+    blogProject();
+    const r = run(dir, "-y");
+    expect(r.status).toBe(0);
+    const out = readFileSync(join(dir, "src/pages/index.astro"), "utf8");
+    // the always-on default tag lands…
+    expect(out).toContain(`data-caret="pages::home::`);
+    // …but none of the opt-in tiers sneak in without consent:
+    expect(out).not.toContain("data-caret={"); // no per-row collection bind
+    expect(out).not.toContain("data-caret-rich"); // no rich promotion
+    expect(out).not.toMatch(/<span data-caret/); // no low-confidence tag
+    // and the summary points at the one flag, not the four-flag incantation
+    expect(r.stdout).toContain("--all");
+  });
+
+  it("-y --all turns on every tier: collection bind + rich + low-confidence", () => {
+    blogProject();
+    const r = run(dir, "-y", "--all");
+    expect(r.status).toBe(0);
+    const out = readFileSync(join(dir, "src/pages/index.astro"), "utf8");
+    expect(out).toContain("data-caret={`blog::${post.id}::title`}"); // collection bind
+    expect(out).toContain("data-caret-rich"); // rich promotion
+    expect(out).toMatch(/<span data-caret="pages::home::/); // low-confidence tag
+  });
+
+  it("--everything is an alias for --all", () => {
+    blogProject();
+    const r = run(dir, "-y", "--everything");
+    expect(r.status).toBe(0);
+    expect(readFileSync(join(dir, "src/pages/index.astro"), "utf8")).toContain("data-caret-rich");
+  });
+
+  it("re-running --all on an already-tagged tree is a no-op (idempotent)", () => {
+    blogProject();
+    expect(run(dir, "-y", "--all").status).toBe(0);
+    const first = readFileSync(join(dir, "src/pages/index.astro"), "utf8");
+    const second = run(dir, "-y", "--all");
+    expect(second.status).toBe(0);
+    expect(second.stdout).toContain("no changes written");
+    expect(readFileSync(join(dir, "src/pages/index.astro"), "utf8")).toBe(first);
+  });
+});

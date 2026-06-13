@@ -108,21 +108,33 @@ export function formatFailures(
   );
 }
 
+/** Which opt-in tiers are already ON — a hint is only offered while its tier is off. */
+export interface HintOpts {
+  rich?: boolean;
+  collections?: boolean;
+  routes?: boolean;
+  lowconf?: boolean;
+}
+
 /**
- * The actionable-skips hints — the "why isn't this editable?" answers — so a skip
- * reads as a checklist item, not a silent omission. Adapts to the flags already
- * passed: a hint only appears while its unlock flag is off. Returns "" when
- * there's nothing to say.
+ * The "what's left + how to get it" summary — so skipped coverage reads as one
+ * unmissable checklist line, not four scattered re-run incantations. Every
+ * remaining opt-in tier that's still OFF is rolled into a single line that
+ * points at `--all` (the one flag), with the individual flags noted once.
+ *
+ * The styled-class case is kept separate: it isn't unlocked by a tier flag (the
+ * sanitizer strips the class regardless) — it needs a CSS move or
+ * caret({ allowedClasses }), so it carries its own guidance.
+ *
+ * Returns "" when there's nothing to say.
  */
-export function formatHints(
-  plans: FilePlan[],
-  rich: boolean,
-  opts: { bindCollections?: boolean; bindRoutes?: boolean } = {},
-): string {
-  let eligible = 0;
-  let styled = 0;
-  let inIterator = 0;
+export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
+  let eligible = 0; // rich-eligible (would tag with --rich)
+  let styled = 0; // rich-unsafe-attrs (sanitizer strips the class)
+  let inIterator = 0; // inside-iterator (would bind with --bind-collections)
+  let belowConfidence = 0; // dropped by the --min-confidence floor
   for (const p of plans) {
+    belowConfidence += p.belowConfidence ?? 0;
     for (const s of p.skipped) {
       if (s.reason === "rich-eligible") eligible++;
       else if (s.reason === "rich-unsafe-attrs") styled++;
@@ -130,20 +142,24 @@ export function formatHints(
     }
   }
   const dynamicRoutes = plans.filter((p) => p.scopeSkip === "dynamic-route").length;
+
+  // The remaining opt-in coverage, each listed only while its tier is off.
+  const parts: string[] = [];
+  if (inIterator && !opts.collections) parts.push(`${inIterator} item(s) in dynamic lists`);
+  if (dynamicRoutes && !opts.routes) parts.push(`${dynamicRoutes} dynamic detail route(s)`);
+  if (eligible && !opts.rich) parts.push(`${eligible} rich heading(s)`);
+  if (belowConfidence && !opts.lowconf) parts.push(`${belowConfidence} lower-confidence spot(s)`);
+
   let out = "";
-  if (eligible && !rich) {
-    out += `\n↪ ${eligible} mixed-content block(s) are sanitizer-safe inline markup — re-run with --rich to make them editable.\n`;
+  if (parts.length) {
+    out += `\n↪ More can be made editable: ${parts.join(", ")}.\n` +
+      `  Re-run with --all to include them (or the individual flags: ` +
+      `--bind-collections --bind-routes --rich --min-confidence low).\n`;
   }
   if (styled) {
     out += `↪ ${styled} block(s) hold inline styling classes the rich-text sanitizer strips on save.\n` +
       `  Move the styling to CSS (style the semantic tag), or bless the class via\n` +
       `  caret({ allowedClasses: { tag: ["your-class"] } }) — then they're safe to tag.\n`;
-  }
-  if (inIterator && !opts.bindCollections) {
-    out += `↪ ${inIterator} element(s) render inside collection loops — re-run with --bind-collections to bind them per row.\n`;
-  }
-  if (dynamicRoutes && !opts.bindRoutes) {
-    out += `↪ ${dynamicRoutes} dynamic route(s) skipped — re-run with --bind-routes to bind each detail page to its entry.\n`;
   }
   return out;
 }

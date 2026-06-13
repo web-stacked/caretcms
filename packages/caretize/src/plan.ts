@@ -41,6 +41,10 @@ export interface FilePlan {
   tags: PlannedTag[];
   skipped: Skipped[];
   flags: IteratorFlag[];
+  /** Count of candidates dropped SOLELY by the confidence floor (would tag at a
+   *  lower --min-confidence). Drives the "more can be made editable" summary —
+   *  these are otherwise silently filtered and invisible to the user. */
+  belowConfidence: number;
 }
 
 export interface PlanOptions {
@@ -96,7 +100,7 @@ export async function planFile(
   } else {
     const derived = deriveScope(relPath);
     if ("skip" in derived) {
-      return { relPath, scopeSkip: derived.skip, tags: [], skipped, flags };
+      return { relPath, scopeSkip: derived.skip, tags: [], skipped, flags, belowConfidence: 0 };
     }
     scope = derived.scope;
   }
@@ -104,10 +108,13 @@ export async function planFile(
   // Filter candidates by confidence + image policy, preserving document order.
   // Rich candidates only exist when --rich was requested, so they're always
   // accepted (the confidence floor doesn't gate the explicit opt-in).
+  let belowConfidence = 0;
   const accepted = candidates.filter((c) => {
     if (options.noImages && c.kind === "image") return false;
     if (c.rich) return true;
-    return RANK[c.confidence] >= minRank;
+    if (RANK[c.confidence] >= minRank) return true;
+    belowConfidence++; // dropped only by the floor — surface it as remaining coverage
+    return false;
   });
 
   const fields = assignFields(accepted, existingFields(ast));
@@ -130,5 +137,5 @@ export async function planFile(
     };
   });
 
-  return { relPath, scope, tags, skipped, flags };
+  return { relPath, scope, tags, skipped, flags, belowConfidence };
 }

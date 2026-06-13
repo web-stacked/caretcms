@@ -20,6 +20,10 @@ describe("parseArgs", () => {
     expect(parseArgs(["--bind-collections"]).bindCollections).toBe(true);
     expect(parseArgs([]).bindCollections).toBe(false);
     expect(parseArgs(["--rich"]).rich).toBe(true);
+    expect(parseArgs(["--bind-routes"]).bindRoutes).toBe(true);
+    expect(parseArgs(["--all"]).all).toBe(true);
+    expect(parseArgs(["--everything"]).all).toBe(true);
+    expect(parseArgs([]).all).toBe(false);
     expect(parseArgs(["--restore"]).restore).toBe(true);
     expect(parseArgs(["-h"]).help).toBe(true);
     expect(parseArgs(["--help"]).help).toBe(true);
@@ -81,6 +85,7 @@ describe("HELP", () => {
     expect(HELP).toContain("Usage: caretize");
     expect(HELP).toContain("--dry-run");
     expect(HELP).toContain("--min-confidence");
+    expect(HELP).toContain("--all");
     expect(HELP).toContain("--restore");
   });
 });

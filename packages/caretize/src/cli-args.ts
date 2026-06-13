@@ -18,6 +18,9 @@ export interface Args {
   noProps: boolean;
   bindCollections: boolean;
   bindRoutes: boolean;
+  /** Turn on EVERY opt-in tier at once (collections + routes + rich + low
+   *  confidence) — the one flag that replaces the four-flag incantation. */
+  all: boolean;
   scope?: Scope;
   report?: string;
   restore: boolean;
@@ -47,6 +50,10 @@ Usage: caretize [path] [options]
                            page being skipped as a dynamic route
   --rich                   also tag mixed-content blocks whose markup is
                            sanitizer-safe inline formatting (data-caret-rich)
+  --all                    turn on every opt-in tier at once: --bind-collections,
+                           --bind-routes, --rich, AND --min-confidence low. The
+                           one-flag "make as much editable as possible" — includes
+                           the low-confidence spots, so review the result
   --scope <collection::id> override the inferred scope
   --report <file>          write a JSON report
   --restore                restore the most recent backup, then exit
@@ -58,7 +65,7 @@ export function parseArgs(argv: string[]): Args {
   const a: Args = {
     dryRun: false, yes: false, minConfidence: "high",
     noImages: false, rich: false, noProps: false, bindCollections: false,
-    bindRoutes: false, restore: false, help: false, version: false,
+    bindRoutes: false, all: false, restore: false, help: false, version: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -70,6 +77,7 @@ export function parseArgs(argv: string[]): Args {
       case "--bind-collections": a.bindCollections = true; break;
       case "--bind-routes": a.bindRoutes = true; break;
       case "--rich": a.rich = true; break;
+      case "--all": case "--everything": a.all = true; break;
       case "--restore": a.restore = true; break;
       case "--help": case "-h": a.help = true; break;
       case "--version": case "-v": a.version = true; break;

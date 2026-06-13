@@ -256,7 +256,15 @@ export function detect(
       skipped.push({ decision: "skip", node, tag, startOffset, reason });
     };
 
-    if (hasCaretAttr(node)) return skip("already-tagged");
+    if (hasCaretAttr(node)) {
+      // An element already promoted to data-caret-rich still owns its whole
+      // subtree on a re-run. Register it as a rich host so its inline
+      // descendants are skipped as inside-rich rather than re-tagged at low
+      // confidence — without this, a second pass (e.g. --all = rich + low) would
+      // mint a duplicate binding inside an existing rich field.
+      if (node.attributes.some((a) => a.name === "data-caret-rich")) richHosts.add(node);
+      return skip("already-tagged");
+    }
 
     // Inside a node we already promoted to rich → the rich field owns it.
     if (ancestors.some((a) => richHosts.has(a as TagNode))) return skip("inside-rich");
