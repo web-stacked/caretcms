@@ -40,6 +40,15 @@ export interface DetectOptions {
    */
   rich?: boolean;
   /**
+   * Also promote a mixed-content block whose inline children carry a `class` the
+   * sanitizer strips unless blessed via the runtime `allowedClasses` config —
+   * tagging it `data-caret-rich` even though caretize can't see that config. The
+   * styled `class` round-trips only once the user blesses it; the hint names the
+   * exact classes. Requires `rich`. Off by default; turned on by `--all` /
+   * `--rich-class`. Blocks with any OTHER stripped attr stay `rich-unsafe-attrs`.
+   */
+  richClass?: boolean;
+  /**
    * Local names that `astro:assets` `Image`/`Picture` are imported under (from
    * `imageComponentNames`). These component nodes render to a native `<img>`
    * Astro forwards `data-caret` to, so they're treated as image candidates.
@@ -67,7 +76,8 @@ export type SkipReason =
   | "inside-rich" // descendant of a node we promoted to data-caret-rich
   | "mixed-children" // block/component child markup — can't round-trip as a field
   | "rich-eligible" // inline-only & lossless — would tag with --rich (run with --rich)
-  | "rich-unsafe-attrs" // inline-only but carries class/attrs the sanitizer strips
+  | "rich-class-promotable" // inline-only but a class needs allowedClasses — tag with --rich-class
+  | "rich-unsafe-attrs" // inline-only but carries non-class attrs the sanitizer strips
   | "empty" // no non-whitespace text and no src
   | "not-content"; // structural/non-content element
 
@@ -139,44 +149,59 @@ export const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/)/i;
 /** How the inline-markup children of a mixed element classify for rich promotion. */
 type RichShape =
   | "rich-safe" // all inline, no stripped attrs → lossless as data-caret-rich
-  | "rich-unsafe-attrs" // all inline tags, but some carry class/attrs (lossy)
+  | "rich-class" // all inline; the only stripped attr is class (needs allowedClasses)
+  | "rich-unsafe-attrs" // all inline, but some carry a NON-class stripped attr (lossy)
   | "not-inline"; // a block/component/expression child — can't be a rich field
 
-/** Are this element's own attributes within the sanitizer's keep set? */
-function inlineAttrsSafe(node: TagNode): boolean {
+/** Classify one inline element's own attributes against the sanitizer keep set. */
+type InlineAttrVerdict =
+  | "safe" // every attr is kept (or there are none)
+  | "class-only" // the only stripped attr(s) are class — recoverable via allowedClasses
+  | "unsafe"; // a non-class attr the sanitizer drops (style, on*, data-*, …)
+function inlineAttrVerdict(node: TagNode): InlineAttrVerdict {
   const allowed = RICH_SAFE_ATTRS[node.name.toLowerCase()];
+  let sawClass = false;
   for (const a of node.attributes ?? []) {
-    if (!allowed || !allowed.has(a.name)) return false;
-    if (a.name === "href" && !SAFE_HREF_RE.test(a.value ?? "")) return false;
+    if (a.name === "class") {
+      sawClass = true;
+      continue; // class is gated by allowedClasses, not stripped outright
+    }
+    if (!allowed || !allowed.has(a.name)) return "unsafe";
+    if (a.name === "href" && !SAFE_HREF_RE.test(a.value ?? "")) return "unsafe";
   }
-  return true;
+  return sawClass ? "class-only" : "safe";
 }
 
 /**
  * Classify a mixed-content element's subtree for rich promotion. Walks every
  * descendant: a non-inline tag / component / expression makes it "not-inline";
- * an inline tag carrying a stripped attribute makes it "rich-unsafe-attrs";
- * otherwise "rich-safe". `attrsClean` threads the downgrade through recursion.
+ * an inline tag carrying a non-class stripped attr makes it "rich-unsafe-attrs";
+ * an inline tag whose only stripped attr is class makes it "rich-class";
+ * otherwise "rich-safe". The worst verdict seen wins (unsafe > class > safe).
  */
 function classifyRichShape(node: TagNode): RichShape {
-  let attrsClean = true;
-  const visit = (n: TagNode): RichShape | null => {
+  let sawClassOnly = false;
+  let sawUnsafe = false;
+  const visit = (n: TagNode): "not-inline" | null => {
     for (const child of n.children ?? []) {
       if (child.type === "text") continue;
       if (child.type === "expression") return "not-inline";
       if (isTagNode(child)) {
         if (child.type !== "element") return "not-inline"; // component/fragment
         if (!RICH_INLINE_TAGS.has(child.name.toLowerCase())) return "not-inline";
-        if (!inlineAttrsSafe(child)) attrsClean = false;
-        const nested = visit(child);
-        if (nested === "not-inline") return "not-inline";
+        const verdict = inlineAttrVerdict(child);
+        if (verdict === "unsafe") sawUnsafe = true;
+        else if (verdict === "class-only") sawClassOnly = true;
+        if (visit(child) === "not-inline") return "not-inline";
       }
       // comments/doctype are inert — ignore
     }
     return null;
   };
   if (visit(node) === "not-inline") return "not-inline";
-  return attrsClean ? "rich-safe" : "rich-unsafe-attrs";
+  if (sawUnsafe) return "rich-unsafe-attrs";
+  if (sawClassOnly) return "rich-class";
+  return "rich-safe";
 }
 
 function attr(node: TagNode, name: string): string | undefined {
@@ -321,8 +346,14 @@ export function detect(
       const promotable = CONFIDENCE[tag] !== "low";
       if (richShape === "not-inline" || !promotable) return skip("mixed-children");
       if (richShape === "rich-unsafe-attrs") return skip("rich-unsafe-attrs");
+      if (richShape === "rich-class" && !(options.rich && options.richClass)) {
+        // Inline-only except for a class the sanitizer strips unless blessed via
+        // allowedClasses. Surfaced (so the hint can name the classes) until both
+        // --rich and --rich-class (the latter rides in --all) are on.
+        return skip("rich-class-promotable");
+      }
       // rich-safe: promote only when opted in; otherwise report it as eligible.
-      if (!options.rich) return skip("rich-eligible");
+      if (richShape === "rich-safe" && !options.rich) return skip("rich-eligible");
       richHosts.add(node);
       candidates.push({
         decision: "tag", kind: "text", node, tag, startOffset,

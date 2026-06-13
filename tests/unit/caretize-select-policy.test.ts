@@ -5,8 +5,10 @@ import { selectTiers, recommendedTiers } from "../../packages/caretize/src/selec
 const ids = (s: Set<TierId>) => [...s].sort();
 
 describe("TIERS descriptor table", () => {
-  it("covers exactly the four escalation tiers", () => {
-    expect(TIERS.map((t) => t.id).sort()).toEqual(["collections", "lowconf", "rich", "routes"]);
+  it("covers exactly the five escalation tiers", () => {
+    expect(TIERS.map((t) => t.id).sort()).toEqual([
+      "collections", "lowconf", "rich", "rich-class", "routes",
+    ]);
   });
   it("marks the per-row binders as guesses and the rest as judgment", () => {
     expect(tierById("collections").risk).toBe("guess");
@@ -28,13 +30,15 @@ describe("selectTiers", () => {
     expect(ids(selectTiers({ flags: {} }))).toEqual([]);
   });
 
-  it("--all selects every tier, including lowconf", () => {
-    expect(ids(selectTiers({ all: true }))).toEqual(["collections", "lowconf", "rich", "routes"]);
+  it("--all selects every tier, including lowconf and rich-class", () => {
+    expect(ids(selectTiers({ all: true }))).toEqual([
+      "collections", "lowconf", "rich", "rich-class", "routes",
+    ]);
   });
 
   it("--all overrides absent individual flags", () => {
     expect(ids(selectTiers({ all: true, flags: { rich: false } }))).toEqual([
-      "collections", "lowconf", "rich", "routes",
+      "collections", "lowconf", "rich", "rich-class", "routes",
     ]);
   });
 
@@ -63,7 +67,7 @@ describe("selectTiers", () => {
 
   it("--all still wins over a prompt answer", () => {
     expect(ids(selectTiers({ all: true, promptAnswer: "no" }))).toEqual([
-      "collections", "lowconf", "rich", "routes",
+      "collections", "lowconf", "rich", "rich-class", "routes",
     ]);
   });
 

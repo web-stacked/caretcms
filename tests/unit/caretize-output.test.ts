@@ -196,6 +196,31 @@ describe("formatHints", () => {
     expect(formatHints(plans, {})).toContain(`{ tag: ["your-class"] }`);
   });
 
+  it("nudges --rich-class + names classes for rich-class-promotable skips (pre-tag)", () => {
+    const host = {
+      type: "element", name: "h1", attributes: [],
+      children: [{ type: "element", name: "span", attributes: [{ name: "class", value: "gold" }], children: [] }],
+    };
+    const plans = [
+      plan({ skipped: [{ reason: "rich-class-promotable", node: host }] as unknown as FilePlan["skipped"] }),
+    ];
+    const out = formatHints(plans, {}); // richClass off
+    expect(out).toContain("--rich-class");
+    expect(out).toContain(`allowedClasses: { span: ["gold"] }`);
+  });
+
+  it("reminds to bless classes after tagging styled-span blocks (post-apply)", () => {
+    const richNode = {
+      type: "element", name: "h1", attributes: [],
+      children: [{ type: "element", name: "span", attributes: [{ name: "class", value: "gold" }], children: [] }],
+    };
+    const tagged = { candidate: { tag: "h1", rich: true, node: richNode } };
+    const plans = [plan({ tags: [tagged] as unknown as FilePlan["tags"] })];
+    const out = formatHints(plans, { richClass: true }); // richClass on → post-apply reminder
+    expect(out).toContain("Tagged styled-span");
+    expect(out).toContain(`allowedClasses: { span: ["gold"] }`);
+  });
+
   it("says nothing when there is nothing to hint", () => {
     expect(formatHints([plan()], {})).toBe("");
   });

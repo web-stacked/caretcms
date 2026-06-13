@@ -56,6 +56,9 @@ export interface PlanOptions {
   scope?: Scope;
   /** Promote sanitizer-safe mixed-content blocks to data-caret-rich (--rich). */
   rich?: boolean;
+  /** Also promote rich blocks whose inline children carry a class the sanitizer
+   *  strips unless blessed via allowedClasses (--rich-class). Implies rich. */
+  richClass?: boolean;
 }
 
 const RANK: Record<Confidence, number> = { high: 3, medium: 2, low: 1 };
@@ -90,6 +93,7 @@ export async function planFile(
   const imageComponents = imageComponentNames(fm ? source.slice(fm.start, fm.end) : "");
   const { candidates, skipped, flags } = detect(ast, walkTags, {
     rich: options.rich,
+    richClass: options.richClass,
     imageComponents,
   });
 

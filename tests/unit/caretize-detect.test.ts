@@ -49,10 +49,25 @@ describe("detect — synthetic cases", () => {
     expect(r.skipped.some((s) => s.tag === "a" && s.reason === "inside-rich")).toBe(true);
   });
 
-  it("refuses inline content carrying a stripped class as rich-unsafe-attrs", async () => {
+  it("reports inline content carrying ONLY a class as rich-class-promotable (not unsafe)", async () => {
     const r = await detectSource('<main><p>hi <strong class="accent">there</strong></p></main>', { rich: true });
+    // class is recoverable via allowedClasses → promotable with --rich-class, not lost
+    expect(r.skipped.some((s) => s.tag === "p" && s.reason === "rich-class-promotable")).toBe(true);
+    expect(r.candidates.some((c) => c.tag === "p")).toBe(false);
+  });
+
+  it("refuses inline content carrying a NON-class stripped attr as rich-unsafe-attrs", async () => {
+    const r = await detectSource('<main><p>hi <strong style="color:red">there</strong></p></main>', { rich: true });
+    // style can't be blessed → genuinely lossy, never promotable
     expect(r.skipped.some((s) => s.tag === "p" && s.reason === "rich-unsafe-attrs")).toBe(true);
     expect(r.candidates.some((c) => c.tag === "p")).toBe(false);
+  });
+
+  it("promotes a class-only block to rich under --rich-class", async () => {
+    const r = await detectSource('<main><p>hi <strong class="accent">there</strong></p></main>', { rich: true, richClass: true });
+    const p = r.candidates.find((c) => c.tag === "p");
+    expect(p?.rich).toBe(true);
+    expect(r.skipped.some((s) => s.tag === "p")).toBe(false);
   });
 
   it("still skips genuine block/component mixed content as mixed-children", async () => {

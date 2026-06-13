@@ -20,6 +20,10 @@ export interface Args {
   minConfidence: Confidence;
   noImages: boolean;
   rich: boolean;
+  /** Also tag styled-span headings (rich blocks whose inline children carry a
+   *  class). Implies --rich. The class round-trips only once blessed via
+   *  caret({ allowedClasses }); the hint names which. Included in --all. */
+  richClass: boolean;
   noProps: boolean;
   bindCollections: boolean;
   bindRoutes: boolean;
@@ -61,10 +65,15 @@ By default caretize applies the safe edits, then shows a diff you can undo with
                            page being skipped as a dynamic route
   --rich                   also tag mixed-content blocks whose markup is
                            sanitizer-safe inline formatting (data-caret-rich)
+  --rich-class             also tag rich blocks whose inline children carry a
+                           class (e.g. <h1>…<span class="gold">…</span>…). Implies
+                           --rich. The class is kept only once you add it to
+                           caret({ allowedClasses }) — the hint names which.
   --all                    turn on every opt-in tier at once: --bind-collections,
-                           --bind-routes, --rich, AND --min-confidence low. The
-                           one-flag "make as much editable as possible" — includes
-                           the low-confidence spots, so review the result
+                           --bind-routes, --rich, --rich-class, AND
+                           --min-confidence low. The one-flag "make as much
+                           editable as possible" — includes the low-confidence
+                           spots, so review the result
   --scope <collection::id> override the inferred scope
   --report <file>          write a JSON report
   --restore                restore the most recent backup, then exit
@@ -75,7 +84,7 @@ By default caretize applies the safe edits, then shows a diff you can undo with
 export function parseArgs(argv: string[]): Args {
   const a: Args = {
     dryRun: false, diff: false, yes: false, review: false, minConfidence: "high",
-    noImages: false, rich: false, noProps: false, bindCollections: false,
+    noImages: false, rich: false, richClass: false, noProps: false, bindCollections: false,
     bindRoutes: false, all: false, restore: false, help: false, version: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -90,6 +99,7 @@ export function parseArgs(argv: string[]): Args {
       case "--bind-collections": a.bindCollections = true; break;
       case "--bind-routes": a.bindRoutes = true; break;
       case "--rich": a.rich = true; break;
+      case "--rich-class": a.richClass = true; break;
       case "--all": case "--everything": a.all = true; break;
       case "--restore": a.restore = true; break;
       case "--help": case "-h": a.help = true; break;

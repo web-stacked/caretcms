@@ -16,7 +16,7 @@
  * an edit here.
  */
 
-export type TierId = "collections" | "routes" | "rich" | "lowconf";
+export type TierId = "collections" | "routes" | "rich" | "rich-class" | "lowconf";
 
 /**
  * How much the tier "decides" on the user's behalf:
@@ -64,6 +64,14 @@ export const TIERS: readonly TierDescriptor[] = [
     risk: "judgment",
     recommended: true,
     flag: "--rich",
+  },
+  {
+    id: "rich-class",
+    label: "styled-span headings",
+    note: "needs allowedClasses to keep the class",
+    risk: "judgment",
+    recommended: false,
+    flag: "--rich-class",
   },
   {
     id: "lowconf",

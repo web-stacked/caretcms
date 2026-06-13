@@ -475,7 +475,8 @@ async function offerEscalation(
   // suppresses its inline children rather than double-tagging them).
   const finalPlanOpts: PlanOptions = {
     ...ctx.basePlanOpts,
-    rich: effective.has("rich"),
+    rich: effective.has("rich") || effective.has("rich-class"),
+    richClass: effective.has("rich-class"),
     minConfidence: effective.has("lowconf") ? "low" : ctx.minConfidenceBase,
   };
   const final = await analyzeFiles(
@@ -549,19 +550,22 @@ async function main(): Promise<void> {
       collections: args.bindCollections,
       routes: args.bindRoutes,
       rich: args.rich,
+      "rich-class": args.richClass,
       lowconf: args.minConfidence === "low",
     },
   };
   const tiers = selectTiers(intent);
   const bindCollections = tiers.has("collections");
   const bindRoutes = tiers.has("routes");
-  const rich = tiers.has("rich");
+  const richClass = tiers.has("rich-class");
+  const rich = tiers.has("rich") || richClass; // --rich-class implies --rich
   const minConfidence = tiers.has("lowconf") ? "low" : args.minConfidence;
 
   const planOpts: PlanOptions = {
     minConfidence,
     noImages: args.noImages,
     rich,
+    richClass,
     scope: args.scope,
   };
 
@@ -615,6 +619,7 @@ async function main(): Promise<void> {
 
   const hintOpts: HintOpts = {
     rich: effectiveTiers.has("rich"),
+    richClass: effectiveTiers.has("rich-class"),
     collections: effectiveTiers.has("collections"),
     routes: effectiveTiers.has("routes"),
     lowconf: effectiveTiers.has("lowconf"),

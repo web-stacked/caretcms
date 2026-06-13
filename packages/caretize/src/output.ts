@@ -190,6 +190,7 @@ export function formatFailures(
 /** Which opt-in tiers are already ON — a hint is only offered while its tier is off. */
 export interface HintOpts {
   rich?: boolean;
+  richClass?: boolean;
   collections?: boolean;
   routes?: boolean;
   lowconf?: boolean;
@@ -244,9 +245,11 @@ function renderAllowedClasses(byTag: Map<string, Set<string>>): string {
 export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
   let eligible = 0; // rich-eligible (would tag with --rich)
   let styled = 0; // rich-unsafe-attrs (sanitizer strips the class)
+  let richClassPromotable = 0; // rich-class-promotable (would tag with --rich-class)
   let inIterator = 0; // inside-iterator (would bind with --bind-collections)
   let belowConfidence = 0; // dropped by the --min-confidence floor
   const styledClasses = new Map<string, Set<string>>(); // tag → classes to bless
+  const richClassToBless = new Map<string, Set<string>>(); // classes on rich-class blocks
   for (const p of plans) {
     belowConfidence += p.belowConfidence ?? 0;
     for (const s of p.skipped) {
@@ -254,7 +257,18 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
       else if (s.reason === "rich-unsafe-attrs") {
         styled++;
         collectStyledClasses(s.node, styledClasses);
+      } else if (s.reason === "rich-class-promotable") {
+        richClassPromotable++;
+        collectStyledClasses(s.node, richClassToBless);
       } else if (s.reason === "inside-iterator") inIterator++;
+    }
+    // Once --rich-class is on, the styled-span blocks are TAGGED (not skipped),
+    // so harvest their classes from the promoted rich candidates for the
+    // post-apply "now bless these" reminder.
+    if (opts.richClass) {
+      for (const t of p.tags ?? []) {
+        if (t.candidate?.rich) collectStyledClasses(t.candidate.node, richClassToBless);
+      }
     }
   }
   const dynamicRoutes = plans.filter((p) => p.scopeSkip === "dynamic-route").length;
@@ -279,6 +293,21 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
     out += `↪ ${styled} block(s) hold inline styling classes the rich-text sanitizer strips on save.\n` +
       `  Move the styling to CSS (style the semantic tag), or bless the classes via\n` +
       `  caret({ allowedClasses: ${snippet} }) — then they're safe to tag.\n`;
+  }
+  // Styled-span headings: pre-tag it's a "--rich-class + bless" nudge; once
+  // --rich-class is on (richClassToBless populated from the tagged blocks) it's
+  // a "you tagged these — now bless them or the class is lost" reminder.
+  if (richClassToBless.size) {
+    const snippet = renderAllowedClasses(richClassToBless);
+    if (opts.richClass) {
+      out += `↪ Tagged styled-span heading(s) as rich. Keep their classes — add to caret():\n` +
+        `    allowedClasses: ${snippet}\n` +
+        `  Without it, those classes are stripped when an editor saves.\n`;
+    } else {
+      out += `↪ ${richClassPromotable} styled-span heading(s) can be tagged with --rich-class (in --all).\n` +
+        `  They keep their class only once blessed — add to caret():\n` +
+        `    allowedClasses: ${snippet}\n`;
+    }
   }
   return out;
 }

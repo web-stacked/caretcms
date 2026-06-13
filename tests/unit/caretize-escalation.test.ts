@@ -23,15 +23,15 @@ const tag = (startOffset: number, field = "x"): PlannedTag =>
 describe("escalationCounts / totalOffer", () => {
   it("tallies rich-eligible skips, belowConfidence, and binds by kind", () => {
     const plans = [
-      plan({ skipped: [{ reason: "rich-eligible" }, { reason: "rich-eligible" }] as unknown as FilePlan["skipped"], belowConfidence: 5 }),
+      plan({ skipped: [{ reason: "rich-eligible" }, { reason: "rich-eligible" }, { reason: "rich-class-promotable" }] as unknown as FilePlan["skipped"], belowConfidence: 5 }),
       plan({ skipped: [{ reason: "inside-iterator" }] as unknown as FilePlan["skipped"], belowConfidence: 2 }),
     ];
     const binds = new Map<string, CollectionBindTarget[]>([
       ["a", [{ kind: "loop" }, { kind: "loop" }, { kind: "route" }] as unknown as CollectionBindTarget[]],
     ]);
     const c = escalationCounts(plans, binds);
-    expect(c).toEqual({ collections: 2, routes: 1, rich: 2, lowconf: 7 });
-    expect(totalOffer(c)).toBe(12);
+    expect(c).toEqual({ collections: 2, routes: 1, rich: 2, "rich-class": 1, lowconf: 7 });
+    expect(totalOffer(c)).toBe(13);
   });
 
   it("totalOffer is 0 when there is nothing to offer", () => {
@@ -40,17 +40,17 @@ describe("escalationCounts / totalOffer", () => {
 });
 
 describe("offerableCounts (don't re-offer already-active tiers)", () => {
-  const full = { collections: 3, routes: 1, rich: 2, lowconf: 4 };
+  const full = { collections: 3, routes: 1, rich: 2, "rich-class": 2, lowconf: 4 };
   it("zeroes tiers that are already on, leaving the rest", () => {
     expect(offerableCounts(full, new Set<TierId>(["collections", "rich"])))
-      .toEqual({ collections: 0, routes: 1, rich: 0, lowconf: 4 });
+      .toEqual({ collections: 0, routes: 1, rich: 0, "rich-class": 2, lowconf: 4 });
   });
   it("is a copy — does not mutate the input", () => {
     offerableCounts(full, new Set<TierId>(["routes"]));
     expect(full.routes).toBe(1);
   });
   it("returns all-zero when every tier is active", () => {
-    const z = offerableCounts(full, new Set<TierId>(["collections", "routes", "rich", "lowconf"]));
+    const z = offerableCounts(full, new Set<TierId>(["collections", "routes", "rich", "rich-class", "lowconf"]));
     expect(totalOffer(z)).toBe(0);
   });
 });

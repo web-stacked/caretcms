@@ -16,8 +16,9 @@ export type EscalationCounts = Record<TierId, number>;
 /**
  * Tally the remaining opt-in coverage per tier, from the CONSERVATIVE analysis
  * plus the collection/route bind targets detected for the offer:
- *   - rich    = elements skipped as "rich-eligible" (would tag with --rich)
- *   - lowconf = candidates dropped by the confidence floor (`belowConfidence`)
+ *   - rich       = elements skipped as "rich-eligible" (would tag with --rich)
+ *   - rich-class = elements skipped as "rich-class-promotable" (need --rich-class)
+ *   - lowconf    = candidates dropped by the confidence floor (`belowConfidence`)
  *   - collections / routes = the bind targets, split by kind
  */
 export function escalationCounts(
@@ -25,12 +26,16 @@ export function escalationCounts(
   offerBinds: Map<string, CollectionBindTarget[]>,
 ): EscalationCounts {
   let rich = 0;
+  let richClass = 0;
   let lowconf = 0;
   let collections = 0;
   let routes = 0;
   for (const p of conservativePlans) {
     lowconf += p.belowConfidence;
-    for (const s of p.skipped) if (s.reason === "rich-eligible") rich++;
+    for (const s of p.skipped) {
+      if (s.reason === "rich-eligible") rich++;
+      else if (s.reason === "rich-class-promotable") richClass++;
+    }
   }
   for (const binds of offerBinds.values()) {
     for (const b of binds) {
@@ -38,12 +43,12 @@ export function escalationCounts(
       else collections++;
     }
   }
-  return { collections, routes, rich, lowconf };
+  return { collections, routes, rich, "rich-class": richClass, lowconf };
 }
 
 /** Total across all tiers — 0 means there's nothing to offer. */
 export function totalOffer(counts: EscalationCounts): number {
-  return counts.collections + counts.routes + counts.rich + counts.lowconf;
+  return counts.collections + counts.routes + counts.rich + counts["rich-class"] + counts.lowconf;
 }
 
 /** Zero out tiers that are already on (Phase A flags / --all) so the offer never
