@@ -33,6 +33,9 @@ export interface Args {
   scope?: Scope;
   report?: string;
   restore: boolean;
+  /** `caretize init` — wire CaretCMS into the project (deps + astro.config +
+   *  .env) before tagging, instead of just warning that it isn't set up. */
+  init: boolean;
   help: boolean;
   version: boolean;
 }
@@ -43,10 +46,14 @@ export class CliUsageError extends Error {}
 export const HELP = `caretize · make an Astro project editable (data-caret + editable())
 
 Usage: caretize [path] [options]
+       caretize init       wire CaretCMS into the project, then tag
 
 By default caretize applies the safe edits, then shows a diff you can undo with
 --restore. Use --review to approve each change first, or --diff to preview only.
 
+  init                     set up CaretCMS first: install @caretcms/core (+ an
+                           SSR adapter), wire caret() into astro.config, and
+                           scaffold .env — then run caretize to tag content
   path                     file or directory to scan (default: src/)
   --review                 approve each default change before writing; the richer
                            tiers are still offered (decline with n)
@@ -85,7 +92,7 @@ export function parseArgs(argv: string[]): Args {
   const a: Args = {
     dryRun: false, diff: false, yes: false, review: false, minConfidence: "high",
     noImages: false, rich: false, richClass: false, noProps: false, bindCollections: false,
-    bindRoutes: false, all: false, restore: false, help: false, version: false,
+    bindRoutes: false, all: false, restore: false, init: false, help: false, version: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -102,6 +109,7 @@ export function parseArgs(argv: string[]): Args {
       case "--rich-class": a.richClass = true; break;
       case "--all": case "--everything": a.all = true; break;
       case "--restore": a.restore = true; break;
+      case "init": a.init = true; break;
       case "--help": case "-h": a.help = true; break;
       case "--version": case "-v": a.version = true; break;
       case "--min-confidence": {

@@ -53,7 +53,7 @@ Then:
 
 - Run `npm run dev` — with no password configured, a temporary dev password is printed in the terminal
 - **Sign in at `/admin`**; the content Studio lives at `/admin/cms`
-- Add `data-caret` / `data-caret-scope` attributes to the elements you want editable — or run `npx @caretcms/caretize` to tag an existing site interactively
+- Add `data-caret` / `data-caret-scope` attributes to the elements you want editable — or run `npx @caretcms/caretize` to tag an existing site interactively (use `npx @caretcms/caretize init` first to install + wire CaretCMS and scaffold `.env` in one step)
 - For production, set `CARET_EDIT_PASSWORD` (preferred) or `EDIT_PASSWORD`, **and** `CARET_SESSION_SECRET` (see [deployment](docs/deployment.md))
 - Optionally create `src/caret.config.ts` with `caretLoader` to use `getLiveEntry` / `getLiveCollection`
 - Auth APIs (default `apiBasePath=/api/cms`): `POST /api/cms/auth/login`, `GET /api/cms/auth/session`, `POST /api/cms/auth/logout`

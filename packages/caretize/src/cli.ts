@@ -9,8 +9,10 @@
  */
 
 import { createInterface } from "node:readline";
-import { writeFileSync } from "node:fs";
-import { relative } from "node:path";
+import { writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { relative, resolve } from "node:path";
 import { parseAstro } from "./parse.js";
 import { discoverAstroFiles } from "./discover.js";
 import { preflight } from "./preflight.js";
@@ -25,7 +27,9 @@ import { detectPropWrapTargets, type FileReader } from "./props.js";
 import { detectPropHoistTargets, type PropHoistTarget } from "./prop-hoist.js";
 import { detectCollectionBindTargets, type CollectionBindTarget } from "./bind-collection.js";
 import { detectRouteBindTargets } from "./bind-route.js";
-import { restoreLatest } from "./backup.js";
+import { restoreLatest, writeBackup } from "./backup.js";
+import { freshConfig, planConfigWiring, renderEnvAdditions, type WiringNeeds } from "./init.js";
+import { lineDiff, formatHunks } from "./diff.js";
 import { buildReport } from "./report.js";
 import { applyKeyRegistry } from "./keys.js";
 import { isValidField } from "./name.js";
@@ -517,6 +521,133 @@ function runRestore(root: string): void {
   );
 }
 
+/** Indent a multi-line block for display under a prompt. */
+function indent(text: string): string {
+  return text.replace(/\n/g, "\n    ").replace(/^/, "    ").replace(/\s+$/, "\n");
+}
+
+/** The astro.config filename in the project root, or null. */
+function findConfigName(root: string): string | null {
+  try {
+    return readdirSync(root).find((f) => /^astro\.config\.(m?[jt]s|cjs)$/.test(f)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `caretize init` — close the gap preflight only warns about: get CaretCMS
+ * actually wired up so tagging makes content editable. Installs the deps, edits
+ * (or creates) astro.config, and scaffolds .env. Every config/.env write is
+ * backed up to .caret/.caretize-bak/ first; an existing config is only edited
+ * via verified pure insertions, falling back to a paste-me snippet when its
+ * shape isn't safe to touch.
+ */
+async function runInit(root: string): Promise<void> {
+  const pf = preflight(root);
+  if (!pf.isAstroProject) {
+    for (const e of pf.errors) process.stderr.write(`✗ ${e}\n`);
+    process.exit(1);
+  }
+
+  process.stdout.write("caretize init · wiring CaretCMS into this project\n");
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  rl.on("SIGINT", () => { process.stdout.write("\naborted\n"); process.exit(130); });
+
+  const configName = findConfigName(root);
+  const configSrc = configName ? readFileSync(resolve(root, configName), "utf8") : null;
+  const hasAdapterKey = configSrc ? /\badapter\s*:/.test(configSrc) : false;
+
+  try {
+    // 1) Dependencies — @caretcms/core, plus an SSR adapter when none is set.
+    const pkgPath = resolve(root, "package.json");
+    const pkg: Record<string, unknown> = existsSync(pkgPath)
+      ? (JSON.parse(readFileSync(pkgPath, "utf8")) as Record<string, unknown>)
+      : {};
+    const deps = {
+      ...(pkg.dependencies as Record<string, string> | undefined),
+      ...(pkg.devDependencies as Record<string, string> | undefined),
+    };
+    const missingDeps: string[] = [];
+    if (!("@caretcms/core" in deps)) missingDeps.push("@caretcms/core");
+    if (!hasAdapterKey && !("@astrojs/node" in deps)) missingDeps.push("@astrojs/node");
+
+    if (missingDeps.length) {
+      const ans = (await ask(rl, `\nInstall ${missingDeps.join(", ")}? [Y/n] `)) || "y";
+      if (ans.toLowerCase() !== "n") {
+        process.stdout.write(`  npm install ${missingDeps.join(" ")}\n`);
+        execFileSync("npm", ["install", ...missingDeps], { cwd: root, stdio: "inherit" });
+        process.stdout.write("✓ installed\n");
+      } else {
+        process.stdout.write(`  skipped — run later: npm install ${missingDeps.join(" ")}\n`);
+      }
+    } else {
+      process.stdout.write("\n✓ dependencies present\n");
+    }
+
+    // 2) astro.config — create when absent, else wire in the missing pieces.
+    const needs: WiringNeeds = {
+      caret: !pf.caretWired,
+      adapter: !hasAdapterKey,
+      output: pf.outputMode !== "server",
+    };
+    if (!configSrc) {
+      process.stdout.write("\nNo astro.config found — proposed astro.config.mjs:\n\n");
+      process.stdout.write(indent(freshConfig()));
+      const ans = (await ask(rl, "  write it? [Y/n] ")) || "y";
+      if (ans.toLowerCase() !== "n") {
+        writeFileSync(resolve(root, "astro.config.mjs"), freshConfig(), "utf8");
+        process.stdout.write("✓ wrote astro.config.mjs\n");
+      } else {
+        process.stdout.write("  skipped config\n");
+      }
+    } else if (!needs.caret && !needs.adapter && !needs.output) {
+      process.stdout.write(`\n✓ ${configName} already wired (caret + adapter + output: server)\n`);
+    } else {
+      const plan = planConfigWiring(configSrc, needs);
+      if (!plan.ok || plan.inserted.length === 0) {
+        process.stdout.write(`\n⚠ couldn't safely edit ${configName} — ensure it includes:\n\n`);
+        process.stdout.write(indent(freshConfig()));
+      } else {
+        process.stdout.write(`\nProposed edit to ${configName}:\n\n`);
+        process.stdout.write(formatHunks(lineDiff(configSrc, plan.output)));
+        const ans = (await ask(rl, `\n  apply? [Y/n] (backup → .caret/.caretize-bak/) `)) || "y";
+        if (ans.toLowerCase() !== "n") {
+          writeBackup(root, configName!, stamp);
+          writeFileSync(resolve(root, configName!), plan.output, "utf8");
+          process.stdout.write(`✓ updated ${configName}\n`);
+        } else {
+          process.stdout.write("  skipped config\n");
+        }
+      }
+      for (const m of plan.manual) process.stdout.write(`  ⚠ manual: ${m}\n`);
+    }
+
+    // 3) .env — a generated session secret + a password placeholder.
+    const envPath = resolve(root, ".env");
+    const existingEnv = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
+    const env = renderEnvAdditions(existingEnv, randomBytes(32).toString("hex"));
+    if (env.append) {
+      if (existingEnv) writeBackup(root, ".env", stamp);
+      writeFileSync(envPath, existingEnv + env.append, "utf8");
+      process.stdout.write(`\n✓ .env: added ${env.added.join(", ")}\n`);
+    } else {
+      process.stdout.write("\n✓ .env already has CaretCMS secrets\n");
+    }
+  } finally {
+    rl.close();
+  }
+
+  process.stdout.write(
+    "\nNext:\n" +
+      "  1. npm run dev   — a temporary edit password prints in the terminal\n" +
+      "  2. caretize      — tag your content as editable\n" +
+      "  3. sign in at /admin, then click to edit (Studio at /admin/cms)\n",
+  );
+}
+
 async function main(): Promise<void> {
   let args: Args;
   try {
@@ -531,6 +662,7 @@ async function main(): Promise<void> {
   const root = process.cwd();
 
   if (args.restore) { runRestore(root); return; }
+  if (args.init) { await runInit(root); return; }
 
   const pf = preflight(root);
   for (const w of pf.warnings) process.stdout.write(`⚠ ${w}\n`);

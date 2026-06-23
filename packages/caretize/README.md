@@ -5,12 +5,22 @@ Make an existing Astro site editable with [CaretCMS](https://github.com/web-stac
 The static HTML you already have *is* the seed content: CaretCMS renders the original text until an editor saves an override, so caretize only has to mark what's editable.
 
 ```sh
-# in your Astro project root — preview first, write nothing
+# in your Astro project root — set CaretCMS up first (deps + astro.config + .env)
+npx @caretcms/caretize init
+
+# preview what would be tagged, write nothing
 npx @caretcms/caretize --dry-run
 
 # then run the interactive review
 npx @caretcms/caretize
 ```
+
+`init` is optional but is the fastest path on a project that hasn't wired
+CaretCMS yet: it installs `@caretcms/core` (plus an SSR adapter if you have none),
+adds `caret()` + `output: 'server'` to your `astro.config`, and scaffolds a `.env`
+with a generated `CARET_SESSION_SECRET`. An existing config is only edited via
+verified pure insertions (shown as a diff you confirm, backed up first); when its
+shape isn't safe to touch automatically it prints a snippet to paste instead.
 
 ## What it does
 
@@ -39,7 +49,11 @@ src/pages/index.astro
 
 ```
 caretize [path] [options]
+caretize init                wire CaretCMS into the project, then tag
 
+  init                     set up CaretCMS first: install @caretcms/core (+ an
+                           SSR adapter), wire caret() into astro.config, and
+                           scaffold .env — then run caretize to tag content
   path                     file or directory to scan (default: src/)
   --dry-run                print the plan, write nothing
   -y, --yes                auto-accept all suggestions at/above min-confidence
