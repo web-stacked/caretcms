@@ -10,6 +10,15 @@ export async function loadConfiguredUploadHandler() {
 }
 
 export const allowedClasses: Record<string, string[]> = {};
+export const delivery = {
+  mode: "server" as const,
+  bake: false,
+  publish: {
+    webhookUrl: null,
+    method: "POST" as const,
+    headers: {},
+  },
+};
 export const enableInlineEditor = true;
 export const mountPath = "/admin";
 export const apiBasePath = "/api/cms";

@@ -12,6 +12,15 @@ type RuntimeServices = {
   uploadHandler: UploadHandler;
   /** Per-tag class allowlist for rich-text sanitization (from caret() config). */
   allowedClasses: Record<string, string[]>;
+  delivery: {
+    mode: "server" | "static";
+    bake: boolean;
+    publish: {
+      webhookUrl: string | null;
+      method: "POST" | "PUT";
+      headers: Record<string, string>;
+    };
+  };
   /** Whether the inline editor is enabled — gates the authed empty-state hint. */
   enableInlineEditor: boolean;
   /** CMS mount/API base paths, so the empty-state hint skips CMS-owned pages. */
@@ -61,6 +70,13 @@ export async function getRuntimeServices(): Promise<RuntimeServices> {
         uploadHandler,
         allowedClasses:
           testServicesOverride?.allowedClasses ?? providerModule?.allowedClasses ?? {},
+        delivery:
+          testServicesOverride?.delivery ??
+          providerModule?.delivery ?? {
+            mode: "server",
+            bake: false,
+            publish: { webhookUrl: null, method: "POST", headers: {} },
+          },
         enableInlineEditor:
           testServicesOverride?.enableInlineEditor ??
           providerModule?.enableInlineEditor ??

@@ -1,7 +1,9 @@
+export const prerender = false;
+
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { getRuntimeConfig } from "../config.js";
-import { getAdapter } from "./_helpers.js";
+import { resolveAdapter } from "./_helpers.js";
 import {
   escapeHtml,
   htmlResponse,
@@ -26,7 +28,7 @@ export async function GET(context: APIContext): Promise<Response> {
     return redirectResponse(`${runtime.mountPath}/cms`);
   }
 
-  const adapter = getAdapter();
+  const adapter = await resolveAdapter();
   const known = await adapter.discoverCollections();
   if (!known.includes(collection)) {
     return redirectResponse(`${runtime.mountPath}/cms`);

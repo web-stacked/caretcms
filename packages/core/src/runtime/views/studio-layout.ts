@@ -37,7 +37,7 @@ function renderBrandMark(logo: string | null): string {
   </svg>`;
 }
 
-function renderBreadcrumb(mountPath: string, crumbs: Crumb[]): string {
+function renderBreadcrumb(crumbs: Crumb[]): string {
   if (crumbs.length === 0) return "";
   const items = crumbs
     .map((crumb, idx) => {
@@ -50,10 +50,15 @@ function renderBreadcrumb(mountPath: string, crumbs: Crumb[]): string {
     })
     .join("");
 
-  return `<nav class="studio-breadcrumb" aria-label="Breadcrumb">
-    <a href="${escapeHtml(`${mountPath}/cms`)}">Studio</a>
-    ${items ? `<span class="studio-breadcrumb-sep">/</span>${items}` : ""}
-  </nav>`;
+  return `<nav class="studio-breadcrumb" aria-label="Breadcrumb">${items}</nav>`;
+}
+
+function renderHeaderNav(mountPath: string, studioActive: boolean): string {
+  const activeClass = studioActive ? " active" : "";
+  return `<nav class="studio-header-nav" aria-label="Studio navigation">
+          <a href="${escapeHtml(`${mountPath}/cms`)}" class="studio-nav-link${activeClass}">Studio</a>
+          <button id="studio-logout-btn" class="studio-nav-link" type="button">Sign out</button>
+        </nav>`;
 }
 
 export function renderStudioPage(opts: StudioLayoutOptions): string {
@@ -84,11 +89,8 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           ${renderBrandMark(brand.logo)}
           <span>${escapeHtml(brand.name)}</span>
         </a>
-        ${renderBreadcrumb(runtime.mountPath, breadcrumb)}
-        <nav style="display:flex;gap:0.25rem;">
-          <a href="${escapeHtml(`${runtime.mountPath}/cms`)}" class="studio-nav-link">Studio</a>
-          <button id="studio-logout-btn" class="studio-nav-link" type="button" style="border:none;cursor:pointer;background:transparent;font:inherit;">Sign Out</button>
-        </nav>
+        ${renderBreadcrumb(breadcrumb)}
+        ${renderHeaderNav(runtime.mountPath, breadcrumb.length === 0)}
       </header>
       <main class="studio-main studio-scroll">
         ${body}

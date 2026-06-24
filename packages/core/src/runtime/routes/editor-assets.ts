@@ -1,3 +1,5 @@
+export const prerender = false;
+
 import type { APIContext } from "astro";
 
 // Bundle every static asset as a raw string at build time. The literal

@@ -298,3 +298,73 @@
 }
 
 .studio-login-footer a:hover { opacity: 0.7; }
+
+/* Setup helper (no password / dev password) */
+.studio-login-setup {
+  margin-top: 1.25rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(127, 127, 127, 0.28);
+  border-radius: 10px;
+  text-align: left;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.studio-login-setup--dev {
+  margin-top: 1rem;
+  padding: 0.8rem 1rem;
+  border-style: dashed;
+  font-size: 0.82rem;
+}
+
+.studio-login-setup-title {
+  margin: 0 0 0.6rem;
+  font-weight: 600;
+}
+
+.studio-login-setup ol {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.studio-login-setup-snippet-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin-top: 0.35rem;
+}
+
+.studio-login-setup-snippet {
+  flex: 1;
+  padding: 0.4rem 0.55rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.28);
+  overflow: auto;
+  white-space: nowrap;
+  font-family: var(--studio-font-mono);
+  font-size: 0.85em;
+}
+
+.studio-login-setup-copy {
+  appearance: none;
+  cursor: pointer;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  border-radius: 6px;
+  padding: 0.4rem 0.65rem;
+  font-family: var(--studio-font);
+  font-size: 0.85em;
+  font-weight: 500;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+
+.studio-login-setup-copy:hover { opacity: 0.85; }
+
+.studio-login-setup-link {
+  display: inline-block;
+  margin-top: 0.7rem;
+}

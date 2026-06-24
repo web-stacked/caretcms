@@ -95,6 +95,14 @@ export async function publishOverlay(
   return published;
 }
 
+/** Count draft entries currently held in an editor overlay. */
+export async function countOverlayDrafts(
+  overlay: StorageAdapter,
+  scope: PublishScope = {},
+): Promise<number> {
+  return (await overlayEntriesInScope(overlay, scope)).length;
+}
+
 /** Discard an editor's draft(s) within scope without touching the base. Returns
  *  the number of overlay entries cleared. */
 export async function discardOverlay(

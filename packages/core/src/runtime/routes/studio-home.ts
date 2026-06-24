@@ -1,7 +1,9 @@
+export const prerender = false;
+
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { getRuntimeConfig } from "../config.js";
-import { getAdapter } from "./_helpers.js";
+import { resolveAdapter } from "./_helpers.js";
 import {
   escapeHtml,
   htmlResponse,
@@ -36,7 +38,7 @@ export async function GET(context: APIContext): Promise<Response> {
     return redirectResponse(loginRedirect);
   }
 
-  const adapter = getAdapter();
+  const adapter = await resolveAdapter();
   const collections = await adapter.discoverCollections();
 
   const cards = collections
@@ -60,16 +62,13 @@ export async function GET(context: APIContext): Promise<Response> {
     No collections yet. Create one from Studio, edit any <code style="font-family:var(--studio-font-mono);">data-caret</code> element on your site, or run <code style="font-family:var(--studio-font-mono);">npx @caretcms/caretize</code> to make existing pages editable.
   </div>`;
 
-  const body = `<div class="studio-fade-in" style="max-width:64rem;margin:0 auto;">
-    <div style="text-align:center;margin-bottom:2.5rem;">
-      <h1 style="font-family:var(--studio-font-heading);font-size:1.875rem;font-weight:500;margin:0 0 0.5rem;color:var(--studio-text);">Content Studio</h1>
-      <p style="font-size:0.85rem;color:var(--studio-text-dim);margin:0;">Manage your collections and entries.</p>
-    </div>
+  const body = `<div class="studio-fade-in studio-home">
+    <p class="studio-page-intro">Manage your collections and entries.</p>
 
     ${
       collections.length === 0
         ? emptyState
-        : `<div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));">${cards}</div>`
+        : `<div class="studio-home-grid">${cards}</div>`
     }
   </div>`;
 

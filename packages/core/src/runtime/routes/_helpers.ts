@@ -1,5 +1,44 @@
 import type { StorageAdapter, UploadHandler } from "../../types.js";
-import { requireRequestContext } from "../request-context.js";
+import {
+  getRequestContext,
+  requireRequestContext,
+  type CaretRequestContext,
+} from "../request-context.js";
+import { getRuntimeServices } from "../providers.js";
+
+let bootstrapContext: Promise<CaretRequestContext> | null = null;
+
+async function bootstrapRequestContext(): Promise<CaretRequestContext> {
+  if (!bootstrapContext) {
+    bootstrapContext = getRuntimeServices().then((services) => ({
+      adapter: services.adapter,
+      uploadHandler: services.uploadHandler,
+      sessionId: null,
+      editorId: null,
+      demoMode: false,
+      overlayActive: false,
+      editor: false,
+    }));
+  }
+  return bootstrapContext;
+}
+
+/**
+ * Storage adapter for CMS API/Studio routes. Prefer the middleware ALS scope;
+ * fall back to the configured base adapter when injectRoute handlers run
+ * outside middleware (seen in Astro static dev after HMR or stale processes).
+ */
+export async function resolveAdapter(): Promise<StorageAdapter> {
+  const ctx = getRequestContext();
+  if (ctx) return ctx.adapter;
+  return (await bootstrapRequestContext()).adapter;
+}
+
+export async function resolveUploadHandler(): Promise<UploadHandler> {
+  const ctx = getRequestContext();
+  if (ctx) return ctx.uploadHandler;
+  return (await bootstrapRequestContext()).uploadHandler;
+}
 
 const CSRF_HEADER = "x-caret-request";
 const CSRF_HEADER_VALUE = "1";

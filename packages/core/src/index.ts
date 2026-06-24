@@ -9,7 +9,9 @@ import type {
   CaretStorageProvider,
   CaretUploadProvider,
   RuntimeProviderReference,
+  StorageAdapter,
 } from "./types.js";
+import { bakeStaticHtmlFiles } from "./runtime/static-bake.js";
 
 // --- Public type re-exports ---
 export type {
@@ -110,6 +112,32 @@ type BaseCaretOptions = {
    */
   allowedClasses?: Record<string, string[]>;
   /**
+   * Delivery target for embedded CaretCMS content. The default is "server",
+   * where middleware rewrites HTML per request. Use "static" for static Astro
+   * sites: stored content is baked into generated HTML during `astro build`,
+   * while local authoring still uses the embedded editor/API routes in dev.
+   */
+  delivery?:
+    | "server"
+    | "static"
+    | {
+        mode: "server" | "static";
+        /**
+         * Whether `astro build` should rewrite generated HTML with stored
+         * CaretCMS values. Defaults to true for static delivery.
+         */
+        bake?: boolean;
+        publish?: {
+          /**
+           * Optional rebuild/deploy webhook called after a successful publish.
+           * The publish remains committed if this webhook fails.
+           */
+          webhookUrl?: string;
+          method?: "POST" | "PUT";
+          headers?: Record<string, string>;
+        };
+      };
+  /**
    * Studio chrome theme. Defaults to 'studio' — a neutral dark chrome that
    * matches the inline editor's "click to edit" blue. Currently the only
    * built-in preset; pass `{ tokens: { ... } }` to override individual
@@ -148,6 +176,16 @@ interface ResolvedBrandConfig {
   faviconUrl: string | null;
 }
 
+interface ResolvedDeliveryConfig {
+  mode: "server" | "static";
+  bake: boolean;
+  publish: {
+    webhookUrl: string | null;
+    method: "POST" | "PUT";
+    headers: Record<string, string>;
+  };
+}
+
 interface ResolvedCaretOptions {
   mountPath: string;
   apiBasePath: string;
@@ -160,6 +198,7 @@ interface ResolvedCaretOptions {
   cloud: CaretCloudOptions | null;
   schemas: Record<string, JsonSchemaDefinition>;
   allowedClasses: Record<string, string[]>;
+  delivery: ResolvedDeliveryConfig;
   theme: ResolvedThemeConfig;
   brand: ResolvedBrandConfig;
 }
@@ -296,12 +335,44 @@ function resolveBrand(input: CaretBrandOption | undefined): ResolvedBrandConfig 
   };
 }
 
+function resolveDelivery(
+  input: BaseCaretOptions["delivery"],
+): ResolvedDeliveryConfig {
+  if (!input || input === "server") {
+    return {
+      mode: "server",
+      bake: false,
+      publish: { webhookUrl: null, method: "POST", headers: {} },
+    };
+  }
+
+  if (input === "static") {
+    return {
+      mode: "static",
+      bake: true,
+      publish: { webhookUrl: null, method: "POST", headers: {} },
+    };
+  }
+
+  const mode = input.mode;
+  const staticDelivery = mode === "static";
+  return {
+    mode,
+    bake: input.bake ?? staticDelivery,
+    publish: {
+      webhookUrl: input.publish?.webhookUrl?.trim() || null,
+      method: input.publish?.method ?? "POST",
+      headers: input.publish?.headers ?? {},
+    },
+  };
+}
+
 /** Every key resolveCaretOptions reads. Anything else in the options object is
  *  a typo (`mountpath`) silently falling back to a default — name it instead. */
 const KNOWN_OPTION_KEYS = new Set([
   "mode", "cloud", "storage", "uploads", "mountPath", "apiBasePath",
   "enableAdmin", "enableInlineEditor", "editorHome", "schemas",
-  "allowedClasses", "theme", "brand",
+  "allowedClasses", "delivery", "theme", "brand",
 ]);
 
 /** Unknown option keys, each with its closest known key when one is plausible. */
@@ -348,9 +419,28 @@ function resolveCaretOptions(options: CaretOptions): ResolvedCaretOptions {
     cloud,
     schemas: options.schemas ?? {},
     allowedClasses: options.allowedClasses ?? {},
+    delivery: resolveDelivery(options.delivery),
     theme: resolveTheme(options.theme),
     brand: resolveBrand(options.brand),
   };
+}
+
+async function loadProviderReference<T>(
+  reference: RuntimeProviderReference | null,
+): Promise<T | null> {
+  if (!reference) return null;
+
+  const mod = (await import(/* @vite-ignore */ reference.entrypoint)) as Record<string, unknown>;
+  const resolvedExport = mod[reference.exportName ?? "default"] ?? mod.default;
+  if (resolvedExport == null) {
+    throw new Error(
+      `[caretcms] Could not resolve provider export "${reference.exportName ?? "default"}" from ${reference.entrypoint}.`,
+    );
+  }
+
+  return typeof resolvedExport === "function"
+    ? ((await resolvedExport(reference.options ?? null)) as T)
+    : (resolvedExport as T);
 }
 
 function buildProviderLoader(
@@ -384,6 +474,7 @@ function createRuntimeProvidersPlugin(resolved: ResolvedCaretOptions) {
     buildProviderLoader("loadConfiguredStorage", resolved.storage),
     buildProviderLoader("loadConfiguredUploadHandler", resolved.uploads),
     `export const allowedClasses = ${JSON.stringify(resolved.allowedClasses)};`,
+    `export const delivery = ${JSON.stringify(resolved.delivery)};`,
     // Surfaced for the middleware's authenticated empty-state affordance: it
     // needs to know the inline editor is enabled and which paths are CMS-owned
     // (so the hint never shows inside the Studio / on API + asset routes).
@@ -501,12 +592,19 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
   // (and unless) config:setup actually injects them (static output / cloud
   // variants skip injection). Read by the routes:resolved collision check.
   let ownedRoutePrefixes: string[] | null = null;
+  let shouldBakeStaticOutput = false;
 
   return {
     name: "caretcms",
     hooks: {
       "astro:config:setup": ({ command, config, logger, addMiddleware, injectRoute, injectScript, updateConfig, addDevToolbarApp }) => {
         const isStaticOutput = config.output === "static";
+        shouldBakeStaticOutput =
+          command === "build" &&
+          isStaticOutput &&
+          resolved.mode !== "cloud" &&
+          resolved.delivery.mode === "static" &&
+          resolved.delivery.bake;
 
         // A typo'd option (`mountpath`) used to silently fall back to its
         // default — the user "configured" something that never took effect.
@@ -556,7 +654,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
             .length > 0;
         const devEditorPassword =
           command === "dev" &&
-          !isStaticOutput &&
+          (!isStaticOutput || resolved.delivery.mode === "static") &&
           resolved.mode !== "cloud" &&
           !hasEnvPassword
             ? randomBytes(4).toString("hex")
@@ -586,6 +684,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           apiBasePath: resolved.apiBasePath,
           cloud: resolved.cloud ?? undefined,
           allowedClasses: resolved.allowedClasses,
+          delivery: { mode: resolved.delivery.mode },
         };
 
         // Dev Toolbar app: a login-free, dev-only view of the data-caret
@@ -622,10 +721,22 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
         }
 
         if (isStaticOutput) {
-          logger.warn(
-            `[caretcms] ${resolved.mode} mode needs Astro server output for local editing routes. Static output detected, so embedded CMS middleware and routes were skipped.`,
-          );
-          return;
+          if (resolved.delivery.mode === "static") {
+            if (command !== "dev") {
+              logger.info(
+                `[caretcms] static delivery enabled (bake=${resolved.delivery.bake}) — authoring routes stay out of production static output; generated HTML is baked at build end.`,
+              );
+              return;
+            }
+            logger.info(
+              "[caretcms] static delivery dev authoring enabled — injecting editor/API routes for local preview; production builds bake static HTML.",
+            );
+          } else {
+            logger.warn(
+              `[caretcms] ${resolved.mode} mode needs Astro server output for local editing routes. Static output detected, so embedded CMS middleware and routes were skipped.`,
+            );
+            return;
+          }
         }
 
         addMiddleware({
@@ -767,6 +878,28 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
             "",
           ].join("\n"),
         });
+      },
+
+      "astro:build:done": async ({ dir, logger }) => {
+        if (!shouldBakeStaticOutput) return;
+
+        const adapter = await loadProviderReference<StorageAdapter>(
+          resolved.storage,
+        );
+        if (!adapter) {
+          logger.warn(
+            "[caretcms] static delivery bake skipped: no storage provider configured.",
+          );
+          return;
+        }
+
+        const result = await bakeStaticHtmlFiles(dir, {
+          adapter,
+          allowedClasses: resolved.allowedClasses,
+        });
+        logger.info(
+          `[caretcms] static delivery bake complete (${result.rewritten}/${result.scanned} HTML files rewritten).`,
+        );
       },
 
       // An existing site may already own a route under /admin or /api/cms —

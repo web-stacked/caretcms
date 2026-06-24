@@ -1,5 +1,5 @@
 import { toggleHighlight } from './highlight.js';
-import { buildCmsUrl } from './config.js';
+import { buildCmsUrl, isStaticDelivery } from './config.js';
 
 const PREVIEW_COOKIE = 'caret_preview';
 
@@ -11,6 +11,26 @@ function setPreviewCookie(on) {
   document.cookie = on
     ? `${PREVIEW_COOKIE}=1; path=/; SameSite=Lax`
     : `${PREVIEW_COOKIE}=; path=/; Max-Age=0; SameSite=Lax`;
+}
+
+/** Static delivery always drafts — turn preview on once so saves stay unpublished. */
+export function ensureStaticPreviewMode() {
+  if (!isStaticDelivery()) return false;
+  if (previewActive()) return false;
+  setPreviewCookie(true);
+  window.location.reload();
+  return true;
+}
+
+/** Align preview cookie with delivery mode (static on, server off). */
+export function normalizePreviewForDelivery() {
+  if (isStaticDelivery()) return ensureStaticPreviewMode();
+  if (previewActive()) {
+    setPreviewCookie(false);
+    window.location.reload();
+    return true;
+  }
+  return false;
 }
 
 function getToolbarNavLinks(pagePath) {
@@ -29,7 +49,22 @@ function getToolbarNavLinks(pagePath) {
   return links;
 }
 
-function renderToolbar(navLinks) {
+function renderDraftControls(staticDelivery) {
+  if (!staticDelivery) return '';
+
+  return `
+        <button class="cms-publish-btn cms-go-live-btn" type="button" title="Push your draft changes to the live site">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/></svg>
+          <span class="cms-go-live-label">Go live</span>
+        </button>
+        <button class="cms-discard-btn" type="button" title="Discard your draft changes">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          Discard
+        </button>
+        <div class="cms-toolbar-divider"></div>`;
+}
+
+function renderToolbar(navLinks, staticDelivery) {
   const navLinksHtml = navLinks
     .map(
       ({ href, label, isActive }) =>
@@ -37,14 +72,20 @@ function renderToolbar(navLinks) {
     )
     .join('');
 
+  const badgeLabel = staticDelivery ? 'Draft' : 'Live';
+  const badgeHint = staticDelivery
+    ? 'Not on your site until you go live'
+    : 'Changes save directly to your site';
+
   const toolbar = document.createElement('div');
   toolbar.className = 'cms-toolbar';
+  toolbar.dataset.delivery = staticDelivery ? 'static' : 'server';
   toolbar.innerHTML = `
     <div class="cms-toolbar-inner">
       <div class="cms-toolbar-left">
-        <div class="cms-toolbar-badge">
+        <div class="cms-toolbar-badge" title="${badgeHint}">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 9l10 13 10-13L12 2zm0 3.84L18.26 9 12 17.65 5.74 9 12 5.84z"/></svg>
-          <span class="cms-toolbar-badge-text">Editor</span>
+          <span class="cms-toolbar-badge-text">${badgeLabel}</span>
         </div>
         <div class="cms-toolbar-divider"></div>
         <div class="cms-status-group">
@@ -54,19 +95,7 @@ function renderToolbar(navLinks) {
       </div>
       ${navLinksHtml ? `<div class="cms-toolbar-nav">${navLinksHtml}</div>` : ''}
       <div class="cms-toolbar-right">
-        <button class="cms-preview-btn" type="button" title="Toggle draft preview — edit without publishing to the live site">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-          Preview
-        </button>
-        <button class="cms-publish-btn" type="button" title="Publish your draft changes to the live site" hidden>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/></svg>
-          Publish
-        </button>
-        <button class="cms-discard-btn" type="button" title="Discard your draft changes" hidden>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-          Discard
-        </button>
-        <div class="cms-toolbar-divider"></div>
+        ${renderDraftControls(staticDelivery)}
         <button type="button" class="cms-studio-btn" title="Toggle Content Studio panel">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="9" y1="9" x2="21" y2="9"/></svg>
           Studio
@@ -79,12 +108,12 @@ function renderToolbar(navLinks) {
         <div class="cms-toolbar-divider"></div>
         <button class="cms-highlight-btn" type="button" title="Show all editable regions">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-          Show All
+          <span class="cms-highlight-label">Show all</span>
         </button>
         <div class="cms-toolbar-divider"></div>
-        <button class="cms-exit-btn" type="button">
+        <button class="cms-exit-btn" type="button" title="Sign out">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          Log Out
+          Sign out
         </button>
       </div>
     </div>
@@ -94,8 +123,9 @@ function renderToolbar(navLinks) {
 }
 
 export function mountToolbar({ showToast, clearDirty, onLogout }) {
+  const staticDelivery = isStaticDelivery();
   const navLinks = getToolbarNavLinks(window.location.pathname);
-  const toolbar = renderToolbar(navLinks);
+  const toolbar = renderToolbar(navLinks, staticDelivery);
 
   const statusDot = toolbar.querySelector('.cms-status-dot');
   const statusText = toolbar.querySelector('.cms-status-text');
@@ -114,40 +144,6 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
     toggleHighlight(highlightBtn, showToast),
   );
 
-  toolbar.querySelector('.cms-exit-btn')?.addEventListener('click', async () => {
-    clearDirty();
-    await onLogout();
-  });
-
-  // --- Draft preview + publish/discard ---
-  const previewBtn = toolbar.querySelector('.cms-preview-btn');
-  const publishBtn = toolbar.querySelector('.cms-publish-btn');
-  const discardBtn = toolbar.querySelector('.cms-discard-btn');
-  const badgeText = toolbar.querySelector('.cms-toolbar-badge-text');
-
-  function reflectPreview() {
-    const on = previewActive();
-    previewBtn?.classList.toggle('cms-preview-btn-active', on);
-    if (publishBtn) publishBtn.hidden = !on;
-    if (discardBtn) discardBtn.hidden = !on;
-    if (badgeText) badgeText.textContent = on ? 'Draft' : 'Editor';
-    const label = previewBtn
-      && Array.from(previewBtn.childNodes).find((n) => n.nodeType === 3 && n.textContent?.trim());
-    if (label) label.textContent = on ? ' Previewing' : ' Preview';
-  }
-  reflectPreview();
-
-  previewBtn?.addEventListener('click', () => {
-    const turningOn = !previewActive();
-    setPreviewCookie(turningOn);
-    showToast(
-      turningOn ? 'Draft preview on — your edits stay unpublished' : 'Draft preview off',
-      'success',
-    );
-    // Reload so the server installs (or drops) the per-editor draft overlay.
-    window.location.reload();
-  });
-
   async function draftRequest(method, path) {
     return fetch(buildCmsUrl(path), {
       method,
@@ -157,30 +153,102 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
     });
   }
 
-  publishBtn?.addEventListener('click', async () => {
-    if (!window.confirm('Publish all your draft changes to the live site?')) return;
-    setStatus('saving', 'Publishing…');
+  async function fetchDraftCount() {
+    try {
+      const res = await fetch(buildCmsUrl('/draft'), {
+        credentials: 'same-origin',
+        headers: { 'x-caret-request': '1' },
+      });
+      if (!res.ok) return 0;
+      const data = await res.json();
+      return typeof data.count === 'number' ? data.count : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  async function publishDrafts() {
+    setStatus('saving', 'Going live…');
     try {
       const res = await draftRequest('POST', '/publish');
       if (!res.ok) throw new Error('publish failed');
       const data = await res.json();
       const n = Array.isArray(data.published) ? data.published.length : 0;
-      // Drafts are flushed; leave preview so the editor sees the published site.
-      setPreviewCookie(false);
-      showToast(`Published ${n} change(s)`, 'success');
+      if (data.rebuild?.triggered && data.rebuild.ok === false) {
+        setStatus('error', 'Live, but deploy failed');
+        showToast(
+          'Changes are saved, but the deploy webhook failed. Check your CI settings.',
+          'error',
+        );
+        return false;
+      }
+      if (data.rebuild?.triggered) {
+        showToast(
+          n > 0
+            ? `Went live with ${n} change(s) — your site is rebuilding`
+            : 'Your site is rebuilding',
+          'success',
+        );
+      } else {
+        showToast(n > 0 ? `Went live with ${n} change(s)` : 'Already up to date', 'success');
+      }
       window.location.reload();
+      return true;
     } catch {
-      setStatus('error', 'Publish failed');
-      showToast('Publish failed', 'error');
+      setStatus('error', 'Go live failed');
+      showToast('Go live failed', 'error');
+      return false;
     }
+  }
+
+  toolbar.querySelector('.cms-exit-btn')?.addEventListener('click', async () => {
+    if (staticDelivery) {
+      const count = await fetchDraftCount();
+      if (count > 0) {
+        const goLive = window.confirm(
+          `You have ${count} unpublished change${count === 1 ? '' : 's'}. Go live before signing out?`,
+        );
+        if (goLive) {
+          await publishDrafts();
+          return;
+        }
+        const discard = window.confirm(
+          'Discard unpublished changes and sign out?',
+        );
+        if (!discard) return;
+        try {
+          const res = await draftRequest('DELETE', '/draft');
+          if (!res.ok) throw new Error('discard failed');
+        } catch {
+          showToast('Could not discard drafts', 'error');
+          return;
+        }
+      }
+    }
+
+    clearDirty();
+    await onLogout();
   });
 
-  discardBtn?.addEventListener('click', async () => {
+  const publishBtn = toolbar.querySelector('.cms-publish-btn');
+  publishBtn?.addEventListener('click', async () => {
+    if (
+      !window.confirm(
+        staticDelivery
+          ? 'Push all your draft changes to the live site?'
+          : 'Publish all your draft changes to the live site?',
+      )
+    ) {
+      return;
+    }
+    await publishDrafts();
+  });
+
+  toolbar.querySelector('.cms-discard-btn')?.addEventListener('click', async () => {
     if (!window.confirm('Discard all your draft changes? This cannot be undone.')) return;
     try {
       const res = await draftRequest('DELETE', '/draft');
       if (!res.ok) throw new Error('discard failed');
-      setPreviewCookie(false);
       showToast('Draft discarded', 'success');
       window.location.reload();
     } catch {

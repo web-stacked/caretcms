@@ -1,3 +1,5 @@
+export const prerender = false;
+
 import type { APIContext } from "astro";
 import {
   hasConfiguredEditorPassword,
@@ -32,6 +34,7 @@ function renderLogin(opts: {
   devActive: boolean;
   apiBasePath: string;
   redirectTo: string;
+  editorHome: string;
   brandName: string;
   brandLogo: string | null;
   faviconUrl: string | null;
@@ -44,6 +47,7 @@ function renderLogin(opts: {
     devActive,
     apiBasePath,
     redirectTo,
+    editorHome,
     brandName,
     brandLogo,
     faviconUrl,
@@ -54,6 +58,7 @@ function renderLogin(opts: {
 
   const safeBrand = escapeHtml(brandName);
   const safeRedirect = escapeHtml(redirectTo);
+  const safeEditorHome = escapeHtml(editorHome);
   const statusNote = !hasPassword
     ? "Caret needs an editor password before you can sign in."
     : devActive
@@ -67,24 +72,24 @@ function renderLogin(opts: {
   let helperBlock = "";
   if (!hasPassword) {
     helperBlock = `
-        <div class="studio-login-setup" style="margin-top:1.25rem;padding:1rem 1.1rem;border:1px solid rgba(127,127,127,0.28);border-radius:10px;text-align:left;font-size:0.85rem;line-height:1.55;">
-          <p style="margin:0 0 0.6rem;font-weight:600;">Finish setting up Caret</p>
-          <ol style="margin:0;padding-left:1.2rem;display:grid;gap:0.45rem;">
+        <div class="studio-login-setup">
+          <p class="studio-login-setup-title">Finish setting up Caret</p>
+          <ol>
             <li>Create a <code>.env</code> file in your project root</li>
             <li>
               Add this line:
-              <div style="display:flex;gap:0.4rem;align-items:center;margin-top:0.35rem;">
-                <code id="caret-env-snippet" style="flex:1;padding:0.4rem 0.55rem;border-radius:6px;background:rgba(0,0,0,0.28);overflow:auto;white-space:nowrap;">CARET_EDIT_PASSWORD=your-password</code>
-                <button type="button" id="caret-copy-env" style="cursor:pointer;border:1px solid currentColor;background:transparent;color:inherit;border-radius:6px;padding:0.4rem 0.65rem;font:inherit;">Copy</button>
+              <div class="studio-login-setup-snippet-row">
+                <code id="caret-env-snippet" class="studio-login-setup-snippet">CARET_EDIT_PASSWORD=your-password</code>
+                <button type="button" id="caret-copy-env" class="studio-login-setup-copy">Copy</button>
               </div>
             </li>
             <li>Restart the dev server, then refresh this page</li>
           </ol>
-          <a href="${docsUrl}" style="display:inline-block;margin-top:0.7rem;">Read the setup guide &rarr;</a>
+          <a href="${docsUrl}" class="studio-login-setup-link">Read the setup guide &rarr;</a>
         </div>`;
   } else if (devActive) {
     helperBlock = `
-        <div class="studio-login-setup" style="margin-top:1rem;padding:0.8rem 1rem;border:1px dashed rgba(127,127,127,0.4);border-radius:10px;text-align:left;font-size:0.82rem;line-height:1.55;">
+        <div class="studio-login-setup studio-login-setup--dev">
           Signed in with a <strong>temporary dev password</strong> printed in your terminal. To set a permanent one, add <code>CARET_EDIT_PASSWORD</code> to a <code>.env</code> file and restart.
         </div>`;
   }
@@ -98,7 +103,7 @@ function renderLogin(opts: {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>${safeBrand} — Sign In</title>
+    <title>${safeBrand} — Sign in</title>
     ${favicon}
     <link rel="stylesheet" href="${themeCssHref}" />
     <link rel="stylesheet" href="${studioCssHref}" />
@@ -159,7 +164,7 @@ function renderLogin(opts: {
 
           <button type="submit" class="studio-login-submit" ${hasPassword ? "" : "disabled"}>
             <span class="studio-login-submit-content">
-              <span>Sign In</span>
+              <span>Sign in</span>
               <svg class="studio-login-submit-arrow" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
               </svg>
@@ -169,7 +174,7 @@ function renderLogin(opts: {
         ${helperBlock}
 
         <div class="studio-login-footer">
-          <a href="/">&larr; Back to site</a>
+          <a href="${safeEditorHome}">&larr; Back to site</a>
         </div>
       </div>
     </div>
@@ -268,6 +273,7 @@ export async function GET(context: APIContext): Promise<Response> {
       devActive: isDevEditorPasswordActive(),
       apiBasePath: runtime.apiBasePath,
       redirectTo: redirectTarget,
+      editorHome: runtime.editorHome,
       brandName: runtime.brand.name,
       brandLogo: runtime.brand.logo,
       faviconUrl: runtime.brand.faviconUrl,

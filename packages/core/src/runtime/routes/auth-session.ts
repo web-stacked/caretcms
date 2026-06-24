@@ -1,3 +1,5 @@
+export const prerender = false;
+
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { json } from "./_helpers.js";

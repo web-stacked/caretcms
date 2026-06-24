@@ -1,15 +1,17 @@
+export const prerender = false;
+
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { parseEntryId } from "../mutations/contracts.js";
 import { withEntryLock } from "../mutations/engine.js";
-import { json, getAdapter, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
+import { json, resolveAdapter, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
 
 export async function GET(context: APIContext): Promise<Response> {
   if (!isEditorAuthenticated(context)) {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  const adapter = getAdapter();
+  const adapter = await resolveAdapter();
   const collectionRaw = (context.url.searchParams.get("collection") ?? "")
     .trim()
     .toLowerCase();
@@ -39,7 +41,7 @@ export async function POST(context: APIContext): Promise<Response> {
       : null;
   if (!body) return json({ error: "Invalid payload" }, 400);
 
-  const adapter = getAdapter();
+  const adapter = await resolveAdapter();
   const collectionRaw = typeof body.collection === "string"
     ? body.collection.trim().toLowerCase()
     : "";

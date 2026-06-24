@@ -1,8 +1,27 @@
+export const prerender = false;
+
 import type { APIContext } from "astro";
 import { isEditorAuthenticated, getEditorId } from "../auth/session.js";
 import { getRuntimeServices } from "../providers.js";
-import { discardOverlay, type PublishScope } from "../publish.js";
+import { countOverlayDrafts, discardOverlay, type PublishScope } from "../publish.js";
 import { json, enforceCsrfHeader } from "./_helpers.js";
+
+/**
+ * GET /api/cms/draft — report whether the current editor has unpublished drafts.
+ */
+export async function GET(context: APIContext): Promise<Response> {
+  if (!isEditorAuthenticated(context)) return json({ error: "Unauthorized" }, 401);
+
+  const editorId = getEditorId(context);
+  if (!editorId) return json({ hasDrafts: false, count: 0 });
+
+  const { adapter: base } = await getRuntimeServices();
+  if (!base.makeEditorOverlay) return json({ hasDrafts: false, count: 0 });
+
+  const overlay = await base.makeEditorOverlay(editorId);
+  const count = await countOverlayDrafts(overlay);
+  return json({ hasDrafts: count > 0, count });
+}
 
 /**
  * DELETE /api/cms/draft — discard the current editor's draft(s) without

@@ -1,8 +1,11 @@
+export const prerender = false;
+
 import type { APIContext } from "astro";
 import { isEditorAuthenticated, getEditorId } from "../auth/session.js";
 import { getRuntimeServices } from "../providers.js";
 import { publishOverlay, type PublishScope } from "../publish.js";
 import { isGitRepo, commitPaths } from "../git-journal.js";
+import { triggerRebuildWebhook } from "../rebuild-webhook.js";
 import { json, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
 
 function commitMessage(scope: PublishScope, count: number): string {
@@ -36,7 +39,8 @@ export async function POST(context: APIContext): Promise<Response> {
     return json({ error: "id requires a collection" }, 400);
   }
 
-  const { adapter: base } = await getRuntimeServices();
+  const services = await getRuntimeServices();
+  const { adapter: base } = services;
   if (!base.makeEditorOverlay) {
     return json({ error: "Drafts are not supported by the configured storage adapter" }, 400);
   }
@@ -64,5 +68,13 @@ export async function POST(context: APIContext): Promise<Response> {
     }
   }
 
-  return json({ ok: true, published, commit });
+  const rebuild =
+    published.length > 0
+      ? await triggerRebuildWebhook(services.delivery.publish, {
+          published,
+          commit,
+        })
+      : { triggered: false, ok: true as const };
+
+  return json({ ok: true, published, commit, rebuild });
 }

@@ -16,7 +16,7 @@ import { createSaveField } from './editor/save-queue.js';
 import { compressImage, updateEmblaCarousel } from './editor/image-utils.js';
 import { createToast } from './editor/toast.js';
 import { mountEditorGuards } from './editor/guards.js';
-import { mountToolbar } from './editor/toolbar.js';
+import { mountToolbar, normalizePreviewForDelivery } from './editor/toolbar.js';
 import { mountStudioPanel } from './editor/panel.js';
 import { mountStudioSync } from './editor/sync.js';
 import { mountTextEditors } from './editor/text-edit.js';
@@ -33,6 +33,8 @@ function redirectToEditorLogin() {
 }
 
 function boot() {
+  if (normalizePreviewForDelivery()) return;
+
   const state = {
     dirtyEl: null,
     linkPopupEl: null,

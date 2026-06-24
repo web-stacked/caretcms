@@ -1,7 +1,9 @@
+export const prerender = false;
+
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { parseCollectionName, parseEntryId } from "../mutations/contracts.js";
-import { json, getAdapter } from "./_helpers.js";
+import { json, resolveAdapter } from "./_helpers.js";
 
 type CmsEntryResponse = {
   id: string;
@@ -76,7 +78,7 @@ export async function GET(context: APIContext): Promise<Response> {
     );
   }
 
-  const adapter = getAdapter();
+  const adapter = await resolveAdapter();
   const { collection, id: singleId, page, pageSize, q } = query;
 
   if (singleId) {

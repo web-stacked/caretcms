@@ -1,7 +1,7 @@
 /**
  * Owns the `cms-highlight-all` body class — the single source of truth for
  * "show every editable region". Two callers share it:
- * - the toolbar "Show All" button, via the persistent `toggleHighlight` toggle
+ * - the toolbar "Show all" button, via the persistent `toggleHighlight` toggle
  * - the post-login welcome reveal, via the ephemeral `revealAndFade`
  *
  * Keeping `highlightActive` here (rather than in the toolbar closure) lets the
@@ -19,15 +19,13 @@ export function toggleHighlight(highlightBtn, showToast) {
   document.body.classList.toggle('cms-highlight-all', highlightActive);
   highlightBtn.classList.toggle('cms-highlight-btn-active', highlightActive);
 
-  const textNode = Array.from(highlightBtn.childNodes).find(
-    (n) => n.nodeType === 3 && n.textContent?.trim(),
-  );
+  const label = highlightBtn.querySelector('.cms-highlight-label');
 
   if (highlightActive) {
-    if (textNode) textNode.textContent = ' Hide All';
+    if (label) label.textContent = 'Hide all';
     showToast('Showing all editable regions', 'success');
   } else {
-    if (textNode) textNode.textContent = ' Show All';
+    if (label) label.textContent = 'Show all';
   }
 }
 

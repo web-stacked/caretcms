@@ -54,6 +54,16 @@ function getStorageKey(cloud) {
 
 export const CMS_CONFIG = cfg;
 export const CMS_MODE = cfg.mode === 'cloud' || cfg.mode === 'hybrid' ? cfg.mode : 'embedded';
+export const DELIVERY_MODE =
+  cfg.delivery && cfg.delivery.mode === 'static' ? 'static' : 'server';
+
+export function isStaticDelivery() {
+  return DELIVERY_MODE === 'static';
+}
+
+export function isServerDelivery() {
+  return !isStaticDelivery();
+}
 export const MOUNT_PATH = normalizePath(cfg.mountPath, defaults.mountPath);
 export const API_BASE = normalizePath(cfg.apiBasePath, defaults.apiBasePath);
 export const CLOUD = getCloudConfig();

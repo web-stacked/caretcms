@@ -1,3 +1,5 @@
+export const prerender = false;
+
 import type { APIContext } from "astro";
 import { clearEditorSessionCookie } from "../auth/session.js";
 import { sanitizeRedirect } from "../auth/cookie-utils.js";
