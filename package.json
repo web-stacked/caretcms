@@ -8,6 +8,7 @@
     "examples/*"
   ],
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
     "dev:starter": "npm run dev -w @caretcms/example-starter",
     "dev:content": "npm run dev -w @caretcms/example-content-site",
     "build:core": "npm run -w @caretcms/core build",
