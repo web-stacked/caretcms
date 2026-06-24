@@ -4,17 +4,27 @@ Content location is a swappable detail (see [design-principles.md](./design-prin
 §3). Pick the storage adapter that fits how your content is authored and how often
 it changes — the rest of CaretCMS works the same either way.
 
+## Delivery mode
+
+| Mode | Astro output | Production shape | When edits reach visitors |
+|---|---|---|---|
+| **Static delivery** | `static` (default) | CDN/static host, no CMS routes in prod | After Publish + `astro build` + deploy |
+| **Server delivery** | `server` + adapter | Node / Workers / etc. with live CMS routes | Immediately (middleware rewrite) |
+
+Static delivery guide: [static-delivery.md](./static-delivery.md).
+
 ## The matrix
 
 | | **Filesystem + git** (editorial) | **Cloudflare KV/R2** (edge / high-write) |
 |---|---|---|
 | Adapter | `markdownStorage` / `filesystemStorage` | `cloudflareStorage` + `r2Uploads` |
 | Content lives in | the repo (`src/content/*.md`, `.caret/data`) | KV namespace + R2 bucket |
+| Static delivery | ✅ bake at build from same storage | ✅ bake at build from KV |
 | Also powers `getCollection()` | ✅ same `.md` files (markdown adapter) | — |
 | History / audit | **git** (commit-on-publish) + sidecar | sidecar revisions only |
 | Drafts overlay | `.caret/drafts/<editorId>/` (JSON) | `draft/<editorId>/` KV prefix |
 | Demo sandbox overlay | — | `session/<id>/` KV prefix, 2h TTL |
-| Hosting | a Node server / any host with a disk | Cloudflare Workers — no CMS to run |
+| Hosting | static CDN, or Node if using server delivery | Cloudflare Workers — no CMS to run |
 | Best for | docs sites, blogs, marketing — content reviewed like code | apps with frequent, programmatic, or high-volume writes |
 | Gives up | needs a writable disk; single-writer (embedded) | no git history of content edits |
 
@@ -63,6 +73,7 @@ caret({
 | `CARET_GIT_ON_PUBLISH=true` | commit published content to git (filesystem + git repo only) |
 | `CARET_DEMO_MODE=true` | per-visitor sandbox overlays (needs an adapter with `makeSessionOverlay`) |
 | `caret_preview` cookie | per-editor **draft preview**: read/write the draft overlay; toggled by the editor toolbar's Preview button |
+| `caret({ delivery: { publish: { webhookUrl }}})` | POST/PUT rebuild hook after publish (static delivery CI) |
 
 ## Drafts → publish, in one line
 

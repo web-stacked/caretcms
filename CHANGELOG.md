@@ -8,8 +8,16 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-06-24
+
 ### Added
 
+- **Static delivery** — `caret({ delivery: "static" })` for static Astro sites: dev
+  authoring routes in `astro dev`, build-time HTML bake in `astro build`, optional
+  `delivery.publish.webhookUrl` after Publish. Documented in
+  [docs/static-delivery.md](docs/static-delivery.md).
+- caretize `init` defaults to static delivery wiring for static Astro projects (no
+  SSR adapter); server projects still get adapter + `output: 'server'` when needed.
 - caretize: **named-import loop binding** — loops sourced from a named import
   (`import { services } from "../data/site"`) are now wrapped with `editable()`;
   previously only default imports were, so most real-site loops
@@ -50,6 +58,12 @@ Versions track the publishable `@caretcms/core` package.
   (`node_modules`/`dist`) are refused rather than walked.
 - studio: empty-state copy is adapter-agnostic (no more `.caret/data` advice for
   markdown/KV users) and points at caretize.
+
+### Documentation
+
+- Static delivery guide ([docs/static-delivery.md](docs/static-delivery.md)); README,
+  core/caretize READMEs, and [docs/deployment.md](docs/deployment.md) updated for
+  static-first setup (server delivery still documented for instant visitor updates).
 
 ## [0.1.1] - 2026-06-11
 
@@ -124,5 +138,6 @@ Versions track the publishable `@caretcms/core` package.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
+[0.1.2]: https://github.com/web-stacked/caretcms/releases/tag/v0.1.2
 [0.1.1]: https://github.com/web-stacked/caretcms/releases/tag/v0.1.1
 [0.1.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.1.0

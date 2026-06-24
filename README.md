@@ -2,6 +2,7 @@
 
 CaretCMS is a reusable, open-core CMS for Astro:
 
+- **Static delivery** — keep `output: 'static'`; bake published edits into HTML at build time
 - **Live content collections** via `astro:content` live loaders
 - **Inline canvas editing** — text, images, and section layout edited directly on the page
 - **Studio admin** for structured entry editing
@@ -29,8 +30,31 @@ The CMS ships as `@caretcms/core`, an Astro integration you install into any Ast
 
 ## Quick start
 
-Install the package into an existing Astro app. Embedded editing renders on the
-server, so you also need an SSR adapter (the example below uses `@astrojs/node`):
+Pick the delivery mode that matches your Astro output:
+
+### Static sites (recommended for marketing / brochure sites)
+
+No SSR adapter. Author locally; public visitors see edits after **Publish → rebuild → deploy**.
+
+```sh
+npm install @caretcms/core
+```
+
+```js
+// astro.config.mjs
+import { defineConfig } from 'astro/config';
+import caret from '@caretcms/core';
+
+export default defineConfig({
+  integrations: [caret({ delivery: 'static' })],
+});
+```
+
+See [docs/static-delivery.md](docs/static-delivery.md) for the full publish/rebuild flow.
+
+### Server-rendered sites (instant visitor updates)
+
+Per-request HTML rewriting in production. Requires `output: 'server'` and an SSR adapter:
 
 ```sh
 npm install @caretcms/core @astrojs/node
@@ -45,22 +69,21 @@ import caret from '@caretcms/core';
 export default defineConfig({
   output: 'server',
   adapter: node({ mode: 'standalone' }),
-  integrations: [caret(/* options */)],
+  integrations: [caret()],
 });
 ```
 
-Then:
+### After wiring either path
 
 - Run `npm run dev` — with no password configured, a temporary dev password is printed in the terminal
 - **Sign in at `/admin`**; the content Studio lives at `/admin/cms`
-- Add `data-caret` / `data-caret-scope` attributes to the elements you want editable — or run `npx @caretcms/caretize` to tag an existing site interactively (use `npx @caretcms/caretize init` first to install + wire CaretCMS and scaffold `.env` in one step)
-- For production, set `CARET_EDIT_PASSWORD` (preferred) or `EDIT_PASSWORD`, **and** `CARET_SESSION_SECRET` (see [deployment](docs/deployment.md))
-- Optionally create `src/caret.config.ts` with `caretLoader` to use `getLiveEntry` / `getLiveCollection`
-- Auth APIs (default `apiBasePath=/api/cms`): `POST /api/cms/auth/login`, `GET /api/cms/auth/session`, `POST /api/cms/auth/logout`
+- Add `data-caret` / `data-caret-scope` attributes — or run `npx @caretcms/caretize init` then `npx @caretcms/caretize` to tag an existing site interactively
+- For production authoring, set `CARET_EDIT_PASSWORD` and `CARET_SESSION_SECRET` (see [deployment](docs/deployment.md))
+- Optionally create `src/caret.config.ts` with `caretLoader` for `getLiveEntry` / `getLiveCollection`
 
-The inline editor only bootstraps when `data-caret` is present **and** the `/api/cms/auth/session` check succeeds. Session cookies are `HttpOnly`, `SameSite=Lax`, and become `Secure` automatically over HTTPS.
+The inline editor bootstraps when `data-caret` is present **and** `/api/cms/auth/session` confirms an authenticated session. Cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` over HTTPS.
 
-Full API reference: [`packages/core/README.md`](packages/core/README.md). Guides and docs site: **https://caretcms.com/docs**.
+Full API reference: [`packages/core/README.md`](packages/core/README.md). Static delivery guide: [docs/static-delivery.md](docs/static-delivery.md). Docs site: **https://caretcms.com/docs**.
 
 ## Develop in this repo
 

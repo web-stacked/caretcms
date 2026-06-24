@@ -5,13 +5,48 @@ Inline editing and live content collections for Astro. Add one HTML attribute to
 ## Install
 
 ```bash
-npm install @caretcms/core @astrojs/node
+npm install @caretcms/core
 ```
 
-Embedded editing renders on the server, so `output: 'server'` needs an SSR
-adapter — `@astrojs/node` above, or whichever adapter matches your host.
+**Static Astro site?** Use static delivery — no SSR adapter:
+
+```js
+integrations: [caret({ delivery: 'static' })],
+```
+
+**Server-rendered site?** Add an adapter and server output:
+
+```bash
+npm install @astrojs/node
+```
+
+```js
+output: 'server',
+adapter: node({ mode: 'standalone' }),
+integrations: [caret()],
+```
+
+See [Static delivery](../../docs/static-delivery.md) and [Rendering & output](#rendering--output) below.
 
 ## Setup
+
+### Static delivery (default path for static Astro sites)
+
+```js
+// astro.config.mjs
+import { defineConfig } from 'astro/config';
+import caret from '@caretcms/core';
+
+export default defineConfig({
+  integrations: [caret({ delivery: 'static' })],
+});
+```
+
+- **`astro dev`** — full authoring: `/admin`, `/api/cms`, inline editor.
+- **`astro build`** — bakes stored overrides into generated HTML; authoring routes stay out of production output.
+- **Public updates** — after Publish, run CI/build/deploy (optionally via `delivery.publish.webhookUrl`).
+
+### Server delivery (per-request rewriting)
 
 ```js
 // astro.config.mjs
@@ -25,6 +60,8 @@ export default defineConfig({
   integrations: [caret()],
 });
 ```
+
+Edits are visible to visitors immediately — middleware rewrites HTML on each request.
 
 **Already have Astro content collections?** If your project has collections under
 `src/content/` and you haven't set `storage`, CaretCMS auto-selects
@@ -175,7 +212,7 @@ existing entries; deriving from Zod just adds proper labels, types, and widget h
 - **Live content collections** via `caretLoader` for `getLiveEntry` / `getLiveCollection` (Astro 6 stable, Astro 5.10+ behind `experimental.liveContentCollections`)
 - **Content Studio** at `/admin/cms` for structured CRUD
 - **Section composer** for reordering and spacing page sections
-- **Response rewriting** middleware — stored edits replace template defaults at render time
+- **Response rewriting** middleware (server delivery) or **build-time HTML bake** (static delivery)
 - **Scoped bindings** via `data-caret-scope` to reduce repetition
 - **Dev Toolbar app** — in `astro dev`, inspect and highlight every binding on the page (no login required), grouped by entry with deep-links into Studio
 - **Revision safety** with optimistic locking and restore from history
@@ -228,6 +265,7 @@ caret({
   apiBasePath: '/api/cms',      // API route prefix (default: /api/cms)
   enableAdmin: true,            // Inject admin pages (default: true)
   enableInlineEditor: true,     // Inject inline editor (default: true)
+  delivery: 'static',           // 'static' | 'server' | { mode, bake, publish }
   storage: filesystemStorage(), // Storage adapter (default: markdownStorage when
                                 //   src/content collections exist, else filesystem)
   uploads: localUploads(),      // Upload handler (default: local filesystem)
@@ -237,20 +275,44 @@ caret({
 
 ## Rendering & output
 
-CaretCMS injects your stored edits at request time in middleware (the "response rewriting" step),
-so any page that shows editable content must be **server-rendered** — that's why the integration
-needs `output: 'server'`. On `output: 'static'`, the editing middleware and routes are skipped (you'll
-see a warning) because prerendered HTML is produced at build time, before there's a request to rewrite.
+CaretCMS supports two delivery modes via `delivery`:
 
-Mostly-static site? You don't lose prerendering everywhere — under `output: 'server'` you can opt
-individual pages that *don't* show live edits back into static generation with
-`export const prerender = true`. Pages that surface editable content should stay server-rendered so
-edits appear immediately instead of only after a rebuild.
+| | **Static delivery** | **Server delivery** (default) |
+|---|---|---|
+| Config | `caret({ delivery: 'static' })` | `caret()` on `output: 'server'` + adapter |
+| Public HTML | Baked at `astro build` | Rewritten per request in middleware |
+| Production CMS routes | Not shipped in static output | `/admin`, `/api/cms` live on the server |
+| Visitor sees edits | After publish + rebuild | Immediately after save |
+| SSR adapter | Not required | Required |
 
-> **Migrating a static site:** switching to `output: 'server'` flips the default for
-> `getStaticPaths`-based pages — they no longer receive props at build time. Add
-> `export const prerender = true` to keep such a page statically generated, or refactor it to fetch
-> its data at request time. This is standard Astro output behavior, not specific to CaretCMS.
+### Static delivery
+
+Use when your site stays `output: 'static'`. Local authoring works in `astro dev`; production
+is plain static files with content baked in.
+
+```js
+caret({
+  delivery: {
+    mode: 'static',
+    bake: true,
+    publish: {
+      webhookUrl: 'https://ci.example.com/hooks/rebuild',
+    },
+  },
+})
+```
+
+Full guide: [docs/static-delivery.md](../../docs/static-delivery.md).
+
+### Server delivery
+
+Middleware injects stored edits at request time. Requires `output: 'server'` (or compatible
+adapter host). Mostly-static site? Under server output you can keep individual pages static
+with `export const prerender = true`; pages with editable content should stay server-rendered.
+
+> **Migrating a static site to server delivery:** switching to `output: 'server'` changes
+> how `getStaticPaths` pages receive props. Add `export const prerender = true` to keep a
+> page static, or fetch at request time. This is standard Astro behavior, not CaretCMS-specific.
 
 ## What gets written to disk
 
@@ -295,7 +357,8 @@ public/uploads/
 
 - Astro 5 or 6
 - Node 20.19.1+ or 22.12.0+
-- Server output mode (for embedded editing routes) plus an SSR adapter
+- **Static delivery:** default Astro static output (no adapter)
+- **Server delivery:** `output: 'server'` plus an SSR adapter
 
 ## License
 
