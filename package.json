@@ -24,7 +24,7 @@
     "test:e2e": "playwright test",
     "test:e2e:csp": "playwright test -c playwright.csp.config.ts",
     "validate:versions": "node ./scripts/validate-versions.mjs",
-    "check": "npm run validate:versions && npm run typecheck:core && npm run typecheck:cloudflare && npm run typecheck:caretize && npm run typecheck:zod && npm run build:core && npm run build:cloudflare && npm run build:caretize && npm run build:zod && npm run test:unit"
+    "check": "npm run validate:versions && npm run typecheck:core && npm run build:core && npm run typecheck:cloudflare && npm run typecheck:caretize && npm run typecheck:zod && npm run build:cloudflare && npm run build:caretize && npm run build:zod && npm run test:unit"
   },
   "engines": {
     "node": "^20.19.1 || >=22.12.0",

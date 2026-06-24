@@ -32,14 +32,26 @@ jobs:
       - name: Typecheck core package
         run: npm run typecheck:core
 
-      - name: Typecheck cloudflare package
-        run: npm run typecheck:cloudflare
-
       - name: Build core package
         run: npm run build:core
 
+      - name: Typecheck cloudflare package
+        run: npm run typecheck:cloudflare
+
+      - name: Typecheck caretize package
+        run: npm run typecheck:caretize
+
+      - name: Typecheck zod package
+        run: npm run typecheck:zod
+
       - name: Build cloudflare package
         run: npm run build:cloudflare
+
+      - name: Build caretize package
+        run: npm run build:caretize
+
+      - name: Build zod package
+        run: npm run build:zod
 
       - name: Unit tests
         run: npm run test:unit
