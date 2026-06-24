@@ -7,11 +7,21 @@ import {
   type WiringNeeds,
 } from "../../packages/caretize/src/init";
 
-const ALL: WiringNeeds = { caret: true, adapter: true, output: true };
+const SERVER_ALL: WiringNeeds = { caret: true, adapter: true, output: true, staticDelivery: false };
+const STATIC_ALL: WiringNeeds = { caret: true, adapter: false, output: false, staticDelivery: true };
 
 describe("freshConfig", () => {
-  it("is a complete, wired embedded-mode config", () => {
+  it("defaults to static delivery config", () => {
     const c = freshConfig();
+    expect(c).toMatch(/import caret from '@caretcms\/core';/);
+    expect(c).toMatch(/delivery: "static"/);
+    expect(c).not.toMatch(/@astrojs\/node/);
+    expect(c).not.toMatch(/output: 'server'/);
+    expect(c).not.toMatch(/adapter:/);
+  });
+
+  it("can render a complete server-mode config", () => {
+    const c = freshConfig("server");
     expect(c).toMatch(/import caret from '@caretcms\/core';/);
     expect(c).toMatch(/import node from '@astrojs\/node';/);
     expect(c).toMatch(/output: 'server'/);
@@ -39,7 +49,7 @@ describe("findConfigObjectBrace", () => {
 describe("planConfigWiring", () => {
   it("wires everything into a minimal config and stays a pure insertion", () => {
     const src = `import { defineConfig } from 'astro/config';\n\nexport default defineConfig({});\n`;
-    const r = planConfigWiring(src, ALL);
+    const r = planConfigWiring(src, SERVER_ALL);
     expect(r.ok).toBe(true);
     expect(r.output).toMatch(/import caret from '@caretcms\/core';/);
     expect(r.output).toMatch(/import node from '@astrojs\/node';/);
@@ -52,7 +62,7 @@ describe("planConfigWiring", () => {
 
   it("adds caret() into an existing integrations array without clobbering it", () => {
     const src = `import { defineConfig } from 'astro/config';\nimport tailwind from '@tailwindcss/vite';\n\nexport default defineConfig({\n  output: 'server',\n  adapter: x,\n  integrations: [tailwind()],\n});\n`;
-    const r = planConfigWiring(src, { caret: true, adapter: false, output: false });
+    const r = planConfigWiring(src, { caret: true, adapter: false, output: false, staticDelivery: false });
     expect(r.ok).toBe(true);
     expect(r.output).toMatch(/integrations: \[caret\(\), tailwind\(\)\]/);
     // didn't touch the adapter or output the project already had
@@ -62,27 +72,47 @@ describe("planConfigWiring", () => {
 
   it("inserts caret() into an empty integrations array with no dangling comma", () => {
     const src = `export default defineConfig({\n  output: 'server',\n  adapter: x,\n  integrations: [],\n});\n`;
-    const r = planConfigWiring(src, { caret: true, adapter: false, output: false });
+    const r = planConfigWiring(src, { caret: true, adapter: false, output: false, staticDelivery: false });
     expect(r.output).toMatch(/integrations: \[caret\(\)\]/);
     expect(r.output).not.toMatch(/caret\(\), \]/);
   });
 
+  it("wires static delivery into a minimal static config without server adapter", () => {
+    const src = `import { defineConfig } from 'astro/config';\n\nexport default defineConfig({});\n`;
+    const r = planConfigWiring(src, STATIC_ALL);
+    expect(r.ok).toBe(true);
+    expect(r.output).toMatch(/import caret from '@caretcms\/core';/);
+    expect(r.output).toMatch(/integrations: \[caret\(\{ delivery: "static" \}\)\]/);
+    expect(r.output).not.toMatch(/@astrojs\/node/);
+    expect(r.output).not.toMatch(/output: 'server'/);
+    expect(r.output).not.toMatch(/adapter:/);
+    expect(stripped(r.output, src)).toBe(true);
+  });
+
+  it("adds static delivery into an existing caret() call by insertion", () => {
+    const src = `import caret from '@caretcms/core';\n\nexport default defineConfig({ integrations: [caret()] });\n`;
+    const r = planConfigWiring(src, { caret: false, adapter: false, output: false, staticDelivery: true });
+    expect(r.ok).toBe(true);
+    expect(r.output).toMatch(/caret\(\{ delivery: "static" \}\)/);
+    expect(stripped(r.output, src)).toBe(true);
+  });
+
   it("flags an existing non-server output as manual rather than rewriting it", () => {
     const src = `export default defineConfig({\n  output: 'static',\n});\n`;
-    const r = planConfigWiring(src, { caret: false, adapter: false, output: true });
+    const r = planConfigWiring(src, { caret: false, adapter: false, output: true, staticDelivery: false });
     expect(r.output).toBe(src); // nothing inserted
     expect(r.manual.join(" ")).toMatch(/set output to 'server'/);
   });
 
   it("falls back (ok:false) on an unrecognized config shape", () => {
-    const r = planConfigWiring(`const config = makeIt();`, ALL);
+    const r = planConfigWiring(`const config = makeIt();`, SERVER_ALL);
     expect(r.ok).toBe(false);
     expect(r.output).toBe(`const config = makeIt();`);
   });
 
   it("does not duplicate an import it already has", () => {
     const src = `import caret from '@caretcms/core';\n\nexport default defineConfig({ integrations: [] });\n`;
-    const r = planConfigWiring(src, { caret: true, adapter: false, output: false });
+    const r = planConfigWiring(src, { caret: true, adapter: false, output: false, staticDelivery: false });
     expect(r.output.match(/@caretcms\/core/g)!.length).toBe(1);
   });
 });

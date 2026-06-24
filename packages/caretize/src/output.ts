@@ -114,9 +114,8 @@ export function formatNextStep(pf: Preflight): string {
   if (!pf.hasCaretCore) {
     return (
       `Next: make these editable — install + wire CaretCMS:\n` +
-      `    npm i @caretcms/core\n` +
-      `  then add caret() to your astro.config integrations (and set output: "server"\n` +
-      `  with an SSR adapter, e.g. @astrojs/node).\n`
+      `    npx caretize init\n` +
+      `  Static Astro projects use caret({ delivery: "static" }) by default.\n`
     );
   }
   if (!pf.caretWired) {
@@ -126,9 +125,12 @@ export function formatNextStep(pf: Preflight): string {
     );
   }
   if (pf.outputMode === "static") {
+    if (pf.staticDeliveryConfigured) {
+      return `Next: npm run dev → sign in at /admin → edit locally; Publish + rebuild bakes static HTML.\n`;
+    }
     return (
-      `Next: embedded editing needs output: "server" + an SSR adapter (e.g. @astrojs/node).\n` +
-      `  Set that, then npm run dev → click to edit.\n`
+      `Next: enable static delivery with caret({ delivery: "static" })\n` +
+      `  or run: npx caretize init\n`
     );
   }
   return `Next: npm run dev → open your page → click to edit\n`;

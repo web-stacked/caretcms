@@ -1,6 +1,6 @@
 # @caretcms/caretize
 
-Make an existing Astro site editable with [CaretCMS](https://github.com/web-stacked/caretcms): `caretize` scans your `.astro` templates and interactively inserts `data-caret` attributes (plus `editable()` wraps for data arrays), turning static markup into inline-editable content — no schema or config rewrite required.
+Make an existing Astro site editable with [CaretCMS](https://github.com/web-stacked/caretcms): `caretize` scans your `.astro` templates and inserts `data-caret` attributes (plus `editable()` wraps for data arrays), turning static markup into inline-editable content — no schema or config rewrite required.
 
 The static HTML you already have *is* the seed content: CaretCMS renders the original text until an editor saves an override, so caretize only has to mark what's editable.
 
@@ -10,21 +10,29 @@ npx @caretcms/caretize init
 
 # preview what would be tagged, write nothing
 npx @caretcms/caretize --dry-run
+npx @caretcms/caretize --diff
 
-# then run the interactive review
+# default: apply safe edits, show a diff you can --restore
 npx @caretcms/caretize
+
+# approve each change before writing
+npx @caretcms/caretize --review
 ```
 
 `init` is optional but is the fastest path on a project that hasn't wired
-CaretCMS yet: it installs `@caretcms/core` (plus an SSR adapter if you have none),
-adds `caret()` + `output: 'server'` to your `astro.config`, and scaffolds a `.env`
-with a generated `CARET_SESSION_SECRET`. An existing config is only edited via
-verified pure insertions (shown as a diff you confirm, backed up first); when its
-shape isn't safe to touch automatically it prints a snippet to paste instead.
+CaretCMS yet: it installs `@caretcms/core`, wires `caret()` into `astro.config`, and
+scaffolds a `.env` with a generated `CARET_SESSION_SECRET`.
+
+- **Static Astro projects** (default): `caret({ delivery: "static" })` — no SSR adapter.
+- **Server projects** (`output: "server"` already): keeps or adds adapter + `caret()`.
+
+An existing config is only edited via verified pure insertions (shown as a diff you
+confirm, backed up first); when its shape isn't safe to touch automatically it prints
+a snippet to paste instead.
 
 ## What it does
 
-For every candidate it finds, caretize shows the element and proposed binding and asks:
+By default caretize **optimistically applies** high-confidence candidates, then shows a before→after diff. Use `--review` to approve each binding interactively:
 
 ```
 src/pages/index.astro
@@ -40,7 +48,7 @@ src/pages/index.astro
 
 ## Safety model
 
-- **Nothing is written until the review ends.** Every output is verified in memory first: it must re-parse as valid Astro and be a pure insertion of the original (your bytes survive untouched, in order).
+- **Nothing unsafe is written.** Every output is verified in memory first: it must re-parse as valid Astro and be a pure insertion of the original (your bytes survive untouched, in order).
 - **All-or-nothing:** if any file fails verification, the run aborts having written nothing.
 - **Backups:** every written file is first copied to `.caret/.caretize-bak/`; `caretize --restore` reverts the most recent run. Git is the real undo — caretize warns when your tree is dirty.
 - Multibyte-safe: offsets are computed and spliced on UTF-8 buffers (emoji/em-dashes can't corrupt a tag).
@@ -51,11 +59,14 @@ src/pages/index.astro
 caretize [path] [options]
 caretize init                wire CaretCMS into the project, then tag
 
-  init                     set up CaretCMS first: install @caretcms/core (+ an
-                           SSR adapter), wire caret() into astro.config, and
-                           scaffold .env — then run caretize to tag content
+  init                     set up CaretCMS first: install @caretcms/core, wire
+                           caret() into astro.config (static delivery by default;
+                           server projects get SSR adapter wiring), scaffold .env
   path                     file or directory to scan (default: src/)
+  --review                 approve each change before writing; richer tiers still
+                           offered at the end
   --dry-run                print the plan, write nothing
+  --diff                   preview exact before→after, write nothing
   -y, --yes                auto-accept all suggestions at/above min-confidence
   --min-confidence <lvl>   high (default) | medium | low
   --no-images              skip <img> elements
@@ -67,6 +78,12 @@ caretize init                wire CaretCMS into the project, then tag
                            to its current entry via getStaticPaths props
   --rich                   also tag mixed-content blocks whose markup is
                            sanitizer-safe inline formatting (data-caret-rich)
+  --rich-class             also tag rich blocks whose inline children carry a
+                           class — implies --rich; class round-trips once blessed
+                           via caret({ allowedClasses }) (hint names which)
+  --all                    every opt-in tier at once: --bind-collections,
+                           --bind-routes, --rich, --rich-class, AND
+                           --min-confidence low
   --scope <collection::id> override the inferred scope (validated against the
                            runtime grammar: ^[a-z][a-z0-9_-]*$ :: ^[a-z0-9][a-z0-9_-]*$)
   --report <file>          write a JSON report
@@ -78,7 +95,12 @@ caretize init                wire CaretCMS into the project, then tag
 1. `npm run dev`
 2. Sign in at `/admin` — with no `CARET_EDIT_PASSWORD` set, a temporary dev password is printed in your terminal
 3. Click any tagged element to edit it in place; the Studio lives at `/admin/cms`
+4. Use Preview / Publish / Discard in the editor toolbar for draft workflow
 
 Requires [`@caretcms/core`](https://www.npmjs.com/package/@caretcms/core) wired into `astro.config.mjs` (caretize's preflight checks this and tells you if it isn't).
+
+**Static Astro sites:** use `caret({ delivery: "static" })` (caretize `init` does this by default). Edit locally in dev; after Publish, rebuild so CaretCMS bakes stored content into static HTML. See [static delivery docs](https://github.com/web-stacked/caretcms/blob/main/docs/static-delivery.md).
+
+**Server sites:** use `output: "server"` with an SSR adapter and `caret()` for per-request rewriting in production.
 
 MIT © CaretCMS contributors

@@ -44,7 +44,19 @@ describe("preflight", () => {
     config(`import caret from "@caretcms/core";\nexport default defineConfig({ output: "static", integrations: [caret()] });`);
     const pf = preflight(dir);
     expect(pf.outputMode).toBe("static");
+    expect(pf.staticDeliveryConfigured).toBe(false);
     expect(pf.warnings.some((w) => /output is "static"/.test(w))).toBe(true);
+    expect(pf.warnings.join(" ")).toContain("delivery");
+  });
+
+  it("recognizes static delivery output and explains the rebuild boundary", () => {
+    pkg({ astro: "^6", "@caretcms/core": "^0.1.0" });
+    config(`import caret from "@caretcms/core";\nexport default defineConfig({ output: "static", integrations: [caret({ delivery: "static" })] });`);
+    const pf = preflight(dir);
+    expect(pf.outputMode).toBe("static");
+    expect(pf.staticDeliveryConfigured).toBe(true);
+    expect(pf.warnings.join(" ")).toContain("static delivery enabled");
+    expect(pf.warnings.join(" ")).toContain("rebuild");
   });
 
   it("defaults outputMode to static when unset", () => {

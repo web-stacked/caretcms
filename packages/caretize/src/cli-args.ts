@@ -51,9 +51,10 @@ Usage: caretize [path] [options]
 By default caretize applies the safe edits, then shows a diff you can undo with
 --restore. Use --review to approve each change first, or --diff to preview only.
 
-  init                     set up CaretCMS first: install @caretcms/core (+ an
-                           SSR adapter), wire caret() into astro.config, and
-                           scaffold .env — then run caretize to tag content
+  init                     set up CaretCMS first: install @caretcms/core, wire
+                           caret() into astro.config, and scaffold .env. Static
+                           Astro projects use static delivery by default; server
+                           projects keep SSR adapter wiring
   path                     file or directory to scan (default: src/)
   --review                 approve each default change before writing; the richer
                            tiers are still offered (decline with n)

@@ -28,7 +28,7 @@ import { detectPropHoistTargets, type PropHoistTarget } from "./prop-hoist.js";
 import { detectCollectionBindTargets, type CollectionBindTarget } from "./bind-collection.js";
 import { detectRouteBindTargets } from "./bind-route.js";
 import { restoreLatest, writeBackup } from "./backup.js";
-import { freshConfig, planConfigWiring, renderEnvAdditions, type WiringNeeds } from "./init.js";
+import { freshConfig, planConfigWiring, renderEnvAdditions, type InitMode, type WiringNeeds } from "./init.js";
 import { lineDiff, formatHunks } from "./diff.js";
 import { buildReport } from "./report.js";
 import { applyKeyRegistry } from "./keys.js";
@@ -54,6 +54,15 @@ type Readline = ReturnType<typeof createInterface>;
 
 function ask(rl: Readline, q: string): Promise<string> {
   return new Promise((res) => rl.question(q, (ans) => res(ans.trim())));
+}
+
+async function confirmYes(rl: Readline, args: Args, question: string): Promise<boolean> {
+  if (args.yes) {
+    process.stdout.write(`${question} yes\n`);
+    return true;
+  }
+  const ans = (await ask(rl, question)) || "y";
+  return ans.toLowerCase() !== "n";
 }
 
 interface Selection {
@@ -543,7 +552,7 @@ function findConfigName(root: string): string | null {
  * via verified pure insertions, falling back to a paste-me snippet when its
  * shape isn't safe to touch.
  */
-async function runInit(root: string): Promise<void> {
+async function runInit(root: string, args: Args): Promise<void> {
   const pf = preflight(root);
   if (!pf.isAstroProject) {
     for (const e of pf.errors) process.stderr.write(`✗ ${e}\n`);
@@ -561,7 +570,8 @@ async function runInit(root: string): Promise<void> {
   const hasAdapterKey = configSrc ? /\badapter\s*:/.test(configSrc) : false;
 
   try {
-    // 1) Dependencies — @caretcms/core, plus an SSR adapter when none is set.
+    // 1) Dependencies — static Astro projects use static delivery by default, so
+    // they only need @caretcms/core. Server projects keep the SSR adapter path.
     const pkgPath = resolve(root, "package.json");
     const pkg: Record<string, unknown> = existsSync(pkgPath)
       ? (JSON.parse(readFileSync(pkgPath, "utf8")) as Record<string, unknown>)
@@ -570,13 +580,15 @@ async function runInit(root: string): Promise<void> {
       ...(pkg.dependencies as Record<string, string> | undefined),
       ...(pkg.devDependencies as Record<string, string> | undefined),
     };
+    const mode: InitMode = pf.outputMode === "server" ? "server" : "static";
     const missingDeps: string[] = [];
     if (!("@caretcms/core" in deps)) missingDeps.push("@caretcms/core");
-    if (!hasAdapterKey && !("@astrojs/node" in deps)) missingDeps.push("@astrojs/node");
+    if (mode === "server" && !hasAdapterKey && !("@astrojs/node" in deps)) {
+      missingDeps.push("@astrojs/node");
+    }
 
     if (missingDeps.length) {
-      const ans = (await ask(rl, `\nInstall ${missingDeps.join(", ")}? [Y/n] `)) || "y";
-      if (ans.toLowerCase() !== "n") {
+      if (await confirmYes(rl, args, `\nInstall ${missingDeps.join(", ")}? [Y/n] `)) {
         process.stdout.write(`  npm install ${missingDeps.join(" ")}\n`);
         execFileSync("npm", ["install", ...missingDeps], { cwd: root, stdio: "inherit" });
         process.stdout.write("✓ installed\n");
@@ -590,31 +602,34 @@ async function runInit(root: string): Promise<void> {
     // 2) astro.config — create when absent, else wire in the missing pieces.
     const needs: WiringNeeds = {
       caret: !pf.caretWired,
-      adapter: !hasAdapterKey,
-      output: pf.outputMode !== "server",
+      adapter: mode === "server" && !hasAdapterKey,
+      output: mode === "server" && pf.outputMode !== "server",
+      staticDelivery: mode === "static" && !pf.staticDeliveryConfigured,
     };
     if (!configSrc) {
       process.stdout.write("\nNo astro.config found — proposed astro.config.mjs:\n\n");
-      process.stdout.write(indent(freshConfig()));
-      const ans = (await ask(rl, "  write it? [Y/n] ")) || "y";
-      if (ans.toLowerCase() !== "n") {
-        writeFileSync(resolve(root, "astro.config.mjs"), freshConfig(), "utf8");
+      process.stdout.write(indent(freshConfig(mode)));
+      if (await confirmYes(rl, args, "  write it? [Y/n] ")) {
+        writeFileSync(resolve(root, "astro.config.mjs"), freshConfig(mode), "utf8");
         process.stdout.write("✓ wrote astro.config.mjs\n");
       } else {
         process.stdout.write("  skipped config\n");
       }
-    } else if (!needs.caret && !needs.adapter && !needs.output) {
-      process.stdout.write(`\n✓ ${configName} already wired (caret + adapter + output: server)\n`);
+    } else if (!needs.caret && !needs.adapter && !needs.output && !needs.staticDelivery) {
+      process.stdout.write(
+        mode === "static"
+          ? `\n✓ ${configName} already wired (caret + static delivery)\n`
+          : `\n✓ ${configName} already wired (caret + adapter + output: server)\n`,
+      );
     } else {
       const plan = planConfigWiring(configSrc, needs);
       if (!plan.ok || plan.inserted.length === 0) {
         process.stdout.write(`\n⚠ couldn't safely edit ${configName} — ensure it includes:\n\n`);
-        process.stdout.write(indent(freshConfig()));
+        process.stdout.write(indent(freshConfig(mode)));
       } else {
         process.stdout.write(`\nProposed edit to ${configName}:\n\n`);
         process.stdout.write(formatHunks(lineDiff(configSrc, plan.output)));
-        const ans = (await ask(rl, `\n  apply? [Y/n] (backup → .caret/.caretize-bak/) `)) || "y";
-        if (ans.toLowerCase() !== "n") {
+        if (await confirmYes(rl, args, `\n  apply? [Y/n] (backup → .caret/.caretize-bak/) `)) {
           writeBackup(root, configName!, stamp);
           writeFileSync(resolve(root, configName!), plan.output, "utf8");
           process.stdout.write(`✓ updated ${configName}\n`);
@@ -662,7 +677,7 @@ async function main(): Promise<void> {
   const root = process.cwd();
 
   if (args.restore) { runRestore(root); return; }
-  if (args.init) { await runInit(root); return; }
+  if (args.init) { await runInit(root, args); return; }
 
   const pf = preflight(root);
   for (const w of pf.warnings) process.stdout.write(`⚠ ${w}\n`);

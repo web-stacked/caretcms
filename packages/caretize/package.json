@@ -1,6 +1,6 @@
 {
   "name": "@caretcms/caretize",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
   "description": "CLI that scans an Astro project and interactively adds data-caret attributes, turning a static site into a CaretCMS-editable one.",
   "license": "MIT",

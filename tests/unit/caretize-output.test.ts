@@ -65,15 +65,18 @@ describe("formatNextStep", () => {
        gitRepo: true, gitClean: true, errors: [], warnings: [], ...over } as Preflight);
 
   it("tells an un-installed project to install + wire core", () => {
-    expect(formatNextStep(pf({ hasCaretCore: false }))).toContain("npm i @caretcms/core");
+    expect(formatNextStep(pf({ hasCaretCore: false }))).toContain("npx caretize init");
   });
   it("tells an installed-but-unwired project to add caret()", () => {
     const out = formatNextStep(pf({ caretWired: false }));
     expect(out).toContain("caret()");
     expect(out).not.toContain("npm i");
   });
-  it("tells a static-output project to switch to server", () => {
-    expect(formatNextStep(pf({ outputMode: "static" }))).toContain('output: "server"');
+  it("tells a static-output project to enable static delivery", () => {
+    expect(formatNextStep(pf({ outputMode: "static" }))).toContain("static delivery");
+  });
+  it("explains the publish/rebuild flow when static delivery is configured", () => {
+    expect(formatNextStep(pf({ outputMode: "static", staticDeliveryConfigured: true }))).toContain("bakes static HTML");
   });
   it("tells a fully-wired project to run dev and click to edit", () => {
     expect(formatNextStep(pf({}))).toBe("Next: npm run dev → open your page → click to edit\n");

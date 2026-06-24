@@ -15,6 +15,8 @@ export interface Preflight {
   caretWired: boolean;
   /** Output mode parsed from astro.config: "server" | "hybrid" | "static". */
   outputMode: string;
+  /** caret({ delivery: "static" }) appears to be configured. */
+  staticDeliveryConfigured: boolean;
   gitRepo: boolean;
   gitClean: boolean | null; // null when not a git repo
   errors: string[];
@@ -76,6 +78,9 @@ export function preflight(rootDir: string): Preflight {
   // the warning below points the user at a mode that exists.
   const outputMatch = config?.match(/output\s*:\s*["'](server|static)["']/);
   const outputMode = outputMatch ? outputMatch[1] : "static";
+  const staticDeliveryConfigured =
+    config !== null &&
+    /delivery\s*:\s*(?:(["'])static\1|\{[^}]*mode\s*:\s*(["'])static\2)/s.test(config);
 
   let gitRepo = false;
   let gitClean: boolean | null = null;
@@ -105,14 +110,28 @@ export function preflight(rootDir: string): Preflight {
       "@caretcms/core is installed but caret() is not in astro.config — tags will be inert until you add it to integrations.",
     );
   }
-  if (hasCaretCore && outputMode === "static") {
+  if (hasCaretCore && outputMode === "static" && staticDeliveryConfigured) {
     warnings.push(
-      `output is "static" — embedded inline editing needs output: "server" plus an SSR adapter (e.g. @astrojs/node).`,
+      `output is "static" with static delivery enabled — caretize can add bindings, and public changes become live after Publish triggers a rebuild and HTML is baked.`,
+    );
+  } else if (hasCaretCore && outputMode === "static") {
+    warnings.push(
+      `output is "static" — run caretize init to enable static delivery with caret({ delivery: "static" }), or use output: "server" plus an SSR adapter.`,
     );
   }
   if (gitRepo && gitClean === false) {
     warnings.push("Working tree has uncommitted changes — commit first so you can `git checkout` to undo.");
   }
 
-  return { isAstroProject, hasCaretCore, caretWired, outputMode, gitRepo, gitClean, errors, warnings };
+  return {
+    isAstroProject,
+    hasCaretCore,
+    caretWired,
+    outputMode,
+    staticDeliveryConfigured,
+    gitRepo,
+    gitClean,
+    errors,
+    warnings,
+  };
 }

@@ -23,22 +23,39 @@ function isSubsequence(needle: string, haystack: string): boolean {
   return i === needle.length;
 }
 
-const NODE_IMPORT = `import node from '@astrojs/node';`;
 const CARET_IMPORT = `import caret from '@caretcms/core';`;
+const NODE_IMPORT = `import node from '@astrojs/node';`;
+
+export type InitMode = "static" | "server";
+
+function caretCall(needs: WiringNeeds): string {
+  return needs.staticDelivery ? `caret({ delivery: "static" })` : "caret()";
+}
 
 /** A complete, minimal embedded-mode config — written verbatim when a project
  *  has no astro.config at all, and shown as the paste-me snippet when an
  *  existing config is too complex to edit safely. */
-export function freshConfig(): string {
+export function freshConfig(mode: InitMode = "static"): string {
+  if (mode === "server") {
+    return (
+      `import { defineConfig } from 'astro/config';\n` +
+      `import node from '@astrojs/node';\n` +
+      `import caret from '@caretcms/core';\n` +
+      `\n` +
+      `export default defineConfig({\n` +
+      `  output: 'server',\n` +
+      `  adapter: node({ mode: 'standalone' }),\n` +
+      `  integrations: [caret()],\n` +
+      `});\n`
+    );
+  }
+
   return (
     `import { defineConfig } from 'astro/config';\n` +
-    `import node from '@astrojs/node';\n` +
     `import caret from '@caretcms/core';\n` +
     `\n` +
     `export default defineConfig({\n` +
-    `  output: 'server',\n` +
-    `  adapter: node({ mode: 'standalone' }),\n` +
-    `  integrations: [caret()],\n` +
+    `  integrations: [caret({ delivery: "static" })],\n` +
     `});\n`
   );
 }
@@ -48,10 +65,12 @@ export function freshConfig(): string {
 export interface WiringNeeds {
   /** caret() not referenced — add the import + an integrations entry. */
   caret: boolean;
-  /** No `adapter:` configured — add the @astrojs/node import + adapter. */
+  /** No `adapter:` configured and server mode was selected — add @astrojs/node. */
   adapter: boolean;
-  /** output isn't "server" — add output: 'server' (or flag it for the user). */
+  /** output isn't "server" and server mode was selected — add output: 'server'. */
   output: boolean;
+  /** Static sites use caret({ delivery: "static" }) rather than SSR wiring. */
+  staticDelivery: boolean;
 }
 
 export interface WiringResult {
@@ -104,8 +123,8 @@ export function planConfigWiring(source: string, needs: WiringNeeds): WiringResu
 
   // Imports — only those not already present, inserted after the import block.
   const importsToAdd: string[] = [];
-  if (needs.adapter && !/from\s+['"]@astrojs\/node['"]/.test(source)) importsToAdd.push(NODE_IMPORT);
   if (needs.caret && !/from\s+['"]@caretcms\/core['"]/.test(source)) importsToAdd.push(CARET_IMPORT);
+  if (needs.adapter && !/from\s+['"]@astrojs\/node['"]/.test(source)) importsToAdd.push(NODE_IMPORT);
   if (importsToAdd.length) {
     edits.push({ index: lastImportEnd(source), text: importsToAdd.join("\n") + "\n" });
     inserted.push(...importsToAdd);
@@ -133,6 +152,7 @@ export function planConfigWiring(source: string, needs: WiringNeeds): WiringResu
 
   if (needs.caret) {
     const intMatch = source.match(/integrations\s*:\s*\[/);
+    const call = caretCall(needs);
     if (intMatch && intMatch.index !== undefined) {
       if (/\bcaret\s*\(/.test(source)) {
         // Defensive: caller gates on !caretWired, but never double-insert.
@@ -141,12 +161,28 @@ export function planConfigWiring(source: string, needs: WiringNeeds): WiringResu
         // No trailing comma when the array is empty (`[]`) — only when there's
         // an existing entry to precede.
         const empty = source.slice(at).trimStart().startsWith("]");
-        edits.push({ index: at, text: empty ? `caret()` : `caret(), ` });
-        inserted.push(empty ? `integrations: [caret()]` : `integrations: [caret(), …]`);
+        edits.push({ index: at, text: empty ? call : `${call}, ` });
+        inserted.push(empty ? `integrations: [${call}]` : `integrations: [${call}, …]`);
       }
     } else {
-      newProps.push(`integrations: [caret()],`);
-      inserted.push(`integrations: [caret()]`);
+      newProps.push(`integrations: [${call}],`);
+      inserted.push(`integrations: [${call}]`);
+    }
+  } else if (needs.staticDelivery && !/delivery\s*:/.test(source)) {
+    const emptyCall = source.match(/\bcaret\s*\(\s*\)/);
+    if (emptyCall && emptyCall.index !== undefined) {
+      const at = emptyCall.index + emptyCall[0].lastIndexOf(")");
+      edits.push({ index: at, text: `{ delivery: "static" }` });
+      inserted.push(`caret({ delivery: "static" })`);
+    } else {
+      const objectCall = source.match(/\bcaret\s*\(\s*\{/);
+      if (objectCall && objectCall.index !== undefined) {
+        const at = objectCall.index + objectCall[0].length;
+        edits.push({ index: at, text: ` delivery: "static",` });
+        inserted.push(`delivery: "static"`);
+      } else {
+        manual.push(`enable static delivery with caret({ delivery: "static" })`);
+      }
     }
   }
 
