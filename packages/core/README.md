@@ -2,6 +2,8 @@
 
 Inline editing and live content collections for Astro. Add one HTML attribute to make any element editable, and use Astro's live loaders to query CMS data with `getLiveEntry` / `getLiveCollection` (stable on Astro 6, experimental on Astro 5.10+).
 
+![CaretCMS inline editor demo](https://caretcms.com/preview/caretcms-editor-demo.gif)
+
 ## Install
 
 ```bash

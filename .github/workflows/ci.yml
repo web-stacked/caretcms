@@ -98,7 +98,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20.19.1"
+          node-version: "22.12.0"
           cache: npm
 
       - name: Install
@@ -132,4 +132,4 @@ jobs:
         run: bun run validate:versions
 
       - name: Build core package
-        run: bun run build:core
+        run: cd packages/core && bun run build
