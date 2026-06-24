@@ -191,6 +191,11 @@ describe("body preservation", () => {
     if (!parsed.ok) throw new Error(parsed.reason);
     expect(original.slice(parsed.bodyStart)).toBe(body);
   });
+
+  it("does not treat # after an escaped double quote as a comment", () => {
+    const parsed = parseFrontmatter(`---\na: "\\" #"\n---\nBODY`);
+    expect(parsed).toMatchObject({ ok: true, data: { a: '" #' } });
+  });
 });
 
 describe("round-trip property", () => {

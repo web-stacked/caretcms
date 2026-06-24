@@ -250,6 +250,10 @@ function stripComment(line: string): string {
   let inDouble = false;
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
+    if (inDouble && c === "\\") {
+      i++;
+      continue;
+    }
     if (c === '"' && !inSingle) inDouble = !inDouble;
     else if (c === "'" && !inDouble) inSingle = !inSingle;
     else if (c === "#" && !inSingle && !inDouble && (i === 0 || /\s/.test(line[i - 1]))) {
@@ -290,6 +294,10 @@ function findKeyColon(text: string): number {
   let inDouble = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
+    if (inDouble && c === "\\") {
+      i++;
+      continue;
+    }
     if (c === '"' && !inSingle) inDouble = !inDouble;
     else if (c === "'" && !inDouble) inSingle = !inSingle;
     else if (c === ":" && !inSingle && !inDouble && (i + 1 >= text.length || text[i + 1] === " ")) {
