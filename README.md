@@ -32,7 +32,18 @@ The CMS ships as `@caretcms/core`, an Astro integration you install into any Ast
 
 ## Quick start
 
-Pick the delivery mode that matches your Astro output:
+For an existing Astro site, the lowest-friction path is the CLI:
+
+```sh
+npx @caretcms/caretize init
+npx @caretcms/caretize
+npm run dev
+```
+
+Then sign in at `/admin` and click tagged content to edit. Static Astro projects
+keep static output automatically; server projects keep server output.
+
+Prefer to wire it by hand? Pick the delivery shape that matches your Astro output:
 
 ### Static sites (recommended for marketing / brochure sites)
 
@@ -48,9 +59,13 @@ import { defineConfig } from 'astro/config';
 import caret from '@caretcms/core';
 
 export default defineConfig({
-  integrations: [caret({ delivery: 'static' })],
+  // Astro defaults to output: 'static'; caret() auto-selects static delivery.
+  integrations: [caret()],
 });
 ```
+
+`caret()` uses automatic delivery by default: static Astro output bakes content at
+build time, while server output uses middleware.
 
 See [docs/static-delivery.md](docs/static-delivery.md) for the full publish/rebuild flow.
 
@@ -77,9 +92,9 @@ export default defineConfig({
 
 ### After wiring either path
 
+- Add `data-caret` / `data-caret-scope` attributes — or run `npx @caretcms/caretize` to tag an existing site interactively
 - Run `npm run dev` — with no password configured, a temporary dev password is printed in the terminal
-- **Sign in at `/admin`**; the content Studio lives at `/admin/cms`
-- Add `data-caret` / `data-caret-scope` attributes — or run `npx @caretcms/caretize init` then `npx @caretcms/caretize` to tag an existing site interactively
+- **Sign in at `/admin`**, then click tagged content to edit; the Studio lives at `/admin/cms`
 - For production authoring, set `CARET_EDIT_PASSWORD` and `CARET_SESSION_SECRET` (see [deployment](docs/deployment.md))
 - Optionally create `src/caret.config.ts` with `caretLoader` for `getLiveEntry` / `getLiveCollection`
 

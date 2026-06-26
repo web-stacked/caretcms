@@ -570,8 +570,9 @@ async function runInit(root: string, args: Args): Promise<void> {
   const hasAdapterKey = configSrc ? /\badapter\s*:/.test(configSrc) : false;
 
   try {
-    // 1) Dependencies — static Astro projects use static delivery by default, so
-    // they only need @caretcms/core. Server projects keep the SSR adapter path.
+    // 1) Dependencies — static Astro projects use caret()'s auto delivery
+    // default, so they only need @caretcms/core. Server projects keep the SSR
+    // adapter path.
     const pkgPath = resolve(root, "package.json");
     const pkg: Record<string, unknown> = existsSync(pkgPath)
       ? (JSON.parse(readFileSync(pkgPath, "utf8")) as Record<string, unknown>)
@@ -618,7 +619,7 @@ async function runInit(root: string, args: Args): Promise<void> {
     } else if (!needs.caret && !needs.adapter && !needs.output && !needs.staticDelivery) {
       process.stdout.write(
         mode === "static"
-          ? `\n✓ ${configName} already wired (caret + static delivery)\n`
+          ? `\n✓ ${configName} already wired (caret + auto static delivery)\n`
           : `\n✓ ${configName} already wired (caret + adapter + output: server)\n`,
       );
     } else {
@@ -657,9 +658,9 @@ async function runInit(root: string, args: Args): Promise<void> {
 
   process.stdout.write(
     "\nNext:\n" +
-      "  1. npm run dev   — a temporary edit password prints in the terminal\n" +
-      "  2. caretize      — tag your content as editable\n" +
-      "  3. sign in at /admin, then click to edit (Studio at /admin/cms)\n",
+      "  1. caretize      — tag your content as editable\n" +
+      "  2. npm run dev   — a temporary edit password prints in the terminal\n" +
+      "  3. sign in at /admin, then click tagged content to edit (Studio at /admin/cms)\n",
   );
 }
 
@@ -680,6 +681,7 @@ async function main(): Promise<void> {
   if (args.init) { await runInit(root, args); return; }
 
   const pf = preflight(root);
+  for (const n of pf.notes) process.stdout.write(`• ${n}\n`);
   for (const w of pf.warnings) process.stdout.write(`⚠ ${w}\n`);
   if (pf.errors.length) { for (const e of pf.errors) process.stderr.write(`✗ ${e}\n`); process.exit(1); }
 

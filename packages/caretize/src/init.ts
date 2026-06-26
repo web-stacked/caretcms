@@ -28,8 +28,8 @@ const NODE_IMPORT = `import node from '@astrojs/node';`;
 
 export type InitMode = "static" | "server";
 
-function caretCall(needs: WiringNeeds): string {
-  return needs.staticDelivery ? `caret({ delivery: "static" })` : "caret()";
+function caretCall(): string {
+  return "caret()";
 }
 
 /** A complete, minimal embedded-mode config — written verbatim when a project
@@ -55,7 +55,7 @@ export function freshConfig(mode: InitMode = "static"): string {
     `import caret from '@caretcms/core';\n` +
     `\n` +
     `export default defineConfig({\n` +
-    `  integrations: [caret({ delivery: "static" })],\n` +
+    `  integrations: [caret()],\n` +
     `});\n`
   );
 }
@@ -69,7 +69,11 @@ export interface WiringNeeds {
   adapter: boolean;
   /** output isn't "server" and server mode was selected — add output: 'server'. */
   output: boolean;
-  /** Static sites use caret({ delivery: "static" }) rather than SSR wiring. */
+  /**
+   * Static sites use caret() with delivery: "auto" by default. Kept as a
+   * planning flag so older callers/tests can ask for static delivery without
+   * forcing an explicit config-file edit.
+   */
   staticDelivery: boolean;
 }
 
@@ -152,7 +156,7 @@ export function planConfigWiring(source: string, needs: WiringNeeds): WiringResu
 
   if (needs.caret) {
     const intMatch = source.match(/integrations\s*:\s*\[/);
-    const call = caretCall(needs);
+    const call = caretCall();
     if (intMatch && intMatch.index !== undefined) {
       if (/\bcaret\s*\(/.test(source)) {
         // Defensive: caller gates on !caretWired, but never double-insert.
@@ -168,21 +172,15 @@ export function planConfigWiring(source: string, needs: WiringNeeds): WiringResu
       newProps.push(`integrations: [${call}],`);
       inserted.push(`integrations: [${call}]`);
     }
-  } else if (needs.staticDelivery && !/delivery\s*:/.test(source)) {
-    const emptyCall = source.match(/\bcaret\s*\(\s*\)/);
-    if (emptyCall && emptyCall.index !== undefined) {
-      const at = emptyCall.index + emptyCall[0].lastIndexOf(")");
-      edits.push({ index: at, text: `{ delivery: "static" }` });
-      inserted.push(`caret({ delivery: "static" })`);
-    } else {
-      const objectCall = source.match(/\bcaret\s*\(\s*\{/);
-      if (objectCall && objectCall.index !== undefined) {
-        const at = objectCall.index + objectCall[0].length;
-        edits.push({ index: at, text: ` delivery: "static",` });
-        inserted.push(`delivery: "static"`);
-      } else {
-        manual.push(`enable static delivery with caret({ delivery: "static" })`);
-      }
+  } else if (needs.staticDelivery) {
+    if (
+      /delivery\s*:\s*(?:(["'])server\1|\{[^}]*mode\s*:\s*(["'])server\2)/s.test(
+        source,
+      )
+    ) {
+      manual.push(`remove delivery: "server" or change it to delivery: "auto" for static output`);
+    } else if (/delivery\s*:/.test(source)) {
+      manual.push(`verify delivery is "auto" or "static" for static output`);
     }
   }
 

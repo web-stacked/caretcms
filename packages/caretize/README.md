@@ -23,7 +23,7 @@ npx @caretcms/caretize --review
 CaretCMS yet: it installs `@caretcms/core`, wires `caret()` into `astro.config`, and
 scaffolds a `.env` with a generated `CARET_SESSION_SECRET`.
 
-- **Static Astro projects** (default): `caret({ delivery: "static" })` — no SSR adapter.
+- **Static Astro projects** (default): `caret()` auto-selects static delivery — no SSR adapter.
 - **Server projects** (`output: "server"` already): keeps or adds adapter + `caret()`.
 
 An existing config is only edited via verified pure insertions (shown as a diff you
@@ -60,7 +60,7 @@ caretize [path] [options]
 caretize init                wire CaretCMS into the project, then tag
 
   init                     set up CaretCMS first: install @caretcms/core, wire
-                           caret() into astro.config (static delivery by default;
+                           caret() into astro.config (auto static delivery by default;
                            server projects get SSR adapter wiring), scaffold .env
   path                     file or directory to scan (default: src/)
   --review                 approve each change before writing; richer tiers still
@@ -92,14 +92,16 @@ caretize init                wire CaretCMS into the project, then tag
 
 ## After caretize
 
-1. `npm run dev`
-2. Sign in at `/admin` — with no `CARET_EDIT_PASSWORD` set, a temporary dev password is printed in your terminal
-3. Click any tagged element to edit it in place; the Studio lives at `/admin/cms`
-4. Use Preview / Publish / Discard in the editor toolbar for draft workflow
+1. Run `npx @caretcms/caretize init` if CaretCMS is not wired yet.
+2. Run `npx @caretcms/caretize` to tag content.
+3. Run `npm run dev`.
+4. Sign in at `/admin` — with no `CARET_EDIT_PASSWORD` set, a temporary dev password is printed in your terminal.
+5. Click any tagged element to edit it in place; the Studio lives at `/admin/cms`.
+6. Use Preview / Publish / Discard in the editor toolbar for draft workflow.
 
 Requires [`@caretcms/core`](https://www.npmjs.com/package/@caretcms/core) wired into `astro.config.mjs` (caretize's preflight checks this and tells you if it isn't).
 
-**Static Astro sites:** use `caret({ delivery: "static" })` (caretize `init` does this by default). Edit locally in dev; after Publish, rebuild so CaretCMS bakes stored content into static HTML. See [static delivery docs](https://github.com/web-stacked/caretcms/blob/main/docs/static-delivery.md).
+**Static Astro sites:** use `caret()` (caretize `init` does this by default). CaretCMS auto-selects static delivery for static Astro output. Edit locally in dev; after Publish, rebuild so stored content is baked into static HTML. See [static delivery docs](https://github.com/web-stacked/caretcms/blob/main/docs/static-delivery.md).
 
 **Server sites:** use `output: "server"` with an SSR adapter and `caret()` for per-request rewriting in production.
 

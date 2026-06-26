@@ -15,11 +15,12 @@ export interface Preflight {
   caretWired: boolean;
   /** Output mode parsed from astro.config: "server" | "hybrid" | "static". */
   outputMode: string;
-  /** caret({ delivery: "static" }) appears to be configured. */
+  /** Static delivery is available either explicitly or via caret()'s auto default. */
   staticDeliveryConfigured: boolean;
   gitRepo: boolean;
   gitClean: boolean | null; // null when not a git repo
   errors: string[];
+  notes: string[];
   warnings: string[];
 }
 
@@ -78,9 +79,18 @@ export function preflight(rootDir: string): Preflight {
   // the warning below points the user at a mode that exists.
   const outputMatch = config?.match(/output\s*:\s*["'](server|static)["']/);
   const outputMode = outputMatch ? outputMatch[1] : "static";
+  const deliveryConfigured = config !== null && /delivery\s*:/.test(config);
+  const deliveryServerConfigured =
+    config !== null &&
+    /delivery\s*:\s*(?:(["'])server\1|\{[^}]*mode\s*:\s*(["'])server\2)/s.test(config);
+  const deliveryStaticOrAutoConfigured =
+    config !== null &&
+    /delivery\s*:\s*(?:(["'])(?:static|auto)\1|\{[^}]*mode\s*:\s*(["'])(?:static|auto)\2)/s.test(config);
   const staticDeliveryConfigured =
     config !== null &&
-    /delivery\s*:\s*(?:(["'])static\1|\{[^}]*mode\s*:\s*(["'])static\2)/s.test(config);
+    caretWired &&
+    !deliveryServerConfigured &&
+    (!deliveryConfigured || deliveryStaticOrAutoConfigured);
 
   let gitRepo = false;
   let gitClean: boolean | null = null;
@@ -97,6 +107,7 @@ export function preflight(rootDir: string): Preflight {
   }
 
   const errors: string[] = [];
+  const notes: string[] = [];
   const warnings: string[] = [];
   if (!isAstroProject) {
     errors.push("This does not look like an Astro project (no astro dependency or astro.config).");
@@ -111,12 +122,16 @@ export function preflight(rootDir: string): Preflight {
     );
   }
   if (hasCaretCore && outputMode === "static" && staticDeliveryConfigured) {
+    notes.push(
+      `static output detected — CaretCMS will use static delivery automatically. Public changes become live after Publish triggers a rebuild and HTML is baked.`,
+    );
+  } else if (hasCaretCore && outputMode === "static" && deliveryServerConfigured) {
     warnings.push(
-      `output is "static" with static delivery enabled — caretize can add bindings, and public changes become live after Publish triggers a rebuild and HTML is baked.`,
+      `output is "static" but CaretCMS delivery is "server" — use delivery: "auto" or remove the delivery option to bake static HTML, or switch Astro to output: "server" with an SSR adapter.`,
     );
   } else if (hasCaretCore && outputMode === "static") {
     warnings.push(
-      `output is "static" — run caretize init to enable static delivery with caret({ delivery: "static" }), or use output: "server" plus an SSR adapter.`,
+      `output is "static" — run caretize init to add caret(); CaretCMS will use automatic static delivery, or use output: "server" plus an SSR adapter for server delivery.`,
     );
   }
   if (gitRepo && gitClean === false) {
@@ -132,6 +147,7 @@ export function preflight(rootDir: string): Preflight {
     gitRepo,
     gitClean,
     errors,
+    notes,
     warnings,
   };
 }

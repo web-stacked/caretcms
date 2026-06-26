@@ -62,7 +62,7 @@ describe("formatScanSummary", () => {
 describe("formatNextStep", () => {
   const pf = (over: Partial<Preflight>): Preflight =>
     ({ isAstroProject: true, hasCaretCore: true, caretWired: true, outputMode: "server",
-       gitRepo: true, gitClean: true, errors: [], warnings: [], ...over } as Preflight);
+       gitRepo: true, gitClean: true, errors: [], notes: [], warnings: [], ...over } as Preflight);
 
   it("tells an un-installed project to install + wire core", () => {
     expect(formatNextStep(pf({ hasCaretCore: false }))).toContain("npx caretize init");
@@ -72,8 +72,8 @@ describe("formatNextStep", () => {
     expect(out).toContain("caret()");
     expect(out).not.toContain("npm i");
   });
-  it("tells a static-output project to enable static delivery", () => {
-    expect(formatNextStep(pf({ outputMode: "static" }))).toContain("static delivery");
+  it("tells a static-output project to use auto delivery", () => {
+    expect(formatNextStep(pf({ outputMode: "static" }))).toContain('delivery: "auto"');
   });
   it("explains the publish/rebuild flow when static delivery is configured", () => {
     expect(formatNextStep(pf({ outputMode: "static", staticDeliveryConfigured: true }))).toContain("bakes static HTML");

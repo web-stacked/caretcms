@@ -53,7 +53,7 @@ By default caretize applies the safe edits, then shows a diff you can undo with
 
   init                     set up CaretCMS first: install @caretcms/core, wire
                            caret() into astro.config, and scaffold .env. Static
-                           Astro projects use static delivery by default; server
+                           Astro projects use auto static delivery by default; server
                            projects keep SSR adapter wiring
   path                     file or directory to scan (default: src/)
   --review                 approve each default change before writing; the richer

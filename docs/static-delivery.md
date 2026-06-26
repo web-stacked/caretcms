@@ -42,18 +42,18 @@ import caret from '@caretcms/core';
 
 export default defineConfig({
   // output defaults to "static" in Astro — no adapter required
-  integrations: [
-    caret({ delivery: 'static' }),
-  ],
+  // caret() auto-selects static delivery for static Astro output
+  integrations: [caret()],
 });
 ```
 
-Or pass the expanded shape when you need a publish webhook:
+`caret()` is the recommended static-site setup. Use `delivery` only when you want
+to configure bake/publish behavior or explicitly pin the mode:
 
 ```js
 caret({
   delivery: {
-    mode: 'static',
+    // mode defaults to 'auto', so static Astro output still uses static delivery
     bake: true, // default for static delivery
     publish: {
       webhookUrl: process.env.CARET_REBUILD_WEBHOOK_URL,
@@ -64,13 +64,22 @@ caret({
 })
 ```
 
-`npx @caretcms/caretize init` scaffolds `caret({ delivery: "static" })` automatically
-for static Astro projects.
+You can also pass `delivery: 'static'` to make the integration validate that Astro
+is still running with static output.
+
+`npx @caretcms/caretize init` scaffolds `caret()` automatically for static Astro
+projects.
 
 ### 2. Tag editable content
 
-Add `data-caret` attributes (by hand or with `npx @caretcms/caretize`). Same binding
-model as server delivery — see [`packages/core/README.md`](../packages/core/README.md).
+Add `data-caret` attributes by hand, or let caretize do the first pass:
+
+```sh
+npx @caretcms/caretize
+```
+
+Same binding model as server delivery — see
+[`packages/core/README.md`](../packages/core/README.md).
 
 ### 3. Author locally
 
@@ -141,9 +150,10 @@ See [deployment.md](./deployment.md) for adapter topology and env vars.
 
 | Option | Default (static) | Notes |
 |---|---|---|
-| `delivery: 'static'` | — | Shorthand for `{ mode: 'static', bake: true }` |
-| `delivery.mode` | `'server'` if omitted | Must be `'static'` for this path |
-| `delivery.bake` | `true` when mode is static | Set `false` to skip HTML rewrite at build |
+| `delivery` | `'auto'` | Static Astro output resolves to static delivery; server output resolves to server delivery |
+| `delivery: 'static'` | — | Optional shorthand for `{ mode: 'static', bake: true }`; errors if Astro output is not static |
+| `delivery.mode` | `'auto'` if omitted | Use `'static'` only when you want to pin this path |
+| `delivery.bake` | `true` for effective static delivery | Set `false` to skip HTML rewrite at build |
 | `delivery.publish.webhookUrl` | none | Called after successful publish |
 | `delivery.publish.method` | `POST` | `POST` or `PUT` |
 | `delivery.publish.headers` | `{}` | Extra headers for the webhook |
@@ -153,9 +163,15 @@ as server delivery during dev authoring.
 
 ## Troubleshooting
 
-**Preflight warns that static output has no static delivery configured**
+**Preflight says static output is using auto/static delivery**
 
-Add `caret({ delivery: 'static' })` or run `npx @caretcms/caretize init`.
+That is expected when `caret()` is wired in a static Astro project. Public changes
+still need Publish + rebuild + deploy.
+
+**Preflight warns that static output is using server delivery**
+
+Remove `delivery: 'server'`, change it to `delivery: 'auto'`, or run
+`npx @caretcms/caretize init` to let static output use build-time baking.
 
 **Edits work in dev but not on the deployed site**
 

@@ -11,10 +11,11 @@ const SERVER_ALL: WiringNeeds = { caret: true, adapter: true, output: true, stat
 const STATIC_ALL: WiringNeeds = { caret: true, adapter: false, output: false, staticDelivery: true };
 
 describe("freshConfig", () => {
-  it("defaults to static delivery config", () => {
+  it("defaults to Astro static output with auto delivery", () => {
     const c = freshConfig();
     expect(c).toMatch(/import caret from '@caretcms\/core';/);
-    expect(c).toMatch(/delivery: "static"/);
+    expect(c).toMatch(/integrations: \[caret\(\)\]/);
+    expect(c).not.toMatch(/delivery:/);
     expect(c).not.toMatch(/@astrojs\/node/);
     expect(c).not.toMatch(/output: 'server'/);
     expect(c).not.toMatch(/adapter:/);
@@ -77,24 +78,33 @@ describe("planConfigWiring", () => {
     expect(r.output).not.toMatch(/caret\(\), \]/);
   });
 
-  it("wires static delivery into a minimal static config without server adapter", () => {
+  it("wires caret into a minimal static config without server adapter", () => {
     const src = `import { defineConfig } from 'astro/config';\n\nexport default defineConfig({});\n`;
     const r = planConfigWiring(src, STATIC_ALL);
     expect(r.ok).toBe(true);
     expect(r.output).toMatch(/import caret from '@caretcms\/core';/);
-    expect(r.output).toMatch(/integrations: \[caret\(\{ delivery: "static" \}\)\]/);
+    expect(r.output).toMatch(/integrations: \[caret\(\)\]/);
     expect(r.output).not.toMatch(/@astrojs\/node/);
     expect(r.output).not.toMatch(/output: 'server'/);
     expect(r.output).not.toMatch(/adapter:/);
     expect(stripped(r.output, src)).toBe(true);
   });
 
-  it("adds static delivery into an existing caret() call by insertion", () => {
+  it("leaves an existing caret() call alone for static auto delivery", () => {
     const src = `import caret from '@caretcms/core';\n\nexport default defineConfig({ integrations: [caret()] });\n`;
     const r = planConfigWiring(src, { caret: false, adapter: false, output: false, staticDelivery: true });
     expect(r.ok).toBe(true);
-    expect(r.output).toMatch(/caret\(\{ delivery: "static" \}\)/);
+    expect(r.output).toBe(src);
+    expect(r.inserted).toEqual([]);
     expect(stripped(r.output, src)).toBe(true);
+  });
+
+  it("surfaces explicit server delivery in static configs as a manual fix", () => {
+    const src = `import caret from '@caretcms/core';\n\nexport default defineConfig({ integrations: [caret({ delivery: "server" })] });\n`;
+    const r = planConfigWiring(src, { caret: false, adapter: false, output: false, staticDelivery: true });
+    expect(r.ok).toBe(true);
+    expect(r.output).toBe(src);
+    expect(r.manual.join(" ")).toContain('delivery: "server"');
   });
 
   it("flags an existing non-server output as manual rather than rewriting it", () => {

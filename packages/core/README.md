@@ -10,11 +10,14 @@ Inline editing and live content collections for Astro. Add one HTML attribute to
 npm install @caretcms/core
 ```
 
-**Static Astro site?** Use static delivery — no SSR adapter:
+**Static Astro site?** Use `caret()` — no SSR adapter:
 
 ```js
-integrations: [caret({ delivery: 'static' })],
+integrations: [caret()],
 ```
+
+`caret()` auto-detects Astro output: static output gets build-time baking, server
+output gets middleware rewriting.
 
 **Server-rendered site?** Add an adapter and server output:
 
@@ -32,6 +35,14 @@ See [Static delivery](../../docs/static-delivery.md) and [Rendering & output](#r
 
 ## Setup
 
+Fast path for an existing Astro site:
+
+```bash
+npx @caretcms/caretize init
+npx @caretcms/caretize
+npm run dev
+```
+
 ### Static delivery (default path for static Astro sites)
 
 ```js
@@ -40,7 +51,8 @@ import { defineConfig } from 'astro/config';
 import caret from '@caretcms/core';
 
 export default defineConfig({
-  integrations: [caret({ delivery: 'static' })],
+  // Astro defaults to output: 'static'; caret() auto-selects static delivery.
+  integrations: [caret()],
 });
 ```
 
@@ -109,7 +121,7 @@ With no password configured, a **temporary dev password is printed in the termin
 production stays locked). To set a permanent one, add `CARET_EDIT_PASSWORD=<your-password>` to a
 `.env` file.
 
-Log in at `/admin`, then click any annotated element on the page to edit it. The content Studio
+Log in at `/admin`, then click any tagged element on the page to edit it. The content Studio
 lives at `/admin/cms`.
 
 The inline editor only bootstraps on pages that contain `data-caret` bindings and only after
@@ -267,7 +279,7 @@ caret({
   apiBasePath: '/api/cms',      // API route prefix (default: /api/cms)
   enableAdmin: true,            // Inject admin pages (default: true)
   enableInlineEditor: true,     // Inject inline editor (default: true)
-  delivery: 'static',           // 'static' | 'server' | { mode, bake, publish }
+  delivery: 'auto',             // 'auto' | 'static' | 'server' | { mode, bake, publish }
   storage: filesystemStorage(), // Storage adapter (default: markdownStorage when
                                 //   src/content collections exist, else filesystem)
   uploads: localUploads(),      // Upload handler (default: local filesystem)
@@ -277,11 +289,13 @@ caret({
 
 ## Rendering & output
 
-CaretCMS supports two delivery modes via `delivery`:
+CaretCMS defaults to automatic delivery. With `caret()` or `delivery: 'auto'`, Astro
+`output: 'static'` uses static delivery and Astro `output: 'server'` uses server
+delivery.
 
-| | **Static delivery** | **Server delivery** (default) |
+| | **Static delivery** | **Server delivery** |
 |---|---|---|
-| Config | `caret({ delivery: 'static' })` | `caret()` on `output: 'server'` + adapter |
+| Config | `caret()` on default/static output | `caret()` on `output: 'server'` + adapter |
 | Public HTML | Baked at `astro build` | Rewritten per request in middleware |
 | Production CMS routes | Not shipped in static output | `/admin`, `/api/cms` live on the server |
 | Visitor sees edits | After publish + rebuild | Immediately after save |
@@ -290,12 +304,13 @@ CaretCMS supports two delivery modes via `delivery`:
 ### Static delivery
 
 Use when your site stays `output: 'static'`. Local authoring works in `astro dev`; production
-is plain static files with content baked in.
+is plain static files with content baked in. `caret()` is enough; pass `delivery`
+only when you want to configure bake/publish behavior or explicitly pin the mode.
 
 ```js
 caret({
   delivery: {
-    mode: 'static',
+    // mode defaults to 'auto', so static Astro output still uses static delivery
     bake: true,
     publish: {
       webhookUrl: 'https://ci.example.com/hooks/rebuild',
@@ -303,6 +318,9 @@ caret({
   },
 })
 ```
+
+Use `delivery: 'static'` when you want the integration to error if Astro output is
+changed away from static.
 
 Full guide: [docs/static-delivery.md](../../docs/static-delivery.md).
 

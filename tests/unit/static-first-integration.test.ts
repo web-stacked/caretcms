@@ -63,12 +63,26 @@ describe("static delivery integration setup", () => {
     await rm(rootDir, { recursive: true, force: true });
   });
 
-  it("keeps the existing static-output guard when static delivery is disabled", () => {
+  it("uses auto delivery for static builds by default", () => {
     const calls = runSetup({ command: "build", output: "static", rootDir });
 
     expect(calls.middleware).toBe(0);
     expect(calls.routes).toEqual([]);
-    expect(calls.warn.join("\n")).toContain("needs Astro server output");
+    expect(calls.info.join("\n")).toContain("static delivery enabled");
+    expect(calls.warn).toEqual([]);
+  });
+
+  it("keeps the static-output guard when server delivery is explicitly selected", () => {
+    const calls = runSetup({
+      command: "build",
+      output: "static",
+      rootDir,
+      options: { delivery: "server" },
+    });
+
+    expect(calls.middleware).toBe(0);
+    expect(calls.routes).toEqual([]);
+    expect(calls.warn.join("\n")).toContain('delivery: "server" needs Astro output: "server"');
   });
 
   it("skips authoring routes during static builds when static delivery is enabled", () => {
@@ -97,5 +111,16 @@ describe("static delivery integration setup", () => {
     expect(calls.routes).toContain("/api/cms/publish");
     expect(calls.routes).toContain("/__caret/[...path]");
     expect(calls.info.join("\n")).toContain("static delivery dev authoring enabled");
+  });
+
+  it("fails clearly when static delivery is paired with server output", () => {
+    expect(() =>
+      runSetup({
+        command: "build",
+        output: "server",
+        rootDir,
+        options: { delivery: "static" },
+      }),
+    ).toThrow(/delivery: "static" requires Astro output: "static"/);
   });
 });

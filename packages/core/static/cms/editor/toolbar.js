@@ -53,9 +53,9 @@ function renderDraftControls(staticDelivery) {
   if (!staticDelivery) return '';
 
   return `
-        <button class="cms-publish-btn cms-go-live-btn" type="button" title="Push your draft changes to the live site">
+        <button class="cms-publish-btn cms-go-live-btn" type="button" title="Publish drafts; static visitors update after rebuild and deploy">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/></svg>
-          <span class="cms-go-live-label">Go live</span>
+          <span class="cms-go-live-label">Publish</span>
         </button>
         <button class="cms-discard-btn" type="button" title="Discard your draft changes">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -74,7 +74,7 @@ function renderToolbar(navLinks, staticDelivery) {
 
   const badgeLabel = staticDelivery ? 'Draft' : 'Live';
   const badgeHint = staticDelivery
-    ? 'Not on your site until you go live'
+    ? 'Draft preview; visitors update after publish, rebuild, and deploy'
     : 'Changes save directly to your site';
 
   const toolbar = document.createElement('div');
@@ -168,16 +168,16 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
   }
 
   async function publishDrafts() {
-    setStatus('saving', 'Going live…');
+    setStatus('saving', 'Publishing…');
     try {
       const res = await draftRequest('POST', '/publish');
       if (!res.ok) throw new Error('publish failed');
       const data = await res.json();
       const n = Array.isArray(data.published) ? data.published.length : 0;
       if (data.rebuild?.triggered && data.rebuild.ok === false) {
-        setStatus('error', 'Live, but deploy failed');
+        setStatus('error', 'Published, deploy failed');
         showToast(
-          'Changes are saved, but the deploy webhook failed. Check your CI settings.',
+          'Changes are published, but the deploy webhook failed. Check your CI settings.',
           'error',
         );
         return false;
@@ -185,18 +185,23 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
       if (data.rebuild?.triggered) {
         showToast(
           n > 0
-            ? `Went live with ${n} change(s) — your site is rebuilding`
+            ? `Published ${n} change(s) — rebuild started`
             : 'Your site is rebuilding',
           'success',
         );
       } else {
-        showToast(n > 0 ? `Went live with ${n} change(s)` : 'Already up to date', 'success');
+        showToast(
+          n > 0
+            ? `Published ${n} change(s) — rebuild and deploy to update visitors`
+            : 'Already up to date',
+          'success',
+        );
       }
       window.location.reload();
       return true;
     } catch {
-      setStatus('error', 'Go live failed');
-      showToast('Go live failed', 'error');
+      setStatus('error', 'Publish failed');
+      showToast('Publish failed', 'error');
       return false;
     }
   }
@@ -206,7 +211,7 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
       const count = await fetchDraftCount();
       if (count > 0) {
         const goLive = window.confirm(
-          `You have ${count} unpublished change${count === 1 ? '' : 's'}. Go live before signing out?`,
+          `You have ${count} unpublished change${count === 1 ? '' : 's'}. Publish before signing out?`,
         );
         if (goLive) {
           await publishDrafts();
@@ -235,7 +240,7 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
     if (
       !window.confirm(
         staticDelivery
-          ? 'Push all your draft changes to the live site?'
+          ? 'Publish all draft changes? Static visitors update after rebuild and deploy.'
           : 'Publish all your draft changes to the live site?',
       )
     ) {

@@ -115,7 +115,8 @@ export function formatNextStep(pf: Preflight): string {
     return (
       `Next: make these editable — install + wire CaretCMS:\n` +
       `    npx caretize init\n` +
-      `  Static Astro projects use caret({ delivery: "static" }) by default.\n`
+      `    npx caretize\n` +
+      `  Static Astro projects use caret() with automatic static delivery by default.\n`
     );
   }
   if (!pf.caretWired) {
@@ -126,10 +127,10 @@ export function formatNextStep(pf: Preflight): string {
   }
   if (pf.outputMode === "static") {
     if (pf.staticDeliveryConfigured) {
-      return `Next: npm run dev → sign in at /admin → edit locally; Publish + rebuild bakes static HTML.\n`;
+      return `Next: npm run dev → sign in at /admin → edit tagged content locally; Publish + rebuild bakes static HTML.\n`;
     }
     return (
-      `Next: enable static delivery with caret({ delivery: "static" })\n` +
+      `Next: add caret() with delivery: "auto" (the default) for static HTML baking,\n` +
       `  or run: npx caretize init\n`
     );
   }

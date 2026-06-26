@@ -13,6 +13,9 @@ it changes — the rest of CaretCMS works the same either way.
 
 Static delivery guide: [static-delivery.md](./static-delivery.md).
 
+`caret()` uses `delivery: "auto"` by default: static Astro output resolves to static
+delivery, and server output resolves to server delivery.
+
 ## The matrix
 
 | | **Filesystem + git** (editorial) | **Cloudflare KV/R2** (edge / high-write) |

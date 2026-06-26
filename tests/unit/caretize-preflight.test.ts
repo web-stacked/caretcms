@@ -29,6 +29,7 @@ describe("preflight", () => {
     expect(pf.outputMode).toBe("server");
     expect(pf.errors).toEqual([]);
     expect(pf.warnings.join(" ")).not.toMatch(/caret\(\) is not|output is/);
+    expect(pf.notes).toEqual([]);
   });
 
   it("warns when @caretcms/core is installed but caret() is not in the config", () => {
@@ -39,24 +40,33 @@ describe("preflight", () => {
     expect(pf.warnings.some((w) => /caret\(\) is not in astro\.config/.test(w))).toBe(true);
   });
 
-  it("warns about static output when CaretCMS is present", () => {
+  it("treats static output plus caret() as auto static delivery", () => {
     pkg({ astro: "^6", "@caretcms/core": "^0.1.0" });
     config(`import caret from "@caretcms/core";\nexport default defineConfig({ output: "static", integrations: [caret()] });`);
     const pf = preflight(dir);
     expect(pf.outputMode).toBe("static");
-    expect(pf.staticDeliveryConfigured).toBe(false);
-    expect(pf.warnings.some((w) => /output is "static"/.test(w))).toBe(true);
-    expect(pf.warnings.join(" ")).toContain("delivery");
+    expect(pf.staticDeliveryConfigured).toBe(true);
+    expect(pf.warnings.join(" ")).not.toContain("auto/static delivery enabled");
+    expect(pf.notes.join(" ")).toContain("static output detected");
+    expect(pf.notes.join(" ")).toContain("static delivery automatically");
   });
 
-  it("recognizes static delivery output and explains the rebuild boundary", () => {
+  it("recognizes explicit static delivery output and explains the rebuild boundary", () => {
     pkg({ astro: "^6", "@caretcms/core": "^0.1.0" });
     config(`import caret from "@caretcms/core";\nexport default defineConfig({ output: "static", integrations: [caret({ delivery: "static" })] });`);
     const pf = preflight(dir);
     expect(pf.outputMode).toBe("static");
     expect(pf.staticDeliveryConfigured).toBe(true);
-    expect(pf.warnings.join(" ")).toContain("static delivery enabled");
-    expect(pf.warnings.join(" ")).toContain("rebuild");
+    expect(pf.notes.join(" ")).toContain("static delivery automatically");
+    expect(pf.notes.join(" ")).toContain("rebuild");
+  });
+
+  it("warns when static output explicitly selects server delivery", () => {
+    pkg({ astro: "^6", "@caretcms/core": "^0.1.0" });
+    config(`import caret from "@caretcms/core";\nexport default defineConfig({ output: "static", integrations: [caret({ delivery: "server" })] });`);
+    const pf = preflight(dir);
+    expect(pf.staticDeliveryConfigured).toBe(false);
+    expect(pf.warnings.join(" ")).toContain('delivery is "server"');
   });
 
   it("defaults outputMode to static when unset", () => {
