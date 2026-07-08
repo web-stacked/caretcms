@@ -75,7 +75,11 @@ export async function publishOverlay(
       if (isTombstoneData(draft.data)) {
         await base.deleteEntry(collection, id);
         await overlay.deleteEntry(collection, id);
-        return { collection, id, revision: await base.getRevision(collection, id), deleted: true };
+        // Contract: a deleted entry reports revision 0. `deleteEntry` doesn't
+        // necessarily clear the revision counter (filesystem keeps it for ABA
+        // safety), so getRevision would return a stale non-zero value — return 0
+        // explicitly to match PublishedEntry's documented meaning.
+        return { collection, id, revision: 0, deleted: true };
       }
 
       const before = await base.getEntry(collection, id);

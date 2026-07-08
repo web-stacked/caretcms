@@ -71,7 +71,22 @@ const CARET_ELEMENT_PATTERN = new RegExp(
 const IMG_ELEMENT_PATTERN =
   /<img\b([^>]*?\bdata-caret\s*=\s*"([^"]*)"[^>]*?)\/?>/;
 
-const TAG_PATTERN = /<\/?([a-zA-Z][\w:-]*)\b[^>]*>/;
+// Scans the document to maintain the scope-frame stack. Matches EITHER a whole
+// HTML comment OR a start/end tag. Handling both keeps tag-like text the browser
+// never treats as a tag from corrupting the stack:
+//   - `<!-- <div> -->` — the comment is consumed whole, so the inner `<div>`
+//     never pushes a frame.
+//   - a `>` inside a quoted attribute (`<a title="a>b">`) — the attribute body
+//     matches quoted runs, so the tag closes on the real `>`, not the one in the
+//     value. Branches are mutually exclusive on their first char ("/'/other), so
+//     there is no ambiguous backtracking (ReDoS-safe).
+// Rawtext bodies (<script>/<style>/…) are skipped in advanceScopeStack itself.
+// Group 1 = tag name (undefined for the comment branch).
+const TAG_PATTERN = /<!--[\s\S]*?-->|<\/?([a-zA-Z][\w:-]*)(?:"[^"]*"|'[^']*'|[^>"'])*>/;
+
+// Elements whose content is raw text (CDATA-like), so `<div>`-looking substrings
+// inside them are NOT tags and must not touch the scope stack.
+const RAWTEXT_TAGS = new Set(["script", "style", "textarea", "title"]);
 
 const SCOPE_ATTR_RE = /\bdata-caret-scope\s*=\s*"([^"]+)"/i;
 const RICH_ATTR_RE = /\bdata-caret-rich\b/i;
@@ -127,12 +142,30 @@ function advanceScopeStack(
     if (match.index >= untilIndex) break;
 
     const tagHtml = match[0];
+    // Comment branch (no tag-name capture): consumed whole, nothing to track.
+    if (match[1] === undefined) {
+      state.cursor = tagRe.lastIndex;
+      continue;
+    }
+
     const tagName = match[1].toLowerCase();
     const isClosing = tagHtml.startsWith("</");
     const isSelfClosing = !isClosing && (tagHtml.endsWith("/>") || VOID_TAGS.has(tagName));
 
     if (isClosing) {
       popFrame(state.stack, tagName);
+      state.cursor = tagRe.lastIndex;
+      continue;
+    }
+
+    // Rawtext element: skip its entire body so tag-like text inside (e.g.
+    // `if (a < b)` in a <script>, or `</div>` in a <textarea> template) can't
+    // push/pop frames. Rawtext can't nest, so the first matching close wins.
+    if (!isSelfClosing && RAWTEXT_TAGS.has(tagName)) {
+      const closeRe = new RegExp(`</${tagName}\\b`, "gi");
+      closeRe.lastIndex = tagRe.lastIndex;
+      const close = closeRe.exec(html);
+      tagRe.lastIndex = close ? close.index + close[0].length : html.length;
       state.cursor = tagRe.lastIndex;
       continue;
     }

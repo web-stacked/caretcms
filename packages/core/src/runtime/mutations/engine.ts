@@ -19,14 +19,22 @@ const mutationLocks = new Map<string, Promise<unknown>>();
 function withLock<T>(key: string, task: () => Promise<T>): Promise<T> {
   const previous = mutationLocks.get(key) ?? Promise.resolve();
   const next = previous.then(task, task);
-  mutationLocks.set(
-    key,
-    next.finally(() => {
-      if (mutationLocks.get(key) === next) {
-        mutationLocks.delete(key);
-      }
-    }),
+  // The value stored for the NEXT waiter must never reject: a rejected stored
+  // promise with no attached handler surfaces as a process-level unhandled
+  // rejection when `task` throws (e.g. a full or read-only disk). Chain the
+  // queue on a settled gate that swallows the rejection; the CALLER still
+  // observes `next` with its rejection intact. Mirrors the tail pattern in
+  // quota-upload-handler.ts.
+  const gate = next.then(
+    () => {},
+    () => {},
   );
+  const stored: Promise<unknown> = gate.then(() => {
+    if (mutationLocks.get(key) === stored) {
+      mutationLocks.delete(key);
+    }
+  });
+  mutationLocks.set(key, stored);
   return next;
 }
 
@@ -268,31 +276,35 @@ async function applyCreateCollection(
 ): Promise<MutationResult> {
   const { id, label, description, icon, creatable, orderable, schema } = command;
 
-  // Check if collection already exists
-  const exists = await adapter.isKnownCollection(id);
-  if (exists) {
-    return fail(409, `Collection "${id}" already exists`);
-  }
+  // Hold the collection lock so the exists-check → create is atomic (two
+  // concurrent creates can't both pass the check) and serializes against a
+  // concurrent delete_collection / reorder_entries on the same collection.
+  return withLock(collectionKey(id), async () => {
+    const exists = await adapter.isKnownCollection(id);
+    if (exists) {
+      return fail(409, `Collection "${id}" already exists`);
+    }
 
-  const metadata = {
-    id,
-    label,
-    description,
-    icon,
-    creatable: creatable ?? true,
-    orderable: orderable ?? false,
-    schema,
-    created_at: Date.now(),
-    updated_at: Date.now(),
-  };
+    const metadata = {
+      id,
+      label,
+      description,
+      icon,
+      creatable: creatable ?? true,
+      orderable: orderable ?? false,
+      schema,
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    };
 
-  try {
-    await adapter.createCollection(metadata);
-    return { ok: true, body: { ok: true } };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to create collection";
-    return fail(500, message);
-  }
+    try {
+      await adapter.createCollection(metadata);
+      return { ok: true, body: { ok: true } };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to create collection";
+      return fail(500, message);
+    }
+  });
 }
 
 async function applyDeleteCollection(
@@ -301,19 +313,22 @@ async function applyDeleteCollection(
 ): Promise<MutationResult> {
   const { id } = command;
 
-  // Check if collection exists
-  const exists = await adapter.isKnownCollection(id);
-  if (!exists) {
-    return fail(404, `Collection "${id}" not found`);
-  }
+  // Hold the collection lock (same key reorder_entries acquires) so a delete
+  // can't interleave with an in-flight reorder/create on the same collection.
+  return withLock(collectionKey(id), async () => {
+    const exists = await adapter.isKnownCollection(id);
+    if (!exists) {
+      return fail(404, `Collection "${id}" not found`);
+    }
 
-  try {
-    await adapter.deleteCollection(id);
-    return { ok: true, body: { ok: true } };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to delete collection";
-    return fail(500, message);
-  }
+    try {
+      await adapter.deleteCollection(id);
+      return { ok: true, body: { ok: true } };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete collection";
+      return fail(500, message);
+    }
+  });
 }
 
 export async function executeMutation(adapter: StorageAdapter, input: unknown): Promise<MutationResult> {

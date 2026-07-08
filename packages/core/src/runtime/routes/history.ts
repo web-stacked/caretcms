@@ -52,27 +52,33 @@ export async function POST(context: APIContext): Promise<Response> {
     return json({ error: "Invalid restore payload" }, 400);
   }
 
-  const entries = await adapter.getHistory(collectionRaw, id);
-  const snapshot = entries.find((entry) => entry.ts === ts);
-  if (!snapshot) return json({ error: "Snapshot not found" }, 404);
-  if (!snapshot.data || typeof snapshot.data !== "object" || Array.isArray(snapshot.data)) {
-    return json({ error: "Snapshot data invalid" }, 500);
-  }
-  const snapshotData = snapshot.data as Record<string, unknown>;
+  try {
+    const entries = await adapter.getHistory(collectionRaw, id);
+    const snapshot = entries.find((entry) => entry.ts === ts);
+    if (!snapshot) return json({ error: "Snapshot not found" }, 404);
+    if (!snapshot.data || typeof snapshot.data !== "object" || Array.isArray(snapshot.data)) {
+      return json({ error: "Snapshot data invalid" }, 500);
+    }
+    const snapshotData = snapshot.data as Record<string, unknown>;
 
-  // Hold the engine's per-entry lock so the restore can't interleave with a
-  // concurrent save_field/put_entry and tear the entry/revision pair. Write
-  // before appending history so a failed write doesn't record a phantom event.
-  const revision = await withEntryLock(collectionRaw, id, async () => {
-    await adapter.writeEntry(collectionRaw, id, snapshotData);
-    const next = await adapter.bumpRevision(collectionRaw, id);
-    await adapter.appendHistory(collectionRaw, id, {
-      ts: Date.now(),
-      action: "restore",
-      data: snapshotData,
+    // Hold the engine's per-entry lock so the restore can't interleave with a
+    // concurrent save_field/put_entry and tear the entry/revision pair. Write
+    // before appending history so a failed write doesn't record a phantom event.
+    const revision = await withEntryLock(collectionRaw, id, async () => {
+      await adapter.writeEntry(collectionRaw, id, snapshotData);
+      const next = await adapter.bumpRevision(collectionRaw, id);
+      await adapter.appendHistory(collectionRaw, id, {
+        ts: Date.now(),
+        action: "restore",
+        data: snapshotData,
+      });
+      return next;
     });
-    return next;
-  });
 
-  return json({ ok: true, revision });
+    return json({ ok: true, revision });
+  } catch (error) {
+    // An adapter throw must not leak a stack/path via a framework 500.
+    console.error("[caretcms] History restore failed:", error);
+    return json({ error: "Restore failed" }, 500);
+  }
 }

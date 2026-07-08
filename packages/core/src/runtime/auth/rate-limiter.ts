@@ -79,6 +79,11 @@ export function extractRateLimitKey(request: Request): string {
   // X-Forwarded-For per request to mint unlimited fresh buckets and bypass the
   // brute-force limit entirely. When the proxy isn't trusted we fall back to a
   // single shared "unknown" bucket — a coarser limit, but not spoofable.
+  //
+  // Tradeoff (C5): the shared bucket means one attacker's failed attempts also
+  // rate-limit legitimate logins during the window (a login DoS). Set
+  // CARET_TRUST_PROXY behind a proxy that sets a trustworthy client-IP header to
+  // get per-client buckets; leave it unset only when no such proxy exists.
   if (isProxyTrusted()) {
     const headers = request.headers;
     const candidates = [

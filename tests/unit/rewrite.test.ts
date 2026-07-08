@@ -75,6 +75,59 @@ describe('rewriteCaretAttributes', () => {
     expect(result).not.toContain('Stored');
   });
 
+  // C6: the scope-frame stack is maintained by scanning tags between the cursor
+  // and each binding. Tag-like text that the browser never treats as a tag —
+  // inside comments, <script>/<style>/<textarea> bodies, or a quoted attribute
+  // value containing `>` — must NOT corrupt the stack, or a field-only binding
+  // resolves against the wrong collection::id.
+  it('ignores tags inside HTML comments when tracking scope', async () => {
+    const adapter = makeAdapter({
+      pages: { about: { hero_desc: 'Stored Desc' } },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const html = `
+      <section data-caret-scope="pages::about">
+        <!-- <div data-caret-scope="pages::other"> a commented-out block </div> -->
+        <p data-caret="hero_desc">Default Desc</p>
+      </section>
+    `;
+    const result = await rewriteCaretAttributes(html, adapter);
+    expect(result).toContain('Stored Desc');
+  });
+
+  it('ignores tag-like text inside <script> bodies when tracking scope', async () => {
+    const adapter = makeAdapter({
+      pages: { about: { hero_desc: 'Stored Desc' } },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const html = `
+      <section data-caret-scope="pages::about">
+        <script>if (a < b && c > d) { render('<section>'); }</script>
+        <p data-caret="hero_desc">Default Desc</p>
+      </section>
+    `;
+    const result = await rewriteCaretAttributes(html, adapter);
+    expect(result).toContain('Stored Desc');
+  });
+
+  it('closes tags on the real > not a > inside a quoted attribute', async () => {
+    const adapter = makeAdapter({
+      pages: { about: { hero_desc: 'Stored Desc' } },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const html = `
+      <section data-caret-scope="pages::about">
+        <a href="/search?q=a>b" title="x>y">link</a>
+        <p data-caret="hero_desc">Default Desc</p>
+      </section>
+    `;
+    const result = await rewriteCaretAttributes(html, adapter);
+    expect(result).toContain('Stored Desc');
+  });
+
   it('does not leak scope across sibling sections', async () => {
     const adapter = makeAdapter({
       pages: { first: { title: 'Stored First Title' } },

@@ -33,9 +33,18 @@ export async function POST(context: APIContext): Promise<Response> {
   if (!parsed.ok) return parsed.response;
 
   const adapter = await resolveAdapter();
-  const result = await executeMutation(adapter, parsed.value);
-  if (!result.ok) {
-    return json(result.body as Record<string, unknown>, result.status);
+
+  try {
+    const result = await executeMutation(adapter, parsed.value);
+    if (!result.ok) {
+      return json(result.body as Record<string, unknown>, result.status);
+    }
+    return json(result.body as Record<string, unknown>, 200);
+  } catch (error) {
+    // An adapter throw (full/read-only disk, KV outage) must surface as a
+    // curated JSON error, not a framework 500 that can leak a stack or a
+    // filesystem path. Log server-side, return an opaque message.
+    console.error("[caretcms] Mutation failed:", error);
+    return json({ error: "Mutation failed" }, 500);
   }
-  return json(result.body as Record<string, unknown>, 200);
 }

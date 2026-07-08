@@ -37,13 +37,18 @@ const writeChains = new Map<string, Promise<unknown>>();
 export function serializeWrite<T>(key: string, task: () => Promise<T>): Promise<T> {
   const previous = writeChains.get(key) ?? Promise.resolve();
   const next = previous.then(task, task);
-  writeChains.set(
-    key,
-    next.finally(() => {
-      if (writeChains.get(key) === next) {
-        writeChains.delete(key);
-      }
-    }),
+  // The stored promise must never reject: an unhandled rejection there (when
+  // `task` throws on a full/read-only disk) crashes the process. Chain the queue
+  // on a settled gate that swallows the rejection; the caller still sees `next`.
+  const gate = next.then(
+    () => {},
+    () => {},
   );
+  const stored: Promise<unknown> = gate.then(() => {
+    if (writeChains.get(key) === stored) {
+      writeChains.delete(key);
+    }
+  });
+  writeChains.set(key, stored);
   return next;
 }

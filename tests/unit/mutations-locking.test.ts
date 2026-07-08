@@ -94,6 +94,74 @@ describe('mutation engine optimistic locking', () => {
     expect(result.status).toBe(400);
   });
 
+  it('recovers the per-key lock after a task throws, with no unhandled rejection (C1)', async () => {
+    const rejections: unknown[] = [];
+    const onRejection = (err: unknown) => rejections.push(err);
+    process.on('unhandledRejection', onRejection);
+    try {
+      const adapter = freshAdapter();
+      // Make the first write throw (simulate a full/read-only disk).
+      let failNext = true;
+      const original = adapter.writeEntry.bind(adapter);
+      adapter.writeEntry = async (collection, id, data) => {
+        if (failNext) {
+          failNext = false;
+          throw new Error('disk full');
+        }
+        return original(collection, id, data);
+      };
+
+      await expect(
+        executeMutation(adapter, {
+          type: 'save_field',
+          collection: 'pages',
+          id: 'home',
+          field: 'headline',
+          value: 'first',
+        }),
+      ).rejects.toThrow('disk full');
+
+      // The next write on the SAME key must not deadlock and must succeed —
+      // proving the lock chain recovered after the rejection.
+      const recovered = await executeMutation(adapter, {
+        type: 'save_field',
+        collection: 'pages',
+        id: 'home',
+        field: 'headline',
+        value: 'second',
+      });
+      expect(recovered.ok).toBe(true);
+
+      // The stored lock promise must have swallowed the rejection: give any
+      // dangling unhandled rejection a chance to surface, then assert none did.
+      await new Promise((r) => setTimeout(r, 10));
+      expect(rejections).toHaveLength(0);
+    } finally {
+      process.off('unhandledRejection', onRejection);
+    }
+  });
+
+  it('serializes create_collection so two concurrent creates conflict (C3)', async () => {
+    const adapter = new InMemoryAdapter();
+    const meta = {
+      type: 'create_collection' as const,
+      id: 'blog',
+      label: 'Blog',
+      creatable: true,
+      orderable: false,
+      schema: { type: 'object', properties: {} },
+    };
+    const [a, b] = await Promise.all([
+      executeMutation(adapter, meta),
+      executeMutation(adapter, meta),
+    ]);
+    // Exactly one wins; the other sees the collection already exists (409).
+    const oks = [a, b].filter((r) => r.ok).length;
+    const conflicts = [a, b].filter((r) => !r.ok && r.status === 409).length;
+    expect(oks).toBe(1);
+    expect(conflicts).toBe(1);
+  });
+
   it('serializes reorder against a concurrent save_field on a participating entry', async () => {
     const adapter = new InMemoryAdapter();
     adapter.preload('pages', [
