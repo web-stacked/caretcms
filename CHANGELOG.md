@@ -8,6 +8,69 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+### Added
+
+- **Astro 7 live-collection cache tags.** `caretLoader()` now attaches Astro 7
+  `cacheHint` tags (`caret:<collection>`, `caret:<collection>::<id>`) to published
+  content so routes/CDNs can cache it and a publish can purge it by tag. Editor
+  and draft requests carry no hint — they must always render the latest edit.
+
+### Security
+
+- **Auth: no forgeable sessions in a locked deployment.** When no editor password
+  is configured, production builds no longer sign sessions with the public dev
+  fallback secret — a "locked" (read-only) deployment could otherwise be unlocked
+  with an attacker-forged `caret_session` cookie. The fallback is now gated on a
+  build-time dev signal (reliable on Cloudflare Workers, unlike `NODE_ENV`).
+- **Auth: Worker env bindings honored.** `CARET_EDIT_PASSWORD` /
+  `CARET_SESSION_SECRET` are now read from the Cloudflare Worker `env`, not just
+  `process.env`, so binding-only deployments authenticate (and don't silently
+  fall through to the public fallback secret).
+- **Rich-text links** reject protocol-relative URLs (`//evil.com`), closing an
+  open-redirect/phishing vector; embedded config JSON and theme-token CSS are now
+  escaped/validated before injection.
+
+### Changed
+
+- **Astro 7 support (toolchain modernized).** Verified and pinned to Astro 7.0.6 /
+  Vite 8 / `@astrojs/compiler` 4 / Vitest 4.1.10 / fast-check 4 / Tailwind 4.3.2.
+  Core's Astro peer range is now `^6.0.0 || ^7.0.0` (**Astro 5 is no longer
+  supported**), and **Node 20 is dropped** — Astro 7 requires Node `>=22.12.0`.
+  caretize's `.astro` source parsing works unchanged against compiler 4; the e2e
+  harness was adapted to Astro 7's new managed **background dev server** (`astro
+  dev` now daemonizes) via a small foreground wrapper.
+- **Embedded delivery defaults to `auto`.** `caret()` now resolves delivery mode
+  automatically for embedded setups.
+- **Inline editor: 409 conflicts no longer destroy your edit.** A save conflict
+  keeps your text in the field and offers an explicit "Keep mine / Load latest"
+  choice instead of silently overwriting it (inline and in the Studio).
+- **Studio panel is an overlay drawer** and no longer reflows host layout or
+  depends on a hard-coded `#main-header` selector (opt back into content-push
+  with the `caret-push-content` body class).
+
+### Fixed
+
+- Mutation write path: unhandled promise rejection from the per-key locks on
+  adapter failure; `mutate` / history-restore routes now return curated JSON
+  errors instead of leaking a framework 500.
+- `create_collection` / `delete_collection` now run under the collection lock
+  (TOCTOU + serialization against `reorder_entries`).
+- Rewrite scope-stack no longer mis-tracks bindings across HTML comments,
+  `<script>`/`<style>` bodies, or `>`-in-attribute values.
+- Editor a11y: `aria-live` status + `role="alert"` toasts, keyboard-visible image
+  "Replace", higher-contrast toolbar text, Studio panel loading state + focus
+  management; no-JS login shows its error; Studio object-array edits keep field
+  types.
+
+### Internal
+
+- `@caretcms/cloudflare` gains a MemoryKV conformance test suite; its
+  single-writer / eventual-consistency limitation is now documented.
+- `@caretcms/caretize` and `@caretcms/zod` gain `prepublishOnly` version guards;
+  `validate:versions` now enforces cross-package `@caretcms/*` peer lockstep; CI
+  builds the example apps (API-drift guard) and adds an informational Astro 7
+  compatibility job.
+
 ## [0.1.2] - 2026-06-24
 
 ### Added

@@ -30,13 +30,9 @@ export default defineConfig({
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
   ],
-  webServer: {
-    command: `npm run build:core && npm run dev -w @caretcms/example-starter -- --host --port ${PORT}`,
-    url: `http://localhost:${PORT}/`,
-    timeout: 120_000,
-    reuseExistingServer: !process.env.CI,
-    env: {
-      CARET_EDIT_PASSWORD: "e2e-secret",
-    },
-  },
+  // Astro 7's `astro dev` is a managed background server (it daemonizes), which a
+  // Playwright `webServer` can't reliably stop on teardown. globalSetup/teardown
+  // own its lifecycle deterministically instead. See tests/e2e/global-setup.ts.
+  globalSetup: "./tests/e2e/global-setup.ts",
+  globalTeardown: "./tests/e2e/global-teardown.ts",
 });

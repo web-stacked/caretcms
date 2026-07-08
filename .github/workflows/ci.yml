@@ -12,7 +12,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ["20.19.1", "22.12.0"]
+        # Astro 7 requires Node >=22.12.0 (Node 20 is no longer supported).
+        node: ["22.12.0", "24"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -56,12 +57,19 @@ jobs:
       - name: Unit tests
         run: npm run test:unit
 
-  # The node-ci job above exercises the pinned Astro 6.3.8 (the ^6 half of the
-  # peer range). This job validates the ^5 half by overriding Astro to the
-  # latest 5.x in node_modules only — package.json stays pinned, so
+      # Build the example apps against the just-built packages so a change to the
+      # public API surface that the examples consume (markdownStorage, localUploads,
+      # caretLoader, @caretcms/zod, cloudflareStorage/r2Uploads) fails CI here
+      # instead of silently later when a user copies an example.
+      - name: Build example apps (API drift guard)
+        run: npm run build:examples
+
+  # The node-ci job above exercises the pinned Astro 7 (the ^7 half of the core
+  # peer range). This job validates the ^6 half — the lower bound — by overriding
+  # Astro to the latest 6.x in node_modules only. package.json stays pinned, so
   # validate:versions is intentionally skipped here.
-  astro5-compat:
-    name: Astro 5 compatibility
+  astro6-compat:
+    name: Astro 6 compatibility (lower bound)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -76,16 +84,16 @@ jobs:
       - name: Install (pinned)
         run: npm ci
 
-      - name: Override Astro to 5.x (not persisted to package.json)
-        run: npm install --no-save astro@^5
+      - name: Override Astro to 6.x (not persisted to package.json)
+        run: npm install --no-save astro@^6
 
-      - name: Typecheck core against Astro 5
+      - name: Typecheck core against Astro 6
         run: npm run typecheck:core
 
-      - name: Build core against Astro 5
+      - name: Build core against Astro 6
         run: npm run build:core
 
-      - name: Unit tests against Astro 5
+      - name: Unit tests against Astro 6
         run: npm run test:unit
 
   playwright-e2e:

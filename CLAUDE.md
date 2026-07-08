@@ -21,11 +21,13 @@ embedded mode; cloud mode is alpha).
   `content-site` (editorial showcase), `demo` (Cloudflare KV/R2 deployment).
 
 ## Stack
-Astro 6.3.8 (peer `^5.0.0 || ^6.0.0`) · TypeScript 6.0.3 (strict, NodeNext, ES2022) ·
-Tailwind 4.3.0 · Vitest 4.1.7 · Playwright `^1.60` · fast-check `^3.23`
-(property-based) · npm workspaces. Node `^20.19.1 || >=22.12.0`. Vite pinned to 7
-via root `overrides` (Astro/Cloudflare require it; tailwind/vitest would pull 8).
-Core has no runtime deps — schemas arrive as JSON Schema, so it's Zod-agnostic.
+Astro 7.0.6 (peer `^6.0.0 || ^7.0.0`) · TypeScript 6.0.3 (strict, NodeNext, ES2022) ·
+Tailwind 4.3.2 · Vitest 4.1.10 · Playwright `^1.61` · fast-check `^4`
+(property-based) · npm workspaces. Node `>=22.12.0` (Astro 7 dropped Node 20). Vite 8
+via root `overrides` (Astro 7 requires it). Note: Astro 7's `astro dev` is a managed
+**background** server (daemonizes); the e2e harness wraps it — see
+`scripts/e2e-serve-starter.mjs`. Core has no runtime deps — schemas arrive as JSON
+Schema, so it's Zod-agnostic.
 
 ## Commands
 - `npm run build:<pkg>` / `typecheck:<pkg>` for `core`, `cloudflare`, `caretize`,

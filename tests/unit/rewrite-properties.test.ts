@@ -29,10 +29,11 @@ type Spec = {
 
 // Plain template text: no `<`, `>`, `&`, or `"` so the template element stays a
 // leaf (no child markup) and structural assertions are unambiguous.
-const plainText = fc
-  .stringOf(fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789 -_".split("")), {
-    maxLength: 12,
-  });
+// fast-check 4 unified string generation: `fc.stringOf(charArb, …)` → `fc.string({ unit })`.
+const plainText = fc.string({
+  unit: fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789 -_".split("")),
+  maxLength: 12,
+});
 
 // Override payloads: ordinary strings plus the nasty literals that have bitten
 // HTML rewriters — markup injection, attribute breakout, and `$`-substitution
