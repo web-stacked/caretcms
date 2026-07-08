@@ -66,6 +66,13 @@ caret({
   sandbox overlay uses `session/<id>/` with a 2-hour TTL.
 - `CARET_GIT_ON_PUBLISH` is a no-op here (nothing to commit) — history is the
   sidecar revision log.
+- **Single-writer only.** KV has no compare-and-swap and is eventually
+  consistent, so the revision-based conflict check is best-effort: concurrent
+  editors can lose updates silently. Treat KV deployments as one-editor-at-a-time
+  (the per-session/per-editor overlays are isolated and safe). See
+  [`@caretcms/cloudflare` README](../packages/cloudflare/README.md#concurrency-single-writer-only).
+- Set `CARET_SESSION_SECRET` (required in production) and `CARET_EDIT_PASSWORD`
+  as Worker secrets — the auth layer reads them from the Worker `env`.
 
 ## Cross-cutting runtime switches
 
