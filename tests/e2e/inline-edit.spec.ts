@@ -107,15 +107,62 @@ test.describe("inline editor — click to edit", () => {
     const stale = await blurToSave(page, headline);
     expect(stale.status()).toBe(409);
 
-    // The editor surfaces the conflict and reloads the latest value rather than
-    // keeping the rejected local edit.
-    await expect(page.getByText("Content changed elsewhere. Loaded latest value.")).toBeVisible();
+    // The editor must NOT silently discard the user's edit. It keeps "Second
+    // edit" in the field and shows a conflict prompt with an explicit choice.
+    await expect(
+      page.getByText("This content changed elsewhere while you were editing."),
+    ).toBeVisible();
+    await expect(headline).toHaveText("Second edit");
+
+    // Choosing "Load latest" pulls in the concurrent write, discarding the local edit.
+    await page.getByRole("button", { name: "Load latest" }).click();
     await expect(headline).toHaveText("Changed elsewhere");
 
     // Storage holds the concurrent write, not the stale one.
     const anonHtml = await fetchAnonymousHtml("/");
     expect(anonHtml).toContain("Changed elsewhere");
     expect(anonHtml).not.toContain("Second edit");
+  });
+
+  test("on a 409, choosing 'Keep mine' overwrites with the local edit", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    // Seed a cached revision (0 → 1) for this entry.
+    await replaceText(page, headline, "Local first");
+    await blurToSave(page, headline);
+    await expect(page.getByText("Content saved")).toBeVisible();
+
+    // Out-of-band concurrent write bumps the revision behind the editor's back.
+    const conflict = await page.request.post("/api/cms/mutate", {
+      headers: { "x-caret-request": "1" },
+      data: {
+        type: "save_field",
+        collection: "pages",
+        id: "home",
+        field: "hero.headline",
+        value: "Remote value",
+        expectedRevision: 1,
+      },
+    });
+    expect(conflict.ok()).toBeTruthy();
+
+    // Local edit collides (409) — the prompt appears with the edit preserved.
+    await replaceText(page, headline, "Mine wins");
+    const stale = await blurToSave(page, headline);
+    expect(stale.status()).toBe(409);
+    await expect(headline).toHaveText("Mine wins");
+
+    // "Keep mine" re-saves against the refreshed revision and overwrites.
+    await page.getByRole("button", { name: "Keep mine" }).click();
+    await expect(page.getByText("Your version saved")).toBeVisible();
+
+    const anonHtml = await fetchAnonymousHtml("/");
+    expect(anonHtml).toContain("Mine wins");
+    expect(anonHtml).not.toContain("Remote value");
   });
 
   test("swapping a hero image uploads, persists, and serves the new src", async ({ page }) => {

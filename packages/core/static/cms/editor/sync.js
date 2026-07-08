@@ -25,7 +25,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify 
             const els = document.querySelectorAll(`[data-caret="${selector}"]`);
             els.forEach((el) => {
               // Skip elements being actively edited to prevent overwriting unsaved work
-              if (el === state.dirtyEl || el === document.activeElement) return;
+              if (state.dirtyEls.has(el) || el === document.activeElement) return;
 
               if (el instanceof HTMLImageElement) {
                 // Image element

@@ -80,6 +80,34 @@ export function mountImageEditors({
       input.click();
     });
 
+    // Save-conflict resolution for images: the upload itself already succeeded
+    // (we hold the stored `mineUrl`); only writing it into the entry conflicted.
+    // Keep the uploaded image shown and let the user choose, rather than
+    // silently swapping in whatever landed elsewhere.
+    const runImageConflict = (resolved, marker, mineUrl, latestValue) => {
+      showToast.conflict({
+        message: 'This image changed elsewhere while you were editing.',
+        onKeepMine: async () => {
+          setStatus('saving', 'Saving...');
+          const retry = await saveField(resolved.collection, resolved.id, resolved.field, mineUrl);
+          flash(img, retry.ok);
+          if (retry.ok) {
+            syncBoundImages(marker, mineUrl);
+            showToast('Your image saved', 'success');
+          } else if (retry.reason === 'conflict') {
+            runImageConflict(resolved, marker, mineUrl, retry.latestValue);
+          } else if (retry.reason !== 'unauthorized') {
+            showToast('Failed to save image. Try again.', 'error');
+          }
+        },
+        onLoadLatest: () => {
+          const src = typeof latestValue === 'string' ? latestValue : mineUrl;
+          syncBoundImages(marker, src);
+          showToast('Loaded latest image', 'success');
+        },
+      });
+    };
+
     input.addEventListener('change', async () => {
       const file = input.files?.[0];
       if (!file) return;
@@ -110,27 +138,29 @@ export function mountImageEditors({
           body: formData,
         });
         if (uploadRes.status === 401) {
+          // Restore the real image before the redirect — the optimistic blob is
+          // revoked in `finally`, so leaving it as src would flash a broken image.
+          img.src = originalSrc;
           onUnauthorized();
           return;
         }
         if (!uploadRes.ok) throw new Error('Upload failed');
         const { url } = await uploadRes.json();
 
+        // Point at the durable uploaded URL now, so the shown image survives the
+        // optimistic blob being revoked in `finally` (and any conflict prompt).
+        img.src = url;
+
         const result = await saveField(resolved.collection, resolved.id, resolved.field, url);
         if (result.ok) {
           syncBoundImages(marker, url);
           showToast('Image updated', 'success');
-        } else {
-          const rollbackSrc =
-            result.reason === 'conflict' && typeof result.latestValue === 'string'
-              ? result.latestValue
-              : originalSrc;
-          syncBoundImages(marker, rollbackSrc);
-          if (result.reason === 'conflict') {
-            showToast('Image changed elsewhere. Loaded latest image.', 'error');
-          } else if (result.reason !== 'unauthorized') {
-            showToast('Failed to save image. Changes reverted.', 'error');
-          }
+        } else if (result.reason === 'conflict') {
+          // Keep the uploaded image shown; let the user choose.
+          runImageConflict(resolved, marker, url, result.latestValue);
+        } else if (result.reason !== 'unauthorized') {
+          syncBoundImages(marker, originalSrc);
+          showToast('Failed to save image. Changes reverted.', 'error');
         }
 
         flash(img, result.ok);

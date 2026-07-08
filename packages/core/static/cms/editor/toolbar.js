@@ -88,8 +88,8 @@ function renderToolbar(navLinks, staticDelivery) {
           <span class="cms-toolbar-badge-text">${badgeLabel}</span>
         </div>
         <div class="cms-toolbar-divider"></div>
-        <div class="cms-status-group">
-          <span class="cms-status-dot cms-status-idle"></span>
+        <div class="cms-status-group" role="status" aria-live="polite">
+          <span class="cms-status-dot cms-status-idle" aria-hidden="true"></span>
           <span class="cms-status-text">Ready</span>
         </div>
       </div>

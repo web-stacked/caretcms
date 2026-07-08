@@ -5,6 +5,20 @@ import { sanitizeHtml } from './sanitize.js';
 const snapshots = new WeakMap();
 let keydownBound = false;
 
+// `contenteditable="plaintext-only"` isn't supported in older Firefox (pre-136);
+// setting it there leaves the element non-editable. Feature-detect once and fall
+// back to "true" (rich contenteditable) — the blur handler saves via textContent
+// for non-rich fields, so the stored value stays plain-text regardless.
+const PLAINTEXT_ONLY_SUPPORTED = (() => {
+  try {
+    const probe = document.createElement('div');
+    probe.setAttribute('contenteditable', 'plaintext-only');
+    return probe.contentEditable === 'plaintext-only';
+  } catch (e) {
+    return false;
+  }
+})();
+
 export function mountTextEditors({
   state,
   parseCaretAttr,
@@ -52,7 +66,10 @@ export function mountTextEditors({
     const isRich = el.hasAttribute('data-caret-rich');
     const isLinkable = !isRich && el.hasAttribute('data-caret-raw');
 
-    el.setAttribute('contenteditable', isRich ? 'true' : 'plaintext-only');
+    el.setAttribute(
+      'contenteditable',
+      isRich || !PLAINTEXT_ONLY_SUPPORTED ? 'true' : 'plaintext-only',
+    );
     el.classList.add('cms-editable');
     if (isRich) el.classList.add('cms-rich');
     if (isLinkable) el.classList.add('cms-linkable');
@@ -95,8 +112,47 @@ export function mountTextEditors({
     el.addEventListener('input', () => {
       const snapshot = snapshots.get(el);
       const current = isRich ? el.innerHTML : (el.textContent || '');
-      state.dirtyEl = current !== snapshot ? el : null;
+      if (current !== snapshot) state.dirtyEls.add(el);
+      else state.dirtyEls.delete(el);
     });
+
+    // Save-conflict resolution: never silently discard the user's edit. Keep
+    // their text in the field and offer an explicit choice. "Keep mine" re-saves
+    // (the save queue refreshed the cached revision on the 409, so the retry
+    // targets the current revision and overwrites); "Load latest" replaces the
+    // field with the server value. The element stays dirty until resolved.
+    const runConflict = (resolved, mine, latestValue) => {
+      state.dirtyEls.add(el);
+      el.classList.add('cms-conflict');
+      showToast.conflict({
+        message: 'This content changed elsewhere while you were editing.',
+        onKeepMine: async () => {
+          el.classList.remove('cms-conflict');
+          el.classList.add('cms-saving');
+          const retry = await saveField(resolved.collection, resolved.id, resolved.field, mine);
+          el.classList.remove('cms-saving');
+          flash(el, retry.ok);
+          if (retry.ok) {
+            state.dirtyEls.delete(el);
+            syncBoundText(attr, mine);
+            showToast('Your version saved', 'success');
+          } else if (retry.reason === 'conflict') {
+            runConflict(resolved, mine, retry.latestValue);
+          } else if (retry.reason !== 'unauthorized') {
+            showToast('Failed to save. Try again.', 'error');
+          }
+        },
+        onLoadLatest: () => {
+          el.classList.remove('cms-conflict');
+          state.dirtyEls.delete(el);
+          const value = typeof latestValue === 'string' ? latestValue : mine;
+          applyTextValue(el, value);
+          snapshots.set(el, isRich ? sanitizeHtml(value) : value);
+          syncBoundText(attr, value);
+          showToast('Loaded latest version', 'success');
+        },
+      });
+    };
 
     el.addEventListener('blur', async () => {
       removeLinkHint();
@@ -107,7 +163,7 @@ export function mountTextEditors({
       // Skip save if Escape was pressed
       if (el._caretSkipSave) {
         el._caretSkipSave = false;
-        state.dirtyEl = null;
+        state.dirtyEls.delete(el);
         if (isRich) {
           el.innerHTML = snapshots.get(el) || '';
         } else if (isLinkable) {
@@ -147,24 +203,19 @@ export function mountTextEditors({
       const result = await saveField(resolved.collection, resolved.id, resolved.field, current);
       el.classList.remove('cms-saving');
       flash(el, result.ok);
-      state.dirtyEl = null;
 
-      // Sync all duplicated text bindings
       if (result.ok) {
+        state.dirtyEls.delete(el);
         syncBoundText(attr, current);
         showToast('Content saved', 'success');
-      } else {
-        const rollbackValue =
-          result.reason === 'conflict' && typeof result.latestValue === 'string'
-            ? result.latestValue
-            : snapshot;
-        syncBoundText(attr, rollbackValue);
-
-        if (result.reason === 'conflict') {
-          showToast('Content changed elsewhere. Loaded latest value.', 'error');
-        } else if (result.reason !== 'unauthorized') {
-          showToast('Failed to save. Changes reverted.', 'error');
-        }
+      } else if (result.reason === 'conflict') {
+        // Preserve the user's edit and let them choose — don't overwrite it.
+        runConflict(resolved, current, result.latestValue);
+      } else if (result.reason !== 'unauthorized') {
+        // Genuine failure (not an auth redirect): revert to the pre-edit snapshot.
+        state.dirtyEls.delete(el);
+        syncBoundText(attr, snapshot);
+        showToast('Failed to save. Changes reverted.', 'error');
       }
     });
   });

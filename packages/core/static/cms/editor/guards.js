@@ -2,7 +2,7 @@ export function mountEditorGuards(state) {
   document.body.classList.add('cms-edit-mode');
 
   window.addEventListener('beforeunload', (e) => {
-    if (state.dirtyEl) {
+    if (state.dirtyEls.size > 0) {
       e.preventDefault();
       e.returnValue = '';
     }

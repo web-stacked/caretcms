@@ -36,7 +36,10 @@ function boot() {
   if (normalizePreviewForDelivery()) return;
 
   const state = {
-    dirtyEl: null,
+    // Every element with unsaved edits. A Set (not a single element) so a save
+    // completing on field A can't clear the dirty flag for field B the user has
+    // since moved to — that would let the beforeunload guard miss B's edits.
+    dirtyEls: new Set(),
     linkPopupEl: null,
   };
 
@@ -52,7 +55,7 @@ function boot() {
   const { studioButton, mapButton, setStatus } = mountToolbar({
     showToast,
     clearDirty: () => {
-      state.dirtyEl = null;
+      state.dirtyEls.clear();
     },
     onLogout: async () => {
       await fetch(buildCmsUrl('/auth/logout'), { method: 'POST' });

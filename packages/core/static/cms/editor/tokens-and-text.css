@@ -16,7 +16,33 @@
   --cms-green: #22c55e;
   --cms-red: #ef4444;
   --cms-yellow: #eab308;
+  --cms-amber: #eab308;
   --cms-font: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* ---------------------------------------------------------------------------
+   Host-style insulation
+
+   The editor chrome is injected as direct <body> children on the HOST site, so
+   an aggressive host reset (`* {}`, `body {}`, tag selectors) can bleed into it
+   — distorting fonts, line-height, letter-spacing, or box model. Pin the chrome
+   roots to sane defaults so they render consistently regardless of the host's
+   CSS. (Individual controls set their own type where needed.)
+   --------------------------------------------------------------------------- */
+.cms-toolbar,
+.cms-toast-stack,
+.cms-toast,
+.cms-link-popover,
+.cms-content-map,
+.cms-link-follow,
+.cms-rich-toolbar,
+.cms-studio-panel {
+  box-sizing: border-box;
+  font-family: var(--cms-font);
+  line-height: normal;
+  letter-spacing: normal;
+  text-transform: none;
+  text-align: left;
 }
 
 /* ---------------------------------------------------------------------------

@@ -1,13 +1,27 @@
 /* ---------------------------------------------------------------------------
-   Studio Panel — sliding left sidebar with iframe
+   Studio Panel — sliding left drawer with iframe
+
+   The panel is an OVERLAY drawer: it slides over the page and does not reflow
+   host layout. Earlier versions pushed `body` and shifted a hard-coded
+   `#main-header`, which silently broke on any site not using that selector or
+   using absolute/transformed layout. The only element still shifted is the CMS
+   toolbar, which is our own chrome (always present) — no host coupling.
+
+   Hosts that DO want content pushed aside (rather than overlaid) can opt in by
+   adding the `caret-push-content` class to <body>. See docs.
    --------------------------------------------------------------------------- */
+
+:root {
+  --cms-panel-width: 380px;
+}
 
 .cms-studio-panel {
   position: fixed;
   top: 0;
   left: 0;
   bottom: 0;
-  width: 380px;
+  width: var(--cms-panel-width);
+  max-width: 100vw;
   z-index: 100000;
   background: #0c0e12;
   border-right: 1px solid rgba(59, 130, 246, 0.12);
@@ -31,33 +45,60 @@
   display: block;
 }
 
-/* Push body content when panel is open */
-body.cms-panel-open {
-  padding-left: 380px;
-  transition: padding-left 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+/* Loading skeleton shown until the Studio iframe reports load. */
+.cms-studio-panel-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0c0e12;
+  color: rgba(255, 255, 255, 0.5);
+  font-family: var(--cms-font);
+  font-size: 12px;
+  z-index: 1;
+  transition: opacity 0.3s ease;
 }
 
-body.cms-panel-open.no-transition {
-  transition: none;
+.cms-studio-panel-loading[hidden] {
+  opacity: 0;
+  pointer-events: none;
 }
 
-/* Shift fixed header */
-body.cms-panel-open #main-header {
-  left: 380px;
-  transition: left 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+.cms-studio-panel-loading-text {
+  margin-left: 10px;
 }
 
-body.cms-panel-open.no-transition #main-header {
-  transition: none;
+.cms-studio-panel-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--cms-accent, #3b82f6);
+  border-radius: 50%;
+  animation: cms-panel-spin 0.7s linear infinite;
 }
 
-/* Shift fixed toolbar */
+@keyframes cms-panel-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Shift the CMS toolbar (our chrome) so the drawer doesn't cover it. */
 body.cms-panel-open .cms-toolbar {
-  left: 380px;
+  left: var(--cms-panel-width);
   transition: left 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 body.cms-panel-open.no-transition .cms-toolbar {
+  transition: none;
+}
+
+/* Opt-in: push host content aside instead of overlaying it. */
+body.cms-panel-open.caret-push-content {
+  padding-left: var(--cms-panel-width);
+  transition: padding-left 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body.cms-panel-open.caret-push-content.no-transition {
   transition: none;
 }
 
@@ -69,23 +110,26 @@ body.cms-panel-open.no-transition .cms-toolbar {
   box-shadow: 0 0 8px rgba(59, 130, 246, 0.15);
 }
 
-
-/* Mobile: full-width overlay, no content push */
+/* Mobile: full-width overlay, no toolbar shift. */
 @media (max-width: 768px) {
   .cms-studio-panel {
     width: 100%;
     box-shadow: none;
   }
 
-  body.cms-panel-open {
+  body.cms-panel-open .cms-toolbar,
+  body.cms-panel-open.caret-push-content {
+    left: 0;
     padding-left: 0;
   }
+}
 
-  body.cms-panel-open #main-header {
-    left: 0;
-  }
-
-  body.cms-panel-open .cms-toolbar {
-    left: 0;
+@media (prefers-reduced-motion: reduce) {
+  .cms-studio-panel,
+  body.cms-panel-open .cms-toolbar,
+  body.cms-panel-open.caret-push-content,
+  .cms-studio-panel-spinner {
+    transition: none;
+    animation: none;
   }
 }

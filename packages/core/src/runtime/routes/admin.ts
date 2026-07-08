@@ -41,6 +41,7 @@ function renderLogin(opts: {
   themeCssHref: string;
   studioCssHref: string;
   loginCssHref: string;
+  showError: boolean;
 }): string {
   const {
     hasPassword,
@@ -54,6 +55,7 @@ function renderLogin(opts: {
     themeCssHref,
     studioCssHref,
     loginCssHref,
+    showError,
   } = opts;
 
   const safeBrand = escapeHtml(brandName);
@@ -133,7 +135,7 @@ function renderLogin(opts: {
           <p class="studio-login-tagline">${escapeHtml(statusNote)}</p>
         </div>
 
-        <div id="login-error" class="studio-login-error" hidden>
+        <div id="login-error" class="studio-login-error" role="alert"${showError ? "" : " hidden"}>
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
           </svg>
@@ -280,6 +282,10 @@ export async function GET(context: APIContext): Promise<Response> {
       themeCssHref: `${runtime.apiBasePath}/theme.css`,
       studioCssHref: "/__caret/studio.css",
       loginCssHref: "/__caret/studio-login.css",
+      // Render the error banner server-side for the no-JS path: a failed native
+      // form login redirects here with ?error=invalid, and without this the JS
+      // handler is the only thing that would ever reveal the banner.
+      showError: context.url.searchParams.get("error") === "invalid",
     }),
   );
 }

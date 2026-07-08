@@ -2,11 +2,20 @@
    Toast notifications
    --------------------------------------------------------------------------- */
 
-.cms-toast {
+.cms-toast-stack {
   position: fixed;
   bottom: 62px;
   right: 24px;
   z-index: 100000;
+  display: flex;
+  flex-direction: column-reverse; /* newest nearest the toolbar */
+  align-items: flex-end;
+  gap: 8px;
+  max-width: min(360px, calc(100vw - 48px));
+  pointer-events: none; /* the region is inert; interactive toasts opt back in */
+}
+
+.cms-toast {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -16,7 +25,7 @@
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   font-family: var(--cms-font);
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255, 255, 255, 0.86);
   border-radius: 2px;
   opacity: 0;
   transform: translateY(8px) scale(0.98);
@@ -24,13 +33,28 @@
   pointer-events: none;
 }
 
+/* Sticky / actionable toasts must receive clicks (close + conflict buttons). */
+.cms-toast.cms-toast-interactive {
+  pointer-events: auto;
+}
+
 .cms-toast.cms-toast-out {
   animation: cms-toast-out 0.3s ease forwards;
+}
+
+.cms-toast-msg {
+  flex: 1 1 auto;
+  line-height: 1.4;
 }
 
 .cms-toast-icon {
   width: 16px;
   height: 16px;
+  flex-shrink: 0;
+}
+
+.cms-toast-icon-wrap {
+  display: inline-flex;
   flex-shrink: 0;
 }
 
@@ -40,6 +64,83 @@
 .cms-toast-error { border-left: 3px solid var(--cms-red); }
 .cms-toast-error .cms-toast-icon { color: var(--cms-red); }
 
+.cms-toast-warning { border-left: 3px solid var(--cms-amber, #eab308); }
+.cms-toast-warning .cms-toast-icon { color: var(--cms-amber, #eab308); }
+
+/* Conflict prompt lays the action buttons below the message. */
+.cms-toast-warning {
+  flex-wrap: wrap;
+}
+
+.cms-toast-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  margin-top: 4px;
+  justify-content: flex-end;
+}
+
+.cms-toast-btn {
+  font-family: var(--cms-font);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.cms-toast-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.cms-toast-btn-primary {
+  border-color: var(--cms-blue, #3b82f6);
+  color: #fff;
+  background: var(--cms-blue, #3b82f6);
+}
+
+.cms-toast-btn-primary:hover {
+  filter: brightness(1.1);
+  background: var(--cms-blue, #3b82f6);
+}
+
+.cms-toast-btn:focus-visible,
+.cms-toast-close:focus-visible {
+  outline: 2px solid var(--cms-blue, #3b82f6);
+  outline-offset: 2px;
+}
+
+.cms-toast-close {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.cms-toast-close:hover {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* An editable region awaiting a conflict decision. */
+.cms-editable.cms-conflict {
+  outline: 2px solid var(--cms-amber, #eab308) !important;
+  outline-offset: 4px;
+}
+
 @keyframes cms-toast-in {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
@@ -48,3 +149,14 @@
   to { opacity: 0; transform: translateY(12px) scale(0.98); }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .cms-toast {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .cms-toast.cms-toast-out {
+    animation: none;
+    opacity: 0;
+  }
+}

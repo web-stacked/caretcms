@@ -80,6 +80,31 @@
     return key.replace(/_/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
   }
 
+  // Coerce a text-input value back to the field's declared (or original) type so
+  // editing an object-array's numeric/boolean/nested field doesn't turn it into a
+  // string. Unparseable input returns the raw string (server validation reports it).
+  function coerceScalarValue(raw, propSchema, originalVal) {
+    var type = (propSchema && propSchema.type) ||
+      (typeof originalVal === "number" ? "number" :
+        typeof originalVal === "boolean" ? "boolean" :
+          (originalVal && typeof originalVal === "object" ? "object" : "string"));
+    if (type === "number" || type === "integer") {
+      if (raw.trim() === "") return null;
+      var n = Number(raw);
+      return Number.isFinite(n) ? n : raw;
+    }
+    if (type === "boolean") {
+      var t = raw.trim().toLowerCase();
+      if (t === "true") return true;
+      if (t === "false") return false;
+      return raw;
+    }
+    if (type === "object" || type === "array") {
+      try { return JSON.parse(raw); } catch (e) { return raw; }
+    }
+    return raw;
+  }
+
   function isDirty() {
     return entryData !== null && JSON.stringify(entryData) !== originalJson;
   }
@@ -226,8 +251,11 @@
           return;
         }
         if (result.status === 409 && result.body && typeof result.body.currentRevision === "number") {
+          // Your edits are still in the form; we've refreshed to the server's
+          // revision, so saving again overwrites. Don't tell the user to reload
+          // (that would throw their edits away).
           entryRevision = result.body.currentRevision;
-          showStatus("error", "Conflict — reload to resolve");
+          showStatus("error", "Changed elsewhere — Save again to overwrite");
           return;
         }
         throw new Error("save failed");
@@ -881,7 +909,13 @@
           input.type = "text";
           input.className = "studio-input";
           input.value = typeof val === "string" ? val : (val == null ? "" : JSON.stringify(val));
-          input.addEventListener("input", function () { updateField(itemPath, input.value); });
+          // Write back in the field's declared (or original) type, not always a
+          // string — otherwise editing a number/boolean/nested field silently
+          // rewrites it as text. Unparseable input falls back to the raw string
+          // so server-side validation can report it.
+          input.addEventListener("input", function () {
+            updateField(itemPath, coerceScalarValue(input.value, propSchema, val));
+          });
 
           row.appendChild(keyLabel);
           row.appendChild(input);

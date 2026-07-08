@@ -177,10 +177,10 @@ export function createTextLinkInteractions({
               }
             }
 
-            state.dirtyEl = focused;
+            state.dirtyEls.add(focused);
           } else if (url === '' && existingLink) {
             document.execCommand('unlink', false, null);
-            state.dirtyEl = focused;
+            state.dirtyEls.add(focused);
           }
 
           state.linkPopupEl = null;
@@ -208,7 +208,7 @@ export function createTextLinkInteractions({
             newSel.removeAllRanges();
             newSel.addRange(range);
             document.execCommand('insertText', false, `[${selectedText}](${url})`);
-            state.dirtyEl = focused;
+            state.dirtyEls.add(focused);
           }
 
           state.linkPopupEl = null;
@@ -235,7 +235,7 @@ export function createTextLinkInteractions({
           } else {
             focused.textContent = snapshot;
           }
-          state.dirtyEl = null;
+          state.dirtyEls.delete(focused);
         }
         focused._caretSkipSave = true;
         focused.blur();

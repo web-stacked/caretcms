@@ -133,7 +133,7 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   background: transparent;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 2px;
   cursor: pointer;
@@ -189,7 +189,7 @@
 }
 
 .cms-status-text {
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.72);
   font-size: 11px;
   font-weight: 400;
 }

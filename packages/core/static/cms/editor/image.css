@@ -65,8 +65,14 @@
   z-index: 11;
 }
 
-.cms-img-wrapper:hover .cms-img-overlay {
+.cms-img-wrapper:hover .cms-img-overlay,
+.cms-img-wrapper:focus-within .cms-img-overlay {
   opacity: 1;
+}
+
+.cms-img-overlay:focus-visible {
+  outline: 2px solid var(--cms-accent, #3b82f6);
+  outline-offset: -2px;
 }
 
 .cms-img-overlay-content {
