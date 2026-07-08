@@ -13,12 +13,13 @@ import type { StorageAdapter, UploadHandler } from "../../packages/core/src/type
  * request context (the integration's `order: 'pre'` middleware provides one).
  */
 
-function contextWith(adapter: StorageAdapter): CaretRequestContext {
+function contextWith(adapter: StorageAdapter, editor = false): CaretRequestContext {
   return {
     adapter,
     uploadHandler: {} as unknown as UploadHandler, // unused by the loader
     sessionId: null,
     demoMode: false,
+    editor,
   };
 }
 
@@ -43,12 +44,16 @@ describe("caretLoader", () => {
   });
 
   describe("loadEntry", () => {
-    it("returns { id, data } for an existing entry", async () => {
+    it("returns { id, data } (+ cache tags) for an existing entry", async () => {
       const loader = caretLoader("pages");
       const result = await runWithRequestContext(contextWith(seededAdapter()), () =>
         loader.loadEntry({ filter: { id: "home" }, collection: "pages" }),
       );
-      expect(result).toEqual({ id: "home", data: { title: "Home" } });
+      expect(result).toEqual({
+        id: "home",
+        data: { title: "Home" },
+        cacheHint: { tags: ["caret:pages", "caret:pages::home"] },
+      });
     });
 
     it("returns undefined for a missing entry", async () => {
@@ -87,9 +92,18 @@ describe("caretLoader", () => {
       );
       expect(result).toEqual({
         entries: [
-          { id: "about", data: { title: "About" } },
-          { id: "home", data: { title: "Home" } },
+          {
+            id: "about",
+            data: { title: "About" },
+            cacheHint: { tags: ["caret:pages", "caret:pages::about"] },
+          },
+          {
+            id: "home",
+            data: { title: "Home" },
+            cacheHint: { tags: ["caret:pages", "caret:pages::home"] },
+          },
         ],
+        cacheHint: { tags: ["caret:pages"] },
       });
     });
 
@@ -99,6 +113,35 @@ describe("caretLoader", () => {
         loader.loadCollection({ collection: "pages" }),
       );
       expect(result).toMatchObject({ error: expect.any(CaretLoaderError) });
+    });
+  });
+
+  // Astro 7 live-collection cacheHint: published content is tagged so a publish
+  // can purge it by tag; editor/draft requests must stay fresh, so they carry
+  // NO cache hint (and instead get stega-encoded for click-to-edit).
+  describe("cacheHint (Astro 7)", () => {
+    it("omits cacheHint for an editor request (drafts stay fresh)", async () => {
+      const loader = caretLoader("pages");
+      const entry = await runWithRequestContext(contextWith(seededAdapter(), true), () =>
+        loader.loadEntry({ filter: { id: "home" }, collection: "pages" }),
+      );
+      expect(entry).not.toHaveProperty("cacheHint");
+
+      const collection = await runWithRequestContext(contextWith(seededAdapter(), true), () =>
+        loader.loadCollection({ collection: "pages" }),
+      );
+      expect(collection).not.toHaveProperty("cacheHint");
+      for (const e of (collection as { entries: unknown[] }).entries) {
+        expect(e).not.toHaveProperty("cacheHint");
+      }
+    });
+
+    it("tags published entries and the collection for purge-by-tag", async () => {
+      const loader = caretLoader("pages");
+      const collection = await runWithRequestContext(contextWith(seededAdapter()), () =>
+        loader.loadCollection({ collection: "pages" }),
+      );
+      expect(collection).toMatchObject({ cacheHint: { tags: ["caret:pages"] } });
     });
   });
 });

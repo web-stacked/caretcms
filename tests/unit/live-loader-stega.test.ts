@@ -63,6 +63,8 @@ describe("caretLoader stega (draft mode)", () => {
     expect(result).toEqual({
       id: "home",
       data: { hero: { title: "Professional Websites" } },
+      // Published (non-editor) content carries Astro 7 cache tags for purge-by-tag.
+      cacheHint: { tags: ["caret:pages", "caret:pages::home"] },
     });
     const title = (result as { data: { hero: { title: string } } }).data.hero.title;
     expect(hasStega(title)).toBe(false);

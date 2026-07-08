@@ -92,14 +92,33 @@ function requireAdapter(): StorageAdapter {
 
 type CaretEntryFilter = { id: string };
 
+/**
+ * Astro 7 live-collection cache hint (structural — see CaretLiveLoader). Lets the
+ * loader tag returned data so a route/CDN cache can be invalidated by tag. Astro
+ * 6 (which predates cacheHint) simply ignores the extra field.
+ */
+type CaretCacheHint = {
+  tags?: string[];
+  lastModified?: Date;
+};
+
 type CaretLiveDataEntry = {
   id: string;
   data: Record<string, unknown>;
+  cacheHint?: CaretCacheHint;
 };
 
 type CaretLiveDataCollection = {
   entries: CaretLiveDataEntry[];
+  cacheHint?: CaretCacheHint;
 };
+
+/** Cache tags for a collection / entry: publishing can purge by these (Astro 7). */
+const collectionTag = (collection: string) => `caret:${collection}`;
+const entryTags = (collection: string, id: string) => [
+  `caret:${collection}`,
+  `caret:${collection}::${id}`,
+];
 
 type CaretLoadEntryContext = {
   filter: CaretEntryFilter;
@@ -145,10 +164,15 @@ export function caretLoader(
         const id = filter.id;
         const entry = await adapter.getEntry(collection, id);
         if (!entry) return undefined;
-        const data = isEditorRequest()
+        const editor = isEditorRequest();
+        const data = editor
           ? encodeEntryData(collection, entry.id, entry.data)
           : entry.data;
-        return { id: entry.id, data };
+        const result: CaretLiveDataEntry = { id: entry.id, data };
+        // Published content is cache-taggable so a publish can purge it by tag.
+        // Editor/draft requests get NO hint — edits must show immediately.
+        if (!editor) result.cacheHint = { tags: entryTags(collection, entry.id) };
+        return result;
       } catch (error) {
         return {
           error: new CaretLoaderError(
@@ -164,14 +188,20 @@ export function caretLoader(
         const adapter = requireAdapter();
         const allEntries: EntryData[] = await adapter.listEntries(collection);
         const editor = isEditorRequest();
-        return {
-          entries: allEntries.map((entry) => ({
+        const entries: CaretLiveDataEntry[] = allEntries.map((entry) => {
+          const mapped: CaretLiveDataEntry = {
             id: entry.id,
             data: editor
               ? encodeEntryData(collection, entry.id, entry.data)
               : entry.data,
-          })),
-        };
+          };
+          if (!editor) mapped.cacheHint = { tags: entryTags(collection, entry.id) };
+          return mapped;
+        });
+        const result: CaretLiveDataCollection = { entries };
+        // Collection-level tag (merged with per-entry tags by Astro); drafts unhinted.
+        if (!editor) result.cacheHint = { tags: [collectionTag(collection)] };
+        return result;
       } catch (error) {
         return {
           error: new CaretLoaderError(
