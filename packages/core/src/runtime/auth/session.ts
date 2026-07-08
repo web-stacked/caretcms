@@ -7,6 +7,40 @@ import { getRequestContext } from "../request-context.js";
 // define is absent (e.g. unit tests) — a bare reference would throw.
 declare const __ASTRO_CARET_DEV_PASSWORD__: string | undefined;
 
+// Injected by the integration's Vite `define`: true only under `astro dev`,
+// false in a production build (and absent in unit tests / direct imports).
+// This is the authoritative dev signal — it is baked at build time, so unlike
+// NODE_ENV it is reliable on runtimes (Cloudflare Workers) that don't set
+// NODE_ENV to "production". Guarded with `typeof` so a bare reference is safe.
+declare const __ASTRO_CARET_DEV__: boolean | undefined;
+
+/**
+ * Read an env var from any available source. Node hosts populate `process.env`;
+ * Cloudflare Workers inject bindings via `context.locals.runtime.env`, which the
+ * middleware exposes on the request context. Process env wins when both are set.
+ */
+function readEnv(key: string): string | undefined {
+  const fromProcess =
+    typeof process !== "undefined" ? process.env?.[key] : undefined;
+  if (typeof fromProcess === "string" && fromProcess.length > 0) return fromProcess;
+  const runtimeEnv = getRequestContext()?.runtimeEnv;
+  const fromRuntime = runtimeEnv?.[key];
+  return typeof fromRuntime === "string" ? fromRuntime : undefined;
+}
+
+/**
+ * True in a dev context, where the public fallback session secret is acceptable
+ * (zero-config `astro dev`). The build-time define is authoritative; when it is
+ * absent (unit tests, direct imports) we fall back to NODE_ENV, defaulting to
+ * dev unless it is explicitly "production". A production build bakes the define
+ * to `false`, so the fallback secret is refused regardless of NODE_ENV.
+ */
+function isDevContext(): boolean {
+  if (typeof __ASTRO_CARET_DEV__ === "boolean") return __ASTRO_CARET_DEV__;
+  const nodeEnv = typeof process !== "undefined" ? process.env?.NODE_ENV : undefined;
+  return nodeEnv !== "production";
+}
+
 const SESSION_COOKIE_NAME = "caret_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 
@@ -26,7 +60,7 @@ const DEV_SECRET_FALLBACK = "caretcms-dev-secret";
 let devSecretWarned = false;
 
 function getConfiguredEditorPassword(): string | null {
-  const value = process.env.CARET_EDIT_PASSWORD ?? process.env.EDIT_PASSWORD ?? "";
+  const value = readEnv("CARET_EDIT_PASSWORD") ?? readEnv("EDIT_PASSWORD") ?? "";
   return value.trim().length > 0 ? value : null;
 }
 
@@ -54,30 +88,35 @@ export function isDevEditorPasswordActive(): boolean {
 }
 
 function getSessionSecret(): string {
-  const configured = process.env.CARET_SESSION_SECRET;
+  const configured = readEnv("CARET_SESSION_SECRET");
   if (configured && configured.trim().length > 0) return configured;
 
-  // No secret configured. Safe to fall back when no real password is set — that
-  // includes the dev-only throwaway password, which is itself dev-gated. Once a
-  // real password is configured the dev fallback is a known string that lets
-  // anyone forge a session — refuse it in production and warn loudly in dev.
-  if (getConfiguredEditorPassword() === null) return DEV_SECRET_FALLBACK;
-
-  if (process.env.NODE_ENV === "production") {
-    throw new Error(
-      "[caretcms] CARET_SESSION_SECRET is required in production when CARET_EDIT_PASSWORD is set. " +
-        "Generate one with `openssl rand -base64 32` and set it in your environment.",
-    );
+  // No secret configured. The public fallback is a known constant, so any token
+  // signed with it is forgeable — it is ONLY safe in a dev context. A production
+  // build refuses it and fails closed, regardless of whether a password is set:
+  //  - no password  → the editor is meant to be locked; minting a session signed
+  //    with a public secret would make that "locked" state fully writable (S1).
+  //  - password set  → the operator must supply a real secret.
+  // In both cases we throw here; `trySignPayload` catches it so verification just
+  // returns "not an editor" rather than 500-ing every request.
+  if (isDevContext()) {
+    // Warn only once, and only when a real password is configured — that's the
+    // "you set a password, now set a secret" nudge. Zero-config dev (no password)
+    // stays silent.
+    if (getConfiguredEditorPassword() !== null && !devSecretWarned) {
+      devSecretWarned = true;
+      console.warn(
+        "[caretcms] CARET_SESSION_SECRET is unset; using a public dev fallback. " +
+          "Set CARET_SESSION_SECRET before exposing this site to the network.",
+      );
+    }
+    return DEV_SECRET_FALLBACK;
   }
 
-  if (!devSecretWarned) {
-    devSecretWarned = true;
-    console.warn(
-      "[caretcms] CARET_SESSION_SECRET is unset; using a public dev fallback. " +
-        "Set CARET_SESSION_SECRET before exposing this site to the network.",
-    );
-  }
-  return DEV_SECRET_FALLBACK;
+  throw new Error(
+    "[caretcms] CARET_SESSION_SECRET is required in production. " +
+      "Generate one with `openssl rand -base64 32` and set it in your environment.",
+  );
 }
 
 function signPayload(payloadB64: string): string {

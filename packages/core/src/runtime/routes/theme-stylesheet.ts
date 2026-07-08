@@ -18,9 +18,21 @@ import {
  * Brand customizations (logo URL, etc.) are NOT emitted here — they live
  * in the integration's `clientConfig` and are read by the studio HTML.
  */
+// A valid CSS custom-property name. Token overrides come from author config, so
+// we validate both sides before interpolating into the `:root { prop: value; }`
+// slot — a stray `}` in a value, or markup in a key, would otherwise break out of
+// the rule block (or the CSS response entirely).
+const CSS_CUSTOM_PROP_RE = /^--[A-Za-z0-9-]+$/;
+
+/** Reject values that can't sit inside a `prop: value;` slot without escaping it. */
+function isSafeTokenValue(value: string): boolean {
+  return !/[{}<>;]/.test(value);
+}
+
 function buildCss(tokens: ThemeTokens): string {
   const lines = Object.entries(tokens)
-    .map(([prop, value]) => `  ${prop}: ${value};`)
+    .filter(([prop, value]) => CSS_CUSTOM_PROP_RE.test(prop) && isSafeTokenValue(value))
+    .map(([prop, value]) => `  ${prop}: ${value.trim()};`)
     .join("\n");
 
   return `:root {\n${lines}\n}\n`;

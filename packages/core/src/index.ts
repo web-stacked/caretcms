@@ -591,14 +591,20 @@ function describeProvider(reference: RuntimeProviderReference | null): string {
   return `${reference.entrypoint}#${reference.exportName ?? "default"}`;
 }
 
+/** JSON for safe embedding inside an inline `<script>`: escape `<` so a config
+ *  value containing `</script>` (or `<!--`) can't terminate or confuse the tag. */
+function jsonForInlineScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
 function buildCloudBootstrapScript(
   clientConfig: Record<string, unknown>,
   cloud: CaretCloudOptions,
 ): string {
   return [
-    `window.__CARET__ = ${JSON.stringify(clientConfig)};`,
+    `window.__CARET__ = ${jsonForInlineScript(clientConfig)};`,
     `import { bootstrapCloudCms, hasCloudCmsSession, redirectToCloudCmsLogin } from "@caretcms/core/browser-runtime";`,
-    `const __caretCloudConfig = ${JSON.stringify(cloud)};`,
+    `const __caretCloudConfig = ${jsonForInlineScript(cloud)};`,
     `bootstrapCloudCms(__caretCloudConfig).then(async () => {`,
     `  const url = new URL(window.location.href);`,
     `  const wantsEditor = url.searchParams.get("cms") === "1";`,
@@ -728,6 +734,11 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
               __ASTRO_CARET_THEME_CONFIG__: JSON.stringify(JSON.stringify(resolved.theme)),
               __ASTRO_CARET_BRAND_CONFIG__: JSON.stringify(JSON.stringify(resolved.brand)),
               __ASTRO_CARET_DEV_PASSWORD__: JSON.stringify(devEditorPassword ?? ""),
+              // Authoritative dev signal for the auth layer: the public fallback
+              // session secret is honored only when this is true. Baked false in
+              // production builds so a no-password deployment can't be unlocked
+              // with a forged, publicly-signed session (see auth/session.ts).
+              __ASTRO_CARET_DEV__: JSON.stringify(command === "dev"),
             },
             plugins: [
               createRuntimeProvidersPlugin(resolved, effectiveDelivery),
@@ -894,7 +905,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
     .then(function(session){
       if(!session||session.authenticated!==true)return;
       var l=document.createElement('link');l.rel='stylesheet';l.href='/__caret/editor.css';document.head.appendChild(l);
-      window.__CARET__=${JSON.stringify(clientConfig)};
+      window.__CARET__=${jsonForInlineScript(clientConfig)};
       var s=document.createElement('script');s.type='module';s.src='/__caret/editor.js?v='+Date.now();document.head.appendChild(s);
     })
     .catch(function(){});

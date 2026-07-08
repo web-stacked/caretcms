@@ -117,10 +117,19 @@ describe('session secret fallback', () => {
     expect(() => issueEditorSessionCookie('/')).toThrow(/CARET_SESSION_SECRET/);
   });
 
-  it('allows the dev fallback when no password is configured', () => {
-    process.env.NODE_ENV = 'production';
+  it('allows the dev fallback when no password is configured (dev context)', () => {
+    process.env.NODE_ENV = 'development';
     delete process.env.CARET_EDIT_PASSWORD;
     delete process.env.EDIT_PASSWORD;
     expect(() => issueEditorSessionCookie('/')).not.toThrow();
+  });
+
+  it('refuses the public fallback secret in production with no password (S1)', () => {
+    // A locked (no-password) production deployment must NOT mint a session signed
+    // with the publicly-known dev fallback secret — that would be forgeable.
+    process.env.NODE_ENV = 'production';
+    delete process.env.CARET_EDIT_PASSWORD;
+    delete process.env.EDIT_PASSWORD;
+    expect(() => issueEditorSessionCookie('/')).toThrow(/CARET_SESSION_SECRET/);
   });
 });

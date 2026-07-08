@@ -83,6 +83,7 @@ describe("sanitizeHtml — XSS invariants (examples)", () => {
     ["neutralizes javascript: hrefs", '<a href="javascript:alert(1)">x</a>'],
     ["neutralizes mixed-case JaVaScRiPt: hrefs", '<a href="JaVaScRiPt:alert(1)">x</a>'],
     ["neutralizes data: hrefs", '<a href="data:text/html,<script>alert(1)</script>">x</a>'],
+    ["drops protocol-relative hrefs (//evil.com)", '<a href="//evil.com">x</a>'],
     ["drops <img onerror>", "<img src=x onerror=alert(1)>"],
     ["drops inline <style>", "<style>body{background:url(javascript:1)}</style>"],
     ["drops <svg onload>", "<svg/onload=alert(1)>"],

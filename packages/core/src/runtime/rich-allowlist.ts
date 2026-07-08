@@ -26,7 +26,11 @@ export const RICH_ALLOWED_ATTRS: Record<string, Set<string>> = {
   a: new Set(["href", "target", "rel"]),
 };
 
-export const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/)/i;
+// Allows absolute http(s), mailto/tel, and root-relative (`/path`) links. The
+// `(?!\/)` after the leading slash rejects protocol-relative URLs (`//evil.com`),
+// which would otherwise navigate off-site (phishing/open-redirect) and, since
+// enforceLinkSafety only hardens `^https?:` links, wouldn't even get rel=noopener.
+export const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/(?!\/))/i;
 
 /**
  * Per-tag class allowlist. Keys are tag names, values are allowed class names.

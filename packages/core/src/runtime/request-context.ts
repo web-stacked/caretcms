@@ -25,6 +25,13 @@ export interface CaretRequestContext {
    * `isEditorAuthenticated`. Absent/false means fail closed.
    */
   overlayActive?: boolean;
+  /**
+   * The platform runtime env, when the host exposes one (Cloudflare Workers
+   * populate bindings via `context.locals.runtime.env`). Lets the auth helpers
+   * read `CARET_EDIT_PASSWORD` / `CARET_SESSION_SECRET` from Worker bindings, not
+   * just `process.env`. Null/absent on Node hosts, where `process.env` is used.
+   */
+  runtimeEnv?: Record<string, unknown> | null;
 }
 
 const storage = new AsyncLocalStorage<CaretRequestContext>();

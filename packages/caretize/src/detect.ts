@@ -144,7 +144,8 @@ export const RICH_INLINE_TAGS = new Set([
 export const RICH_SAFE_ATTRS: Record<string, Set<string>> = {
   a: new Set(["href", "target", "rel"]),
 };
-export const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/)/i;
+// `(?!\/)` rejects protocol-relative URLs (`//evil.com`). Mirrors core exactly.
+export const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/(?!\/))/i;
 
 /** How the inline-markup children of a mixed element classify for rich promotion. */
 type RichShape =

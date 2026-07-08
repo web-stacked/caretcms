@@ -17,7 +17,8 @@ export const ALLOWED_ATTRS = {
   a: new Set(['href', 'target', 'rel']),
 };
 
-export const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/)/i;
+// `(?!\/)` rejects protocol-relative URLs (`//evil.com`). Mirrors core exactly.
+export const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/(?!\/))/i;
 
 /**
  * Does `cls` match any pattern? (exact, `prefix-*`, or lone `*`)
