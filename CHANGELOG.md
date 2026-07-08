@@ -8,6 +8,8 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-08
+
 ### Added
 
 - **Astro 7 live-collection cache tags.** `caretLoader()` now attaches Astro 7
@@ -201,6 +203,7 @@ Versions track the publishable `@caretcms/core` package.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
+[0.2.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.2.0
 [0.1.2]: https://github.com/web-stacked/caretcms/releases/tag/v0.1.2
 [0.1.1]: https://github.com/web-stacked/caretcms/releases/tag/v0.1.1
 [0.1.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.1.0

@@ -1,6 +1,6 @@
 {
   "name": "@caretcms/cloudflare",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "description": "Cloudflare-native storage (KV) and uploads (R2) adapters for CaretCMS.",
   "license": "MIT",
@@ -52,7 +52,7 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@caretcms/core": "^0.1.1"
+    "@caretcms/core": "^0.2.0"
   },
   "devDependencies": {
     "@types/node": "25.6.0",

@@ -1,6 +1,6 @@
 {
   "name": "@caretcms/zod",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Derive CaretCMS Studio schemas from your Zod content-collection schemas — single source of truth.",
   "license": "MIT",
