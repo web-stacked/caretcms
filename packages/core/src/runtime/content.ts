@@ -11,6 +11,7 @@
 
 import type { EntryData } from "../types.js";
 import { requireRequestContext } from "./request-context.js";
+import { stripBodyOverlay } from "./utils.js";
 
 export type { EntryData };
 
@@ -24,7 +25,7 @@ export async function loadEntry(
 ): Promise<Record<string, unknown> | null> {
   const { adapter } = requireRequestContext();
   const entry = await adapter.getEntry(collection, id);
-  return entry?.data ?? null;
+  return entry ? stripBodyOverlay(entry.data) : null;
 }
 
 /**
@@ -33,7 +34,8 @@ export async function loadEntry(
  */
 export async function loadCollection(collection: string): Promise<EntryData[]> {
   const { adapter } = requireRequestContext();
-  return adapter.listEntries(collection);
+  const entries = await adapter.listEntries(collection);
+  return entries.map((entry) => ({ ...entry, data: stripBodyOverlay(entry.data) }));
 }
 
 /**

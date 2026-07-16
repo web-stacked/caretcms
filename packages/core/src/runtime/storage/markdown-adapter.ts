@@ -102,6 +102,18 @@ export class MarkdownAdapter implements StorageAdapter {
 
   // --- Entries ---
 
+  /** Raw source file (frontmatter + body) for body-editing hash checks/splices. */
+  async readBodySource(collection: string, id: string): Promise<string | null> {
+    if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) return null;
+    const path = await this.resolveEntryPath(collection, id);
+    if (!path) return null;
+    try {
+      return await readFile(path, "utf8");
+    } catch {
+      return null; // disappeared between stat and read, or unreadable encoding
+    }
+  }
+
   async getEntry(collection: string, id: string): Promise<EntryData | null> {
     if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) return null;
     const path = await this.resolveEntryPath(collection, id);

@@ -1,11 +1,23 @@
 import type { StorageAdapter } from "../../types.js";
 import { setNestedValue } from "../utils.js";
+import { sanitizeHtml } from "../sanitize-html.js";
+import { canonicalBody } from "../../markdown/canonical-body.js";
+import { BODY_OVERLAY_KEY, fnv1a32 } from "../../markdown/contracts.js";
+import { deriveBlockContext } from "../../markdown/block-context.js";
+import { htmlToSNodes, HtmlParseError } from "../../markdown/html-to-snodes.js";
+import { serializeBlock, SerializeError } from "../../markdown/serialize.js";
 import {
   parseMutationCommand,
   isRecord,
   type CmsMutationCommand,
   type MutationIssue,
 } from "./contracts.js";
+
+/** Request-scoped extras a route can thread into `executeMutation`. */
+export interface MutationOptions {
+  /** Per-tag class allowlist for the md_block HTML re-sanitize. */
+  allowedClasses?: Record<string, string[]>;
+}
 
 /**
  * Per-key chained-promise serializer. Used so an entire
@@ -270,6 +282,73 @@ async function applyUpdatePageLayout(
   });
 }
 
+/**
+ * Store one edited markdown body block in the entry's draft data under the
+ * reserved `__body` key. The adapter here is ALWAYS the editor's draft overlay
+ * (the route builds it explicitly) — the base markdown adapter serializes
+ * entry data into frontmatter, where `__body` must never land.
+ *
+ * Trust model: the client sends only HTML. It is re-sanitized against the rich
+ * allowlist, parsed into the closed inline set, and the markdown that publish
+ * will eventually splice into the source file is derived HERE — a client can't
+ * inject raw markdown (and thus raw HTML blocks) into anyone's `.md`. The
+ * block's identity is proven by hashing the current source at the claimed
+ * range; any drift (external edit, prior publish) fails 409 and the client
+ * re-reads the freshly stamped page.
+ */
+async function applyMdBlock(
+  adapter: StorageAdapter,
+  command: Extract<CmsMutationCommand, { type: "md_block" }>,
+  options?: MutationOptions,
+): Promise<MutationResult> {
+  const { collection, id, blockPath, src, html, expectedRevision } = command;
+
+  return withLock(entryKey(collection, id), async () => {
+    const revision = await ensureExpectedRevisionMatches(adapter, collection, id, expectedRevision);
+    if (!revision.ok) return revision.result;
+
+    if (typeof adapter.readBodySource !== "function") {
+      return fail(400, "Body editing requires a source-file storage adapter");
+    }
+    const file = await adapter.readBodySource(collection, id);
+    if (file === null) return fail(404, "Entry source not found");
+
+    const { body } = canonicalBody(file);
+    if (src.end > body.length || fnv1a32(body.slice(src.start, src.end)) !== src.hash) {
+      return fail(409, "Body block is stale", { currentRevision: revision.currentRevision });
+    }
+
+    const clean = sanitizeHtml(html, { allowedClasses: options?.allowedClasses });
+    let md: string;
+    try {
+      md = serializeBlock(htmlToSNodes(clean), deriveBlockContext(body, src));
+    } catch (error) {
+      if (error instanceof SerializeError || error instanceof HtmlParseError) {
+        return fail(400, error.message);
+      }
+      throw error;
+    }
+
+    const before = (await adapter.getEntry(collection, id))?.data ?? {};
+    const current = { ...before };
+    const drafts = isRecord(current[BODY_OVERLAY_KEY])
+      ? { ...(current[BODY_OVERLAY_KEY] as Record<string, unknown>) }
+      : {};
+    // blockPath is /^\d+(\.\d+)*$/ by the parse contract — safe as an own key.
+    drafts[blockPath] = { md, html: clean, src, ts: Date.now() };
+    current[BODY_OVERLAY_KEY] = drafts;
+
+    await adapter.writeEntry(collection, id, current);
+    const nextRevision = await adapter.bumpRevision(collection, id);
+    await adapter.appendHistory(collection, id, {
+      ts: Date.now(),
+      action: "save",
+      data: before,
+    });
+    return { ok: true, body: { ok: true, revision: nextRevision } };
+  });
+}
+
 async function applyCreateCollection(
   adapter: StorageAdapter,
   command: Extract<CmsMutationCommand, { type: "create_collection" }>,
@@ -331,7 +410,11 @@ async function applyDeleteCollection(
   });
 }
 
-export async function executeMutation(adapter: StorageAdapter, input: unknown): Promise<MutationResult> {
+export async function executeMutation(
+  adapter: StorageAdapter,
+  input: unknown,
+  options?: MutationOptions,
+): Promise<MutationResult> {
   const parsed = await parseMutationCommand(adapter, input);
   if (!parsed.ok) {
     return fail(400, "Invalid mutation command", { issues: parsed.issues });
@@ -339,6 +422,8 @@ export async function executeMutation(adapter: StorageAdapter, input: unknown): 
 
   const command = parsed.command;
   switch (command.type) {
+    case "md_block":
+      return applyMdBlock(adapter, command, options);
     case "save_field":
       return applySaveField(adapter, command);
     case "put_entry":

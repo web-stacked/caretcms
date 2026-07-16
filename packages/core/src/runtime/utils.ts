@@ -6,7 +6,24 @@
  * `items.0.title` resolved server-side but not in the cloud live-sync path).
  */
 
+import { BODY_OVERLAY_KEY } from "../markdown/contracts.js";
+
 const FORBIDDEN_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+
+/**
+ * Remove the reserved markdown body-draft map from entry data before it
+ * reaches any consumer. `__body` is draft plumbing between the md_block
+ * mutation and publish; every read boundary (entries route, loadEntry /
+ * loadCollection, caretLoader, schema inference) strips it so it never leaks
+ * into rendered pages, loader output, or inferred schemas. Deliberately NOT
+ * done inside the adapters — the preview rewrite and the publish flush are
+ * legitimate consumers and must see it.
+ */
+export function stripBodyOverlay(data: Record<string, unknown>): Record<string, unknown> {
+  if (!Object.prototype.hasOwnProperty.call(data, BODY_OVERLAY_KEY)) return data;
+  const { [BODY_OVERLAY_KEY]: _omitted, ...rest } = data;
+  return rest;
+}
 
 function assertSafeKey(key: string): void {
   if (FORBIDDEN_KEYS.has(key)) {

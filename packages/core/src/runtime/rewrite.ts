@@ -10,6 +10,7 @@
  */
 
 import type { StorageAdapter, EntryData } from "../types.js";
+import { BODY_OVERLAY_KEY, parseMdBinding } from "../markdown/contracts.js";
 import { sanitizeHtml } from "./sanitize-html.js";
 import { getNestedValue } from "./utils.js";
 
@@ -25,6 +26,8 @@ type Binding = {
   isImg: boolean;
   isRich: boolean;
   hasChildMarkup: boolean;
+  /** Set for `data-caret-md` bindings: the body-draft blockPath to swap from. */
+  mdBlockPath?: string;
 };
 
 type ScopeMatch = {
@@ -70,6 +73,15 @@ const CARET_ELEMENT_PATTERN = new RegExp(
 // `/>` — never on a closing tag. Captures: 1 = attribute string, 2 = data-caret value.
 const IMG_ELEMENT_PATTERN =
   /<img\b([^>]*?\bdata-caret\s*=\s*"([^"]*)"[^>]*?)\/?>/;
+
+// Markdown body blocks stamped by the mdast plugins (`data-caret-md`). Only
+// the block tags the stamping rules can emit; their content is inline-only by
+// construction (the closed editing set), so a lazy match to the first closing
+// tag can't be fooled by a nested same-tag element.
+// Captures: 1 = tag, 2 = attrs, 3 = binding value, 4 = content.
+const CARET_MD_ELEMENT_PATTERN = new RegExp(
+  `<(h[1-6]|p|li)\\b([^>]*?\\bdata-caret-md\\s*=\\s*"([^"]*)"[^>]*?)>([\\s\\S]*?)<\\/\\1>`,
+);
 
 // Scans the document to maintain the scope-frame stack. Matches EITHER a whole
 // HTML comment OR a start/end tag. Handling both keeps tag-like text the browser
@@ -202,14 +214,23 @@ export function resolveBinding(
 ): { collection: string; id: string; field: string } | null {
   const parts = caretValue.split("::");
   if (parts.length === 3) {
-    return { collection: parts[0], id: parts[1], field: parts[2] };
+    return isReservedField(parts[2]) ? null : { collection: parts[0], id: parts[1], field: parts[2] };
   }
   if (parts.length === 1 && !caretValue.includes("::")) {
     // Field-only — resolve from nearest scope
     if (!scope) return null;
+    if (isReservedField(caretValue)) return null;
     return { collection: scope.collection, id: scope.id, field: caretValue };
   }
   return null;
+}
+
+/** A `data-caret` field may never read the reserved markdown body-draft map —
+ *  a crafted `x::y::__body.0.md` binding would surface draft plumbing into
+ *  rendered HTML. Body drafts render only through the dedicated
+ *  `data-caret-md` preview path. */
+function isReservedField(field: string): boolean {
+  return field === BODY_OVERLAY_KEY || field.startsWith(`${BODY_OVERLAY_KEY}.`);
 }
 
 // --- Content detection ---
@@ -305,6 +326,28 @@ export async function rewriteCaretAttributes(
     addBinding(match[2], match[1], "", true, scope, match[0], match.index);
   });
 
+  // Markdown body blocks: preview-only swap. Base markdown entries never carry
+  // the body-draft map (their data IS the frontmatter), so this can only ever
+  // replace content when the adapter is a previewing editor's draft overlay —
+  // public requests and the static bake read the base and are untouched.
+  discover(CARET_MD_ELEMENT_PATTERN, (match) => {
+    const parsed = parseMdBinding(match[3]);
+    if (!parsed) return;
+    entryKeys.add(`${parsed.collection}::${parsed.id}`);
+    bindings.push({
+      collection: parsed.collection,
+      id: parsed.id,
+      field: "",
+      fullMatch: match[0],
+      contentStart: match.index,
+      contentEnd: match.index + match[0].length,
+      isImg: false,
+      isRich: false,
+      hasChildMarkup: false,
+      mdBlockPath: parsed.blockPath,
+    });
+  });
+
   if (bindings.length === 0) return html;
 
   // 2. Batch-load entries
@@ -316,10 +359,40 @@ export async function rewriteCaretAttributes(
   const sorted = [...bindings].sort((a, b) => b.contentStart - a.contentStart);
 
   for (const binding of sorted) {
+    const entryKey = `${binding.collection}::${binding.id}`;
+
+    // Markdown body block: swap inner HTML with the drafted block, re-sanitized
+    // on the way out (defense in depth — it was sanitized at write time too).
+    // Same trust model as the data-caret-rich path below.
+    if (binding.mdBlockPath !== undefined) {
+      const entry = entries.get(entryKey);
+      if (!entry) continue;
+      const drafts = entry.data[BODY_OVERLAY_KEY];
+      if (drafts === null || typeof drafts !== "object") continue;
+      const block = (drafts as Record<string, unknown>)[binding.mdBlockPath];
+      if (block === null || typeof block !== "object") continue;
+      const draftHtml = (block as Record<string, unknown>).html;
+      if (typeof draftHtml !== "string") continue;
+
+      const openTagEnd = binding.fullMatch.indexOf(">") + 1;
+      const closeTagStart = binding.fullMatch.lastIndexOf("</");
+      if (openTagEnd > 0 && closeTagStart >= openTagEnd) {
+        const before = binding.fullMatch.slice(0, openTagEnd);
+        const after = binding.fullMatch.slice(closeTagStart);
+        const injected = sanitizeHtml(draftHtml, { allowedClasses: options?.allowedClasses });
+        result =
+          result.slice(0, binding.contentStart) +
+          before +
+          injected +
+          after +
+          result.slice(binding.contentEnd);
+      }
+      continue;
+    }
+
     // Skip elements with nested child markup (unless rich text, which expects HTML content)
     if (binding.hasChildMarkup && !binding.isRich) continue;
 
-    const entryKey = `${binding.collection}::${binding.id}`;
     const entry = entries.get(entryKey);
     if (!entry) continue;
 

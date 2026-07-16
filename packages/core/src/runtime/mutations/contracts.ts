@@ -1,5 +1,19 @@
 import type { StorageAdapter } from "../../types.js";
 import { COLLECTION_NAME_RE, ENTRY_ID_RE } from "../storage/id-contracts.js";
+import {
+  BLOCK_PATH_RE,
+  BODY_OVERLAY_KEY,
+  parseMdSrc,
+  type MdSrc,
+} from "../../markdown/contracts.js";
+
+/**
+ * Upper bound on an `md_block` HTML payload (UTF-16 code units). A block is a
+ * single paragraph/heading/list item; even generous prose stays far below this.
+ * A dedicated cap (vs the blanket 1MB JSON body cap) keeps one block edit from
+ * dragging megabytes into the draft overlay and every subsequent publish.
+ */
+export const MAX_MD_BLOCK_HTML_LENGTH = 64 * 1024;
 
 export type MutationIssue = {
   path: string;
@@ -76,6 +90,23 @@ export type DeleteCollectionCommand = {
   id: string;
 };
 
+export type MdBlockCommand = {
+  type: "md_block";
+  collection: string;
+  id: string;
+  /** Block identity within the entry body (`data-caret-md` blockPath segment). */
+  blockPath: string;
+  /** Verified source hint (`data-caret-md-src` value, parsed). */
+  src: MdSrc;
+  /**
+   * The edited block's inline HTML. The ONLY content field — markdown is
+   * derived server-side after sanitization, never accepted from the client
+   * (client markdown would be spliced into source files verbatim on publish).
+   */
+  html: string;
+  expectedRevision?: number;
+};
+
 export type CmsMutationCommand =
   | SaveFieldCommand
   | PutEntryCommand
@@ -83,7 +114,8 @@ export type CmsMutationCommand =
   | ReorderEntriesCommand
   | UpdatePageLayoutCommand
   | CreateCollectionCommand
-  | DeleteCollectionCommand;
+  | DeleteCollectionCommand
+  | MdBlockCommand;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -150,6 +182,12 @@ async function parseSaveFieldCommand(
   if (expectedRevision === null) {
     issues.push(issue("expectedRevision", "invalid_type", "expectedRevision must be a non-negative integer"));
   }
+  // The body-draft map is written ONLY by md_block (whose markdown is derived
+  // server-side). A save_field into it would smuggle unvalidated markdown that
+  // publish later splices into a source file.
+  if (field && (field === BODY_OVERLAY_KEY || field.startsWith(`${BODY_OVERLAY_KEY}.`))) {
+    issues.push(issue("field", "reserved_field", `"${BODY_OVERLAY_KEY}" is reserved`));
+  }
 
   if (issues.length > 0 || !collection || !id || !field || typeof value !== "string") {
     return { ok: false, issues };
@@ -183,6 +221,10 @@ async function parsePutEntryCommand(
   if (!isRecord(data)) issues.push(issue("data", "invalid_type", "data must be an object"));
   if (expectedRevision === null) {
     issues.push(issue("expectedRevision", "invalid_type", "expectedRevision must be a non-negative integer"));
+  }
+  // See parseSaveFieldCommand: only md_block may write the body-draft map.
+  if (isRecord(data) && Object.prototype.hasOwnProperty.call(data, BODY_OVERLAY_KEY)) {
+    issues.push(issue(`data.${BODY_OVERLAY_KEY}`, "reserved_field", `"${BODY_OVERLAY_KEY}" is reserved`));
   }
 
   if (issues.length > 0 || !collection || !id || !isRecord(data)) return { ok: false, issues };
@@ -338,6 +380,58 @@ async function parseUpdatePageLayoutCommand(
   };
 }
 
+async function parseMdBlockCommand(
+  adapter: StorageAdapter,
+  input: Record<string, unknown>,
+): Promise<{ ok: true; command: MdBlockCommand } | { ok: false; issues: MutationIssue[] }> {
+  const issues: MutationIssue[] = [];
+  const collection = await parseCollection(adapter, input.collection);
+  const id = parseEntryId(input.id);
+  const blockPath = typeof input.blockPath === "string" ? input.blockPath : null;
+  const src = typeof input.src === "string" ? parseMdSrc(input.src) : null;
+  const html = input.html;
+  const expectedRevision = asOptionalExpectedRevision(input.expectedRevision);
+
+  if (!collection) issues.push(issue("collection", "invalid_type", "Invalid collection"));
+  if (!id) issues.push(issue("id", "invalid_type", "Invalid id"));
+  if (!blockPath || !BLOCK_PATH_RE.test(blockPath)) {
+    issues.push(issue("blockPath", "invalid_type", "Invalid block path"));
+  }
+  if (!src) issues.push(issue("src", "invalid_type", "Invalid source hint"));
+  if (typeof html !== "string") {
+    issues.push(issue("html", "invalid_type", "html must be a string"));
+  } else if (html.length > MAX_MD_BLOCK_HTML_LENGTH) {
+    issues.push(issue("html", "too_long", `html exceeds ${MAX_MD_BLOCK_HTML_LENGTH} characters`));
+  }
+  if (expectedRevision === null) {
+    issues.push(issue("expectedRevision", "invalid_type", "expectedRevision must be a non-negative integer"));
+  }
+
+  if (
+    issues.length > 0 ||
+    !collection ||
+    !id ||
+    !blockPath ||
+    !src ||
+    typeof html !== "string"
+  ) {
+    return { ok: false, issues };
+  }
+
+  return {
+    ok: true,
+    command: {
+      type: "md_block",
+      collection,
+      id,
+      blockPath,
+      src,
+      html,
+      expectedRevision: expectedRevision ?? undefined,
+    },
+  };
+}
+
 export async function parseMutationCommand(
   adapter: StorageAdapter,
   input: unknown,
@@ -372,6 +466,8 @@ export async function parseMutationCommand(
       return parseCreateCollectionCommand(adapter, input);
     case "delete_collection":
       return parseDeleteCollectionCommand(adapter, input);
+    case "md_block":
+      return parseMdBlockCommand(adapter, input);
     default:
       return {
         ok: false,

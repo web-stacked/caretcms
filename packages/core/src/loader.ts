@@ -21,6 +21,7 @@ import {
   requireRequestContext,
 } from "./runtime/request-context.js";
 import { stegaCombine } from "./runtime/stega.js";
+import { stripBodyOverlay } from "./runtime/utils.js";
 
 export class CaretLoaderError extends Error {
   constructor(message: string, cause?: unknown) {
@@ -165,9 +166,8 @@ export function caretLoader(
         const entry = await adapter.getEntry(collection, id);
         if (!entry) return undefined;
         const editor = isEditorRequest();
-        const data = editor
-          ? encodeEntryData(collection, entry.id, entry.data)
-          : entry.data;
+        const clean = stripBodyOverlay(entry.data);
+        const data = editor ? encodeEntryData(collection, entry.id, clean) : clean;
         const result: CaretLiveDataEntry = { id: entry.id, data };
         // Published content is cache-taggable so a publish can purge it by tag.
         // Editor/draft requests get NO hint — edits must show immediately.
@@ -189,11 +189,10 @@ export function caretLoader(
         const allEntries: EntryData[] = await adapter.listEntries(collection);
         const editor = isEditorRequest();
         const entries: CaretLiveDataEntry[] = allEntries.map((entry) => {
+          const clean = stripBodyOverlay(entry.data);
           const mapped: CaretLiveDataEntry = {
             id: entry.id,
-            data: editor
-              ? encodeEntryData(collection, entry.id, entry.data)
-              : entry.data,
+            data: editor ? encodeEntryData(collection, entry.id, clean) : clean,
           };
           if (!editor) mapped.cacheHint = { tags: entryTags(collection, entry.id) };
           return mapped;

@@ -77,6 +77,16 @@ export interface StorageAdapter {
    * filesystem presence (KV/R2, in-memory) omit it, so git-on-publish no-ops.
    */
   committablePath?(): string;
+
+  /**
+   * Optional: the raw source text an entry's markdown BODY lives in (the full
+   * `.md` file, frontmatter included). Backs body inline editing: the mutation
+   * engine hash-checks a block's `data-caret-md-src` range against this before
+   * accepting a draft, and publish splices edited blocks back into it. Only
+   * source-file-backed adapters (markdown) implement it; overlay wrappers must
+   * delegate to their BASE (the body source is always the published file).
+   */
+  readBodySource?(collection: string, id: string): Promise<string | null>;
 }
 
 export interface UploadContext {

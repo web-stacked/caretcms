@@ -119,6 +119,12 @@ export class SessionOverlayAdapter implements StorageAdapter {
     await this.overlay.appendHistory(collection, id, entry);
   }
 
+  /** Body source always comes from the BASE — drafts shadow entry data, never
+   *  the published `.md` file (the splice happens at publish, not draft, time). */
+  async readBodySource(collection: string, id: string): Promise<string | null> {
+    return this.base.readBodySource ? this.base.readBodySource(collection, id) : null;
+  }
+
   async createCollection(metadata: CollectionMetadata): Promise<void> {
     await this.overlay.createCollection(metadata);
   }

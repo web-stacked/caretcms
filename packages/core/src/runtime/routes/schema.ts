@@ -4,6 +4,7 @@ import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { getRegisteredSchema } from "../schema-registry.js";
 import { inferJsonSchema, buildTemplate } from "../../schema-utils.js";
+import { stripBodyOverlay } from "../utils.js";
 import { json, resolveAdapter } from "./_helpers.js";
 
 export async function GET(context: APIContext): Promise<Response> {
@@ -54,7 +55,9 @@ export async function GET(context: APIContext): Promise<Response> {
 
   // 3. Fall back to schema inference from first entry
   const entries = await adapter.listEntries(collectionRaw);
-  const firstEntry = entries[0]?.data ?? {};
+  // Strip the reserved body-draft map so a drafted entry can't leak a __body
+  // field into the inferred schema (and thus the Studio form).
+  const firstEntry = stripBodyOverlay(entries[0]?.data ?? {});
 
   const schema = inferJsonSchema(firstEntry);
   const template = buildTemplate(schema);

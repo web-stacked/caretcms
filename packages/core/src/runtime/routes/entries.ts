@@ -3,6 +3,7 @@ export const prerender = false;
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { parseCollectionName, parseEntryId } from "../mutations/contracts.js";
+import { stripBodyOverlay } from "../utils.js";
 import { json, resolveAdapter } from "./_helpers.js";
 
 type CmsEntryResponse = {
@@ -85,7 +86,7 @@ export async function GET(context: APIContext): Promise<Response> {
     const entry = await adapter.getEntry(collection, singleId);
     const revision = entry ? await adapter.getRevision(collection, singleId) : 0;
     const entries: CmsEntryResponse[] = entry
-      ? [{ id: entry.id, data: entry.data, revision }]
+      ? [{ id: entry.id, data: stripBodyOverlay(entry.data), revision }]
       : [];
 
     return json({
@@ -116,7 +117,7 @@ export async function GET(context: APIContext): Promise<Response> {
       .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
       .map(async (entry) => ({
         id: entry.id,
-        data: entry.data,
+        data: stripBodyOverlay(entry.data),
         revision: await adapter.getRevision(collection, entry.id),
       })),
   );
