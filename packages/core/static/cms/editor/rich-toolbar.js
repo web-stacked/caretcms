@@ -175,11 +175,12 @@ function onSelectionChange() {
     return;
   }
 
-  // Check if selection is inside a rich element
+  // Check if selection is inside a rich element (or a markdown body block,
+  // which shares the same inline formatting commands)
   const anchor = sel.anchorNode;
   const richEl = anchor instanceof Element
-    ? anchor.closest('[data-caret-rich]')
-    : anchor?.parentElement?.closest('[data-caret-rich]');
+    ? anchor.closest('[data-caret-rich], [data-caret-md]')
+    : anchor?.parentElement?.closest('[data-caret-rich], [data-caret-md]');
 
   if (!richEl) {
     hide();

@@ -24,6 +24,7 @@ import { mountImageEditors } from './editor/image-edit.js';
 import { mountSectionControls } from './editor/section-controls.js';
 import { mountContentMap } from './editor/content-map.js';
 import { mountRichToolbar } from './editor/rich-toolbar.js';
+import { mountMdBlockEditors } from './editor/md-block-edit.js';
 import { mountLinkFollowAffordances } from './editor/link-follow.js';
 import { revealAndFade } from './editor/highlight.js';
 import { hydrateStega } from './editor/stega-hydrate.js';
@@ -96,6 +97,13 @@ function boot() {
       mountRichToolbar({ state, showToast, showLinkPopup });
       richToolbarMounted = true;
     }
+
+    mountMdBlockEditors({
+      state,
+      flash,
+      showToast,
+      onUnauthorized: redirectToEditorLogin,
+    });
 
     mountImageEditors({
       parseCaretAttr,
