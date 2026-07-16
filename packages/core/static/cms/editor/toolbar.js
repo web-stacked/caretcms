@@ -50,18 +50,26 @@ function getToolbarNavLinks(pagePath) {
 }
 
 function renderDraftControls(staticDelivery) {
-  if (!staticDelivery) return '';
-
+  // Static delivery is always drafting, so the controls stay visible. Server
+  // delivery saves field edits straight to the site, but inline body-block
+  // edits are ALWAYS drafts (they splice into source files only at publish), so
+  // the controls render here too — hidden until at least one draft is pending
+  // (toggled by refreshDraftControls) so the toolbar stays quiet otherwise.
+  const publishTitle = staticDelivery
+    ? 'Publish drafts; static visitors update after rebuild and deploy'
+    : 'Publish your body-block drafts into the source files';
   return `
-        <button class="cms-publish-btn cms-go-live-btn" type="button" title="Publish drafts; static visitors update after rebuild and deploy">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/></svg>
-          <span class="cms-go-live-label">Publish</span>
-        </button>
-        <button class="cms-discard-btn" type="button" title="Discard your draft changes">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-          Discard
-        </button>
-        <div class="cms-toolbar-divider"></div>`;
+        <span class="cms-draft-controls"${staticDelivery ? '' : ' hidden'}>
+          <button class="cms-publish-btn cms-go-live-btn" type="button" title="${publishTitle}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/></svg>
+            <span class="cms-go-live-label">Publish</span>
+          </button>
+          <button class="cms-discard-btn" type="button" title="Discard your draft changes">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            Discard
+          </button>
+          <div class="cms-toolbar-divider"></div>
+        </span>`;
 }
 
 function renderToolbar(navLinks, staticDelivery) {
@@ -274,6 +282,20 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
       showToast('Discard failed', 'error');
     }
   });
+
+  // Server delivery hides the draft controls until a body draft exists. Field
+  // edits save directly (no draft), so the count reflects pending body blocks.
+  // Refresh on mount and whenever a body block is drafted; publish/discard
+  // reload the page, so mount re-evaluates from scratch.
+  const draftControls = toolbar.querySelector('.cms-draft-controls');
+  async function refreshDraftControls() {
+    if (staticDelivery || !draftControls) return;
+    draftControls.hidden = (await fetchDraftCount()) === 0;
+  }
+  if (!staticDelivery) {
+    refreshDraftControls();
+    window.addEventListener('cms:draftSaved', refreshDraftControls);
+  }
 
   const studioButton = toolbar.querySelector('.cms-studio-btn');
   const mapButton = toolbar.querySelector('.cms-map-btn');

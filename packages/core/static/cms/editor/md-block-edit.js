@@ -157,6 +157,9 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
         state.dirtyEls.delete(el);
         snapshots.set(el, clean);
         showToast('Draft saved — publish to update the file', 'success');
+        // Signal the toolbar so server-delivery mode reveals its Publish/Discard
+        // controls (hidden until a body draft is pending).
+        window.dispatchEvent(new CustomEvent('cms:draftSaved'));
       } else if (result.reason === 'stale') {
         state.dirtyEls.delete(el);
         el.innerHTML = snapshot;

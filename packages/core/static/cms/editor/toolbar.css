@@ -220,6 +220,17 @@
   display: none;
 }
 
+/* Draft controls wrapper is transparent to the toolbar's flex layout so its
+   buttons keep the row's gap; [hidden] (server delivery, no pending draft)
+   still collapses the whole group. */
+.cms-draft-controls {
+  display: contents;
+}
+
+.cms-draft-controls[hidden] {
+  display: none;
+}
+
 /* Draft preview active — amber, signalling "unpublished" */
 .cms-toolbar button.cms-preview-btn-active {
   background: rgba(234, 179, 8, 0.12);
