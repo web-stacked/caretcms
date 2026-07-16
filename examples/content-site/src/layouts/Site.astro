@@ -1,6 +1,6 @@
 ---
 import { getLiveEntry } from "astro:content";
-import { bindEntry } from "@caretcms/core";
+import { bindEntry, stegaClean } from "@caretcms/core";
 
 interface Props {
   title: string;
@@ -105,7 +105,7 @@ const s = bindEntry({ collection: "site", id: "global" });
       <div class="site-footer" data-caret-scope="site::global">
         <span {...s("footer_note")}>{site.footer_note}</span>
         <span class="spacer"></span>
-        <a href={`mailto:${site.footer_email ?? ""}`} {...s("footer_email")}>{site.footer_email}</a>
+        <a href={`mailto:${stegaClean(site.footer_email ?? "")}`} {...s("footer_email")}>{site.footer_email}</a>
       </div>
     </footer>
   </body>

@@ -37,6 +37,11 @@ export { bindEntry } from "./runtime/bind.js";
 export { caretLoader, CaretLoaderError } from "./loader.js";
 export type { CaretLiveLoader } from "./loader.js";
 export { editable } from "./editable.js";
+// Strip stega edit-metadata from a live field value before it flows into a
+// URL, attribute, or anything parsed (dates, JSON): the invisible characters
+// are safe in visible text but corrupt non-text contexts. Same intent as
+// Vercel's `vercelStegaClean`.
+export { stegaClean } from "./runtime/stega.js";
 
 const VIRTUAL_PROVIDER_MODULE_ID = "virtual:caretcms/providers";
 const RESOLVED_VIRTUAL_PROVIDER_MODULE_ID = `\0${VIRTUAL_PROVIDER_MODULE_ID}`;
