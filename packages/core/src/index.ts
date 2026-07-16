@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { AstroIntegration } from "astro";
 import { COLLECTION_NAME_RE } from "./runtime/storage/id-contracts.js";
 import type {
@@ -12,6 +12,8 @@ import type {
   StorageAdapter,
 } from "./types.js";
 import { bakeStaticHtmlFiles } from "./runtime/static-bake.js";
+import { caretSatteriPlugin } from "./markdown/satteri.js";
+import { caretRemarkPlugin } from "./markdown/remark.js";
 
 // --- Public type re-exports ---
 export type {
@@ -112,6 +114,15 @@ type BaseCaretOptions = {
    */
   allowedClasses?: Record<string, string[]>;
   /**
+   * Inline editing of the markdown BODY (prose blocks) for entries served from
+   * markdown storage. When on (the default with markdown storage), rendered
+   * paragraphs, headings, and list items on the page are stamped with
+   * `data-caret-md` bindings so they can be edited in place and published back
+   * to the source `.md` file. Set `false` to disable the render-time stamping.
+   * No effect on non-markdown storage or cloud mode.
+   */
+  bodyEditing?: boolean;
+  /**
    * Delivery target for embedded CaretCMS content. The default is "auto":
    * Astro static output bakes stored content into generated HTML during
    * `astro build`, while Astro server output rewrites HTML per request with
@@ -210,6 +221,7 @@ interface ResolvedCaretOptions {
   cloud: CaretCloudOptions | null;
   schemas: Record<string, JsonSchemaDefinition>;
   allowedClasses: Record<string, string[]>;
+  bodyEditing: boolean;
   delivery: ResolvedDeliveryConfig;
   theme: ResolvedThemeConfig;
   brand: ResolvedBrandConfig;
@@ -470,6 +482,7 @@ function resolveCaretOptions(options: CaretOptions): ResolvedCaretOptions {
     cloud,
     schemas: options.schemas ?? {},
     allowedClasses: options.allowedClasses ?? {},
+    bodyEditing: options.bodyEditing ?? true,
     delivery: resolveDelivery(options.delivery),
     theme: resolveTheme(options.theme),
     brand: resolveBrand(options.brand),
@@ -645,6 +658,32 @@ function detectContentCollections(rootDir: string): string[] {
   }
 }
 
+/**
+ * Extend the active markdown pipeline with the CaretCMS body-stamping plugin.
+ *
+ * Astro 7's default processor is Sätteri — its `options.mdastPlugins` array is
+ * the sanctioned extension point, and the default instance is created before
+ * integration hooks run, so pushing onto it is honored (we never REPLACE
+ * `markdown.processor`, whose merge is replace-not-append). Astro 6 and unified
+ * holdouts fall through to a remark plugin via `updateConfig`.
+ */
+function injectMarkdownStamping(args: {
+  config: { markdown?: { processor?: { name?: string; options?: { mdastPlugins?: unknown[] } } } };
+  updateConfig: (patch: Record<string, unknown>) => void;
+  logger: { info: (msg: string) => void };
+  contentRoot: string;
+}): void {
+  const { config, updateConfig, logger, contentRoot } = args;
+  const processor = config.markdown?.processor;
+  if (processor?.name === "satteri" && processor.options) {
+    (processor.options.mdastPlugins ??= []).push(caretSatteriPlugin({ contentRoot }));
+    logger.info("[caretcms] Markdown body editing enabled (Sätteri mdast plugin).");
+  } else {
+    updateConfig({ markdown: { remarkPlugins: [caretRemarkPlugin({ contentRoot })] } });
+    logger.info("[caretcms] Markdown body editing enabled (remark plugin).");
+  }
+}
+
 export function caret(options: CaretOptions = {}): AstroIntegration {
   const resolved = resolveCaretOptions(options);
 
@@ -706,6 +745,27 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
               `[caretcms] Detected Astro content collections under src/content (${detected.join(", ")}) — defaulting storage to markdownStorage(). Pass an explicit \`storage\` to override; add \`schemas\` (e.g. via @caretcms/zod) for typed fields.`,
             );
           }
+        }
+
+        // Markdown body editing: stamp rendered prose blocks with
+        // `data-caret-md` bindings by extending the active markdown pipeline.
+        // Runs after zero-config detection so an auto-selected markdown adapter
+        // is covered too. Gated on markdown storage + embedded + `bodyEditing`.
+        if (
+          resolved.bodyEditing &&
+          resolved.mode !== "cloud" &&
+          resolved.storage?.entrypoint === MARKDOWN_STORAGE_ENTRYPOINT
+        ) {
+          const projectRoot = fileURLToPath(config.root);
+          const configuredRoot = (resolved.storage.options as { contentRoot?: string } | null)
+            ?.contentRoot;
+          // The adapter resolves a relative contentRoot against cwd; the stamp
+          // plugin compares against absolute file URLs, so resolve it against
+          // the project root here (resolve() leaves an absolute root as-is).
+          const contentRoot = configuredRoot
+            ? resolve(projectRoot, configuredRoot)
+            : join(projectRoot, "src", "content");
+          injectMarkdownStamping({ config, updateConfig, logger, contentRoot });
         }
 
         // Zero-config dev login: when running `astro dev` in an editable
@@ -896,10 +956,11 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           injectScript(
             "page",
             `(function(){
-  // Bootstrap when the page has an explicit data-caret binding OR stega-encoded
-  // content (key hidden in a string via U+E0000); the latter has no attribute
-  // until the editor hydrates it, so attribute-only detection would miss it.
-  if(!document.querySelector('[data-caret]') && !/\\u{E0000}/u.test(document.body&&document.body.textContent||''))return;
+  // Bootstrap when the page has an explicit data-caret / data-caret-md binding
+  // OR stega-encoded content (key hidden in a string via U+E0000); the latter
+  // has no attribute until the editor hydrates it, so attribute-only detection
+  // would miss it.
+  if(!document.querySelector('[data-caret],[data-caret-md]') && !/\\u{E0000}/u.test(document.body&&document.body.textContent||''))return;
   fetch(${JSON.stringify(`${resolved.apiBasePath}/auth/session`)},{credentials:'same-origin'})
     .then(function(response){return response.ok?response.json():null;})
     .then(function(session){
