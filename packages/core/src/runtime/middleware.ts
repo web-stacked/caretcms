@@ -195,7 +195,26 @@ export async function onRequest(
       // so the two valued forms cover every binding the engine can act on.
       const hasBindings = BINDING_PROBE_RE.test(html);
       if (hasBindings) {
-        html = await rewriteCaretAttributes(html, adapter, {
+        // An authenticated editor in server delivery reads live base content
+        // (field edits save straight through), but their inline BODY-block
+        // edits are always deferred drafts. Preview those on the editor's own
+        // requests so a reload shows staged prose instead of silently
+        // reverting to the source. ONLY the rewrite needs the overlay — it
+        // injects the drafted `__body` HTML into stamped blocks — so loaders
+        // and field writes keep using the base adapter and "changes save
+        // directly" still holds. Demo/preview already overlay everything via
+        // `adapter`; the public (editor === false) always reads the base.
+        let rewriteAdapter = adapter;
+        if (!overlayActive && requestContext.editor && services.adapter.makeEditorOverlay) {
+          const id = editorId ?? getEditorId(context as Parameters<typeof getEditorId>[0]);
+          if (id) {
+            rewriteAdapter = new SessionOverlayAdapter(
+              services.adapter,
+              await services.adapter.makeEditorOverlay(id),
+            );
+          }
+        }
+        html = await rewriteCaretAttributes(html, rewriteAdapter, {
           allowedClasses: services.allowedClasses,
         });
         rewritten = true;

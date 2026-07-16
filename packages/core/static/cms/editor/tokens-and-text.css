@@ -68,6 +68,36 @@
 }
 
 /* ---------------------------------------------------------------------------
+   Unpublished body draft
+   The server rewrite tags blocks whose prose comes from an unpublished draft
+   (editor preview only — the public reads the base and never receives this).
+   Flag them so a reloaded preview is visibly distinct from live, published
+   prose and the editor knows a Publish is still pending.
+   --------------------------------------------------------------------------- */
+
+[data-caret-md-draft] {
+  position: relative;
+  background: var(--cms-blue-dim);
+  box-shadow: -0.6em 0 0 0 var(--cms-blue-dim);
+  border-radius: 2px;
+}
+
+[data-caret-md-draft]::after {
+  content: 'Draft';
+  position: absolute;
+  top: -0.6em;
+  right: 0;
+  font: 600 10px / 1 var(--cms-font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--cms-yellow);
+  padding: 3px 6px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
    Link/button click prevention in editor mode
    --------------------------------------------------------------------------- */
 

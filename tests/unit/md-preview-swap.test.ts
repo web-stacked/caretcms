@@ -26,6 +26,17 @@ describe("data-caret-md preview swap", () => {
     expect(out).toContain("data-caret-md=");
   });
 
+  it("tags a swapped block with data-caret-md-draft; unswapped blocks stay unmarked", async () => {
+    const drafted = await adapterWith({
+      [BODY_OVERLAY_KEY]: { "1": { html: "Edited.", md: "x" } },
+    });
+    const out = await rewriteCaretAttributes(PAGE, drafted);
+    expect(out).toContain("data-caret-md-draft");
+    // A block with no draft is never marked (the base/public path stays clean).
+    const clean = await rewriteCaretAttributes(PAGE, await adapterWith({ title: "Hello" }));
+    expect(clean).not.toContain("data-caret-md-draft");
+  });
+
   it("no draft for that blockPath → untouched", async () => {
     const adapter = await adapterWith({
       [BODY_OVERLAY_KEY]: { "2": { html: "Other block", md: "x" } },

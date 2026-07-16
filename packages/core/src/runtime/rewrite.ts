@@ -377,7 +377,14 @@ export async function rewriteCaretAttributes(
       const openTagEnd = binding.fullMatch.indexOf(">") + 1;
       const closeTagStart = binding.fullMatch.lastIndexOf("</");
       if (openTagEnd > 0 && closeTagStart >= openTagEnd) {
-        const before = binding.fullMatch.slice(0, openTagEnd);
+        // Mark the block as showing an unpublished draft so the editor UI can
+        // flag it (a reloaded preview otherwise looks identical to live prose).
+        // This only fires when the adapter surfaced a draft — a previewing
+        // editor — so the public, which reads the base, never receives it.
+        const openTag = binding.fullMatch.slice(0, openTagEnd);
+        const before = openTag.includes("data-caret-md-draft")
+          ? openTag
+          : `${openTag.slice(0, -1)} data-caret-md-draft>`;
         const after = binding.fullMatch.slice(closeTagStart);
         const injected = sanitizeHtml(draftHtml, { allowedClasses: options?.allowedClasses });
         result =
