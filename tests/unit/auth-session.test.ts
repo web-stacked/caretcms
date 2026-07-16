@@ -11,7 +11,7 @@ const PUBLIC_DEV_SECRET = 'caretcms-dev-secret';
 /** Forge a session cookie value signed with a given secret (attacker's view). */
 function forgeSession(secret: string): string {
   const payload = Buffer.from(
-    JSON.stringify({ editor: true, exp: Date.now() + 3_600_000 }),
+    JSON.stringify({ editor: true, exp: Date.now() + 3_600_000, editorId: 'forged-editor-id' }),
     'utf8',
   ).toString('base64url');
   const sig = createHmac('sha256', secret).update(payload).digest('base64url');

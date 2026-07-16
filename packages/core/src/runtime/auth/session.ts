@@ -50,10 +50,9 @@ type SessionPayload = {
   /**
    * A stable id minted once per login, identifying this editor session. Used to
    * key a per-editor draft overlay (so two editors' unpublished edits stay
-   * isolated). Optional for backward compatibility: tokens issued before editor
-   * ids existed still authenticate, they just carry no id.
+   * isolated). Required — every issued token carries one.
    */
-  editorId?: string;
+  editorId: string;
 };
 
 const DEV_SECRET_FALLBACK = "caretcms-dev-secret";
@@ -203,8 +202,9 @@ function parseToken(token: string): SessionPayload | null {
     if (payload.editor !== true) return null;
     if (typeof payload.exp !== "number" || !Number.isFinite(payload.exp)) return null;
     if (payload.exp <= Date.now()) return null;
-    // editorId is optional (legacy tokens lack it), but reject a malformed one.
-    if (payload.editorId !== undefined && typeof payload.editorId !== "string") return null;
+    // Every editor session carries an id (keys the draft overlay). Reject a
+    // token that lacks a valid one — this also rejects any pre-editorId token.
+    if (typeof payload.editorId !== "string" || payload.editorId === "") return null;
 
     return payload as SessionPayload;
   } catch {
@@ -267,9 +267,8 @@ export function isEditorAuthenticated(context: CookieBagLike): boolean {
 
 /**
  * The per-editor id carried by the session cookie, used to key a draft overlay.
- * Returns null when the request has no valid editor session, or when the session
- * predates editor ids (a legacy token). Does NOT consider demo sessions — those
- * are keyed by their own `sessionId`.
+ * Returns null when the request has no valid editor session. Does NOT consider
+ * demo sessions — those are keyed by their own `sessionId`.
  */
 export function getEditorId(context: CookieBagLike): string | null {
   const token = context.cookies?.get(SESSION_COOKIE_NAME)?.value;

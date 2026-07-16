@@ -138,14 +138,9 @@ export async function onRequest(
   } else if (isPreviewRequest(context) && services.adapter.makeEditorOverlay) {
     // Draft/preview mode: an authenticated editor opting into preview reads and
     // writes through their per-editor overlay (the public site keeps seeing the
-    // base). Keyed by the editor id from the session cookie; absent that, there's
-    // no editor session so we leave the base adapter in place. Publish later
-    // flushes the overlay back to the base.
-    //
-    // C7 note: a legacy session token minted before editor ids existed still
-    // authenticates but carries no id, so getEditorId returns null and no overlay
-    // is installed — such an editor's preview writes land directly on the base.
-    // These tokens age out within the 12h TTL; a re-login mints an id-bearing one.
+    // base). Keyed by the editor id from the session cookie; absent that (an
+    // unauthenticated preview request), there's no editor session so we leave the
+    // base adapter in place. Publish later flushes the overlay back to the base.
     const id = getEditorId(context as Parameters<typeof getEditorId>[0]);
     if (id) {
       const overlay = await services.adapter.makeEditorOverlay(id);

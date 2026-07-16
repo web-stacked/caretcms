@@ -78,9 +78,9 @@ describe("editor identity in the session token", () => {
     expect(getEditorId(asCookieBag("not-a-token"))).toBeNull();
   });
 
-  it("stays backward compatible: a legacy token (no editorId) still authenticates", () => {
+  it("rejects a pre-editorId token (no id): every session must carry one", () => {
     const legacy = signedToken({ editor: true, exp: Date.now() + 60_000 });
-    expect(isEditorAuthenticated(asCookieBag(legacy))).toBe(true);
+    expect(isEditorAuthenticated(asCookieBag(legacy))).toBe(false);
     expect(getEditorId(asCookieBag(legacy))).toBeNull();
   });
 

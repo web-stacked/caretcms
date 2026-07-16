@@ -15,7 +15,8 @@ export interface CaretRequestContext {
   /**
    * The authenticated editor's id (from the session cookie), when present. Keys
    * the per-editor draft overlay so unpublished edits stay isolated per editor.
-   * Absent for anonymous/public requests and legacy sessions.
+   * Absent for anonymous/public and non-preview requests; demo sessions key
+   * their overlay by `sessionId` instead.
    */
   editorId?: string | null;
   /**
