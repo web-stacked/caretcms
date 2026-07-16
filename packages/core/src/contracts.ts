@@ -23,3 +23,20 @@ export {
   RICH_ALLOWED_ATTRS,
   SAFE_HREF_RE,
 } from "./runtime/rich-allowlist.js";
+
+export {
+  CARET_MD_ATTR,
+  CARET_MD_SRC_ATTR,
+  BODY_OVERLAY_KEY,
+  BODY_FIELD,
+  BLOCK_PATH_RE,
+  formatBlockPath,
+  parseBlockPath,
+  formatMdBinding,
+  parseMdBinding,
+  formatMdSrc,
+  parseMdSrc,
+  fnv1a32,
+  type MdBinding,
+  type MdSrc,
+} from "./markdown/contracts.js";
