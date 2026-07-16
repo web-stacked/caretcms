@@ -39,7 +39,7 @@ function buildTree(): N {
 }
 
 /** Run the Sätteri frontend against a tree via a mock context. */
-function runSatteri(tree: N): void {
+function runSatteri(tree: N, source: string = SOURCE): void {
   const parents = new WeakMap<N, N>();
   const index = new WeakMap<N, number>();
   const link = (node: N) =>
@@ -52,7 +52,7 @@ function runSatteri(tree: N): void {
 
   const ctx = {
     fileURL: new URL(`file://${FILE}`),
-    source: SOURCE,
+    source,
     parent: (n: N) => parents.get(n),
     indexOf: (n: N) => index.get(n),
     setProperty: (n: N, _key: "data", value: { hProperties?: Record<string, unknown> }) => {
@@ -82,6 +82,21 @@ function collect(tree: N): Record<string, unknown> {
   return out;
 }
 
+/**
+ * Collect hProperties in document order (not keyed by offset). Needed to
+ * compare a byte-offset tree against a string-offset tree, whose node offsets
+ * legitimately differ — only the resulting stamps must match.
+ */
+function collectOrdered(tree: N): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  const walk = (n: N) => {
+    if (n.data?.hProperties) out.push(n.data.hProperties);
+    n.children?.forEach(walk);
+  };
+  walk(tree);
+  return out;
+}
+
 describe("stamp frontend parity (satteri ↔ remark)", () => {
   it("both frontends assign identical attributes to identical trees", () => {
     const satteriTree = buildTree();
@@ -95,6 +110,59 @@ describe("stamp frontend parity (satteri ↔ remark)", () => {
     expect(r).toEqual(s);
     // Sanity: it actually stamped the expected blocks (heading, para, 2 li, bq para).
     expect(Object.keys(s)).toHaveLength(5);
+  });
+
+  it("agrees on NON-ASCII source (Sätteri byte offsets vs remark string offsets)", () => {
+    // The two real pipelines report positions in DIFFERENT units — Sätteri in
+    // UTF-8 bytes, remark in UTF-16 string indices. An all-ASCII tree makes the
+    // two identical and cannot exercise byteToStringIndex; a wrong conversion
+    // slips through (this is the class of bug that shipped once before). Feed
+    // each frontend its NATIVE offset kind for the same document and require
+    // identical stamps.
+    const src = "# Café\n\nDéjà vu — ok 🚀 done.";
+    const enc = new TextEncoder();
+    const toByte = (strIdx: number) => enc.encode(src.slice(0, strIdx)).length;
+
+    // heading "# Café" = string [0,6); paragraph = string [8, end).
+    const hStr = { start: 0, end: 6 };
+    const pStr = { start: 8, end: src.length };
+
+    // remark tree carries native STRING offsets.
+    const remarkTree: N = {
+      type: "root",
+      position: pos(0, src.length),
+      children: [
+        { type: "heading", position: pos(hStr.start, hStr.end) },
+        { type: "paragraph", position: pos(pStr.start, pStr.end) },
+      ],
+    };
+    // Sätteri tree carries native BYTE offsets for the very same document.
+    const satteriTree: N = {
+      type: "root",
+      position: pos(0, enc.encode(src).length),
+      children: [
+        { type: "heading", position: pos(toByte(hStr.start), toByte(hStr.end)) },
+        { type: "paragraph", position: pos(toByte(pStr.start), toByte(pStr.end)) },
+      ],
+    };
+
+    runSatteri(satteriTree, src);
+    transformCaretRemark(
+      remarkTree,
+      { value: src, path: FILE, toString: () => src },
+      CONTENT_ROOT,
+    );
+
+    // Node offsets differ (bytes vs string) so compare in document order.
+    const s = collectOrdered(satteriTree);
+    const r = collectOrdered(remarkTree);
+    expect(r).toEqual(s);
+    expect(s).toHaveLength(2);
+    // The stamp must point at the real string-space slice — "# Café", not a
+    // byte-shifted range that would cut the multi-byte é.
+    const headingSrc = s[0]["data-caret-md-src"] as string;
+    const [start, end] = headingSrc.split(":").map(Number);
+    expect(src.slice(start, end)).toBe("# Café");
   });
 });
 
