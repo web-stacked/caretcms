@@ -46,8 +46,24 @@ export class SessionOverlayAdapter implements StorageAdapter {
   async getEntry(collection: string, id: string): Promise<EntryData | null> {
     const overlaid = await this.overlay.getEntry(collection, id);
     if (isTombstone(overlaid)) return null;
-    if (overlaid) return overlaid;
-    return this.base.getEntry(collection, id);
+    if (!overlaid) return this.base.getEntry(collection, id);
+    // The overlay holds DELTAS, not a full snapshot: a body draft stores only
+    // its reserved `__body` map, a demo field edit only the touched keys. Merge
+    // base under the overlay so reads stay complete without the draft having to
+    // snapshot (and later clobber) frontmatter it never edited.
+    const base = await this.base.getEntry(collection, id);
+    if (!base) return overlaid;
+    return { ...overlaid, data: { ...base.data, ...overlaid.data } };
+  }
+
+  /** The overlay's OWN entry (draft deltas only), with no base fallback or
+   *  merge. The md_block mutation reads this so a body draft writes back just
+   *  its delta plus `__body` — never a base frontmatter snapshot that a later
+   *  publish would flush over fields edited straight to base in the meantime. */
+  async getOwnEntry(collection: string, id: string): Promise<EntryData | null> {
+    const overlaid = await this.overlay.getEntry(collection, id);
+    if (isTombstone(overlaid)) return null;
+    return overlaid;
   }
 
   async listEntryIds(collection: string): Promise<string[]> {

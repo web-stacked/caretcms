@@ -349,7 +349,20 @@ async function applyMdBlock(
       });
     }
     const before = beforeEntry.data;
-    const current = { ...before };
+    // Write back the overlay's OWN prior data (draft deltas) plus this block —
+    // NEVER a base frontmatter snapshot. Snapshotting base here is what let a
+    // later publish flush stale frontmatter over a field edited straight to
+    // base in the meantime (Studio field saves bypass the overlay in server
+    // delivery). Fall back to the merged entry for non-overlay adapters, which
+    // have no separate base to protect.
+    const overlayRead = adapter as {
+      getOwnEntry?: (c: string, i: string) => Promise<{ data: Record<string, unknown> } | null>;
+    };
+    const ownData =
+      typeof overlayRead.getOwnEntry === "function"
+        ? (await overlayRead.getOwnEntry(collection, id))?.data ?? {}
+        : before;
+    const current: Record<string, unknown> = { ...ownData };
     const drafts = isRecord(current[BODY_OVERLAY_KEY])
       ? { ...(current[BODY_OVERLAY_KEY] as Record<string, unknown>) }
       : {};

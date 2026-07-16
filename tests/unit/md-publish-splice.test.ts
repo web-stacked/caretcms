@@ -146,6 +146,32 @@ describe("publish body splice — full pipeline", () => {
     );
   });
 
+  it("body draft publish preserves a frontmatter field edited on base after staging", async () => {
+    // Reproduces the server-delivery data-loss bug: an inline body edit stages
+    // to the per-editor overlay, then a Studio field save writes STRAIGHT to
+    // base (frontmatter bypasses the overlay in server mode). Publishing the
+    // body draft must splice the prose WITHOUT reverting the newer base field.
+    await draftBlock("1", "First paragraph — em dash included.", "Edited body prose.");
+    const baseEntry = await base.getEntry("blog", "hello");
+    await base.writeEntry("blog", "hello", { ...baseEntry!.data, title: "Studio-edited title" });
+
+    const { published, conflicts } = await publishOverlay(base, overlay, {
+      collection: "blog",
+      id: "hello",
+    });
+    expect(conflicts).toEqual([]);
+    expect(published).toHaveLength(1);
+
+    const file = await readFile(mdPath(), "utf8");
+    // Body spliced...
+    expect(file).toContain("Edited body prose.");
+    expect(file).not.toContain("First paragraph — em dash included.");
+    // ...AND the Studio field edit survived (not clobbered by a stale snapshot).
+    expect(file).toContain("title: Studio-edited title");
+    expect(file).not.toContain("title: Hello");
+    expect(file).not.toContain("__body");
+  });
+
   it("frontmatter-only draft (no body blocks) publishes exactly as before", async () => {
     await draft.writeEntry("blog", "hello", { title: "New title", tags: ["a"] });
     const { published, conflicts } = await publishOverlay(base, overlay, {

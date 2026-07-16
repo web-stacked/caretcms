@@ -151,13 +151,18 @@ export async function publishOverlay(
         }
 
         const before = await base.getEntry(collection, id);
-        // Skip the entry write when the (body-stripped) draft data matches the
-        // base — a body-only publish must not re-serialize untouched
-        // frontmatter (semantically a no-op, but it re-quotes scalars and
-        // pollutes the git diff). Same-shape objects come through the same
-        // parse path, so stringify comparison is order-stable here.
-        if (JSON.stringify(before?.data ?? null) !== JSON.stringify(entryData)) {
-          await base.writeEntry(collection, id, entryData);
+        // Merge the draft's frontmatter DELTAS onto the current base rather than
+        // replacing it. A body-only draft carries no frontmatter keys, so base
+        // fields edited after the draft was staged (e.g. a Studio field save,
+        // which writes straight to base in server delivery) survive instead of
+        // being clobbered by a stale snapshot. Skip the write entirely when the
+        // merge changes nothing — a body-only publish must not re-serialize
+        // untouched frontmatter (it re-quotes scalars and pollutes the diff).
+        // Same-shape objects come through the same parse path, so stringify
+        // comparison is order-stable here.
+        const mergedData = { ...(before?.data ?? {}), ...entryData };
+        if (JSON.stringify(before?.data ?? null) !== JSON.stringify(mergedData)) {
+          await base.writeEntry(collection, id, mergedData);
         }
         const revision = await base.bumpRevision(collection, id);
         await base.appendHistory(collection, id, {
