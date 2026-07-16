@@ -58,6 +58,7 @@ export function transformCaretRemark(tree: MdNode, file: VFileLike, contentRoot:
         blockPath: idxPath,
         ancestorTypes,
         nested: parentType !== "root",
+        blockType: "heading",
       });
       if (attrs) setData(node, attrs);
     } else if (node.type === "paragraph") {

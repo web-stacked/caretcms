@@ -218,6 +218,34 @@ describe("md_block mutation — guards", () => {
     if (!result.ok) expect(result.status).toBe(400);
   });
 
+  it("put_entry (Studio form save) preserves drafted body blocks", async () => {
+    // The Studio form fetches via /entries (which strips __body) and saves the
+    // whole entry back — that round-trip must not destroy inline body drafts.
+    const src = await srcFor("First paragraph with some text.");
+    await executeMutation(draft, mdBlock({ src }));
+    const put = await executeMutation(draft, {
+      type: "put_entry",
+      collection: "blog",
+      id: "hello",
+      data: { title: "Edited in Studio" }, // no __body — as the form sends it
+    });
+    expect(put.ok).toBe(true);
+    const entry = await draft.getEntry("blog", "hello");
+    expect(entry!.data.title).toBe("Edited in Studio");
+    const body = entry!.data[BODY_OVERLAY_KEY] as Record<string, { md: string }>;
+    expect(body["1"].md).toBe("Edited **paragraph**.");
+  });
+
+  it("md_block on a draft-deleted entry does not resurrect the tombstone", async () => {
+    await draft.deleteEntry("blog", "hello"); // tombstone into the overlay
+    const src = await srcFor("First paragraph with some text.");
+    const result = await executeMutation(draft, mdBlock({ src }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(409);
+    // Still deleted from the draft's point of view.
+    expect(await draft.getEntry("blog", "hello")).toBeNull();
+  });
+
   it("save_field and put_entry cannot write the reserved __body key", async () => {
     const save = await executeMutation(draft, {
       type: "save_field",

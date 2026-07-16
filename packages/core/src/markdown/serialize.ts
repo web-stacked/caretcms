@@ -22,6 +22,11 @@
  *    left-flanking, so the emphasis can't open. Unrepresentable in CommonMark.
  *  - A bare email/URL in plain text (`a@b.com`, `www.x.com`) is auto-linked by
  *    GFM on render; a second edit then serializes it as an explicit link.
+ *  - Links normalize to untitled inline form: editing a block rewrites
+ *    reference-style links (`[x][1]`) as inline links and drops link titles
+ *    (`"…"`) — text and destination are preserved, the definition lines
+ *    elsewhere in the document are untouched. Title support needs `title` in
+ *    the shared rich allowlist (v0.4 candidate).
  * The editor doesn't produce these from normal selection-based formatting, so
  * they are documented rather than special-cased.
  */
@@ -74,10 +79,12 @@ function escapeLineStart(md: string): string {
     return `${ws}${ordered[1]}\\${ordered[2]}${rest.slice(ordered[1].length + 1)}`;
   }
 
-  // Thematic breaks allow spaces between the markers (`-- -`, `- - -`); `*`/`_`
-  // variants are already neutralized by escapeText, so only `-` needs this.
+  // Dash/equals runs cover three block constructs at once: setext underlines
+  // are ONE-or-more `-`/`=` (a lone `=` after a hard break turns the paragraph
+  // into an <h1>), and thematic breaks allow interior spaces (`-- -`). `*`/`_`
+  // variants are already neutralized by escapeText.
   const marker =
-    /^(?:#{1,6}(?=\s|$)|>|[-+*](?=\s|$)|-(?:[ \t]*-){2,}[ \t]*$|={2,}\s*$|~{3,}|`{3,}|\|)/.test(
+    /^(?:#{1,6}(?=\s|$)|>|[-+*](?=\s|$)|-(?:[ \t]*-)*[ \t]*$|=(?:[ \t]*=)*[ \t]*$|~{3,}|`{3,}|\|)/.test(
       rest,
     );
   return marker ? `${ws}\\${rest}` : md;

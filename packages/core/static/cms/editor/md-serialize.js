@@ -48,10 +48,11 @@ function escapeLineStart(md) {
     return `${ws}${ordered[1]}\\${ordered[2]}${rest.slice(ordered[1].length + 1)}`;
   }
 
-  // Thematic breaks allow spaces between the markers (`-- -`, `- - -`); `*`/`_`
-  // variants are already neutralized by escapeText, so only `-` needs this.
+  // Dash/equals runs cover setext underlines (ONE-or-more `-`/`=`) and
+  // thematic breaks with interior spaces; `*`/`_` variants are already
+  // neutralized by escapeText.
   const marker =
-    /^(?:#{1,6}(?=\s|$)|>|[-+*](?=\s|$)|-(?:[ \t]*-){2,}[ \t]*$|={2,}\s*$|~{3,}|`{3,}|\|)/.test(
+    /^(?:#{1,6}(?=\s|$)|>|[-+*](?=\s|$)|-(?:[ \t]*-)*[ \t]*$|=(?:[ \t]*=)*[ \t]*$|~{3,}|`{3,}|\|)/.test(
       rest,
     );
   return marker ? `${ws}\\${rest}` : md;

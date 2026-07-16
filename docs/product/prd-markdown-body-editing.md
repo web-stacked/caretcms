@@ -276,9 +276,13 @@ corpus fixes -- see risk R2).
 - Save payload -> existing mutate route with a new op:
 
 ```text
-{ op: "mdBlock", collection, id, blockPath, src: {start, end, hash},
-  md: "<serialized markdown>", html: "<sanitized html>", revision }
+{ type: "md_block", collection, id, blockPath, src: "start:end:hash",
+  html: "<sanitized html>", expectedRevision? }
 ```
+
+(As built: `src` is the literal `data-caret-md-src` wire string; there is NO
+`md` field — markdown is derived server-side from the sanitized html. See
+`parseMdBlockCommand` in `runtime/mutations/contracts.ts`.)
 
 `html` is client-rendered and re-sanitized server-side; it exists so
 preview/rewrite can show the draft without core needing a markdown

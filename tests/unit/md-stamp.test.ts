@@ -84,6 +84,16 @@ describe("caretSatteriPlugin — stamps editable blocks", () => {
     expect(stamps(html)).toHaveLength(0);
   });
 
+  it("does not stamp setext headings (not editable in v1)", async () => {
+    // The write path derives heading context from ATX `#` markers only; a
+    // stamped setext heading would be silently demoted to a paragraph on edit.
+    const body = "Setext Title\n============\n\nRegular paragraph.";
+    const html = await render(body, fileURL("blog/hello.md"));
+    const s = stamps(html);
+    expect(s.some((x) => x.tag === "h1")).toBe(false);
+    expect(s.some((x) => x.tag === "p")).toBe(true);
+  });
+
   it("stamps nothing for a .mdx file", async () => {
     const html = await render("# Hi\n\ntext", fileURL("blog/hello.mdx"));
     expect(stamps(html)).toHaveLength(0);

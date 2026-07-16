@@ -164,7 +164,17 @@ async function applyPutEntry(
 
     const before = (await adapter.getEntry(collection, id))?.data ?? null;
 
-    await adapter.writeEntry(collection, id, data);
+    // Carry drafted body blocks forward. The Studio form's payload never
+    // contains __body (read boundaries strip it and the parse contract rejects
+    // it), so a full-entry save must not clobber body drafts already stored in
+    // the overlay — a frontmatter edit and an inline body edit are separate
+    // concerns that both live on the same draft record.
+    const write =
+      before && before[BODY_OVERLAY_KEY] !== undefined
+        ? { ...data, [BODY_OVERLAY_KEY]: before[BODY_OVERLAY_KEY] }
+        : data;
+
+    await adapter.writeEntry(collection, id, write);
     const nextRevision = await adapter.bumpRevision(collection, id);
     if (before !== null) {
       await adapter.appendHistory(collection, id, {
@@ -329,7 +339,16 @@ async function applyMdBlock(
       throw error;
     }
 
-    const before = (await adapter.getEntry(collection, id))?.data ?? {};
+    // The source file exists (readBodySource succeeded above), so a null entry
+    // here means the entry is DRAFT-DELETED (the overlay hides it behind a
+    // tombstone). Writing a body draft would silently resurrect it.
+    const beforeEntry = await adapter.getEntry(collection, id);
+    if (beforeEntry === null) {
+      return fail(409, "Entry was deleted in this draft — publish or discard the deletion first", {
+        currentRevision: revision.currentRevision,
+      });
+    }
+    const before = beforeEntry.data;
     const current = { ...before };
     const drafts = isRecord(current[BODY_OVERLAY_KEY])
       ? { ...(current[BODY_OVERLAY_KEY] as Record<string, unknown>) }

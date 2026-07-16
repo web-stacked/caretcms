@@ -174,6 +174,20 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
       if (!res.ok) throw new Error('publish failed');
       const data = await res.json();
       const n = Array.isArray(data.published) ? data.published.length : 0;
+      const conflicts = Array.isArray(data.conflicts) ? data.conflicts.length : 0;
+      if (conflicts > 0) {
+        // Stale body drafts: preserved server-side, NOT published. Reload so
+        // fresh stamps arrive and the editor can re-apply them.
+        setStatus('error', 'Some drafts conflicted');
+        showToast(
+          n > 0
+            ? `Published ${n} change(s); ${conflicts} draft(s) conflicted with newer content — reloading so you can re-apply.`
+            : `${conflicts} draft(s) conflicted with newer content — reloading so you can re-apply.`,
+          'error',
+        );
+        window.location.reload();
+        return n > 0;
+      }
       if (data.rebuild?.triggered && data.rebuild.ok === false) {
         setStatus('error', 'Published, deploy failed');
         showToast(

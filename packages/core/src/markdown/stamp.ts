@@ -125,6 +125,8 @@ export interface StampInput {
   ancestorTypes: readonly string[];
   /** True when the block sits inside a container (blockquote / list item). */
   nested: boolean;
+  /** mdast node type of the bound block ("heading" | "paragraph" | "listItem"). */
+  blockType?: string;
 }
 
 /**
@@ -146,6 +148,10 @@ export function computeStamp(input: StampInput): Record<string, string> | null {
   // A container-nested block whose source spans lines embeds `> `/indent
   // prefixes inside its range; splicing prefix-free text would corrupt it.
   if (nested && slice.includes("\n")) return null;
+  // Setext headings (`Title\n====`) are not editable in v1: the write path
+  // derives block context from the slice and only understands ATX markers, so
+  // an edit would silently demote the heading to a paragraph. Skip stamping.
+  if (input.blockType === "heading" && !slice.startsWith("#")) return null;
 
   const delta = source.length - source.trimStart().length;
   const canonicalStart = start - delta;

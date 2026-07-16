@@ -166,6 +166,15 @@ describe("serializeBlock — byte-exact output", () => {
     ).toThrow(SerializeError);
   });
 
+  it("escapes setext underlines (ONE-or-more '='/'-') on hard-break lines", () => {
+    // `text\n=` re-parses as <h1>text</h1> — setext underlines need only a
+    // single marker char, unlike thematic breaks.
+    expect(serializeBlock([t("text"), el("br", []), t("=")], PARA)).toBe("text\\\n\\=");
+    expect(serializeBlock([t("text"), el("br", []), t("--")], PARA)).toBe("text\\\n\\--");
+    expect(serializeBlock([t("text"), el("br", []), t("== =")], PARA)).toBe("text\\\n\\== =");
+    expect(serializeBlock([t("=")], PARA)).toBe("\\=");
+  });
+
   it("escapes block markers on EVERY line after a hard break (review finding #1)", () => {
     // CommonMark's block scanner interrupts a paragraph on `# `/`> `/`- ` lines
     // regardless of the preceding inline hard break.

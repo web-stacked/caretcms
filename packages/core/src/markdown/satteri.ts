@@ -127,6 +127,7 @@ export function caretSatteriPlugin(options: CaretSatteriOptions): MdastPluginDef
         blockPath: pathOf(node, ctx),
         ancestorTypes: ancestorTypes(node, ctx),
         nested: parentType !== "root",
+        blockType: "heading",
       });
     },
 

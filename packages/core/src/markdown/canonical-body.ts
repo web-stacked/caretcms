@@ -22,22 +22,25 @@ export interface CanonicalBody {
 }
 
 /**
+ * Frontmatter fence matcher, MIRRORING Astro's own
+ * (`@astrojs/internal-helpers/dist/frontmatter.js` `frontmatterRE`) byte for
+ * byte. This must agree with what Astro strips before rendering — a stricter
+ * hand-rolled detector diverged on three legal shapes (UTF-8 BOM before the
+ * fence, blank lines before the fence, a `----` close line whose first three
+ * chars satisfy Astro's close) and every body save on such files 409'd as
+ * "stale" because plugin-side and server-side offsets disagreed.
+ */
+const ASTRO_FRONTMATTER_RE = /(?:^\uFEFF?|^\s*\n)(?:---|\+\+\+)([\s\S]*?\n)(?:---|\+\+\+)/;
+
+/**
  * Byte offset where the markdown body begins (0 when there is no frontmatter
- * fence). Recognizes both YAML (`---`) and TOML (`+++`) fences — locating the
- * body only needs the fence bounds, not the frontmatter's content, so this is
- * intentionally independent of the YAML-only frontmatter codec.
+ * fence) — everything Astro's stripper would remove, including any BOM or
+ * leading blank lines consumed by its match.
  */
 function bodyOffset(source: string): number {
-  const delim = source.startsWith("---") ? "---" : source.startsWith("+++") ? "+++" : null;
-  if (!delim) return 0;
-  const firstNL = source.indexOf("\n");
-  if (firstNL === -1) return 0;
-  if (source.slice(0, firstNL).replace(/\r$/, "").trim() !== delim) return 0;
-
-  const rest = source.slice(firstNL + 1);
-  const close = new RegExp(`^\\${delim[0]}{3}[ \\t]*\\r?(?:\\n|$)`, "m").exec(rest);
-  if (!close) return 0;
-  return firstNL + 1 + close.index + close[0].length;
+  const match = ASTRO_FRONTMATTER_RE.exec(source);
+  if (!match) return 0;
+  return match.index + match[0].length;
 }
 
 /**

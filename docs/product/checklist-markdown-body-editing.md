@@ -310,6 +310,45 @@ reconnected).
 
 Commit: `feat(core): publish markdown body edits back to source files`
 
+## Adversarial review round (post-Phase-5)  --  DONE
+
+Two independent reviews of the full committed feature: a static seam review
+(cross-module integration) and an empirical attacker (85 executed checks
+against the built pipeline). Confirmed issues, all fixed + regression-tested:
+
+- [x] CRITICAL Studio `put_entry` clobbered drafted `__body` (entries API
+      strips it -> form round-trip omitted it -> full-replace write). Fixed:
+      engine carries stored `__body` forward on put_entry.
+- [x] CRITICAL setext-underline injection: `escapeLineStart` guarded `={2,}`/
+      3+ dashes but setext needs only ONE marker char — `text<br>=` published
+      as `<h1>`. Fixed guard (`=`/`-` runs of any length) in serializer + JS
+      mirror.
+- [x] HIGH `canonicalBody` fence detection diverged from Astro on BOM /
+      leading blank lines / `----` close -> body editing permanently 409'd on
+      such files. Fixed: mirrors Astro's own frontmatterRE byte for byte.
+- [x] HIGH setext headings were stamped but the write path only derives ATX
+      context -> editing silently demoted `<h1>` to `<p>`. Fixed: setext
+      headings are not stamped in v1 (not editable, like islands).
+- [x] `delete_entry` tombstone resurrected by a subsequent `md_block` (overlay
+      getEntry hides tombstones -> engine re-created the entry). Fixed: null
+      entry + existing source file => draft-deleted => 409.
+- [x] Client save race: md-block blur saves had no queue/in-flight guard —
+      out-of-order network arrival could silently keep older content. Fixed:
+      save chain + per-element generation counter (mirrors save-queue.js).
+- [x] Publish toolbar ignored the new `conflicts` — stale body drafts toasted
+      as published. Fixed: conflict toast + reload for fresh stamps.
+- [x] Doc drift: PRD 6.3 payload shape updated to the as-built wire format.
+- [x] Link titles / reference-style links normalize to untitled inline form on
+      edit — documented v1 limitation (serializer header + PRD), v0.4
+      candidate (needs `title` in the shared rich allowlist).
+
+Empirically VERIFIED OK (no action): unicode/astral offset conversion incl.
+ZWJ; CRLF everywhere incl. fences; EOF-without-newline; 20-way mutation
+concurrency (locks + revisions exact); offset-shift publish safety both prongs
+(external edit before drafted ranges -> stale_body abort; after -> clean
+publish preserving both); history bodySource round-trip; splice byte-exactness
+outside edited ranges.
+
 ## Phase 6 - Docs, release, launch
 
 Docs (site repo `../caretcms-site`, separate commits there):

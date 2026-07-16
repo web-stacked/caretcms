@@ -22,6 +22,23 @@ import { mutateHeaders } from './security.js';
 
 const snapshots = new WeakMap();
 
+// All md-block saves are chained through one queue (same pattern as
+// save-queue.js): two fast blur-saves of the same block can otherwise race on
+// the network and land out of order — both return ok, and the older content
+// silently wins. A per-element generation counter additionally drops a queued
+// save that a newer blur has superseded.
+let saveChain = Promise.resolve();
+const generations = new WeakMap();
+
+function enqueueSave(task) {
+  const run = saveChain.then(task, task);
+  saveChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 /** Parse `collection::id::body::blockPath`, or null. */
 function parseMdBinding(raw) {
   const parts = (raw || '').split('::');
@@ -122,9 +139,18 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
         throw error;
       }
 
+      const generation = (generations.get(el) ?? 0) + 1;
+      generations.set(el, generation);
+
       el.classList.add('cms-saving');
-      const result = await saveMdBlock(binding, src, clean);
+      const result = await enqueueSave(() => {
+        // A newer blur queued behind us supersedes this content — skip so the
+        // older payload can't overwrite the newer draft.
+        if (generations.get(el) !== generation) return { ok: true, skipped: true };
+        return saveMdBlock(binding, src, clean);
+      });
       el.classList.remove('cms-saving');
+      if (result.skipped) return;
       flash(el, result.ok);
 
       if (result.ok) {

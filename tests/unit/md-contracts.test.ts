@@ -128,6 +128,26 @@ describe("canonicalBody", () => {
     expect(cb.body).toBe("Just body.");
   });
 
+  it("mirrors Astro's fence semantics: BOM, leading blank lines, ---- close", () => {
+    // These three shapes are stripped by Astro's frontmatter regex; the
+    // canonical base must agree or every body save on such files 409s.
+    const bom = "\uFEFF---\ntitle: x\n---\n\nBody here.";
+    expect(canonicalBody(bom).body).toBe("Body here.");
+
+    const blank = "\n\n---\ntitle: x\n---\n\nBody here.";
+    expect(canonicalBody(blank).body).toBe("Body here.");
+
+    // Astro's close matches the first three dashes of `----`; the residual
+    // dash stays in the body. Odd, but agreement with Astro is the contract.
+    const overlong = "---\ntitle: x\n----\nBody here.";
+    expect(canonicalBody(overlong).body).toBe("-\nBody here.");
+
+    // Offset mapping still lands on exact file bytes for the BOM shape.
+    const cb = canonicalBody(bom);
+    const idx = cb.body.indexOf("Body");
+    expect(bom.slice(cb.fileOffsetOf(idx), cb.fileOffsetOf(idx) + 4)).toBe("Body");
+  });
+
   it("maps canonical offsets back to the exact file bytes", () => {
     const file = "---\ntitle: Hi\n---\n\n# Heading\n\nParagraph here.\n";
     const cb = canonicalBody(file);
