@@ -262,39 +262,51 @@ entries API exposes no `__body` even in preview. Drafts cleaned up after.
 
 Commit: `feat(editor): inline editing for markdown body blocks`
 
-## Phase 5 - Publish path + E2E
+## Phase 5 - Publish path  --  DONE (uncommitted); E2E deferred (see note)
 
-MarkdownAdapter + publish (`runtime/storage/markdown-adapter.ts`,
-`runtime/publish.ts`):
+MarkdownAdapter + publish:
 
-- [ ] Publish flush step: collect `__body`, re-verify EVERY block hash
-      against the current file; any mismatch -> whole-entry 409, file
-      untouched (all-or-nothing).
-- [ ] Apply splices in descending `start` (canonical->file offsets via
-      `canonicalBody().fileOffsetOf`); write with `atomicWrite`; bump
-      sidecar revision; history snapshot includes the pre-publish raw
-      body region for rollback.
-- [ ] Clear `__body` from the overlay after flush; frontmatter flush, git
-      journal, rebuild webhook proceed unchanged (verify commit contains
-      the body diff).
-- [ ] Rollback: restoring a snapshot with a body region rewrites the body
-      via the same splice machinery.
-- [ ] Unit tests: multi-block publish ordering, all-or-nothing on one
-      stale block, byte-exactness outside edited ranges (CRLF file too),
-      history restore.
+- [x] Pure splice module (`src/markdown/splice.ts`): re-verifies EVERY
+      block (hash + bounds + OVERLAP detection) against the current file
+      before a byte moves; all-or-nothing by construction.
+- [x] `MarkdownAdapter.spliceBodyBlocks` (read -> pure splice ->
+      `atomicWrite`) + `writeBodySource` (full-file restore); both on the
+      optional `StorageAdapter` surface.
+- [x] `publishOverlay` -> `PublishOutcome { published, conflicts }`:
+      extracts + validates `__body` (corrupt map = `invalid_body`,
+      never published through), STRIPS it from the frontmatter write
+      (the landmine), splices FIRST so a stale block aborts the whole
+      entry with the draft preserved (`stale_body`).
+- [x] Body-only publish leaves frontmatter bytes untouched (skip
+      `writeEntry` when data unchanged — kills re-quote diff noise;
+      found via HTTP dogfood, regression-tested).
+- [x] History `publish` snapshots carry `bodySource` (full pre-publish
+      file); restore route puts prose + frontmatter back and records the
+      pre-restore file for undo-of-the-undo. Git journal + rebuild
+      webhook unchanged; publish response gains `conflicts`.
+- [x] Unit tests (`md-publish-splice.test.ts`, 11): full-pipeline splice,
+      multi-block ordering, all-or-nothing stale abort, corrupt-map
+      conflict, frontmatter-byte preservation, history bodySource +
+      restore, CRLF byte-exactness, overlap/stale/adjacent pure-splice
+      cases.
 
-E2E (`examples/starter` + `tests/e2e/`):
+### Live HTTP dogfood (publish loop) -- DONE
 
-- [ ] Add a markdown-backed `blog` collection to starter (contentRoot
-      files + Astro glob collection + a rendered post page).
-- [ ] Spec `markdown-body.spec.ts` (serial, existing harness): login ->
-      click paragraph on rendered post -> edit (bold + link) -> save ->
-      preview shows draft -> publish -> assert `.md` file on disk contains
-      exactly the edit -> reload shows published content.
-- [ ] Island inertness: an MDX-style island / code fence on the same page
-      is not editable.
-- [ ] Full existing unit + e2e suites green; also green with
-      `markdown: { body: false }` and with JSON storage (no stamping).
+draft (`md_block`) -> POST /publish -> `git diff` of the source file is a
+SURGICAL prose-only hunk (zero frontmatter noise after the fix) -> public
+page serves the published prose -> draft cleared. The flagship demo works
+end to end. Example content restored after.
+
+### E2E note
+
+The checklist originally placed the browser e2e in `examples/starter`, but
+starter runs filesystem JSON storage — adding `src/content` would flip its
+zero-config storage to markdown and break every existing spec. Body-editing
+e2e needs a markdown-storage target (= `content-site`), which needs its own
+serve harness alongside `e2e-serve-starter.mjs`. Deferred to Phase 6 as its
+own work item; the HTTP dogfoods above cover the same assertions minus
+literal browser clicks (which the Chrome-MCP dogfood covers when
+reconnected).
 
 Commit: `feat(core): publish markdown body edits back to source files`
 
