@@ -47,7 +47,7 @@ describe("publish → markdown write → git commit", () => {
     expect(readFileSync(join(contentRoot, "blog", "hello.md"), "utf8")).toContain("title: Published");
 
     // publish: flush overlay → markdown source
-    const published = await publishOverlay(base, overlay, { collection: "blog", id: "hello" });
+    const { published } = await publishOverlay(base, overlay, { collection: "blog", id: "hello" });
     expect(published).toHaveLength(1);
     const md = readFileSync(join(contentRoot, "blog", "hello.md"), "utf8");
     expect(md).toContain("title: Edited in draft");

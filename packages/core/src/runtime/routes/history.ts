@@ -65,6 +65,25 @@ export async function POST(context: APIContext): Promise<Response> {
     // concurrent save_field/put_entry and tear the entry/revision pair. Write
     // before appending history so a failed write doesn't record a phantom event.
     const revision = await withEntryLock(collectionRaw, id, async () => {
+      // A publish snapshot that spliced body blocks carries the full
+      // pre-publish source file — restore it first (prose + frontmatter as
+      // they were), then writeEntry re-applies the snapshot's data on top so
+      // both restore paths converge on the same final state.
+      if (typeof snapshot.bodySource === "string" && adapter.writeBodySource) {
+        const current = await adapter.readBodySource?.(collectionRaw, id);
+        await adapter.writeBodySource(collectionRaw, id, snapshot.bodySource);
+        await adapter.writeEntry(collectionRaw, id, snapshotData);
+        const next = await adapter.bumpRevision(collectionRaw, id);
+        // Undo-of-the-undo: record what the file looked like before this restore.
+        await adapter.appendHistory(collectionRaw, id, {
+          ts: Date.now(),
+          action: "restore",
+          data: snapshotData,
+          ...(typeof current === "string" ? { bodySource: current } : {}),
+        });
+        return next;
+      }
+
       await adapter.writeEntry(collectionRaw, id, snapshotData);
       const next = await adapter.bumpRevision(collectionRaw, id);
       await adapter.appendHistory(collectionRaw, id, {

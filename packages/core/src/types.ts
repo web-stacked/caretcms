@@ -1,5 +1,15 @@
 export type EntryData = { id: string; data: Record<string, unknown> };
-export type HistoryEntry = { ts: number; data: unknown; action: string };
+export type HistoryEntry = {
+  ts: number;
+  data: unknown;
+  action: string;
+  /**
+   * Present on `publish` snapshots that spliced markdown body blocks: the full
+   * pre-publish source file, so a restore can put the prose back (`data` alone
+   * only covers frontmatter for source-file-backed adapters).
+   */
+  bodySource?: string;
+};
 export type CaretMode = "embedded" | "cloud";
 export type CaretProviderKind = "storage" | "uploads";
 
@@ -87,6 +97,25 @@ export interface StorageAdapter {
    * delegate to their BASE (the body source is always the published file).
    */
   readBodySource?(collection: string, id: string): Promise<string | null>;
+
+  /**
+   * Optional: apply drafted body-block edits to the entry's source file,
+   * all-or-nothing (see `markdown/splice.ts`). Returns the splice outcome;
+   * `stale`/`overlap` failures leave the file untouched. Publish calls this
+   * BEFORE the frontmatter write so a failed splice aborts the whole entry.
+   */
+  spliceBodyBlocks?(
+    collection: string,
+    id: string,
+    blocks: ReadonlyArray<{ md: string; src: { start: number; end: number; hash: string } }>,
+  ): Promise<{ ok: true } | { ok: false; reason: "stale" | "overlap" | "missing" }>;
+
+  /**
+   * Optional: overwrite an entry's full source file (frontmatter + body).
+   * Backs history restore of `bodySource` snapshots. Source-file-backed
+   * adapters only.
+   */
+  writeBodySource?(collection: string, id: string, source: string): Promise<void>;
 }
 
 export interface UploadContext {

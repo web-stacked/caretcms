@@ -6,6 +6,7 @@ import { assertFilesystemRuntime } from "./fs-runtime.js";
 import { SidecarMetaStore, listCollectionDirs } from "./sidecar-meta-store.js";
 import { COLLECTION_NAME_RE, ENTRY_ID_RE, assertSafeEditorId } from "./id-contracts.js";
 import { parseFrontmatter, serializeFrontmatter } from "./frontmatter-codec.js";
+import { spliceBodyBlocks as spliceBodyBlocksInSource } from "../../markdown/splice.js";
 import { FilesystemAdapter } from "./filesystem-adapter.js";
 
 // .md is preferred over .mdx when both exist for the same id (simpler format,
@@ -112,6 +113,36 @@ export class MarkdownAdapter implements StorageAdapter {
     } catch {
       return null; // disappeared between stat and read, or unreadable encoding
     }
+  }
+
+  /** Publish-time body flush: verify + apply drafted block edits to the source
+   *  file, all-or-nothing (`markdown/splice.ts`). File untouched on failure. */
+  async spliceBodyBlocks(
+    collection: string,
+    id: string,
+    blocks: ReadonlyArray<{ md: string; src: { start: number; end: number; hash: string } }>,
+  ): Promise<{ ok: true } | { ok: false; reason: "stale" | "overlap" | "missing" }> {
+    if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) {
+      return { ok: false, reason: "missing" };
+    }
+    const path = await this.resolveEntryPath(collection, id);
+    if (!path) return { ok: false, reason: "missing" };
+    const source = await readFile(path, "utf8");
+    const result = spliceBodyBlocksInSource(source, blocks);
+    if (!result.ok) return { ok: false, reason: result.reason };
+    await atomicWrite(path, result.content);
+    return { ok: true };
+  }
+
+  /** Restore an entry's full source file (history `bodySource` snapshots). */
+  async writeBodySource(collection: string, id: string, source: string): Promise<void> {
+    if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) {
+      throw new Error(`[caretcms] invalid entry path ${collection}/${id}`);
+    }
+    const dir = this.collectionDir(collection);
+    await mkdir(dir, { recursive: true });
+    const path = (await this.resolveEntryPath(collection, id)) ?? join(dir, `${id}.md`);
+    await atomicWrite(path, source);
   }
 
   async getEntry(collection: string, id: string): Promise<EntryData | null> {

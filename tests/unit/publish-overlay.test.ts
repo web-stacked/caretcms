@@ -19,7 +19,7 @@ describe("publishOverlay", () => {
     await draft.writeEntry("pages", "home", { title: "Edited" });
 
     const baseRevBefore = await base.getRevision("pages", "home");
-    const result = await publishOverlay(base, overlay, { collection: "pages", id: "home" });
+    const { published: result } = await publishOverlay(base, overlay, { collection: "pages", id: "home" });
 
     expect((await base.getEntry("pages", "home"))?.data).toEqual({ title: "Edited" });
     expect(result).toHaveLength(1);
@@ -39,7 +39,7 @@ describe("publishOverlay", () => {
     // editing again starts a fresh draft off the published base
     expect((await draft.getEntry("pages", "home"))?.data).toEqual({ title: "v1" });
     await draft.writeEntry("pages", "home", { title: "v2" });
-    const second = await publishOverlay(base, overlay, { collection: "pages", id: "home" });
+    const { published: second } = await publishOverlay(base, overlay, { collection: "pages", id: "home" });
     expect((await base.getEntry("pages", "home"))?.data).toEqual({ title: "v2" });
     expect(second[0].revision).toBe(await base.getRevision("pages", "home"));
   });
@@ -48,7 +48,7 @@ describe("publishOverlay", () => {
     const { base, overlay, draft } = await setup();
     await draft.deleteEntry("pages", "home"); // writes a tombstone into the overlay
 
-    const result = await publishOverlay(base, overlay, { collection: "pages", id: "home" });
+    const { published: result } = await publishOverlay(base, overlay, { collection: "pages", id: "home" });
     expect(result[0]).toMatchObject({ deleted: true });
     expect(await base.getEntry("pages", "home")).toBeNull();
     expect(await overlay.getEntry("pages", "home")).toBeNull();
@@ -60,7 +60,7 @@ describe("publishOverlay", () => {
     await draft.writeEntry("pages", "home", { title: "home draft" });
     await draft.writeEntry("pages", "about", { title: "about draft" });
 
-    const result = await publishOverlay(base, overlay, { collection: "pages", id: "home" });
+    const { published: result } = await publishOverlay(base, overlay, { collection: "pages", id: "home" });
     expect(result).toHaveLength(1);
     expect((await base.getEntry("pages", "home"))?.data).toEqual({ title: "home draft" });
     // the unscoped draft is still pending in the overlay
@@ -73,7 +73,7 @@ describe("publishOverlay", () => {
     await draft.writeEntry("pages", "home", { title: "h" });
     await draft.writeEntry("posts", "first", { title: "p" });
 
-    const result = await publishOverlay(base, overlay);
+    const { published: result } = await publishOverlay(base, overlay);
     const pairs = result.map((r) => `${r.collection}/${r.id}`).sort();
     expect(pairs).toEqual(["pages/home", "posts/first"]);
     expect((await base.getEntry("posts", "first"))?.data).toEqual({ title: "p" });

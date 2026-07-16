@@ -45,7 +45,7 @@ export async function POST(context: APIContext): Promise<Response> {
     return json({ error: "Drafts are not supported by the configured storage adapter" }, 400);
   }
   const overlay = await base.makeEditorOverlay(editorId);
-  const published = await publishOverlay(base, overlay, scope);
+  const { published, conflicts } = await publishOverlay(base, overlay, scope);
 
   // Best-effort git journal (opt-in via CARET_GIT_ON_PUBLISH): turn the publish
   // into a commit when content lives in a git repo. Runs AFTER the publish, so a
@@ -76,5 +76,8 @@ export async function POST(context: APIContext): Promise<Response> {
         })
       : { triggered: false, ok: true as const };
 
-  return json({ ok: true, published, commit, rebuild });
+  // Conflicted entries keep their drafts; the client surfaces them so the
+  // editor can reload (fresh stamps) and re-apply. `ok` reflects the whole
+  // request having been processed, not per-entry success — check `conflicts`.
+  return json({ ok: true, published, conflicts, commit, rebuild });
 }
