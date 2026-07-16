@@ -22,9 +22,11 @@ pnpm-debug.log*
 # local CMS state
 .caretcms/
 examples/*/.caretcms/
-# starter is the e2e target — its .caret data is generated/reset per run, not seed
-# content (unlike examples/demo/.caret, which is committed).
+# starter (e2e target) and content-site (editorial showcase) generate .caret
+# draft-overlay state per editor session — ephemeral, not seed content (unlike
+# examples/demo/.caret, which is committed).
 examples/starter/.caret/
+examples/content-site/.caret/
 
 # macOS-specific files
 .DS_Store
