@@ -271,8 +271,9 @@
   color: var(--cms-red);
 }
 
-/* Highlight all mode — show every editable region */
-.cms-highlight-all [data-caret].cms-editable {
+/* Highlight all mode — show every editable region (fields AND body blocks) */
+.cms-highlight-all [data-caret].cms-editable,
+.cms-highlight-all [data-caret-md].cms-editable {
   outline-color: var(--cms-blue-hover);
   background: rgba(59, 130, 246, 0.04);
 }
@@ -286,6 +287,7 @@
    transition — motion is suppressed, the information is not. */
 @media (prefers-reduced-motion: reduce) {
   .cms-highlight-all [data-caret].cms-editable,
+  .cms-highlight-all [data-caret-md].cms-editable,
   .cms-highlight-all img[data-caret] {
     transition: none;
   }

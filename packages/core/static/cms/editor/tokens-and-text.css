@@ -49,7 +49,10 @@
    Text editing affordances — simple blue outline
    --------------------------------------------------------------------------- */
 
-[data-caret].cms-editable {
+/* Both field bindings (data-caret) and markdown body blocks (data-caret-md)
+   carry .cms-editable, so the hover/focus affordances apply to both. */
+[data-caret].cms-editable,
+[data-caret-md].cms-editable {
   cursor: text;
   transition: outline 0.2s, box-shadow 0.2s, background 0.4s;
   outline: 2px dashed transparent;
@@ -57,11 +60,13 @@
   border-radius: 2px;
 }
 
-[data-caret].cms-editable:hover {
+[data-caret].cms-editable:hover,
+[data-caret-md].cms-editable:hover {
   outline-color: var(--cms-blue-hover);
 }
 
-[data-caret].cms-editable:focus {
+[data-caret].cms-editable:focus,
+[data-caret-md].cms-editable:focus {
   outline: 2px solid var(--cms-blue);
   outline-offset: 4px;
   box-shadow: 0 0 0 4px var(--cms-blue-dim);
