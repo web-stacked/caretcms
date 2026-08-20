@@ -17,7 +17,7 @@ export default defineConfig({
   projects: [{ name: "chromium-markdown", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
     command:
-      "npm run build:core --prefix ../.. && npm run build && node dist/server/entry.mjs",
+      "npm run build:core --prefix ../.. && npm run build:zod --prefix ../.. && npm run build && node dist/server/entry.mjs",
     cwd: "examples/content-site",
     url: `http://localhost:${PORT}/blog/ship-something-real/`,
     timeout: 180_000,
