@@ -8,20 +8,46 @@
  */
 
 import type { JsonSchemaNode } from "../schema-utils.js";
+import type { CollectionStudioConfig, StorageAdapter } from "../types.js";
 
 type CollectionSchemaEntry = {
   schema: JsonSchemaNode;
   template: Record<string, unknown> | null;
+  metadata?: CollectionStudioConfig;
 };
 
-const registry = new Map<string, CollectionSchemaEntry>();
+type SchemaRegistryState = {
+  schemas: Map<string, CollectionSchemaEntry>;
+  studioConfigs: Map<string, CollectionStudioConfig>;
+};
+
+// The virtual schema module and runtime routes can be loaded through different
+// Vite module graphs in Astro dev. A namespaced global registry preserves their
+// shared identity across dependency-optimization reloads.
+const schemaRegistryKey = Symbol.for("@caretcms/core/schema-registry");
+const globalSlots = globalThis as typeof globalThis & Record<symbol, unknown>;
+const state = (globalSlots[schemaRegistryKey] ??= {
+  schemas: new Map<string, CollectionSchemaEntry>(),
+  studioConfigs: new Map<string, CollectionStudioConfig>(),
+}) as SchemaRegistryState;
+const registry = state.schemas;
+const studioConfigRegistry = state.studioConfigs;
 
 export function registerCollectionSchema(
   collection: string,
   jsonSchema: JsonSchemaNode,
   template: Record<string, unknown> | null,
+  metadata?: CollectionStudioConfig,
 ): void {
-  registry.set(collection, { schema: jsonSchema, template });
+  registry.set(collection, { schema: jsonSchema, template, metadata });
+  if (metadata) studioConfigRegistry.set(collection, metadata);
+}
+
+export function registerCollectionStudioConfig(
+  collection: string,
+  metadata: CollectionStudioConfig,
+): void {
+  studioConfigRegistry.set(collection, metadata);
 }
 
 export function getRegisteredSchema(
@@ -30,3 +56,43 @@ export function getRegisteredSchema(
   return registry.get(collection) ?? null;
 }
 
+export function getRegisteredCollectionNames(): string[] {
+  return [...new Set([...registry.keys(), ...studioConfigRegistry.keys()])].sort();
+}
+
+export async function getStudioCollectionNames(
+  adapter: StorageAdapter,
+): Promise<string[]> {
+  return [...new Set([
+    ...(await adapter.discoverCollections()),
+    ...getRegisteredCollectionNames(),
+  ])].sort();
+}
+
+export async function isKnownStudioCollection(
+  adapter: StorageAdapter,
+  collection: string,
+): Promise<boolean> {
+  return registry.has(collection)
+    || studioConfigRegistry.has(collection)
+    || adapter.isKnownCollection(collection);
+}
+
+export async function resolveCollectionStudioConfig(
+  adapter: StorageAdapter,
+  collection: string,
+): Promise<CollectionStudioConfig> {
+  const dynamic = await adapter.getCollectionMetadata(collection);
+  const registered = studioConfigRegistry.get(collection);
+  return {
+    label: dynamic?.label,
+    description: dynamic?.description,
+    icon: dynamic?.icon,
+    order: dynamic?.order,
+    creatable: dynamic?.creatable,
+    orderable: dynamic?.orderable,
+    deletable: dynamic?.deletable,
+    singletonId: dynamic?.singletonId,
+    ...registered,
+  };
+}

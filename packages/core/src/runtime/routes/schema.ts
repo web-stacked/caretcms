@@ -2,7 +2,11 @@ export const prerender = false;
 
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
-import { getRegisteredSchema } from "../schema-registry.js";
+import {
+  getRegisteredSchema,
+  isKnownStudioCollection,
+  resolveCollectionStudioConfig,
+} from "../schema-registry.js";
 import { inferJsonSchema, buildTemplate } from "../../schema-utils.js";
 import { stripBodyOverlay } from "../utils.js";
 import { json, resolveAdapter } from "./_helpers.js";
@@ -16,18 +20,20 @@ export async function GET(context: APIContext): Promise<Response> {
   const collectionRaw = (context.url.searchParams.get("collection") ?? "")
     .trim()
     .toLowerCase();
-  if (!(await adapter.isKnownCollection(collectionRaw))) {
+  if (!(await isKnownStudioCollection(adapter, collectionRaw))) {
     return json({ error: "Invalid collection" }, 400);
   }
 
   // 1. Check for explicit registered schema (from integration config)
   const registered = getRegisteredSchema(collectionRaw);
   if (registered) {
+    const metadata = await resolveCollectionStudioConfig(adapter, collectionRaw);
     return json({
       schema: registered.schema,
       template: registered.template,
       collection: collectionRaw,
       source: "explicit",
+      metadata,
     });
   }
 
@@ -49,6 +55,9 @@ export async function GET(context: APIContext): Promise<Response> {
         icon: metadata.icon,
         creatable: metadata.creatable,
         orderable: metadata.orderable,
+        deletable: metadata.deletable,
+        singletonId: metadata.singletonId,
+        order: metadata.order,
       },
     });
   }

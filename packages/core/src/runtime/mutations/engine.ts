@@ -12,6 +12,11 @@ import {
   type CmsMutationCommand,
   type MutationIssue,
 } from "./contracts.js";
+import { resolveCollectionStudioConfig } from "../schema-registry.js";
+import { getRegisteredSchema } from "../schema-registry.js";
+import { validateJsonSchema, type JsonSchemaNode } from "../../schema-utils.js";
+import { getRequestContext } from "../request-context.js";
+import type { HistoryEntry } from "../../types.js";
 
 /** Request-scoped extras a route can thread into `executeMutation`. */
 export interface MutationOptions {
@@ -104,6 +109,100 @@ function fail(status: number, error: string, extra?: Partial<MutationErrorBody>)
   };
 }
 
+async function appendHistory(
+  adapter: StorageAdapter,
+  collection: string,
+  id: string,
+  entry: HistoryEntry,
+): Promise<void> {
+  const context = getRequestContext();
+  const editor = context?.identity ?? (context?.editorId ? { id: context.editorId } : null);
+  await adapter.appendHistory(collection, id, {
+    ...entry,
+    ...(editor ? { editor } : {}),
+  });
+}
+
+async function enforceCollectionCapabilities(
+  adapter: StorageAdapter,
+  command: CmsMutationCommand,
+): Promise<MutationResult | null> {
+  if (command.type === "delete_collection") {
+    const config = await resolveCollectionStudioConfig(adapter, command.id);
+    if (config.deletable === false || config.singletonId) {
+      return fail(403, `Collection "${command.id}" cannot be deleted`);
+    }
+    return null;
+  }
+  if (!("collection" in command)) return null;
+  const config = await resolveCollectionStudioConfig(adapter, command.collection);
+  const id = "id" in command && typeof command.id === "string" ? command.id : null;
+
+  if (config.singletonId && id && id !== config.singletonId) {
+    return fail(403, `Collection "${command.collection}" only allows entry "${config.singletonId}"`);
+  }
+  if (command.type === "delete_entry" && (config.deletable === false || config.singletonId)) {
+    return fail(403, `Entries in collection "${command.collection}" cannot be deleted`);
+  }
+  if (command.type === "reorder_entries" && config.orderable === false) {
+    return fail(403, `Collection "${command.collection}" cannot be reordered`);
+  }
+
+  if (
+    id
+    && config.creatable === false
+    && ["put_entry", "save_field", "update_page_layout", "md_block"].includes(command.type)
+  ) {
+    const exists = await adapter.getEntry(command.collection, id);
+    const initializingSingleton = config.singletonId === id;
+    if (!exists && !initializingSingleton) {
+      return fail(403, `New entries cannot be created in collection "${command.collection}"`);
+    }
+  }
+  return null;
+}
+
+async function collectionSchema(
+  adapter: StorageAdapter,
+  collection: string,
+): Promise<JsonSchemaNode | null> {
+  const registered = getRegisteredSchema(collection);
+  if (registered) return registered.schema;
+  return ((await adapter.getCollectionMetadata(collection))?.schema as JsonSchemaNode | undefined) ?? null;
+}
+
+function schemaAtPath(schema: JsonSchemaNode, path: string): JsonSchemaNode | null {
+  let current: JsonSchemaNode | undefined = schema;
+  for (const segment of path.split(".")) {
+    if (!current) return null;
+    current = /^\d+$/.test(segment)
+      ? current.items
+      : current.properties?.[segment];
+  }
+  return current ?? null;
+}
+
+function coerceFieldValue(value: string, schema: JsonSchemaNode | null): unknown {
+  if (!schema) return value;
+  if (schema.type === "number" || schema.type === "integer") {
+    const parsed = Number(value);
+    return value.trim() !== "" && Number.isFinite(parsed) ? parsed : value;
+  }
+  if (schema.type === "boolean") {
+    if (value === "true") return true;
+    if (value === "false") return false;
+  }
+  return value;
+}
+
+function validateEntry(schema: JsonSchemaNode | null, data: Record<string, unknown>): MutationResult | null {
+  if (!schema) return null;
+  const issues = validateJsonSchema(data, schema);
+  return issues.length > 0
+    ? fail(400, "Entry does not match collection schema", { issues })
+    : null;
+}
+
 async function ensureExpectedRevisionMatches(
   adapter: StorageAdapter,
   collection: string,
@@ -131,20 +230,24 @@ async function applySaveField(
     if (!revision.ok) return revision.result;
 
     const before = (await adapter.getEntry(collection, id))?.data ?? {};
-    const current = { ...before };
+    const current = structuredClone(before);
+    const schema = await collectionSchema(adapter, collection);
 
     try {
-      setNestedValue(current, field, value);
+      setNestedValue(current, field, coerceFieldValue(value, schema ? schemaAtPath(schema, field) : null));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Set failed";
       return fail(400, message);
     }
 
+    const validationFailure = validateEntry(schema, current);
+    if (validationFailure) return validationFailure;
+
     // Write first, then record history. If the write throws we surface the
     // error without leaving a history event for a save that never landed.
     await adapter.writeEntry(collection, id, current);
     const nextRevision = await adapter.bumpRevision(collection, id);
-    await adapter.appendHistory(collection, id, {
+    await appendHistory(adapter, collection, id, {
       ts: Date.now(),
       action: "save",
       data: before,
@@ -174,10 +277,13 @@ async function applyPutEntry(
         ? { ...data, [BODY_OVERLAY_KEY]: before[BODY_OVERLAY_KEY] }
         : data;
 
+    const validationFailure = validateEntry(await collectionSchema(adapter, collection), data);
+    if (validationFailure) return validationFailure;
+
     await adapter.writeEntry(collection, id, write);
     const nextRevision = await adapter.bumpRevision(collection, id);
     if (before !== null) {
-      await adapter.appendHistory(collection, id, {
+      await appendHistory(adapter, collection, id, {
         ts: Date.now(),
         action: "put",
         data: before,
@@ -201,7 +307,7 @@ async function applyDeleteEntry(
     await adapter.deleteEntry(collection, id);
     const nextRevision = await adapter.bumpRevision(collection, id);
     if (before !== null) {
-      await adapter.appendHistory(collection, id, {
+      await appendHistory(adapter, collection, id, {
         ts: Date.now(),
         action: "delete",
         data: before,
@@ -237,15 +343,28 @@ async function applyReorderEntries(
       currentById.set(item.id, { data: entry.data, revision });
     }
 
-    const revisions: Record<string, number> = {};
+    const schema = await collectionSchema(adapter, collection);
+    const pending = new Map<string, Record<string, unknown>>();
     for (const item of items) {
       const current = currentById.get(item.id);
       if (!current) return fail(500, "Failed to load reorder item");
 
       const nextData = { ...current.data, order: item.order };
+      const validationFailure = validateEntry(schema, nextData);
+      if (validationFailure) return validationFailure;
+      pending.set(item.id, nextData);
+    }
+
+    // Validate the complete batch before writing any member so one invalid
+    // entry cannot leave a partially reordered collection behind.
+    const revisions: Record<string, number> = {};
+    for (const item of items) {
+      const current = currentById.get(item.id);
+      const nextData = pending.get(item.id);
+      if (!current || !nextData) return fail(500, "Failed to prepare reorder item");
       await adapter.writeEntry(collection, item.id, nextData);
       revisions[item.id] = await adapter.bumpRevision(collection, item.id);
-      await adapter.appendHistory(collection, item.id, {
+      await appendHistory(adapter, collection, item.id, {
         ts: Date.now(),
         action: "reorder",
         data: current.data,
@@ -283,7 +402,7 @@ async function applyUpdatePageLayout(
 
     await adapter.writeEntry(collection, id, current);
     const nextRevision = await adapter.bumpRevision(collection, id);
-    await adapter.appendHistory(collection, id, {
+    await appendHistory(adapter, collection, id, {
       ts: Date.now(),
       action: "put",
       data: before,
@@ -372,7 +491,7 @@ async function applyMdBlock(
 
     await adapter.writeEntry(collection, id, current);
     const nextRevision = await adapter.bumpRevision(collection, id);
-    await adapter.appendHistory(collection, id, {
+    await appendHistory(adapter, collection, id, {
       ts: Date.now(),
       action: "save",
       data: before,
@@ -385,7 +504,10 @@ async function applyCreateCollection(
   adapter: StorageAdapter,
   command: Extract<CmsMutationCommand, { type: "create_collection" }>,
 ): Promise<MutationResult> {
-  const { id, label, description, icon, creatable, orderable, schema } = command;
+  const {
+    id, label, description, icon, creatable, orderable, deletable,
+    singletonId, order, schema,
+  } = command;
 
   // Hold the collection lock so the exists-check → create is atomic (two
   // concurrent creates can't both pass the check) and serializes against a
@@ -403,6 +525,9 @@ async function applyCreateCollection(
       icon,
       creatable: creatable ?? true,
       orderable: orderable ?? false,
+      deletable: deletable ?? true,
+      singletonId,
+      order,
       schema,
       created_at: Date.now(),
       updated_at: Date.now(),
@@ -453,6 +578,8 @@ export async function executeMutation(
   }
 
   const command = parsed.command;
+  const capabilityFailure = await enforceCollectionCapabilities(adapter, command);
+  if (capabilityFailure) return capabilityFailure;
   switch (command.type) {
     case "md_block":
       return applyMdBlock(adapter, command, options);

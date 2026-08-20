@@ -25,6 +25,6 @@ Read the page aloud with the images removed. If it still makes the case, the
 design has something to support. If it doesn't, no amount of kerning will save
 it.
 
-This post — like every word on the site — is a real markdown file. The studio
-edits the **title and excerpt** inline through CaretCMS; the body stays in the
-`.md` so it can carry headings, lists, and links.
+This post — like every word on the site — is a real markdown file. CaretCMS edits
+the **title and excerpt** as fields and lets an editor update supported prose
+blocks on the rendered page. Publish writes those changes back to this `.md` file.

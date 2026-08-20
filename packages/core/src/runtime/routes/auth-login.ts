@@ -15,6 +15,7 @@ import {
 } from "../auth/rate-limiter.js";
 import { getRuntimeConfig } from "../config.js";
 import { enforceContentLength, MAX_JSON_BODY_BYTES } from "./_helpers.js";
+import { getRuntimeServices } from "../providers.js";
 
 function redirect(pathname: string, setCookie?: string): Response {
   const headers: Record<string, string> = { Location: pathname };
@@ -36,6 +37,10 @@ function json(
 
 export async function POST(context: APIContext): Promise<Response> {
   const runtime = getRuntimeConfig();
+
+  if ((await getRuntimeServices()).identityAdapter) {
+    return json({ error: "Password login is disabled by the configured identity adapter." }, 409);
+  }
 
   if (!hasConfiguredEditorPassword()) {
     return json({ error: "Editor password is not configured." }, 500);

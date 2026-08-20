@@ -56,6 +56,11 @@ export default defineConfig({
 });
 ```
 
+Enable public access for the R2 bucket and set `R2_PUBLIC_DOMAIN` to that
+hostname, or pass `publicBaseUrl` to `r2Uploads()`. Uploads fail with an
+actionable configuration error if no public URL is available; Caret core does
+not mount an R2 image proxy.
+
 - **`astro dev`** — full authoring: `/admin`, `/api/cms`, inline editor.
 - **`astro build`** — bakes stored overrides into generated HTML; authoring routes stay out of production output.
 - **Public updates** — after Publish, run CI/build/deploy (optionally via `delivery.publish.webhookUrl`).
@@ -80,8 +85,26 @@ Edits are visible to visitors immediately — middleware rewrites HTML on each r
 **Already have Astro content collections?** If your project has collections under
 `src/content/` and you haven't set `storage`, CaretCMS auto-selects
 `markdownStorage()` so the Studio lists those collections immediately (instead of
-"No collections yet") and edits write back to your `.md` frontmatter. Pass an
+"No collections yet") and edits write back to your `.md` files. Pass an
 explicit `storage` to override — `storage: filesystemStorage()` opts back out.
+
+### Edit Markdown prose on the page
+
+When Astro renders a `.md` entry through `markdownStorage()`, Caret marks safe
+prose blocks automatically. Sign in, click a paragraph or heading, edit it on the
+page, then publish the draft to write the change back to the source file.
+
+Caret supports paragraphs, ATX headings, list items, and paragraphs inside
+blockquotes. Bold, emphasis, links, inline code, and line breaks round-trip to
+Markdown. Code blocks, tables, raw HTML blocks, and MDX stay read-only. Nested
+blocks must fit on one source line.
+
+Each draft records the source range and a hash of the original text. If the file
+changes before publish, Caret returns a conflict and leaves both the file and the
+draft untouched. Set `bodyEditing: false` in `caret()` to disable this feature.
+
+See [Markdown body editing](https://caretcms.com/docs/markdown-body-editing/) for
+the full setup, supported syntax, and publish workflow.
 
 ## Choose your path
 
@@ -284,8 +307,56 @@ caret({
                                 //   src/content collections exist, else filesystem)
   uploads: localUploads(),      // Upload handler (default: local filesystem)
   schemas: {},                  // Optional JSON Schema map for Studio (default: inferred)
+  collections: {},              // Labels, ordering, capabilities, and singletons
+  locale: 'en',                 // 'en' | 'es'; dictionary overrides are also supported
+  bodyEditing: true,            // Inline editing for rendered Markdown prose
 })
 ```
+
+### Optional named identity adapter
+
+Shared-password mode remains the zero-dependency default. Server deployments can
+instead configure an authoritative identity provider:
+
+```js
+import caret, { defineIdentityProvider } from '@caretcms/core';
+
+caret({
+  identity: defineIdentityProvider({
+    entrypoint: './src/caret-identity.ts',
+    exportName: 'identityProvider',
+    options: { loginOrigin: 'https://login.example.com' },
+  }),
+});
+```
+
+The provider module exports a factory returning an `IdentityAdapter`:
+
+```ts
+import type { IdentityAdapter } from '@caretcms/core';
+
+export function identityProvider(options: { loginOrigin: string }): IdentityAdapter {
+  return {
+    async authenticate(request) {
+      // Verify a trusted session/header and enforce editor authorization here.
+      // Return null to deny access. IDs must match /^[A-Za-z0-9_-]{1,64}$/.
+      return { id: 'editor_01', name: 'Alex Rivera', roles: ['editor'] };
+    },
+    loginUrl({ redirectTo }) {
+      return `${options.loginOrigin}/login?returnTo=${encodeURIComponent(redirectTo)}`;
+    },
+    logoutUrl({ redirectTo }) {
+      return `${options.loginOrigin}/logout?returnTo=${encodeURIComponent(redirectTo)}`;
+    },
+  };
+}
+```
+
+When `identity` is configured it is authoritative: Caret does not fall back to
+the shared password. Authentication errors and unsafe IDs fail closed. Named
+identity is exposed by `/api/cms/auth/session`, shown in Studio, used as the
+private-preview overlay key, and attached to new history snapshots. Only trust
+identity headers when a proxy strips client-supplied copies and writes its own.
 
 ## Rendering & output
 
@@ -343,7 +414,7 @@ The default (embedded) providers write inside your project:
 | `.caret/data/` | entry JSON | `filesystemStorage()` (default) |
 | `.caret/drafts/` | per-editor draft overlays | `filesystemStorage()` |
 | `.caretcms/` | revisions + history sidecar | both filesystem and markdown storage |
-| `src/content/**.md` | frontmatter edits | `markdownStorage()` (auto-selected when you have content collections) |
+| `src/content/**.md` | frontmatter and published prose edits | `markdownStorage()` (auto-selected when you have content collections) |
 | `public/uploads/` | uploaded images | `localUploads()` (default) |
 
 Recommended `.gitignore` for the transient state (keep `.caret/data/` or your
@@ -362,6 +433,9 @@ public/uploads/
 - `CARET_SESSION_SECRET` — **required in production** when a password is set; sessions are
   HMAC-signed with it. Generate one with `openssl rand -base64 32`. If it's missing, logins
   return a configuration error and existing sessions are treated as signed out.
+- Rotate `CARET_EDIT_PASSWORD` and `CARET_SESSION_SECRET` together, then restart or redeploy
+  every instance. Changing the session secret immediately invalidates all existing editor
+  cookies; changing only the password does not revoke sessions that are already signed in.
 - `markdownStorage()` edits `src/content/*.md` **at request time** — a dev/git workflow. In
   production, pair it with commit-on-publish + a CI rebuild (fields rendered through
   `getCollection()` are baked at build time and only refresh on rebuild), or use a server-side
@@ -373,9 +447,13 @@ public/uploads/
   from your project root, or pass explicit paths (`filesystemStorage({ dataRoot })`,
   `markdownStorage({ contentRoot })`, `localUploads({ uploadsDir })`).
 
+Password mode is deliberately a single shared-editor workflow: it has no named users, roles,
+or per-user attribution. Teams needing those controls should configure the authoritative
+identity adapter described above.
+
 ## Requirements
 
-- Astro 5 or 6
+- Astro 6 or 7
 - Node 20.19.1+ or 22.12.0+
 - **Static delivery:** default Astro static output (no adapter)
 - **Server delivery:** `output: 'server'` plus an SSR adapter

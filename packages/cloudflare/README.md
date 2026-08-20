@@ -41,12 +41,19 @@ bindings/secrets (`wrangler secret put …` or `[vars]` in `wrangler.toml`):
 | --- | --- |
 | `CMS_KV` | KV namespace for content storage (name configurable via `binding`). |
 | `CMS_R2` | R2 bucket for uploads (name configurable via `binding`). |
+| `R2_PUBLIC_DOMAIN` | Public R2 hostname (for example `assets.example.com` or the bucket's enabled `r2.dev` hostname). Required for uploads unless `publicBaseUrl` is configured explicitly. |
 | `CARET_EDIT_PASSWORD` | Editor login password. Without it the editor stays locked. |
 | `CARET_SESSION_SECRET` | HMAC secret for session cookies. **Required** in production — generate with `openssl rand -base64 32`. |
 | `CARET_DEMO_MODE` | `"true"` to enable the per-visitor demo sandbox. |
 
 The auth layer reads `CARET_EDIT_PASSWORD` / `CARET_SESSION_SECRET` from the Worker
 env when they aren't in `process.env`, so a binding-only deployment works.
+
+R2 objects are not served by Caret's API routes. `r2Uploads()` therefore rejects
+an upload before writing when neither `publicBaseUrl` nor `R2_PUBLIC_DOMAIN` is
+available; it never returns a relative URL that points at a nonexistent proxy.
+`devServePath` is an explicit escape hatch only for hosts that mount their own
+matching local image route.
 
 ## Concurrency: single-writer only
 

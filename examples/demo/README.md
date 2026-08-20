@@ -27,6 +27,9 @@ wrangler kv namespace create CMS_KV
 
 # 2. Create the R2 bucket (matches bucket_name in wrangler.toml)
 wrangler r2 bucket create caret-uploads
+
+# 3. Enable an R2 custom domain or r2.dev access, then store its hostname
+wrangler secret put R2_PUBLIC_DOMAIN
 ```
 
 Demo mode needs no editor password — `CARET_DEMO_MODE` is set in `wrangler.toml`

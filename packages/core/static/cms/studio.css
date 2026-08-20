@@ -29,6 +29,18 @@ html, body {
   box-sizing: border-box;
 }
 
+.studio-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -47,9 +59,11 @@ a {
 /* ─── Layout: Shell + Header ────────────────────────────────────────── */
 
 .studio-shell {
+  height: 100dvh;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .studio-header {
@@ -87,6 +101,15 @@ a {
   flex-shrink: 0;
 }
 
+.studio-editor-identity {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--studio-text-muted);
+  font-size: 0.72rem;
+}
+
 .studio-brand {
   display: flex;
   align-items: center;
@@ -113,6 +136,7 @@ a {
 
 .studio-main {
   flex: 1;
+  min-height: 0;
   padding: var(--space-theme-xl) var(--space-theme-lg);
   overflow-y: auto;
 }

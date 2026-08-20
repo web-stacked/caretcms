@@ -76,6 +76,9 @@ export type CreateCollectionCommand = {
   icon?: string;
   creatable?: boolean;
   orderable?: boolean;
+  deletable?: boolean;
+  singletonId?: string;
+  order?: number;
   schema: {
     type: "object";
     properties: Record<string, unknown>;
@@ -491,6 +494,9 @@ async function parseCreateCollectionCommand(
   const icon = typeof input.icon === "string" ? input.icon : undefined;
   const creatable = typeof input.creatable === "boolean" ? input.creatable : undefined;
   const orderable = typeof input.orderable === "boolean" ? input.orderable : undefined;
+  const deletable = typeof input.deletable === "boolean" ? input.deletable : undefined;
+  const singletonId = input.singletonId === undefined ? undefined : parseEntryId(input.singletonId);
+  const order = typeof input.order === "number" && Number.isFinite(input.order) ? input.order : undefined;
   const schema = input.schema;
 
   if (!id) {
@@ -501,6 +507,9 @@ async function parseCreateCollectionCommand(
   }
   if (!isRecord(schema) || schema.type !== "object" || !isRecord(schema.properties)) {
     issues.push(issue("schema", "invalid_type", "Schema must be a valid JSON Schema object with properties"));
+  }
+  if (input.singletonId !== undefined && !singletonId) {
+    issues.push(issue("singletonId", "invalid_type", "singletonId must be a valid entry id"));
   }
 
   if (issues.length > 0 || !id || !label || !isRecord(schema)) {
@@ -517,6 +526,9 @@ async function parseCreateCollectionCommand(
       icon,
       creatable,
       orderable,
+      deletable,
+      singletonId: singletonId ?? undefined,
+      order,
       schema: schema as CreateCollectionCommand["schema"],
     },
   };

@@ -53,7 +53,7 @@ test.describe("inline editor — strict CSP", () => {
     await replaceText(page, page.locator(HEADLINE), NEW_HEADLINE);
     await expect(page.locator(HEADLINE)).toHaveText(NEW_HEADLINE);
     const mutate = await blurToSave(page, page.locator(HEADLINE));
-    expect(mutate.ok()).toBeTruthy();
+    expect(mutate.ok(), await mutate.text()).toBeTruthy();
     await expect(page.getByText("Content saved")).toBeVisible();
 
     // No violations were recorded at any point in the flow.

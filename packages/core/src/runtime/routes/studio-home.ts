@@ -5,10 +5,15 @@ import { isEditorAuthenticated } from "../auth/session.js";
 import { getRuntimeConfig } from "../config.js";
 import { resolveAdapter } from "./_helpers.js";
 import {
+  getStudioCollectionNames,
+  resolveCollectionStudioConfig,
+} from "../schema-registry.js";
+import {
   escapeHtml,
   htmlResponse,
   redirectResponse,
   renderStudioPage,
+  serializeJsonForScript,
 } from "../views/studio-layout.js";
 
 function humanizeCollection(name: string): string {
@@ -30,6 +35,17 @@ function pickIcon(name: string): string {
   return "📁";
 }
 
+function configuredIcon(icon: string | undefined, name: string): string {
+  const known: Record<string, string> = {
+    document: "📄",
+    image: "🖼️",
+    settings: "⚙️",
+    person: "👤",
+    collection: "📁",
+  };
+  return icon ? (known[icon] ?? icon) : pickIcon(name);
+}
+
 export async function GET(context: APIContext): Promise<Response> {
   const runtime = getRuntimeConfig();
   const loginRedirect = `${runtime.mountPath}?redirect=${encodeURIComponent(`${runtime.mountPath}/cms`)}`;
@@ -39,17 +55,28 @@ export async function GET(context: APIContext): Promise<Response> {
   }
 
   const adapter = await resolveAdapter();
-  const collections = await adapter.discoverCollections();
+  const collections = await getStudioCollectionNames(adapter);
 
-  const cards = collections
-    .map((name) => {
-      const label = humanizeCollection(name);
-      const icon = pickIcon(name);
-      const href = `${runtime.mountPath}/cms/${encodeURIComponent(name)}`;
+  const configuredCollections = await Promise.all(collections.map(async (name) => ({
+    name,
+    config: await resolveCollectionStudioConfig(adapter, name),
+  })));
+  configuredCollections.sort((a, b) =>
+    (a.config.order ?? 0) - (b.config.order ?? 0)
+    || (a.config.label ?? a.name).localeCompare(b.config.label ?? b.name),
+  );
+
+  const cards = configuredCollections
+    .map(({ name, config }) => {
+      const label = config.label || humanizeCollection(name);
+      const icon = configuredIcon(config.icon, name);
+      const href = config.singletonId
+        ? `${runtime.mountPath}/cms/${encodeURIComponent(name)}/${encodeURIComponent(config.singletonId)}`
+        : `${runtime.mountPath}/cms/${encodeURIComponent(name)}`;
       return `<a href="${escapeHtml(href)}" class="studio-card-interactive" data-collection="${escapeHtml(name)}">
-        <div style="font-size:1.5rem;margin-bottom:0.75rem;">${icon}</div>
-        <h3 style="font-size:0.875rem;font-weight:600;margin:0 0 0.25rem;color:var(--studio-text);">${escapeHtml(label)}</h3>
-        <p style="font-size:0.7rem;margin:0 0 0.5rem;color:var(--studio-text-dim);font-family:var(--studio-font-mono);">${escapeHtml(name)}</p>
+        <div style="font-size:1.5rem;margin-bottom:0.75rem;">${escapeHtml(icon)}</div>
+        <h2 style="font-size:0.875rem;font-weight:600;margin:0 0 0.25rem;color:var(--studio-text);">${escapeHtml(label)}</h2>
+        <p style="font-size:0.7rem;margin:0 0 0.5rem;color:var(--studio-text-dim);">${escapeHtml(config.description || name)}</p>
         <span class="studio-count-label" data-collection="${escapeHtml(name)}" style="font-size:0.7rem;color:var(--studio-accent);font-weight:500;">…</span>
       </a>`;
     })
@@ -58,12 +85,11 @@ export async function GET(context: APIContext): Promise<Response> {
   // Adapter-agnostic copy: where entries live depends on the configured
   // storage (.caret/data for the filesystem adapter, src/content for markdown,
   // KV for Cloudflare) — naming one path here misleads every other setup.
-  const emptyState = `<div class="studio-card" style="padding:2rem;text-align:center;color:var(--studio-text-dim);font-size:0.85rem;">
-    No collections yet. Create one from Studio, edit any <code style="font-family:var(--studio-font-mono);">data-caret</code> element on your site, or run <code style="font-family:var(--studio-font-mono);">npx @caretcms/caretize</code> to make existing pages editable.
-  </div>`;
+  const emptyState = `<div class="studio-card" style="padding:2rem;text-align:center;color:var(--studio-text-dim);font-size:0.85rem;">${escapeHtml(runtime.messages["home.empty"])}</div>`;
 
   const body = `<div class="studio-fade-in studio-home">
-    <p class="studio-page-intro">Manage your collections and entries.</p>
+    <h1 class="studio-sr-only">${escapeHtml(runtime.messages["home.title"])}</h1>
+    <p class="studio-page-intro">${escapeHtml(runtime.messages["home.intro"])}</p>
 
     ${
       collections.length === 0
@@ -73,7 +99,8 @@ export async function GET(context: APIContext): Promise<Response> {
   </div>`;
 
   const inlineScript = `(function(){
-    var apiBase = ${JSON.stringify(runtime.apiBasePath)};
+    var apiBase = ${serializeJsonForScript(runtime.apiBasePath)};
+    var messages = ${serializeJsonForScript(runtime.messages)};
     var labels = document.querySelectorAll('.studio-count-label');
     labels.forEach(function (el) {
       var collection = el.getAttribute('data-collection');
@@ -81,7 +108,7 @@ export async function GET(context: APIContext): Promise<Response> {
       fetch(apiBase + '/entries?collection=' + encodeURIComponent(collection))
         .then(function (res) {
           if (res.status === 401) {
-            window.location.href = ${JSON.stringify(runtime.mountPath)} + '?redirect=' + encodeURIComponent(window.location.pathname);
+            window.location.href = ${serializeJsonForScript(runtime.mountPath)} + '?redirect=' + encodeURIComponent(window.location.pathname);
             return null;
           }
           if (!res.ok) throw new Error('failed');
@@ -91,10 +118,10 @@ export async function GET(context: APIContext): Promise<Response> {
           if (!data) return;
           var entries = Array.isArray(data.entries) ? data.entries : [];
           var n = entries.length;
-          el.textContent = n + ' ' + (n === 1 ? 'entry' : 'entries');
+          el.textContent = n + ' ' + (n === 1 ? messages['count.entry'] : messages['count.entries']);
         })
         .catch(function () {
-          el.textContent = 'error';
+          el.textContent = messages['common.error'];
           el.style.color = 'var(--studio-red)';
         });
     });
@@ -103,7 +130,7 @@ export async function GET(context: APIContext): Promise<Response> {
   return htmlResponse(
     renderStudioPage({
       runtime,
-      title: "Content Studio",
+      title: runtime.messages["home.title"],
       breadcrumb: [],
       body,
       inlineScript,

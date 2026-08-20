@@ -1,4 +1,4 @@
-import type { StorageAdapter, UploadHandler } from "../types.js";
+import type { IdentityAdapter, StorageAdapter, UploadHandler } from "../types.js";
 // virtual.d.ts declares the full export shape the integration generates — keep
 // the two in sync (the vitest stub in tests/unit/stubs mirrors them too). The
 // `Partial` wrapper below keeps runtime null-safety for environments that load
@@ -10,6 +10,7 @@ type ProviderModule = Partial<typeof runtimeProviders>;
 type RuntimeServices = {
   adapter: StorageAdapter;
   uploadHandler: UploadHandler;
+  identityAdapter: IdentityAdapter | null;
   /** Per-tag class allowlist for rich-text sanitization (from caret() config). */
   allowedClasses: Record<string, string[]>;
   delivery: {
@@ -62,12 +63,18 @@ async function createUploadHandler(): Promise<UploadHandler> {
   );
 }
 
+async function createIdentityAdapter(): Promise<IdentityAdapter | null> {
+  if (testServicesOverride?.identityAdapter) return testServicesOverride.identityAdapter;
+  return await providerModule?.loadConfiguredIdentityAdapter?.() ?? null;
+}
+
 export async function getRuntimeServices(): Promise<RuntimeServices> {
   if (!runtimeServicesPromise) {
-    const inflight = Promise.all([createAdapter(), createUploadHandler()]).then(
-      ([adapter, uploadHandler]) => ({
+    const inflight = Promise.all([createAdapter(), createUploadHandler(), createIdentityAdapter()]).then(
+      ([adapter, uploadHandler, identityAdapter]) => ({
         adapter,
         uploadHandler,
+        identityAdapter,
         allowedClasses:
           testServicesOverride?.allowedClasses ?? providerModule?.allowedClasses ?? {},
         delivery:

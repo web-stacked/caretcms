@@ -23,14 +23,14 @@ const STUDIO: ThemeTokens = {
   "--color-theme-border-subtle": "rgba(255, 255, 255, 0.06)",
   "--color-theme-border": "rgba(255, 255, 255, 0.10)",
   // Accent — matches the inline editor's "editable" blue (#3b82f6)
-  "--color-theme-accent": "#3b82f6",
+  "--color-theme-accent": "#60a5fa",
   "--color-theme-accent-soft": "rgba(59, 130, 246, 0.12)",
   "--color-theme-accent-strong": "rgba(59, 130, 246, 0.24)",
-  "--color-theme-on-accent": "#ffffff",
+  "--color-theme-on-accent": "#07111f",
   // Text
   "--color-theme-text": "rgba(255, 255, 255, 0.92)",
-  "--color-theme-text-muted": "rgba(255, 255, 255, 0.55)",
-  "--color-theme-text-dim": "rgba(255, 255, 255, 0.32)",
+  "--color-theme-text-muted": "#b6bac3",
+  "--color-theme-text-dim": "#9298a3",
   // State
   "--color-theme-success": "#22c55e",
   "--color-theme-danger": "#ef4444",

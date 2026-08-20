@@ -9,9 +9,11 @@ export type HistoryEntry = {
    * only covers frontmatter for source-file-backed adapters).
    */
   bodySource?: string;
+  /** Named editor/session responsible for the mutation, when available. */
+  editor?: EditorIdentity;
 };
 export type CaretMode = "embedded" | "cloud";
-export type CaretProviderKind = "storage" | "uploads";
+export type CaretProviderKind = "storage" | "uploads" | "identity";
 
 export type RuntimeProviderReference<TKind extends CaretProviderKind = CaretProviderKind> = {
   kind: TKind;
@@ -22,6 +24,26 @@ export type RuntimeProviderReference<TKind extends CaretProviderKind = CaretProv
 
 export type CaretStorageProvider = RuntimeProviderReference<"storage">;
 export type CaretUploadProvider = RuntimeProviderReference<"uploads">;
+export type CaretIdentityProvider = RuntimeProviderReference<"identity">;
+
+export type EditorIdentity = {
+  /** Stable, path-safe id matching /^[A-Za-z0-9_-]{1,64}$/. */
+  id: string;
+  name?: string;
+  email?: string;
+  roles?: string[];
+};
+
+/**
+ * Optional authoritative authentication adapter. Returning an identity grants
+ * editor access; returning null denies it. When configured, password mode is
+ * disabled rather than used as a fallback.
+ */
+export interface IdentityAdapter {
+  authenticate(request: Request): Promise<EditorIdentity | null>;
+  loginUrl(input: { request: Request; redirectTo: string }): string | Promise<string>;
+  logoutUrl?(input: { request: Request; redirectTo: string }): string | Promise<string>;
+}
 
 export type CollectionSchema = {
   type: "object";
@@ -31,6 +53,20 @@ export type CollectionSchema = {
   description?: string;
 };
 
+/** Studio presentation and mutation capabilities for a collection. */
+export type CollectionStudioConfig = {
+  label?: string;
+  description?: string;
+  icon?: string;
+  /** Lower values appear first on the Studio home screen. */
+  order?: number;
+  creatable?: boolean;
+  orderable?: boolean;
+  deletable?: boolean;
+  /** Fixed entry id for a singleton collection. */
+  singletonId?: string;
+};
+
 export type CollectionMetadata = {
   id: string;
   label: string;
@@ -38,6 +74,9 @@ export type CollectionMetadata = {
   icon?: string;
   creatable?: boolean;
   orderable?: boolean;
+  deletable?: boolean;
+  singletonId?: string;
+  order?: number;
   schema: CollectionSchema;
   created_at: number;
   updated_at: number;

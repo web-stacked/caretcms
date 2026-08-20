@@ -10,10 +10,10 @@
     "caretize": "caretize src --dry-run"
   },
   "dependencies": {
-    "@astrojs/node": "11.0.2",
+    "@astrojs/node": "11.1.4",
     "@caretcms/core": "*",
     "@caretcms/zod": "*",
-    "astro": "7.0.6"
+    "astro": "7.2.4"
   },
   "devDependencies": {
     "@caretcms/caretize": "*"

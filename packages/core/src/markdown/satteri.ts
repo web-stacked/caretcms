@@ -21,8 +21,8 @@ interface CaretSatteriOptions {
 // A minimal structural view of the nodes/context we touch, so this file needs
 // no value import from `satteri`.
 interface Pos {
-  start?: { offset?: number };
-  end?: { offset?: number };
+  start?: { offset?: number; line?: number; column?: number };
+  end?: { offset?: number; line?: number; column?: number };
 }
 interface Node {
   type: string;
@@ -37,11 +37,13 @@ interface Ctx {
   setProperty(node: Node, key: "data", value: Record<string, unknown>): void;
 }
 
-// Sätteri (Rust / pulldown-cmark) reports positions as UTF-8 BYTE offsets,
-// while our contracts, hashing, and the server-side splice all work in JS
-// string (UTF-16 code unit) space. Convert once per document. Memoized because
-// a document's blocks are visited consecutively against the same `ctx.source`.
+// Older Sätteri releases reported UTF-8 BYTE offsets while newer releases use
+// JS string offsets. Both expose one-based line/column positions in JS string
+// space, so prefer those and retain byte conversion as a compatibility fallback
+// for processors that omit line/column. Memoized because a document's blocks
+// are visited consecutively against the same `ctx.source`.
 let byteMapCache: { source: string; prefix: Uint32Array } | null = null;
+let lineMapCache: { source: string; starts: number[] } | null = null;
 
 function byteToStringIndex(source: string, byteOffset: number): number {
   if (!byteMapCache || byteMapCache.source !== source) {
@@ -68,6 +70,33 @@ function byteToStringIndex(source: string, byteOffset: number): number {
     else hi = mid;
   }
   return lo;
+}
+
+function positionToStringIndex(
+  source: string,
+  position: { offset?: number; line?: number; column?: number } | undefined,
+): number | undefined {
+  if (!position) return undefined;
+  if (
+    Number.isInteger(position.line)
+    && Number.isInteger(position.column)
+    && position.line! >= 1
+    && position.column! >= 1
+  ) {
+    if (!lineMapCache || lineMapCache.source !== source) {
+      const starts = [0];
+      for (let i = 0; i < source.length; i += 1) {
+        if (source.charCodeAt(i) === 10) starts.push(i + 1);
+      }
+      lineMapCache = { source, starts };
+    }
+    const lineStart = lineMapCache.starts[position.line! - 1];
+    if (lineStart !== undefined) {
+      const index = lineStart + position.column! - 1;
+      if (index >= lineStart && index <= source.length) return index;
+    }
+  }
+  return position.offset == null ? undefined : byteToStringIndex(source, position.offset);
 }
 
 /** Root-to-node child indexes (`indexOf` returns `undefined` at the root). */
@@ -105,14 +134,12 @@ function stamp(target: Node, ctx: Ctx, input: StampInput): void {
 export function caretSatteriPlugin(options: CaretSatteriOptions): MdastPluginDefinition {
   const { contentRoot } = options;
   const base = (node: Node, ctx: Ctx) => {
-    const startByte = node.position?.start?.offset;
-    const endByte = node.position?.end?.offset;
     return {
       source: ctx.source,
       fileURL: ctx.fileURL,
       contentRoot,
-      start: startByte == null ? undefined : byteToStringIndex(ctx.source, startByte),
-      end: endByte == null ? undefined : byteToStringIndex(ctx.source, endByte),
+      start: positionToStringIndex(ctx.source, node.position?.start),
+      end: positionToStringIndex(ctx.source, node.position?.end),
     };
   };
 

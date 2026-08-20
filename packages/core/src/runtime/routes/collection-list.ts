@@ -5,10 +5,15 @@ import { isEditorAuthenticated } from "../auth/session.js";
 import { getRuntimeConfig } from "../config.js";
 import { resolveAdapter } from "./_helpers.js";
 import {
+  isKnownStudioCollection,
+  resolveCollectionStudioConfig,
+} from "../schema-registry.js";
+import {
   escapeHtml,
   htmlResponse,
   redirectResponse,
   renderStudioPage,
+  serializeJsonForScript,
 } from "../views/studio-layout.js";
 
 function humanize(name: string): string {
@@ -29,12 +34,20 @@ export async function GET(context: APIContext): Promise<Response> {
   }
 
   const adapter = await resolveAdapter();
-  const known = await adapter.discoverCollections();
-  if (!known.includes(collection)) {
+  if (!(await isKnownStudioCollection(adapter, collection))) {
     return redirectResponse(`${runtime.mountPath}/cms`);
   }
 
-  const label = humanize(collection);
+  const collectionConfig = await resolveCollectionStudioConfig(adapter, collection);
+  if (collectionConfig.singletonId) {
+    return redirectResponse(
+      `${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(collectionConfig.singletonId)}`,
+    );
+  }
+  const label = collectionConfig.label || humanize(collection);
+  const messages = runtime.messages;
+  const creatable = collectionConfig.creatable !== false;
+  const orderable = collectionConfig.orderable !== false;
   const safeCollection = escapeHtml(collection);
 
   const extraStyles = `
@@ -109,13 +122,14 @@ export async function GET(context: APIContext): Promise<Response> {
   const body = `<div class="studio-fade-in" style="max-width:80rem;margin:0 auto;" id="collection-page" data-collection="${safeCollection}">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem;">
       <div>
-        <h2 style="font-family:var(--studio-font-heading);font-size:1.25rem;margin:0;color:var(--studio-text);">${escapeHtml(label)}</h2>
-        <p id="entry-count" style="font-size:0.7rem;margin:0.25rem 0 0;color:var(--studio-text-dim);">Loading…</p>
+        <h1 style="font-family:var(--studio-font-heading);font-size:1.25rem;margin:0;color:var(--studio-text);">${escapeHtml(label)}</h1>
+        <p id="entry-count" style="font-size:0.7rem;margin:0.25rem 0 0;color:var(--studio-text-dim);">${escapeHtml(messages["common.loading"])}</p>
       </div>
       <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
-        <input id="search-input" type="text" placeholder="Search…" class="studio-input" style="max-width:240px;" />
-        <button id="btn-reorder" class="studio-btn-ghost">Reorder</button>
-        <button id="btn-new" class="studio-btn-primary">+ New</button>
+        <label for="search-input" style="font-size:0.7rem;color:var(--studio-text-dim);">${escapeHtml(messages["collection.search"])}</label>
+        <input id="search-input" name="search" type="search" placeholder="${escapeHtml(messages["collection.searchPlaceholder"])}" class="studio-input" style="max-width:240px;" />
+        ${orderable ? `<button id="btn-reorder" class="studio-btn-ghost">${escapeHtml(messages["collection.reorder"])}</button>` : ""}
+        ${creatable ? `<button id="btn-new" class="studio-btn-primary">${escapeHtml(messages["collection.new"])}</button>` : ""}
       </div>
     </div>
 
@@ -124,13 +138,13 @@ export async function GET(context: APIContext): Promise<Response> {
     </div>
 
     <div id="empty" hidden style="text-align:center;padding:5rem 0;color:var(--studio-text-dim);">
-      <p style="font-size:0.875rem;margin:0 0 0.75rem;">No entries yet.</p>
-      <button id="btn-empty-create" class="studio-btn-primary">Create First Entry</button>
+      <p style="font-size:0.875rem;margin:0 0 0.75rem;">${escapeHtml(messages["collection.noEntries"])}</p>
+      ${creatable ? `<button id="btn-empty-create" class="studio-btn-primary">${escapeHtml(messages["collection.createFirst"])}</button>` : ""}
     </div>
 
     <div id="error-state" hidden style="text-align:center;padding:5rem 0;">
-      <p style="font-size:0.875rem;margin:0 0 0.75rem;color:var(--studio-red);">Failed to load entries.</p>
-      <button id="retry-btn" class="studio-btn-ghost">Retry</button>
+      <p style="font-size:0.875rem;margin:0 0 0.75rem;color:var(--studio-red);">${escapeHtml(messages["collection.failed"])}</p>
+      <button id="retry-btn" class="studio-btn-ghost">${escapeHtml(messages["common.retry"])}</button>
     </div>
 
     <div id="entries-grid" hidden style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));"></div>
@@ -138,8 +152,8 @@ export async function GET(context: APIContext): Promise<Response> {
     <div id="reorder-container" hidden>
       <div id="reorder-list" style="display:flex;flex-direction:column;gap:0.25rem;"></div>
       <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--studio-border);">
-        <button id="btn-reorder-cancel" class="studio-btn-ghost">Cancel</button>
-        <button id="btn-reorder-save" class="studio-btn-primary">Save Order</button>
+        <button id="btn-reorder-cancel" class="studio-btn-ghost">${escapeHtml(messages["common.cancel"])}</button>
+        <button id="btn-reorder-save" class="studio-btn-primary">${escapeHtml(messages["collection.saveOrder"])}</button>
       </div>
     </div>
   </div>
@@ -147,26 +161,28 @@ export async function GET(context: APIContext): Promise<Response> {
   <div id="create-dialog" class="modal-backdrop" hidden>
     <div class="modal-card">
       <div class="modal-header">
-        <span>New Entry</span>
-        <button id="btn-create-close" class="studio-btn-ghost" style="padding:4px 10px;">Close</button>
+        <span>${escapeHtml(messages["collection.newEntry"])}</span>
+        <button id="btn-create-close" class="studio-btn-ghost" style="padding:4px 10px;">${escapeHtml(messages["common.close"])}</button>
       </div>
       <div class="modal-body">
-        <label for="create-id-input" class="studio-label">Entry ID (slug)</label>
-        <input id="create-id-input" type="text" class="studio-input" placeholder="e.g. my-first-entry" autocomplete="off" spellcheck="false" />
-        <p id="create-hint" style="font-size:10px;margin:0.5rem 0 1rem;color:var(--studio-text-dim);">Lowercase letters, numbers, and hyphens only.</p>
+        <label for="create-id-input" class="studio-label">${escapeHtml(messages["collection.entryId"])}</label>
+        <input id="create-id-input" type="text" class="studio-input" placeholder="${escapeHtml(messages["collection.entryIdPlaceholder"])}" autocomplete="off" spellcheck="false" />
+        <p id="create-hint" style="font-size:10px;margin:0.5rem 0 0.35rem;color:var(--studio-text-dim);">${escapeHtml(messages["collection.idHint"])}</p>
+        <p style="font-size:10px;margin:0 0 1rem;color:var(--studio-text-dim);">${escapeHtml(messages["collection.publishHint"])}</p>
         <p id="create-error" class="studio-error-text" hidden></p>
         <div style="display:flex;justify-content:flex-end;gap:0.75rem;">
-          <button id="btn-create-cancel" class="studio-btn-ghost">Cancel</button>
-          <button id="btn-create-confirm" class="studio-btn-primary" disabled>Create</button>
+          <button id="btn-create-cancel" class="studio-btn-ghost">${escapeHtml(messages["common.cancel"])}</button>
+          <button id="btn-create-confirm" class="studio-btn-primary" disabled>${escapeHtml(messages["collection.create"])}</button>
         </div>
       </div>
     </div>
   </div>`;
 
   const inlineScript = `(function () {
-    var COLLECTION = ${JSON.stringify(collection)};
-    var API = ${JSON.stringify(runtime.apiBasePath)};
-    var MOUNT = ${JSON.stringify(runtime.mountPath)};
+    var COLLECTION = ${serializeJsonForScript(collection)};
+    var API = ${serializeJsonForScript(runtime.apiBasePath)};
+    var MOUNT = ${serializeJsonForScript(runtime.mountPath)};
+    var MSG = ${serializeJsonForScript(messages)};
     var ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
     var allEntries = [];
 
@@ -194,17 +210,20 @@ export async function GET(context: APIContext): Promise<Response> {
     }
 
     function getTitle(d) {
-      if (!d) return 'Untitled';
+      if (!d) return MSG['collection.untitled'];
       for (var i = 0; i < ['name','title','question','company_name','headline','label'].length; i++) {
         var k = ['name','title','question','company_name','headline','label'][i];
         if (typeof d[k] === 'string' && d[k]) return d[k];
       }
-      return 'Untitled';
+      return MSG['collection.untitled'];
     }
     function getThumb(d) {
       if (!d) return null;
       if (Array.isArray(d.images) && typeof d.images[0] === 'string') return d.images[0];
+      if (Array.isArray(d.images) && d.images[0] && typeof d.images[0].src === 'string') return d.images[0].src;
       if (typeof d.image === 'string' && d.image) return d.image;
+      if (typeof d.coverImage === 'string' && d.coverImage) return d.coverImage;
+      if (typeof d.portrait === 'string' && d.portrait) return d.portrait;
       if (typeof d.thumbnail === 'string' && d.thumbnail) return d.thumbnail;
       if (typeof d.bg_image === 'string' && d.bg_image) return d.bg_image;
       return null;
@@ -232,6 +251,14 @@ export async function GET(context: APIContext): Promise<Response> {
         var title = getTitle(entry.data);
         var thumb = getThumb(entry.data);
         var subtitle = getSubtitle(entry.data);
+        var publication = entry.data && typeof entry.data.published === 'boolean'
+          ? (entry.data.published
+            ? '<span style="font-size:0.62rem;color:var(--studio-green);">' + htmlEsc(MSG['collection.published']) + '</span>'
+            : '<span style="font-size:0.62rem;color:var(--studio-text-dim);">' + htmlEsc(MSG['collection.unpublished']) + '</span>')
+          : '';
+        var invalid = Array.isArray(entry.validationIssues) && entry.validationIssues.length
+          ? '<span style="display:block;font-size:0.62rem;color:var(--studio-red);margin-bottom:0.25rem;">' + htmlEsc(MSG['collection.invalid']) + '</span>'
+          : '';
         var card = document.createElement('a');
         card.href = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entry.id);
         card.className = 'entry-card studio-card';
@@ -241,8 +268,10 @@ export async function GET(context: APIContext): Promise<Response> {
         card.innerHTML =
           (thumb ? '<div class="entry-thumb"><img src="' + htmlEsc(thumb) + '" alt="' + htmlEsc(title) + '" loading="lazy" /></div>' : '') +
           '<div style="padding:1rem;">' +
-            '<h3 style="font-size:0.875rem;font-weight:500;margin:0 0 0.25rem;color:var(--studio-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + htmlEsc(title) + '</h3>' +
+            '<h2 style="font-size:0.875rem;font-weight:500;margin:0 0 0.25rem;color:var(--studio-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + htmlEsc(title) + '</h2>' +
             (subtitle ? '<p style="font-size:0.7rem;margin:0 0 0.25rem;color:var(--studio-text-dim);text-transform:capitalize;">' + htmlEsc(subtitle) + '</p>' : '') +
+            invalid +
+            publication +
             '<p style="font-size:0.65rem;margin:0;color:var(--studio-text-dim);font-family:var(--studio-font-mono);">' + htmlEsc(entry.id) + '</p>' +
           '</div>';
         grid.appendChild(card);
@@ -267,7 +296,7 @@ export async function GET(context: APIContext): Promise<Response> {
           if (!json) return;
           allEntries = Array.isArray(json.entries) ? json.entries : [];
           loading.hidden = true;
-          countEl.textContent = allEntries.length + ' ' + (allEntries.length === 1 ? 'entry' : 'entries');
+          countEl.textContent = allEntries.length + ' ' + (allEntries.length === 1 ? MSG['count.entry'] : MSG['count.entries']);
           renderEntries(allEntries);
         })
         .catch(function () {
@@ -302,8 +331,8 @@ export async function GET(context: APIContext): Promise<Response> {
     function validate() {
       var v = idInput.value.trim();
       if (!v) { confirmBtn.disabled = true; errorEl.hidden = true; return; }
-      if (!ID_RE.test(v)) { errorEl.textContent = 'Use lowercase letters, numbers, and hyphens only.'; errorEl.hidden = false; confirmBtn.disabled = true; return; }
-      if (allEntries.some(function (e) { return e.id === v; })) { errorEl.textContent = 'An entry with this ID already exists.'; errorEl.hidden = false; confirmBtn.disabled = true; return; }
+      if (!ID_RE.test(v)) { errorEl.textContent = MSG['collection.invalidId']; errorEl.hidden = false; confirmBtn.disabled = true; return; }
+      if (allEntries.some(function (e) { return e.id === v; })) { errorEl.textContent = MSG['collection.duplicateId']; errorEl.hidden = false; confirmBtn.disabled = true; return; }
       errorEl.hidden = true; confirmBtn.disabled = false;
     }
     function createEntry() {
@@ -328,17 +357,17 @@ export async function GET(context: APIContext): Promise<Response> {
           if (!res) return;
           if (res.status === 401) { window.location.href = MOUNT + '?redirect=' + encodeURIComponent(window.location.pathname); return; }
           if (!res.ok) throw new Error('mutate failed');
-          window.location.href = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entryId);
+          window.location.href = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entryId) + '?new=1';
         })
         .catch(function () {
-          errorEl.textContent = 'Failed to create entry. Try again.';
+          errorEl.textContent = MSG['collection.createFailed'];
           errorEl.hidden = false;
           confirmBtn.disabled = false;
-          confirmBtn.textContent = 'Create';
+          confirmBtn.textContent = MSG['collection.create'];
         });
     }
-    newBtn.addEventListener('click', openDialog);
-    emptyCreateBtn.addEventListener('click', openDialog);
+    if (newBtn) newBtn.addEventListener('click', openDialog);
+    if (emptyCreateBtn) emptyCreateBtn.addEventListener('click', openDialog);
     document.getElementById('btn-create-close').addEventListener('click', closeDialog);
     document.getElementById('btn-create-cancel').addEventListener('click', closeDialog);
     confirmBtn.addEventListener('click', createEntry);
@@ -359,7 +388,7 @@ export async function GET(context: APIContext): Promise<Response> {
       });
       grid.hidden = true; empty.hidden = true;
       searchInput.style.display = 'none'; newBtn.style.display = 'none';
-      reorderBtn.textContent = 'Reordering…'; reorderBtn.disabled = true;
+      reorderBtn.textContent = MSG['collection.reordering']; reorderBtn.disabled = true;
       reorderContainer.hidden = false;
       renderReorderList();
     }
@@ -367,7 +396,7 @@ export async function GET(context: APIContext): Promise<Response> {
       reorderMode = false;
       reorderContainer.hidden = true;
       searchInput.style.display = ''; newBtn.style.display = '';
-      reorderBtn.textContent = 'Reorder'; reorderBtn.disabled = false;
+      reorderBtn.textContent = MSG['collection.reorder']; reorderBtn.disabled = false;
       renderEntries(allEntries);
     }
     function renderReorderList() {
@@ -401,7 +430,7 @@ export async function GET(context: APIContext): Promise<Response> {
       });
     }
     function saveOrder() {
-      reorderSave.disabled = true; reorderSave.textContent = 'Saving…';
+      reorderSave.disabled = true; reorderSave.textContent = MSG['common.saving'];
       var items = ordered.map(function (entry, idx) {
         return { id: entry.id, order: idx, expectedRevision: entry.revision };
       });
@@ -419,9 +448,9 @@ export async function GET(context: APIContext): Promise<Response> {
           ordered.forEach(function (entry, idx) { if (entry.data) entry.data.order = idx; });
           exitReorder();
         })
-        .catch(function () { reorderSave.disabled = false; reorderSave.textContent = 'Retry'; });
+        .catch(function () { reorderSave.disabled = false; reorderSave.textContent = MSG['common.retry']; });
     }
-    reorderBtn.addEventListener('click', enterReorder);
+    if (reorderBtn) reorderBtn.addEventListener('click', enterReorder);
     reorderCancel.addEventListener('click', exitReorder);
     reorderSave.addEventListener('click', saveOrder);
   })();`;

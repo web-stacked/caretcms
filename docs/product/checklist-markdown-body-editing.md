@@ -10,12 +10,12 @@ exact-pinned versions only, zero new runtime deps in core.
 
 ## Phase 0 - Decisions
 
-- [ ] Q2: decide `.mdx` prose stamping in v1 (recommendation: defer to
+- [x] Q2: decide `.mdx` prose stamping in v1 (deferred to
       v0.4; revisit after Phase 2 parity corpus exists). Record decision in
       PRD section 11.
-- [ ] Q3: decide whether bake strips `data-caret-md-src` (recommendation:
+- [x] Q3: decide whether bake strips `data-caret-md-src` (decision:
       keep). Record decision in PRD section 11.
-- [ ] Confirm v1 editable block set stands: paragraph, heading, list item,
+- [x] Confirm v1 editable block set stands: paragraph, heading, list item,
       blockquote inner paragraph (single-line-nested rule applies).
 
 ## Phase 1 - Contracts + serializer core  --  DONE (uncommitted)
@@ -353,18 +353,18 @@ outside edited ranges.
 
 Docs (site repo `../caretcms-site`, separate commits there):
 
-- [ ] Docs page: setup, supported blocks + marks, islands, single-line
+- [x] Docs page: setup, supported blocks + marks, islands, single-line
       nested rule, concurrency/409 behavior, Astro 6 vs 7 notes,
       `markdown: { body }` config. Add to Starlight sidebar config.
-- [ ] Update pricing/feature mentions if any list editable field types.
+- [x] Update pricing/feature mentions if any list editable field types (none do).
 
 Core repo:
 
 - [ ] README feature list + demo GIF of the paragraph-click-to-git-diff
       flow.
-- [ ] CLAUDE.md + AGENTS.md: architecture section gains the markdown
+- [x] CLAUDE.md + AGENTS.md: architecture section gains the markdown
       module, `__body`, canonical-base note.
-- [ ] Mark PRD Status: Implemented (same convention as static-delivery
+- [x] Mark PRD Status: Implemented (same convention as static-delivery
       PRD).
 - [ ] Version bump + changelog; `npm run check` + e2e; publish v0.3.0
       (prepublishOnly guards run).

@@ -8,6 +8,88 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-20
+
+### Added
+
+- Rendered Markdown prose can now be edited directly on the page. Caret maps
+  paragraphs, headings, lists, quotes, and supported text styles back to their
+  exact source ranges, keeps edits as drafts, and writes them to the Markdown
+  file only when an editor publishes. If the file changed in the meantime,
+  Caret stops and asks the editor to resolve the conflict instead of overwriting
+  someone else's work.
+- Studio and the page can locate the same field. Click a field on either side to
+  scroll to and briefly mark its match. This works in the sidebar and in separate
+  Studio and preview tabs, including for fields inside nested records.
+- Repeating groups use the correct control for each field. Editors get image
+  upload and preview controls, number inputs, switches, URL fields, rich text,
+  nested groups, and nested lists instead of plain text boxes.
+- Repeating rows have useful names and controls for moving or removing them.
+  New rows use the defaults from the collection schema and receive focus after
+  they are added.
+- Image fields show a larger preview, the stored URL, and a clear replace action.
+  An uploaded gallery image can fill an empty ID, title, alt text, width, and
+  height.
+- A collection can define its label, description, icon, position, and whether
+  editors may create, reorder, or delete entries. It can also point to one fixed
+  entry, such as a site settings page. Caret enforces these rules on the server
+  as well as in Studio.
+- Studio includes English and Spanish text. Integrations can replace individual
+  messages without maintaining a full translation file.
+- Server deployments can use an external sign-in service. Studio records the
+  editor's name with drafts and history when the service supplies one.
+
+### Changed
+
+- The Save area always says whether an entry is saved, unsaved, or being saved.
+  It also says whether Save writes to the public site or to a private preview.
+  Studio asks for confirmation before the first public save in a browser session.
+- Save, History, Delete, and Preview site stay visible while the editor scrolls.
+  The action bar also fits narrow mobile screens.
+- Text and image changes appear on the page while an editor types in the Studio
+  sidebar. After a saved structural change, the page reloads without closing the
+  sidebar or losing the current entry.
+- New-entry help explains permanent entry IDs and the difference between saving
+  and publishing.
+- Collection cards can use `images[0]`, `coverImage`, or `portrait` for their
+  thumbnail. Cards show Published or Unpublished when the collection has that
+  field.
+- If one stored entry does not match its collection schema, public collection
+  reads skip that entry and report its ID. Other entries continue to load, and
+  Studio shows which fields need repair.
+- Repeating rows can be dragged with a pointer or moved with the keyboard.
+- Studio has clearer contrast, page headings, form labels, and navigation for
+  screen readers.
+- The deployment guide explains password changes, forced sign-out, and the
+  limits of shared-password mode.
+- Astro, the Cloudflare adapter, Wrangler, and their build dependencies were
+  updated to versions with no reported npm security issues at release time.
+
+### Fixed
+
+- Saving an entry checks required fields, number limits, and nested field types
+  before writing. Errors point to the field that needs attention.
+- Reordering checks every affected entry before writing any of them. A failed
+  check cannot leave half of a collection reordered.
+- R2 uploads stop with a configuration error when Caret cannot return a public
+  image URL. Caret no longer reports a successful upload with a URL that returns
+  404.
+- Uploading or redrawing an image field keeps its label, name, URL, and later
+  edits connected to the same field.
+- Hidden image upload controls and row action buttons have names that screen
+  readers can announce.
+- Clicking a page field while the Studio sidebar is on its home screen opens the
+  right entry before scrolling to the field.
+- Saves in one Studio or preview tab refresh the other tab without replacing an
+  unsaved inline edit.
+- Astro development mode keeps the current request and registered collection
+  schemas available when Vite loads Caret more than once.
+- Providers that use a named export no longer produce a false missing-default
+  warning during builds.
+- Custom Studio messages cannot break out of the script that contains them.
+- Markdown editing calculates the right source range for accented characters
+  and emoji with both Astro 6 and Astro 7.
+
 ## [0.2.0] - 2026-07-08
 
 ### Added
@@ -203,6 +285,8 @@ Versions track the publishable `@caretcms/core` package.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
+[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.3.0
 [0.2.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.2.0
 [0.1.2]: https://github.com/web-stacked/caretcms/releases/tag/v0.1.2
 [0.1.1]: https://github.com/web-stacked/caretcms/releases/tag/v0.1.1

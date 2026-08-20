@@ -121,6 +121,9 @@ jobs:
       - name: Run CSP end-to-end tests (production build + preview)
         run: npm run test:e2e:csp
 
+      - name: Run Markdown body publish test
+        run: npm run test:e2e:markdown
+
   bun-parity:
     name: Bun parity checks
     runs-on: ubuntu-latest

@@ -9,6 +9,10 @@ export async function loadConfiguredUploadHandler() {
   return null;
 }
 
+export async function loadConfiguredIdentityAdapter() {
+  return null;
+}
+
 export const allowedClasses: Record<string, string[]> = {};
 export const delivery = {
   mode: "server" as const,

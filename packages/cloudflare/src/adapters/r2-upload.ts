@@ -2,6 +2,7 @@ import type { UploadContext, UploadHandler } from "@caretcms/core";
 import {
   IMAGE_KIND_TO_EXT,
   QuotaUploadHandler,
+  UploadError,
   readAndValidateImage,
   sanitizeImageBaseName,
 } from "@caretcms/core/runtime";
@@ -93,7 +94,9 @@ async function resolvePublicBaseUrl(configured: string | null): Promise<string |
 
 export interface R2UploadHandlerOptions extends Record<string, unknown> {
   binding?: string;
+  /** Public origin for returned object URLs. Falls back to R2_PUBLIC_DOMAIN. */
   publicBaseUrl?: string;
+  /** Explicit host-mounted development proxy path; Caret does not mount one. */
   devServePath?: string;
   /**
    * KV binding used to track per-session upload byte totals when demo mode is
@@ -110,7 +113,7 @@ export interface R2UploadHandlerOptions extends Record<string, unknown> {
 export class R2UploadHandler implements UploadHandler {
   private readonly binding: string;
   private readonly publicBaseUrl: string | null;
-  private readonly devServePath: string;
+  private readonly devServePath: string | null;
   private readonly quotaBinding: string;
   private readonly sandboxPerFileBytes: number;
   private readonly sandboxPerSessionBytes: number;
@@ -118,7 +121,9 @@ export class R2UploadHandler implements UploadHandler {
   constructor(options: R2UploadHandlerOptions = {}) {
     this.binding = options.binding ?? "CMS_R2";
     this.publicBaseUrl = options.publicBaseUrl?.replace(/\/$/, "") ?? null;
-    this.devServePath = options.devServePath ?? "/api/cms/image";
+    // A relative URL is only safe when the host explicitly mounted a matching
+    // proxy. Core does not provide an R2 image route, so never invent one.
+    this.devServePath = options.devServePath?.replace(/\/$/, "") ?? null;
     this.quotaBinding = options.quotaBinding ?? "CMS_KV";
     this.sandboxPerFileBytes = options.sandboxPerFileBytes ?? 5 * 1024 * 1024;
     this.sandboxPerSessionBytes = options.sandboxPerSessionBytes ?? 25 * 1024 * 1024;
@@ -137,6 +142,15 @@ export class R2UploadHandler implements UploadHandler {
     // Buffer + magic-byte verify before touching R2 so a spoofed
     // Content-Type can't land an HTML/SVG payload under an image/* MIME.
     const { kind, bytes } = await readAndValidateImage(file);
+
+    const publicBaseUrl = await resolvePublicBaseUrl(this.publicBaseUrl);
+    const servedBaseUrl = publicBaseUrl ?? this.devServePath;
+    if (!servedBaseUrl) {
+      throw new UploadError(
+        "R2 uploads require publicBaseUrl or R2_PUBLIC_DOMAIN. " +
+          "For a custom local proxy, configure devServePath explicitly.",
+      );
+    }
 
     const bucket = await getBucket(this.binding);
     if (!bucket) {
@@ -158,11 +172,6 @@ export class R2UploadHandler implements UploadHandler {
       httpMetadata: { contentType: verifiedContentType },
     });
 
-    const publicBaseUrl = await resolvePublicBaseUrl(this.publicBaseUrl);
-    if (import.meta.env.DEV || !publicBaseUrl) {
-      return { url: `${this.devServePath}/${key}` };
-    }
-
-    return { url: `${publicBaseUrl}/${key}` };
+    return { url: `${servedBaseUrl}/${key}` };
   }
 }

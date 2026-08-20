@@ -85,6 +85,11 @@ caret({
 | `caret_preview` cookie | per-editor **draft preview**: read/write the draft overlay; toggled by the editor toolbar's Preview button |
 | `caret({ delivery: { publish: { webhookUrl }}})` | POST/PUT rebuild hook after publish (static delivery CI) |
 
+For a credential rotation, replace `CARET_EDIT_PASSWORD` and
+`CARET_SESSION_SECRET` together and redeploy all instances. Rotating the session
+secret is the forced-sign-out mechanism: every existing editor cookie becomes
+invalid immediately.
+
 ## Drafts → publish, in one line
 
 Regardless of backend: **Preview** mounts the editor's overlay (edits stay

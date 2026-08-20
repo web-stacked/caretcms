@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { StorageAdapter, UploadHandler } from "../types.js";
+import type { EditorIdentity, StorageAdapter, UploadHandler } from "../types.js";
 
 export interface CaretRequestContext {
   adapter: StorageAdapter;
@@ -19,6 +19,10 @@ export interface CaretRequestContext {
    * their overlay by `sessionId` instead.
    */
   editorId?: string | null;
+  /** Named identity supplied by an optional authoritative identity adapter. */
+  identity?: EditorIdentity | null;
+  /** True when an external identity adapter is configured and authoritative. */
+  identityAuthoritative?: boolean;
   /**
    * True only when a per-session storage overlay was actually installed for
    * this demo request, guaranteeing writes are isolated from the shared base
@@ -35,7 +39,13 @@ export interface CaretRequestContext {
   runtimeEnv?: Record<string, unknown> | null;
 }
 
-const storage = new AsyncLocalStorage<CaretRequestContext>();
+// Vite may evaluate more than one copy of @caretcms/core during Astro dev
+// dependency optimization. Keep the request scope on the process global so the
+// middleware and live loader still share one AsyncLocalStorage instance.
+const requestContextKey = Symbol.for("@caretcms/core/request-context");
+const globalSlots = globalThis as typeof globalThis & Record<symbol, unknown>;
+const storage = (globalSlots[requestContextKey] ??=
+  new AsyncLocalStorage<CaretRequestContext>()) as AsyncLocalStorage<CaretRequestContext>;
 
 export function runWithRequestContext<T>(
   context: CaretRequestContext,

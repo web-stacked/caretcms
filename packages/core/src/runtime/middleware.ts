@@ -1,4 +1,4 @@
-import type { StorageAdapter, UploadHandler } from "../types.js";
+import type { EditorIdentity, IdentityAdapter, StorageAdapter, UploadHandler } from "../types.js";
 import { isEditorAuthenticated, getEditorId } from "./auth/session.js";
 import { isDemoModeEnabled, resolveDemoSession } from "./auth/demo-session.js";
 import { getRuntimeServices } from "./providers.js";
@@ -6,6 +6,7 @@ import { runWithRequestContext } from "./request-context.js";
 import { rewriteCaretAttributes } from "./rewrite.js";
 import { hasStega, stegaClean } from "./stega.js";
 import { SessionOverlayAdapter } from "./storage/session-overlay-adapter.js";
+import { EDITOR_ID_RE } from "./storage/id-contracts.js";
 
 // Side-effect import: registers any user-provided schemas into the schema registry
 import "virtual:caretcms/schemas";
@@ -103,12 +104,39 @@ async function resolveRuntimeEnv(): Promise<Record<string, unknown> | null> {
 
 type MiddlewareNext = () => Promise<Response>;
 
+async function authenticateIdentity(
+  adapter: IdentityAdapter | null,
+  request: Request,
+): Promise<EditorIdentity | null> {
+  if (!adapter) return null;
+  try {
+    const identity = await adapter.authenticate(request);
+    if (!identity) return null;
+    if (!EDITOR_ID_RE.test(identity.id)) {
+      console.error("[caretcms] Identity adapter returned an unsafe editor id; access denied.");
+      return null;
+    }
+    return {
+      id: identity.id,
+      ...(typeof identity.name === "string" ? { name: identity.name } : {}),
+      ...(typeof identity.email === "string" ? { email: identity.email } : {}),
+      ...(Array.isArray(identity.roles)
+        ? { roles: identity.roles.filter((role): role is string => typeof role === "string") }
+        : {}),
+    };
+  } catch (error) {
+    console.error("[caretcms] Identity adapter authentication failed; access denied.", error);
+    return null;
+  }
+}
+
 export async function onRequest(
   context: MiddlewareContext,
   next: MiddlewareNext,
 ): Promise<Response> {
   const services = await getRuntimeServices();
   const runtimeEnv = await resolveRuntimeEnv();
+  const request = context.request ?? new Request("http://localhost/");
 
   let adapter: StorageAdapter = services.adapter;
   let uploadHandler: UploadHandler = services.uploadHandler;
@@ -117,9 +145,15 @@ export async function onRequest(
   let setCookieHeader: string | null = null;
   let overlayActive = false;
   const demoMode = isDemoModeEnabled(runtimeEnv);
+  const identity = demoMode
+    ? null
+    : await authenticateIdentity(services.identityAdapter, request);
+  if (identity) editorId = identity.id;
+  else if (!demoMode && !services.identityAdapter) {
+    editorId = getEditorId(context as Parameters<typeof getEditorId>[0]);
+  }
 
   if (demoMode) {
-    const request = context.request ?? new Request("http://localhost/");
     const resolution = resolveDemoSession(context, request);
     sessionId = resolution.sessionId;
     setCookieHeader = resolution.setCookieHeader;
@@ -141,7 +175,8 @@ export async function onRequest(
     // base). Keyed by the editor id from the session cookie; absent that (an
     // unauthenticated preview request), there's no editor session so we leave the
     // base adapter in place. Publish later flushes the overlay back to the base.
-    const id = getEditorId(context as Parameters<typeof getEditorId>[0]);
+    const id = identity?.id
+      ?? (services.identityAdapter ? null : getEditorId(context as Parameters<typeof getEditorId>[0]));
     if (id) {
       const overlay = await services.adapter.makeEditorOverlay(id);
       adapter = new SessionOverlayAdapter(services.adapter, overlay);
@@ -155,6 +190,8 @@ export async function onRequest(
     uploadHandler,
     sessionId,
     editorId,
+    identity,
+    identityAuthoritative: services.identityAdapter !== null,
     demoMode,
     overlayActive,
     runtimeEnv,
@@ -170,6 +207,7 @@ export async function onRequest(
     // Mutate the live context object so the loaders see the gate during render.
     requestContext.editor = isEditor;
     context.locals.isEditor = isEditor;
+    context.locals.caretIdentity = identity;
     const inner = await next();
 
     const contentType = inner.headers.get("content-type") ?? "";

@@ -7,7 +7,8 @@ import {
   isEditorAuthenticated,
 } from "../auth/session.js";
 import { sanitizeRedirect } from "../auth/cookie-utils.js";
-import { getRuntimeConfig } from "../config.js";
+import { getRuntimeConfig, type CaretRuntimeConfig } from "../config.js";
+import { getRuntimeServices } from "../providers.js";
 
 function escapeHtml(value: string): string {
   return value
@@ -16,6 +17,10 @@ function escapeHtml(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function serializeJsonForScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
 function renderBrandMark(logoUrl: string | null): string {
@@ -42,6 +47,8 @@ function renderLogin(opts: {
   studioCssHref: string;
   loginCssHref: string;
   showError: boolean;
+  locale: CaretRuntimeConfig["locale"];
+  messages: CaretRuntimeConfig["messages"];
 }): string {
   const {
     hasPassword,
@@ -56,16 +63,18 @@ function renderLogin(opts: {
     studioCssHref,
     loginCssHref,
     showError,
+    locale,
+    messages,
   } = opts;
 
   const safeBrand = escapeHtml(brandName);
   const safeRedirect = escapeHtml(redirectTo);
   const safeEditorHome = escapeHtml(editorHome);
   const statusNote = !hasPassword
-    ? "Caret needs an editor password before you can sign in."
+    ? messages["login.noPassword"]
     : devActive
-      ? "Temporary dev password active — check your terminal to sign in."
-      : "Sign in to manage content.";
+      ? messages["login.devPassword"]
+      : messages["login.status"];
 
   // When no password is configured the form is disabled, so give the developer
   // an actionable setup guide instead of a dead end. When a dev fallback is
@@ -101,11 +110,11 @@ function renderLogin(opts: {
     : "";
 
   return `<!doctype html>
-<html lang="en">
+<html lang="${escapeHtml(locale)}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>${safeBrand} — Sign in</title>
+    <title>${safeBrand} — ${escapeHtml(messages["login.title"])}</title>
     ${favicon}
     <link rel="stylesheet" href="${themeCssHref}" />
     <link rel="stylesheet" href="${studioCssHref}" />
@@ -116,7 +125,7 @@ function renderLogin(opts: {
     <div class="studio-login-grid"></div>
     <div class="studio-login-accent-top"></div>
 
-    <div class="studio-login-card">
+    <main class="studio-login-card">
       <div class="studio-login-card-glow"></div>
 
       <div class="studio-login-card-body">
@@ -139,14 +148,14 @@ function renderLogin(opts: {
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
           </svg>
-          <span id="login-error-text">Invalid password.</span>
+          <span id="login-error-text">${escapeHtml(messages["login.invalid"])}</span>
         </div>
 
         <form id="login-form" class="studio-login-form" method="POST" action="${escapeHtml(`${apiBasePath}/auth/login`)}">
           <input type="hidden" name="redirect" value="${safeRedirect}" />
 
           <div class="studio-login-field">
-            <label for="password">Password</label>
+            <label for="password">${escapeHtml(messages["login.password"])}</label>
             <div class="studio-login-input-wrap">
               <input
                 type="password"
@@ -155,7 +164,7 @@ function renderLogin(opts: {
                 required
                 autocomplete="current-password"
                 class="studio-login-input"
-                placeholder="Enter editor password"
+                placeholder="${escapeHtml(messages["login.placeholder"])}"
                 ${hasPassword ? "" : "disabled"}
               />
               <svg class="studio-login-input-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
@@ -166,7 +175,7 @@ function renderLogin(opts: {
 
           <button type="submit" class="studio-login-submit" ${hasPassword ? "" : "disabled"}>
             <span class="studio-login-submit-content">
-              <span>Sign in</span>
+              <span>${escapeHtml(messages["login.submit"])}</span>
               <svg class="studio-login-submit-arrow" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
               </svg>
@@ -176,10 +185,10 @@ function renderLogin(opts: {
         ${helperBlock}
 
         <div class="studio-login-footer">
-          <a href="${safeEditorHome}">&larr; Back to site</a>
+          <a href="${safeEditorHome}">${escapeHtml(messages["login.back"])}</a>
         </div>
       </div>
-    </div>
+    </main>
 
     <script>
       (function () {
@@ -217,7 +226,7 @@ function renderLogin(opts: {
             credentials: 'same-origin'
           })
             .then(function (res) {
-              return res.json().catch(function () { return { error: 'Login failed' }; })
+              return res.json().catch(function () { return { error: ${serializeJsonForScript(messages["login.failed"])} }; })
                 .then(function (data) { return { ok: res.ok, data: data }; });
             })
             .then(function (result) {
@@ -269,6 +278,15 @@ export async function GET(context: APIContext): Promise<Response> {
     });
   }
 
+  const identityAdapter = (await getRuntimeServices()).identityAdapter;
+  if (identityAdapter) {
+    const location = await identityAdapter.loginUrl({
+      request: context.request,
+      redirectTo: redirectTarget,
+    });
+    return new Response(null, { status: 302, headers: { Location: location } });
+  }
+
   return html(
     renderLogin({
       hasPassword: hasConfiguredEditorPassword(),
@@ -286,6 +304,8 @@ export async function GET(context: APIContext): Promise<Response> {
       // form login redirects here with ?error=invalid, and without this the JS
       // handler is the only thing that would ever reveal the banner.
       showError: context.url.searchParams.get("error") === "invalid",
+      locale: runtime.locale,
+      messages: runtime.messages,
     }),
   );
 }

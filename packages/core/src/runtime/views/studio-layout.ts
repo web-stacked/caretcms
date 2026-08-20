@@ -15,6 +15,12 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/** Serialize trusted configuration for an inline script without allowing a
+ * `</script>` sequence to terminate the surrounding element. */
+export function serializeJsonForScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
 export type Crumb = { label: string; href?: string };
 
 export type StudioLayoutOptions = {
@@ -37,7 +43,7 @@ function renderBrandMark(logo: string | null): string {
   </svg>`;
 }
 
-function renderBreadcrumb(crumbs: Crumb[]): string {
+function renderBreadcrumb(crumbs: Crumb[], label: string): string {
   if (crumbs.length === 0) return "";
   const items = crumbs
     .map((crumb, idx) => {
@@ -50,14 +56,15 @@ function renderBreadcrumb(crumbs: Crumb[]): string {
     })
     .join("");
 
-  return `<nav class="studio-breadcrumb" aria-label="Breadcrumb">${items}</nav>`;
+  return `<nav class="studio-breadcrumb" aria-label="${escapeHtml(label)}">${items}</nav>`;
 }
 
-function renderHeaderNav(mountPath: string, studioActive: boolean): string {
+function renderHeaderNav(runtime: CaretRuntimeConfig, studioActive: boolean): string {
   const activeClass = studioActive ? " active" : "";
-  return `<nav class="studio-header-nav" aria-label="Studio navigation">
-          <a href="${escapeHtml(`${mountPath}/cms`)}" class="studio-nav-link${activeClass}">Studio</a>
-          <button id="studio-logout-btn" class="studio-nav-link" type="button">Sign out</button>
+  return `<nav class="studio-header-nav" aria-label="${escapeHtml(runtime.messages["nav.studio"])}">
+          <span id="studio-editor-identity" class="studio-editor-identity" hidden></span>
+          <a href="${escapeHtml(`${runtime.mountPath}/cms`)}" class="studio-nav-link${activeClass}">${escapeHtml(runtime.messages["nav.studio"])}</a>
+          <button id="studio-logout-btn" class="studio-nav-link" type="button">${escapeHtml(runtime.messages["nav.signOut"])}</button>
         </nav>`;
 }
 
@@ -72,7 +79,7 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
     : "";
 
   return `<!doctype html>
-<html lang="en">
+<html lang="${escapeHtml(runtime.locale)}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -89,8 +96,8 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           ${renderBrandMark(brand.logo)}
           <span>${escapeHtml(brand.name)}</span>
         </a>
-        ${renderBreadcrumb(breadcrumb)}
-        ${renderHeaderNav(runtime.mountPath, breadcrumb.length === 0)}
+        ${renderBreadcrumb(breadcrumb, runtime.locale === "es" ? "Navegación jerárquica" : "Breadcrumb")}
+        ${renderHeaderNav(runtime, breadcrumb.length === 0)}
       </header>
       <main class="studio-main studio-scroll">
         ${body}
@@ -100,14 +107,31 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
     <script>
       (function () {
         var btn = document.getElementById('studio-logout-btn');
+        var identityEl = document.getElementById('studio-editor-identity');
+        if (identityEl) {
+          fetch(${serializeJsonForScript(`${runtime.apiBasePath}/auth/session`)}, { credentials: 'same-origin' })
+            .then(function (response) { return response.ok ? response.json() : null; })
+            .then(function (body) {
+              var identity = body && body.identity;
+              var label = identity && (identity.name || identity.email);
+              if (!label) return;
+              identityEl.textContent = label;
+              identityEl.hidden = false;
+            }).catch(function () {});
+        }
         if (!btn) return;
         btn.addEventListener('click', function () {
-          fetch(${JSON.stringify(`${runtime.apiBasePath}/auth/logout`)}, {
+          fetch(${serializeJsonForScript(`${runtime.apiBasePath}/auth/logout`)}, {
             method: 'POST',
-            headers: { 'x-caret-request': '1' },
+            headers: { 'Content-Type': 'application/json', 'x-caret-request': '1' },
+            body: '{}',
             credentials: 'same-origin'
-          }).finally(function () {
-            window.location.href = ${JSON.stringify(runtime.mountPath)};
+          }).then(function (response) {
+            return response.json().catch(function () { return null; });
+          }).then(function (body) {
+            window.location.href = body && body.redirect ? body.redirect : ${serializeJsonForScript(runtime.mountPath)};
+          }).catch(function () {
+            window.location.href = ${serializeJsonForScript(runtime.mountPath)};
           });
         });
       })();

@@ -4,6 +4,7 @@ import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memo
 import { runWithRequestContext } from "../../packages/core/src/runtime/request-context";
 import type { CaretRequestContext } from "../../packages/core/src/runtime/request-context";
 import type { StorageAdapter, UploadHandler } from "../../packages/core/src/types";
+import { registerCollectionSchema } from "../../packages/core/src/runtime/schema-registry";
 
 /**
  * caretLoader() must honor Astro's LiveLoader contract (stable in Astro 6):
@@ -113,6 +114,35 @@ describe("caretLoader", () => {
         loader.loadCollection({ collection: "pages" }),
       );
       expect(result).toMatchObject({ error: expect.any(CaretLoaderError) });
+    });
+
+    it("skips only malformed stored entries and reports their id", async () => {
+      const adapter = new InMemoryAdapter();
+      adapter.preload("validated-pages", [
+        { id: "one", data: { title: "One", month: 1 } },
+        { id: "broken", data: { title: "Broken", month: 0 } },
+        { id: "two", data: { title: "Two", month: 12 } },
+      ]);
+      registerCollectionSchema("validated-pages", {
+        type: "object",
+        required: ["title", "month"],
+        properties: {
+          title: { type: "string" },
+          month: { type: "integer", minimum: 1, maximum: 12 },
+        },
+      }, null);
+      const errors: string[] = [];
+      const originalError = console.error;
+      console.error = (...values: unknown[]) => errors.push(values.join(" "));
+      try {
+        const result = await runWithRequestContext(contextWith(adapter), () =>
+          caretLoader("validated-pages").loadCollection({ collection: "validated-pages" }),
+        );
+        expect(result).toMatchObject({ entries: [{ id: "one" }, { id: "two" }] });
+        expect(errors.join(" ")).toContain("validated-pages::broken");
+      } finally {
+        console.error = originalError;
+      }
     });
   });
 

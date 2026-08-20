@@ -17,7 +17,7 @@ export default defineConfig({
   testDir: "./tests/e2e",
   // The CSP spec runs against a production build via playwright.csp.config.ts
   // (CSP is ignored in `astro dev`, which this dev-based suite uses).
-  testIgnore: "**/csp.spec.ts",
+  testIgnore: ["**/csp.spec.ts", "**/markdown-body.spec.ts"],
   fullyParallel: false, // tests share one filesystem-backed app; keep writes serial
   workers: 1,
   forbidOnly: !!process.env.CI,

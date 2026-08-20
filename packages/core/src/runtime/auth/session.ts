@@ -259,6 +259,8 @@ export function isEditorAuthenticated(context: CookieBagLike): boolean {
   // an unauthenticated-write hole. Fail closed when the overlay is absent.
   const ctx = getRequestContext();
   if (ctx?.demoMode && ctx.sessionId && ctx.overlayActive) return true;
+  if (ctx?.identity) return true;
+  if (ctx?.identityAuthoritative) return false;
 
   const token = context.cookies?.get(SESSION_COOKIE_NAME)?.value;
   if (!token) return false;
@@ -271,7 +273,17 @@ export function isEditorAuthenticated(context: CookieBagLike): boolean {
  * demo sessions — those are keyed by their own `sessionId`.
  */
 export function getEditorId(context: CookieBagLike): string | null {
+  const externalId = getRequestContext()?.identity?.id;
+  if (externalId) return externalId;
+  if (getRequestContext()?.identityAuthoritative) return null;
   const token = context.cookies?.get(SESSION_COOKIE_NAME)?.value;
   if (!token) return null;
   return parseToken(token)?.editorId ?? null;
+}
+
+export function getEditorIdentity(context: CookieBagLike): import("../../types.js").EditorIdentity | null {
+  const external = getRequestContext()?.identity;
+  if (external) return external;
+  const editorId = getEditorId(context);
+  return editorId ? { id: editorId } : null;
 }

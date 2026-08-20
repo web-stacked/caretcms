@@ -18,7 +18,7 @@ import { createToast } from './editor/toast.js';
 import { mountEditorGuards } from './editor/guards.js';
 import { mountToolbar, normalizePreviewForDelivery } from './editor/toolbar.js';
 import { mountStudioPanel } from './editor/panel.js';
-import { mountStudioSync } from './editor/sync.js';
+import { mountStudioSync } from './editor/sync.js?v=studio-upstream-20260819';
 import { mountTextEditors } from './editor/text-edit.js';
 import { mountImageEditors } from './editor/image-edit.js';
 import { mountSectionControls } from './editor/section-controls.js';

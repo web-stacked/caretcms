@@ -13,7 +13,8 @@ const allSchemas = { ...schemas, blog: schemaFromZod(blogSchema) };
 // A robust editorial site that exercises the full CaretCMS + caretize surface:
 //   - markdownStorage: every collection is a real .md file under src/content,
 //     so the SAME files power Astro content collections (getCollection + render)
-//     AND caret's live collections (caretLoader). Edits write back to frontmatter.
+//     AND Caret's live collections (caretLoader). Frontmatter edits and published
+//     prose edits write back to the same source files.
 //   - localUploads: <img data-caret> fields accept drag-and-drop uploads.
 //   - schemas: gives the Studio nice field labels/types per collection.
 //   - allowedClasses: lets data-caret-rich keep a couple of styling hooks.

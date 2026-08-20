@@ -9,6 +9,7 @@ import type { StorageAdapter } from "../types.js";
 import { BODY_OVERLAY_KEY, parseMdSrc, formatMdSrc, type MdSrc } from "../markdown/contracts.js";
 import { withEntryLock } from "./mutations/engine.js";
 import { TOMBSTONE_KEY } from "./storage/session-overlay-adapter.js";
+import { getRequestContext } from "./request-context.js";
 
 export interface PublishScope {
   /** Limit to one collection (with `id`, to one entry). Omit to publish all. */
@@ -165,12 +166,16 @@ export async function publishOverlay(
           await base.writeEntry(collection, id, mergedData);
         }
         const revision = await base.bumpRevision(collection, id);
+        const requestContext = getRequestContext();
+        const editor = requestContext?.identity
+          ?? (requestContext?.editorId ? { id: requestContext.editorId } : null);
         await base.appendHistory(collection, id, {
           ts: Date.now(),
           action: "publish",
           data: before?.data ?? null,
           // Pre-publish source file, so a restore can put the prose back.
           ...(bodySource !== undefined ? { bodySource } : {}),
+          ...(editor ? { editor } : {}),
         });
         await overlay.deleteEntry(collection, id);
         return { collection, id, revision, deleted: false };

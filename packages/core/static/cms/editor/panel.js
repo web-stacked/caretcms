@@ -24,10 +24,28 @@ export function mountStudioPanel({ studioButton }) {
   panel.appendChild(loading);
 
   const iframe = document.createElement('iframe');
-  iframe.src = STUDIO_PATH;
+  let rememberedPath = '';
+  try {
+    const storedPath = sessionStorage.getItem('cms-panel-path') || '';
+    if (storedPath === STUDIO_PATH || storedPath.startsWith(`${STUDIO_PATH}/`)) {
+      rememberedPath = storedPath;
+    }
+  } catch {
+    // Session storage is optional; the Studio root remains a safe fallback.
+  }
+  iframe.src = rememberedPath || STUDIO_PATH;
   iframe.title = 'Content Studio';
   iframe.addEventListener('load', () => {
     loading.setAttribute('hidden', 'hidden');
+    try {
+      const currentPath = `${iframe.contentWindow.location.pathname}${iframe.contentWindow.location.search}`;
+      if (currentPath === STUDIO_PATH || currentPath.startsWith(`${STUDIO_PATH}/`)) {
+        sessionStorage.setItem('cms-panel-path', currentPath);
+      }
+    } catch {
+      // The configured Studio may be cross-origin, in which case its route is
+      // intentionally unavailable to the parent page.
+    }
   });
   panel.appendChild(iframe);
   document.body.appendChild(panel);

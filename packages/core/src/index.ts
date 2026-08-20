@@ -10,9 +10,17 @@ import type {
   CaretUploadProvider,
   RuntimeProviderReference,
   StorageAdapter,
+  CollectionStudioConfig,
+  CaretIdentityProvider,
 } from "./types.js";
 import { bakeStaticHtmlFiles } from "./runtime/static-bake.js";
 import { caretSatteriPlugin } from "./markdown/satteri.js";
+import {
+  resolveStudioDictionary,
+  type StudioDictionary,
+  type StudioLocale,
+  type ResolvedStudioDictionary,
+} from "./runtime/i18n.js";
 import { caretRemarkPlugin } from "./markdown/remark.js";
 
 // --- Public type re-exports ---
@@ -24,11 +32,16 @@ export type {
   HistoryEntry,
   CollectionMetadata,
   CollectionSchema,
+  CollectionStudioConfig,
+  CaretIdentityProvider,
+  IdentityAdapter,
+  EditorIdentity,
   CaretMode,
   CaretStorageProvider,
   CaretUploadProvider,
   RuntimeProviderReference,
 } from "./types.js";
+export type { StudioDictionary, StudioLocale, StudioMessageKey } from "./runtime/i18n.js";
 export { FilesystemAdapter } from "./runtime/storage/filesystem-adapter.js";
 export { MarkdownAdapter } from "./runtime/storage/markdown-adapter.js";
 export { InMemoryAdapter } from "./runtime/storage/in-memory-adapter.js";
@@ -104,6 +117,12 @@ type BaseCaretOptions = {
    * by z.toJSONSchema() from a Zod schema).
    */
   schemas?: Record<string, JsonSchemaDefinition>;
+  /** Studio labels, ordering, and mutation capabilities by collection. */
+  collections?: Record<string, CollectionStudioConfig>;
+  /** Fixed Studio chrome language. Spanish and English ship with core. */
+  locale?: StudioLocale;
+  /** Per-message overrides applied after the selected first-party locale. */
+  dictionary?: StudioDictionary;
   /**
    * Per-tag class allowlist for rich-text (`data-caret-rich`) fields. By default
    * the rich-text sanitizer strips every `class` (keeping only semantic inline
@@ -174,6 +193,7 @@ export type CaretOptions =
       mode?: "embedded";
       storage?: CaretStorageProvider;
       uploads?: CaretUploadProvider;
+      identity?: CaretIdentityProvider;
       cloud?: never;
     })
   | (BaseCaretOptions & {
@@ -181,6 +201,7 @@ export type CaretOptions =
       cloud: CaretCloudOptions;
       storage?: never;
       uploads?: never;
+      identity?: never;
     });
 
 interface ResolvedThemeConfig {
@@ -220,11 +241,15 @@ interface ResolvedCaretOptions {
   mode: CaretMode;
   storage: CaretStorageProvider | null;
   uploads: CaretUploadProvider | null;
+  identity: CaretIdentityProvider | null;
   enableAdmin: boolean;
   enableInlineEditor: boolean;
   editorHome: string;
   cloud: CaretCloudOptions | null;
   schemas: Record<string, JsonSchemaDefinition>;
+  collections: Record<string, CollectionStudioConfig>;
+  locale: StudioLocale;
+  dictionary: ResolvedStudioDictionary;
   allowedClasses: Record<string, string[]>;
   bodyEditing: boolean;
   delivery: ResolvedDeliveryConfig;
@@ -248,6 +273,17 @@ export function defineUploadProvider(
 ): CaretUploadProvider {
   return {
     kind: "uploads",
+    entrypoint: options.entrypoint,
+    exportName: options.exportName ?? "default",
+    options: options.options ?? null,
+  };
+}
+
+export function defineIdentityProvider(
+  options: ProviderDefinitionOptions,
+): CaretIdentityProvider {
+  return {
+    kind: "identity",
     entrypoint: options.entrypoint,
     exportName: options.exportName ?? "default",
     options: options.options ?? null,
@@ -312,7 +348,7 @@ function normalizeCloudOptions(input: CaretCloudOptions): CaretCloudOptions {
   };
 }
 
-function isProviderReference<TKind extends "storage" | "uploads">(
+function isProviderReference<TKind extends "storage" | "uploads" | "identity">(
   value: unknown,
   kind: TKind,
 ): value is RuntimeProviderReference<TKind> {
@@ -438,8 +474,8 @@ function assertDeliveryMatchesAstroOutput(
 /** Every key resolveCaretOptions reads. Anything else in the options object is
  *  a typo (`mountpath`) silently falling back to a default — name it instead. */
 const KNOWN_OPTION_KEYS = new Set([
-  "mode", "cloud", "storage", "uploads", "mountPath", "apiBasePath",
-  "enableAdmin", "enableInlineEditor", "editorHome", "schemas",
+  "mode", "cloud", "storage", "uploads", "identity", "mountPath", "apiBasePath",
+  "enableAdmin", "enableInlineEditor", "editorHome", "schemas", "collections", "locale", "dictionary",
   "allowedClasses", "delivery", "theme", "brand",
 ]);
 
@@ -481,11 +517,17 @@ function resolveCaretOptions(options: CaretOptions): ResolvedCaretOptions {
     uploads: isProviderReference((options as { uploads?: unknown }).uploads, "uploads")
       ? (options as { uploads: CaretUploadProvider }).uploads
       : defaults.uploads,
+    identity: isProviderReference((options as { identity?: unknown }).identity, "identity")
+      ? (options as { identity: CaretIdentityProvider }).identity
+      : null,
     enableAdmin: options.enableAdmin ?? mode !== "cloud",
     enableInlineEditor: options.enableInlineEditor ?? mode !== "cloud",
     editorHome,
     cloud,
     schemas: options.schemas ?? {},
+    collections: options.collections ?? {},
+    locale: options.locale ?? "en",
+    dictionary: resolveStudioDictionary(options.locale ?? "en", options.dictionary),
     allowedClasses: options.allowedClasses ?? {},
     bodyEditing: options.bodyEditing ?? true,
     delivery: resolveDelivery(options.delivery),
@@ -500,7 +542,8 @@ async function loadProviderReference<T>(
   if (!reference) return null;
 
   const mod = (await import(/* @vite-ignore */ reference.entrypoint)) as Record<string, unknown>;
-  const resolvedExport = mod[reference.exportName ?? "default"] ?? mod.default;
+  const exportName = reference.exportName ?? "default";
+  const resolvedExport = mod[exportName];
   if (resolvedExport == null) {
     throw new Error(
       `[caretcms] Could not resolve provider export "${reference.exportName ?? "default"}" from ${reference.entrypoint}.`,
@@ -521,11 +564,15 @@ function buildProviderLoader(
   }
 
   const importName = `__caret_${functionName}`;
+  const exportName = reference.exportName ?? "default";
+  const exportLookup = exportName === "default"
+    ? `${importName}.default`
+    : `${importName}[${JSON.stringify(exportName)}]`;
 
   return [
     `import * as ${importName} from ${JSON.stringify(reference.entrypoint)};`,
     `export async function ${functionName}(){`,
-    `  const resolvedExport = ${importName}[${JSON.stringify(reference.exportName ?? "default")}] ?? ${importName}.default;`,
+    `  const resolvedExport = ${exportLookup};`,
     "  if (resolvedExport == null) {",
     `    throw new Error(${JSON.stringify(
       `[caretcms] Could not resolve provider export "${reference.exportName ?? "default"}" from ${reference.entrypoint}.`,
@@ -545,6 +592,7 @@ function createRuntimeProvidersPlugin(
   const source = [
     buildProviderLoader("loadConfiguredStorage", resolved.storage),
     buildProviderLoader("loadConfiguredUploadHandler", resolved.uploads),
+    buildProviderLoader("loadConfiguredIdentityAdapter", resolved.identity),
     `export const allowedClasses = ${JSON.stringify(resolved.allowedClasses)};`,
     `export const delivery = ${JSON.stringify(delivery)};`,
     // Surfaced for the middleware's authenticated empty-state affordance: it
@@ -572,16 +620,24 @@ function createRuntimeProvidersPlugin(
   };
 }
 
-function createSchemasPlugin(schemas: Record<string, JsonSchemaDefinition>) {
+function createSchemasPlugin(
+  schemas: Record<string, JsonSchemaDefinition>,
+  collections: Record<string, CollectionStudioConfig>,
+) {
   const hasSchemas = Object.keys(schemas).length > 0;
+  const hasCollections = Object.keys(collections).length > 0;
 
-  const source = hasSchemas
+  const source = hasSchemas || hasCollections
     ? [
-        `import { registerCollectionSchema } from "@caretcms/core/schema-registry";`,
+        `import { registerCollectionSchema, registerCollectionStudioConfig } from "@caretcms/core/schema-registry";`,
         `import { buildTemplate } from "@caretcms/core/schema-utils";`,
         `const schemas = ${JSON.stringify(schemas)};`,
+        `const collections = ${JSON.stringify(collections)};`,
         `for (const [collection, schema] of Object.entries(schemas)) {`,
-        `  registerCollectionSchema(collection, schema, buildTemplate(schema));`,
+        `  registerCollectionSchema(collection, schema, buildTemplate(schema), collections[collection]);`,
+        `}`,
+        `for (const [collection, metadata] of Object.entries(collections)) {`,
+        `  registerCollectionStudioConfig(collection, metadata);`,
         `}`,
         `export const registered = true;`,
       ].join("\n")
@@ -798,6 +854,8 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
               __ASTRO_CARET_MODE__: JSON.stringify(resolved.mode),
               __ASTRO_CARET_THEME_CONFIG__: JSON.stringify(JSON.stringify(resolved.theme)),
               __ASTRO_CARET_BRAND_CONFIG__: JSON.stringify(JSON.stringify(resolved.brand)),
+              __ASTRO_CARET_LOCALE__: JSON.stringify(resolved.locale),
+              __ASTRO_CARET_DICTIONARY__: JSON.stringify(JSON.stringify(resolved.dictionary)),
               __ASTRO_CARET_DEV_PASSWORD__: JSON.stringify(devEditorPassword ?? ""),
               // Authoritative dev signal for the auth layer: the public fallback
               // session secret is honored only when this is true. Baked false in
@@ -807,7 +865,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
             },
             plugins: [
               createRuntimeProvidersPlugin(resolved, effectiveDelivery),
-              createSchemasPlugin(resolved.schemas),
+              createSchemasPlugin(resolved.schemas, resolved.collections),
             ],
           },
         });

@@ -21,7 +21,7 @@ const when = data.date.toLocaleDateString("en-US", {
 ---
 
 <Site title={`${data.title} — Atlas & Co.`} description={data.excerpt} active="blog">
-  {/* Frontmatter is caret-editable; the body below is rendered markdown. */}
+  {/* Frontmatter and supported prose blocks in the rendered body are editable. */}
   <article class="post" data-caret-scope={scope}>
     <p class="post-tags">
       {data.tags.map((t) => <span class="tag">{t}</span>)}

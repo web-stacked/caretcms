@@ -5,6 +5,7 @@ import { clearEditorSessionCookie } from "../auth/session.js";
 import { sanitizeRedirect } from "../auth/cookie-utils.js";
 import { getRuntimeConfig } from "../config.js";
 import { enforceContentLength, MAX_JSON_BODY_BYTES } from "./_helpers.js";
+import { getRuntimeServices } from "../providers.js";
 
 function redirect(pathname: string, setCookie?: string): Response {
   const headers: Record<string, string> = { Location: pathname };
@@ -49,9 +50,13 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   const safeRedirect = sanitizeRedirect(redirectTo, runtime.mountPath);
+  const identityAdapter = (await getRuntimeServices()).identityAdapter;
+  const finalRedirect = identityAdapter?.logoutUrl
+    ? await identityAdapter.logoutUrl({ request: context.request, redirectTo: safeRedirect })
+    : safeRedirect;
 
-  if (isJson) return json({ ok: true, redirect: safeRedirect }, 200, cookie);
-  return redirect(safeRedirect, cookie);
+  if (isJson) return json({ ok: true, redirect: finalRedirect }, 200, cookie);
+  return redirect(finalRedirect, cookie);
 }
 
 export async function GET(): Promise<Response> {

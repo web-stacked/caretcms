@@ -22,6 +22,8 @@ import {
 } from "./runtime/request-context.js";
 import { stegaCombine } from "./runtime/stega.js";
 import { stripBodyOverlay } from "./runtime/utils.js";
+import { getRegisteredSchema } from "./runtime/schema-registry.js";
+import { validateJsonSchema } from "./schema-utils.js";
 
 export class CaretLoaderError extends Error {
   constructor(message: string, cause?: unknown) {
@@ -85,6 +87,24 @@ function requireAdapter(): StorageAdapter {
       cause,
     );
   }
+}
+
+function validationError(
+  collection: string,
+  id: string,
+  data: Record<string, unknown>,
+): CaretLoaderError | null {
+  const registered = getRegisteredSchema(collection);
+  if (!registered) return null;
+  const issues = validateJsonSchema(data, registered.schema);
+  if (issues.length === 0) return null;
+  const detail = issues
+    .slice(0, 5)
+    .map((issue) => `${issue.path || "entry"}: ${issue.message}`)
+    .join("; ");
+  return new CaretLoaderError(
+    `Stored entry ${collection}::${id} does not match its registered schema (${detail})`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +187,8 @@ export function caretLoader(
         if (!entry) return undefined;
         const editor = isEditorRequest();
         const clean = stripBodyOverlay(entry.data);
+        const invalid = validationError(collection, entry.id, clean);
+        if (invalid) return { error: invalid };
         const data = editor ? encodeEntryData(collection, entry.id, clean) : clean;
         const result: CaretLiveDataEntry = { id: entry.id, data };
         // Published content is cache-taggable so a publish can purge it by tag.
@@ -188,15 +210,21 @@ export function caretLoader(
         const adapter = requireAdapter();
         const allEntries: EntryData[] = await adapter.listEntries(collection);
         const editor = isEditorRequest();
-        const entries: CaretLiveDataEntry[] = allEntries.map((entry) => {
+        const entries: CaretLiveDataEntry[] = [];
+        for (const entry of allEntries) {
           const clean = stripBodyOverlay(entry.data);
+          const invalid = validationError(collection, entry.id, clean);
+          if (invalid) {
+            console.error(`[caretcms] ${invalid.message}. Skipping this entry; other valid entries remain available.`);
+            continue;
+          }
           const mapped: CaretLiveDataEntry = {
             id: entry.id,
             data: editor ? encodeEntryData(collection, entry.id, clean) : clean,
           };
           if (!editor) mapped.cacheHint = { tags: entryTags(collection, entry.id) };
-          return mapped;
-        });
+          entries.push(mapped);
+        }
         const result: CaretLiveDataCollection = { entries };
         // Collection-level tag (merged with per-entry tags by Astro); drafts unhinted.
         if (!editor) result.cacheHint = { tags: [collectionTag(collection)] };

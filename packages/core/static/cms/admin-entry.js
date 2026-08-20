@@ -16,6 +16,11 @@
  *   POST ${api}/upload   FormData(file)
  *   GET  ${api}/history?collection=&id=
  *   POST ${api}/history  { collection, id, ts }    // restore snapshot
+ *
+ * Successful mutations are announced on the same-origin
+ * `caretcms:content` BroadcastChannel so an open site preview can refresh
+ * automatically. Embedded Studio panels keep using postMessage for their
+ * faster in-page field patching.
  */
 (function () {
   "use strict";
@@ -36,6 +41,16 @@
   var MOUNT = CFG.mountPath;
   var COLLECTION = CFG.collection;
   var ID = CFG.id;
+  var IS_NEW = CFG.isNew === true;
+  var INITIALIZE_IF_MISSING = CFG.initializeIfMissing === true;
+  var SAVE_TARGET = CFG.saveTarget === "preview" ? "preview" : "live";
+  var MSG = CFG.messages || {};
+  function msg(key, fallback) { return typeof MSG[key] === "string" ? MSG[key] : fallback; }
+  function htmlEscape(value) {
+    return String(value).replace(/[&<>"']/g, function (char) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char];
+    });
+  }
   if (!API || !COLLECTION || !ID) return;
 
   /* ─── State ─────────────────────────────────────────────────────── */
@@ -45,6 +60,11 @@
   var originalJson = "";
   var saving = false;
   var dirtyTimer = 0;
+  var previewTimer = 0;
+  var linkedSelectionTimer = 0;
+  var pendingRemoteSelection = null;
+  var SYNC_CHANNEL = "caretcms:content";
+  var syncChannel = null;
 
   /* ─── DOM refs ──────────────────────────────────────────────────── */
   var loadingEl = document.getElementById("loading");
@@ -53,6 +73,7 @@
   var fieldsEl = document.getElementById("fields");
   var titleEl = document.getElementById("entry-title");
   var statusEl = document.getElementById("status-msg");
+  var validationWarningEl = document.getElementById("validation-warning");
   var saveBtn = document.getElementById("btn-save");
   var deleteBtn = document.getElementById("btn-delete");
   var historyBtn = document.getElementById("btn-history");
@@ -67,6 +88,56 @@
   /* ─── Helpers ───────────────────────────────────────────────────── */
   function deepClone(v) { return JSON.parse(JSON.stringify(v)); }
 
+  function templateFromSchema(schema) {
+    if (!schema || typeof schema !== "object") return "";
+    if (schema.default !== undefined) return deepClone(schema.default);
+    if (Array.isArray(schema.enum) && schema.enum.length > 0) return deepClone(schema.enum[0]);
+    if (schema.type === "object") {
+      var objectTemplate = {};
+      Object.keys(schema.properties || {}).forEach(function (key) {
+        objectTemplate[key] = templateFromSchema(schema.properties[key]);
+      });
+      return objectTemplate;
+    }
+    if (schema.type === "array") return [];
+    if (schema.type === "boolean") return false;
+    if (schema.type === "number" || schema.type === "integer") {
+      return typeof schema.minimum === "number" ? schema.minimum : 0;
+    }
+    return "";
+  }
+
+  function generatedId(path, index) {
+    var parts = path.split(".").filter(Boolean);
+    var key = parts.pop() || "item";
+    if (/^\d+$/.test(key)) key = parts.pop() || "item";
+    key = key.replace(/ies$/, "y").replace(/s$/, "");
+    return (key + "-" + (index + 1) + "-" + Date.now().toString(36))
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+  }
+
+  function friendlyFileTitle(filename) {
+    return String(filename || "Image")
+      .replace(/\.[^.]+$/, "")
+      .replace(/[-_]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, function (c) { return c.toUpperCase(); }) || "Image";
+  }
+
+  function singularItemLabel(path) {
+    var key = (path.split(".").filter(Boolean).pop() || "item").toLowerCase();
+    if (key === "images") return "image";
+    if (key === "details") return "detail";
+    if (key === "documents") return "document";
+    if (key === "videos") return "video";
+    if (key === "links") return "link";
+    if (key === "resume") return "résumé item";
+    return key.replace(/ies$/, "y").replace(/s$/, "") || "item";
+  }
+
   function getTitle(data) {
     if (!data) return "Untitled";
     var keys = ["name", "title", "question", "company_name", "headline", "label"];
@@ -80,31 +151,6 @@
     return key.replace(/_/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
   }
 
-  // Coerce a text-input value back to the field's declared (or original) type so
-  // editing an object-array's numeric/boolean/nested field doesn't turn it into a
-  // string. Unparseable input returns the raw string (server validation reports it).
-  function coerceScalarValue(raw, propSchema, originalVal) {
-    var type = (propSchema && propSchema.type) ||
-      (typeof originalVal === "number" ? "number" :
-        typeof originalVal === "boolean" ? "boolean" :
-          (originalVal && typeof originalVal === "object" ? "object" : "string"));
-    if (type === "number" || type === "integer") {
-      if (raw.trim() === "") return null;
-      var n = Number(raw);
-      return Number.isFinite(n) ? n : raw;
-    }
-    if (type === "boolean") {
-      var t = raw.trim().toLowerCase();
-      if (t === "true") return true;
-      if (t === "false") return false;
-      return raw;
-    }
-    if (type === "object" || type === "array") {
-      try { return JSON.parse(raw); } catch (e) { return raw; }
-    }
-    return raw;
-  }
-
   function isDirty() {
     return entryData !== null && JSON.stringify(entryData) !== originalJson;
   }
@@ -114,17 +160,22 @@
     saveBtn.disabled = !dirty || saving;
     saveBtn.classList.remove("studio-save-dirty", "studio-save-clean", "studio-save-saving");
     saveBtn.classList.add(saving ? "studio-save-saving" : (dirty ? "studio-save-dirty" : "studio-save-clean"));
-    saveBtn.textContent = saving ? "Saving…" : "Save";
+    saveBtn.textContent = saving ? msg("common.saving", "Saving…") : (SAVE_TARGET === "preview" ? msg("entry.saveDraft", "Save draft") : msg("entry.saveLive", "Save live"));
     titleEl.textContent = getTitle(entryData);
+    if (entryData !== null) {
+      if (saving) showStatus("saving", msg("entry.savingChanges", "Saving changes…"));
+      else if (dirty) showStatus("dirty", msg("entry.unsaved", "Unsaved changes"));
+      else showStatus("saved", msg("entry.allSaved", "All changes saved"));
+    }
   }
 
   function showStatus(type, msg) {
     statusEl.textContent = msg;
     statusEl.hidden = false;
-    statusEl.style.color = type === "saved" ? "var(--studio-green)" : "var(--studio-red)";
-    if (type === "saved") {
-      setTimeout(function () { statusEl.hidden = true; }, 2000);
-    }
+    statusEl.dataset.status = type;
+    statusEl.style.color = type === "saved"
+      ? "var(--studio-green)"
+      : (type === "dirty" || type === "saving" ? "var(--studio-text-muted)" : "var(--studio-red)");
   }
 
   function setNestedValue(obj, path, value) {
@@ -153,6 +204,7 @@
     }
     clearTimeout(dirtyTimer);
     dirtyTimer = setTimeout(updateSaveButton, 300);
+    queueEmbeddedPreview();
   }
 
   function loginRedirect() {
@@ -162,6 +214,47 @@
   function handleAuth(res) {
     if (res.status === 401) { loginRedirect(); return true; }
     return false;
+  }
+
+  function queueEmbeddedPreview() {
+    if (window.parent === window || !entryData) return;
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(function () {
+      try {
+        window.parent.postMessage({
+          type: "cms:preview",
+          collection: COLLECTION,
+          id: ID,
+          data: deepClone(entryData),
+          embedded: true,
+          studioPath: window.location.pathname + window.location.search,
+        }, window.location.origin);
+      } catch (e) { /* visual preview is a progressive enhancement */ }
+    }, 80);
+  }
+
+  function announceChange(type, data) {
+    var message = {
+      type: type,
+      collection: COLLECTION,
+      id: ID,
+      data: data ? deepClone(data) : null,
+      embedded: window.parent !== window,
+      studioPath: window.location.pathname + window.location.search,
+      savedAt: Date.now(),
+    };
+
+    if (window.parent !== window) {
+      try { window.parent.postMessage(message, window.location.origin); } catch (e) { /* noop */ }
+    }
+
+    if ("BroadcastChannel" in window) {
+      try {
+        var channel = new BroadcastChannel(SYNC_CHANNEL);
+        channel.postMessage(message);
+        setTimeout(function () { channel.close(); }, 0);
+      } catch (e) { /* automatic preview sync is a progressive enhancement */ }
+    }
   }
 
   /* ─── Image compression + upload ────────────────────────────────── */
@@ -217,9 +310,54 @@
     }).then(function (json) { return json.url; });
   }
 
+  function readImageDimensions(file) {
+    return createImageBitmap(file).then(function (bitmap) {
+      var width = bitmap.width;
+      var height = bitmap.height;
+      bitmap.close();
+      if (width > 1600) {
+        height = Math.round((height * 1600) / width);
+        width = 1600;
+      }
+      return { width: width, height: height };
+    }).catch(function () { return null; });
+  }
+
+  function populateImageObject(path, file, dimensions) {
+    var parts = path.split(".");
+    if (parts.length < 2 || parts[parts.length - 1] !== "src") return;
+    var parentPath = parts.slice(0, -1).join(".");
+    var current = getNestedValue(entryData, parentPath);
+    if (!current || typeof current !== "object" || Array.isArray(current)) return;
+
+    var next = deepClone(current);
+    var title = friendlyFileTitle(file.name);
+    if (Object.prototype.hasOwnProperty.call(next, "id") && !next.id) {
+      next.id = generatedId(parentPath, Number(parts[parts.length - 2]) || 0);
+    }
+    if (Object.prototype.hasOwnProperty.call(next, "title") && !next.title) next.title = title;
+    if (Object.prototype.hasOwnProperty.call(next, "alt") && !next.alt) next.alt = title;
+    if (dimensions && Object.prototype.hasOwnProperty.call(next, "width")) next.width = dimensions.width;
+    if (dimensions && Object.prototype.hasOwnProperty.call(next, "height")) next.height = dimensions.height;
+    updateField(parentPath, next);
+
+    ["id", "title", "alt", "width", "height"].forEach(function (key) {
+      if (!Object.prototype.hasOwnProperty.call(next, key)) return;
+      var control = document.getElementById(fieldIdFromPath(parentPath + "." + key));
+      if (control && "value" in control) control.value = String(next[key]);
+    });
+  }
+
   /* ─── Save / Delete ─────────────────────────────────────────────── */
   function save() {
     if (!entryData || saving) return;
+    if (SAVE_TARGET === "live") {
+      var liveConfirmationKey = "caretcms:confirmed-live-save";
+      var confirmed = false;
+      try { confirmed = sessionStorage.getItem(liveConfirmationKey) === "1"; } catch (e) { /* storage may be disabled */ }
+      if (!confirmed && !window.confirm(msg("entry.liveConfirm", "Save these changes directly to the live site?"))) return;
+      try { sessionStorage.setItem(liveConfirmationKey, "1"); } catch (e) { /* confirmation still applies to this save */ }
+    }
     saving = true;
     updateSaveButton();
     var payload = {
@@ -245,7 +383,7 @@
       if (!result.ok) {
         if (result.body && result.body.issues) {
           showValidationErrors(result.body.issues);
-          showStatus("error", "Validation failed (" + result.body.issues.length + ")");
+          showStatus("error", msg("entry.validationFailed", "Validation failed") + " (" + result.body.issues.length + ")");
           var firstErr = fieldsEl.querySelector(".studio-field-error");
           if (firstErr) firstErr.scrollIntoView({ behavior: "smooth", block: "center" });
           return;
@@ -255,7 +393,7 @@
           // revision, so saving again overwrites. Don't tell the user to reload
           // (that would throw their edits away).
           entryRevision = result.body.currentRevision;
-          showStatus("error", "Changed elsewhere — Save again to overwrite");
+          showStatus("error", msg("entry.changedElsewhere", "Changed elsewhere — Save again to overwrite"));
           return;
         }
         throw new Error("save failed");
@@ -263,17 +401,10 @@
       clearFieldErrors();
       if (result.body && typeof result.body.revision === "number") entryRevision = result.body.revision;
       originalJson = JSON.stringify(entryData);
-      if (window.parent !== window) {
-        try {
-          window.parent.postMessage(
-            { type: "cms:saved", collection: COLLECTION, id: ID, data: deepClone(entryData) },
-            window.location.origin,
-          );
-        } catch (e) { /* noop */ }
-      }
-      showStatus("saved", "Saved");
+      announceChange("cms:saved", entryData);
+      showStatus("saved", msg("entry.saved", "Saved"));
     }).catch(function () {
-      showStatus("error", "Error");
+      showStatus("error", msg("common.error", "Error"));
     }).then(function () {
       saving = false;
       updateSaveButton();
@@ -287,7 +418,7 @@
 
   function confirmDelete() {
     deleteConfirmBtn.disabled = true;
-    deleteConfirmBtn.textContent = "Deleting…";
+    deleteConfirmBtn.textContent = msg("entry.deleting", "Deleting…");
     var payload = { type: "delete_entry", collection: COLLECTION, id: ID };
     if (typeof entryRevision === "number") payload.expectedRevision = entryRevision;
     fetch(API + "/mutate", {
@@ -298,12 +429,13 @@
     }).then(function (res) {
       if (handleAuth(res)) return;
       if (!res.ok) throw new Error("delete failed");
+      announceChange("cms:deleted", null);
       window.location.href = MOUNT + "/cms/" + encodeURIComponent(COLLECTION);
     }).catch(function () {
       deleteDialog.hidden = true;
       deleteConfirmBtn.disabled = false;
-      deleteConfirmBtn.textContent = "Delete";
-      showStatus("error", "Delete failed");
+      deleteConfirmBtn.textContent = msg("entry.delete", "Delete");
+      showStatus("error", msg("entry.deleteFailed", "Delete failed"));
     });
   }
 
@@ -343,6 +475,62 @@
     return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
   }
 
+  function fieldControl(path) {
+    return fieldsEl.querySelector("#" + cssEscape(fieldIdFromPath(path)));
+  }
+
+  function showLinkedSelection(group) {
+    window.clearTimeout(linkedSelectionTimer);
+    fieldsEl.querySelectorAll(".caret-field-selected").forEach(function (selected) {
+      selected.classList.remove("caret-field-selected");
+    });
+    group.classList.add("caret-field-selected");
+    linkedSelectionTimer = window.setTimeout(function () {
+      group.classList.remove("caret-field-selected");
+    }, 1500);
+  }
+
+  function applyRemoteSelection(message) {
+    if (
+      !message
+      || message.collection !== COLLECTION
+      || message.id !== ID
+      || typeof message.field !== "string"
+    ) return;
+
+    if (!entryData) {
+      pendingRemoteSelection = message;
+      return;
+    }
+
+    var control = fieldControl(message.field);
+    var group = control && control.closest(".caret-field-group");
+    if (!group) return;
+    showLinkedSelection(group);
+    group.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+  }
+
+  function announceFieldSelection(path) {
+    var message = {
+      type: "cms:field-selected",
+      collection: COLLECTION,
+      id: ID,
+      field: path,
+      source: "studio",
+    };
+
+    if (window.parent !== window) {
+      try {
+        window.parent.postMessage(Object.assign({ embedded: true }, message), window.location.origin);
+      } catch (e) { /* embedded selection linking is a progressive enhancement */ }
+      return;
+    }
+
+    try {
+      if (syncChannel) syncChannel.postMessage(message);
+    } catch (e) { /* cross-tab selection linking is a progressive enhancement */ }
+  }
+
   /* ─── Field group ───────────────────────────────────────────────── */
   function fieldIdFromPath(path) {
     return "caret-field-" + String(path || "").replace(/[^a-zA-Z0-9_-]/g, "-");
@@ -369,11 +557,16 @@
     queueMicrotask(function () {
       var path = wrapper.dataset.fieldPath;
       if (!path) return;
-      var control = wrapper.querySelector("input, select, textarea");
+      // Nested object/array groups contain other field groups. Only claim a
+      // control whose nearest field-group owner is this wrapper; otherwise an
+      // outer `hero` group can overwrite `hero.headline`'s stable identity.
+      var control = Array.from(wrapper.querySelectorAll("input, select, textarea")).find(function (candidate) {
+        return candidate.closest(".caret-field-group") === wrapper;
+      });
       if (!control) return;
       var fid = fieldIdFromPath(path);
-      if (!control.id) control.id = fid;
-      if (!control.name) control.name = path;
+      control.id = fid;
+      control.name = path;
       labelEl.htmlFor = control.id;
     });
 
@@ -398,13 +591,7 @@
 
       // Backfill missing keys with sensible defaults
       if (value === undefined && data) {
-        if (prop.default !== undefined) data[key] = deepClone(prop.default);
-        else if (prop.type === "object") data[key] = {};
-        else if (prop.type === "array") data[key] = [];
-        else if (prop.type === "boolean") data[key] = false;
-        else if (prop.type === "number") data[key] = 0;
-        else if (prop.type === "string" && prop.enum) data[key] = prop.enum[0];
-        else if (prop.type === "string") data[key] = "";
+        data[key] = templateFromSchema(prop);
       }
       var current = data ? data[key] : undefined;
 
@@ -428,7 +615,7 @@
         group = createFieldGroup(label, isRequired);
         group.dataset.fieldPath = path;
         group.appendChild(buildSingleImage(current || "", path));
-      } else if (prop.type === "string" && prop.format === "textarea") {
+      } else if (prop.type === "string" && (prop.format === "textarea" || prop.format === "html")) {
         group = createFieldGroup(label, isRequired);
         group.dataset.fieldPath = path;
         var ta = document.createElement("textarea");
@@ -437,7 +624,7 @@
         ta.value = current || "";
         ta.addEventListener("input", function () { updateField(path, ta.value); });
         group.appendChild(ta);
-      } else if (prop.type === "string" && (prop.format === "email" || prop.format === "uri")) {
+      } else if (prop.type === "string" && (prop.format === "email" || prop.format === "uri" || prop.format === "url")) {
         group = createFieldGroup(label, isRequired);
         group.dataset.fieldPath = path;
         var emailInput = document.createElement("input");
@@ -483,7 +670,20 @@
           toggle.classList.toggle("active");
           updateField(path, next);
         });
+        toggle.setAttribute("role", "switch");
+        toggle.setAttribute("aria-label", label);
+        toggle.setAttribute("aria-checked", current ? "true" : "false");
+        toggle.addEventListener("click", function () {
+          toggle.setAttribute("aria-checked", toggle.classList.contains("active") ? "true" : "false");
+        });
         group.appendChild(toggle);
+        if (key === "published") {
+          group.classList.add("caret-field-with-help");
+          var publishHelp = document.createElement("p");
+          publishHelp.className = "caret-field-help";
+          publishHelp.textContent = "Turn this on and Save when the entry is ready to appear on the live site.";
+          group.appendChild(publishHelp);
+        }
       } else if (prop.type === "array" && prop.format === "image-gallery") {
         group = createFieldGroup(label, isRequired);
         group.dataset.fieldPath = path;
@@ -643,7 +843,7 @@
           item.draggable = true;
           item.innerHTML =
             '<img src="' + url + '" alt="Image ' + (idx + 1) + '" loading="lazy" />' +
-            '<button class="caret-gallery-remove" type="button" title="Remove">×</button>' +
+            '<button class="caret-gallery-remove" type="button" title="' + htmlEscape(msg("field.remove", "Remove")) + '">×</button>' +
             '<span class="caret-gallery-index">' + (idx + 1) + "</span>";
           item.querySelector(".caret-gallery-remove").addEventListener("click", function (e) {
             e.stopPropagation();
@@ -688,6 +888,7 @@
       fileInput.type = "file";
       fileInput.multiple = true;
       fileInput.accept = "image/jpeg,image/png,image/webp,image/avif";
+      fileInput.setAttribute("aria-label", "Upload images for " + humanizeKey(path.split(".").pop() || "images"));
       fileInput.style.display = "none";
 
       function handleFiles(files) {
@@ -732,16 +933,41 @@
   /* ─── Single image ──────────────────────────────────────────────── */
   function buildSingleImage(url, path) {
     var wrapper = document.createElement("div");
+    wrapper.className = "caret-single-image";
 
     function rerender() {
       wrapper.innerHTML = "";
       var current = getNestedValue(entryData, path) || "";
 
+      var fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = "image/jpeg,image/png,image/webp,image/avif";
+      fileInput.setAttribute("aria-label", msg("field.uploadOrReplaceImage", "Upload or replace image"));
+      fileInput.style.display = "none";
+
       if (current) {
-        var preview = document.createElement("div");
+        var preview = document.createElement("button");
+        preview.type = "button";
         preview.className = "caret-single-image-preview";
-        preview.innerHTML = '<img src="' + current + '" alt="" />';
+        preview.title = msg("field.replaceImage", "Replace image");
+        preview.setAttribute("aria-label", msg("field.replaceImage", "Replace image"));
+        var image = document.createElement("img");
+        image.src = current;
+        image.alt = "Current image preview";
+        var overlay = document.createElement("span");
+        overlay.className = "caret-single-image-overlay";
+        overlay.textContent = msg("field.replaceImage", "Replace image");
+        preview.appendChild(image);
+        preview.appendChild(overlay);
+        preview.addEventListener("click", function () { fileInput.click(); });
         wrapper.appendChild(preview);
+      } else {
+        var emptyPreview = document.createElement("button");
+        emptyPreview.type = "button";
+        emptyPreview.className = "caret-single-image-empty";
+        emptyPreview.textContent = "+ Choose an image";
+        emptyPreview.addEventListener("click", function () { fileInput.click(); });
+        wrapper.appendChild(emptyPreview);
       }
 
       var row = document.createElement("div");
@@ -750,6 +976,8 @@
       var input = document.createElement("input");
       input.type = "text";
       input.className = "studio-input";
+      input.id = fieldIdFromPath(path);
+      input.name = path;
       input.style.flex = "1";
       input.value = current;
       input.placeholder = "Image URL";
@@ -759,12 +987,13 @@
       var uploadBtn = document.createElement("button");
       uploadBtn.type = "button";
       uploadBtn.className = "studio-btn-ghost";
-      uploadBtn.textContent = "Upload";
+      uploadBtn.textContent = current ? "Replace" : "Upload";
 
-      var fileInput = document.createElement("input");
-      fileInput.type = "file";
-      fileInput.accept = "image/jpeg,image/png,image/webp,image/avif";
-      fileInput.style.display = "none";
+      var help = document.createElement("p");
+      help.className = "caret-image-help";
+      help.textContent = current
+        ? "Click the preview or Replace to upload a new image. You can also paste a URL. For gallery images, blank title and alt fields are filled from the filename—review them before saving."
+        : "Upload an image or paste its URL.";
 
       uploadBtn.addEventListener("click", function () { fileInput.click(); });
       fileInput.addEventListener("change", function () {
@@ -772,11 +1001,14 @@
         if (!file) return;
         uploadBtn.textContent = "Uploading…";
         uploadBtn.disabled = true;
-        uploadFile(file).then(function (newUrl) {
-          updateField(path, newUrl);
+        Promise.all([uploadFile(file), readImageDimensions(file)]).then(function (results) {
+          updateField(path, results[0]);
+          populateImageObject(path, file, results[1]);
           rerender();
         }).catch(function () {
-          uploadBtn.textContent = "Upload";
+          help.textContent = "Upload failed. Check the image type and try again.";
+          help.classList.add("is-error");
+          uploadBtn.textContent = current ? "Replace" : "Upload";
           uploadBtn.disabled = false;
         });
         fileInput.value = "";
@@ -786,6 +1018,7 @@
       row.appendChild(uploadBtn);
       row.appendChild(fileInput);
       wrapper.appendChild(row);
+      wrapper.appendChild(help);
     }
 
     rerender();
@@ -809,7 +1042,7 @@
           tag.textContent = item;
           var btn = document.createElement("button");
           btn.type = "button";
-          btn.title = "Remove";
+          btn.title = msg("field.remove", "Remove");
           btn.textContent = "×";
           btn.addEventListener("click", function () {
             var next = current.slice();
@@ -861,6 +1094,31 @@
   function buildObjectArray(items, path, itemSchema) {
     var wrapper = document.createElement("div");
     wrapper.className = "caret-object-array";
+    var draggedIndex = null;
+
+    function itemSummary(item, idx) {
+      var summaryKeys = ["title", "label", "name", "alt", "src"];
+      for (var i = 0; i < summaryKeys.length; i++) {
+        var value = item && item[summaryKeys[i]];
+        if (typeof value === "string" && value.trim()) {
+          if (summaryKeys[i] === "src") {
+            var clean = value.split("?")[0].split("/").pop();
+            return clean || (singularItemLabel(path) + " " + (idx + 1));
+          }
+          return value;
+        }
+      }
+      return singularItemLabel(path).replace(/^./, function (c) { return c.toUpperCase(); }) + " " + (idx + 1);
+    }
+
+    function moveItem(current, from, to) {
+      if (to < 0 || to >= current.length || from === to) return;
+      var next = current.slice();
+      var moved = next.splice(from, 1)[0];
+      next.splice(to, 0, moved);
+      updateField(path, next);
+      rerender();
+    }
 
     function rerender() {
       wrapper.innerHTML = "";
@@ -870,10 +1128,81 @@
         var card = document.createElement("div");
         card.className = "caret-object-array-item";
 
+        var header = document.createElement("div");
+        header.className = "caret-object-array-header";
+
+        var dragHandle = document.createElement("button");
+        dragHandle.type = "button";
+        dragHandle.className = "caret-object-array-drag";
+        dragHandle.draggable = true;
+        dragHandle.title = msg("field.drag", "Drag to reorder");
+        dragHandle.setAttribute("aria-label", msg("field.drag", "Drag to reorder") + " " + itemSummary(item, idx));
+        dragHandle.textContent = "⠿";
+        dragHandle.addEventListener("dragstart", function (event) {
+          draggedIndex = idx;
+          card.classList.add("caret-object-array-dragging");
+          if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData("text/plain", String(idx));
+          }
+        });
+        dragHandle.addEventListener("dragend", function () {
+          draggedIndex = null;
+          wrapper.querySelectorAll(".caret-object-array-item").forEach(function (row) {
+            row.classList.remove("caret-object-array-dragging", "caret-object-array-drag-over");
+          });
+        });
+        header.appendChild(dragHandle);
+
+        var idxLabel = document.createElement("span");
+        idxLabel.className = "caret-object-array-index";
+        idxLabel.textContent = itemSummary(item, idx);
+        header.appendChild(idxLabel);
+
+        card.addEventListener("dragover", function (event) {
+          if (draggedIndex === null || draggedIndex === idx) return;
+          event.preventDefault();
+          card.classList.add("caret-object-array-drag-over");
+          if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        });
+        card.addEventListener("dragleave", function () {
+          card.classList.remove("caret-object-array-drag-over");
+        });
+        card.addEventListener("drop", function (event) {
+          event.preventDefault();
+          card.classList.remove("caret-object-array-drag-over");
+          if (draggedIndex === null) return;
+          var from = draggedIndex;
+          draggedIndex = null;
+          moveItem(current, from, idx);
+        });
+
+        var actions = document.createElement("div");
+        actions.className = "caret-object-array-actions";
+
+        var upBtn = document.createElement("button");
+        upBtn.type = "button";
+        upBtn.className = "caret-object-array-move";
+        upBtn.title = msg("field.moveUp", "Move up");
+        upBtn.setAttribute("aria-label", msg("field.moveUp", "Move up") + " " + itemSummary(item, idx));
+        upBtn.textContent = "↑";
+        upBtn.disabled = idx === 0;
+        upBtn.addEventListener("click", function () { moveItem(current, idx, idx - 1); });
+
+        var downBtn = document.createElement("button");
+        downBtn.type = "button";
+        downBtn.className = "caret-object-array-move";
+        downBtn.title = msg("field.moveDown", "Move down");
+        downBtn.setAttribute("aria-label", msg("field.moveDown", "Move down") + " " + itemSummary(item, idx));
+        downBtn.textContent = "↓";
+        downBtn.disabled = idx === current.length - 1;
+        downBtn.addEventListener("click", function () { moveItem(current, idx, idx + 1); });
+
         var removeBtn = document.createElement("button");
         removeBtn.type = "button";
         removeBtn.className = "caret-object-array-remove";
-        removeBtn.title = "Remove item";
+        removeBtn.title = msg("field.remove", "Remove") + " " + singularItemLabel(path);
+        removeBtn.setAttribute("aria-label", msg("field.remove", "Remove") + " " + itemSummary(item, idx));
         removeBtn.textContent = "×";
         removeBtn.addEventListener("click", function () {
           var next = current.slice();
@@ -881,46 +1210,21 @@
           updateField(path, next);
           rerender();
         });
-        card.appendChild(removeBtn);
 
-        var idxLabel = document.createElement("span");
-        idxLabel.className = "caret-object-array-index";
-        idxLabel.textContent = "[" + idx + "]";
-        card.appendChild(idxLabel);
+        actions.appendChild(upBtn);
+        actions.appendChild(downBtn);
+        actions.appendChild(removeBtn);
+        header.appendChild(actions);
+        card.appendChild(header);
 
         var fieldsCont = document.createElement("div");
         fieldsCont.className = "caret-object-array-fields";
 
-        var keys = (itemSchema && itemSchema.properties) ? Object.keys(itemSchema.properties) : Object.keys(item);
-        keys.forEach(function (key) {
-          var itemPath = path + "." + idx + "." + key;
-          var val = item[key];
-          var propSchema = itemSchema && itemSchema.properties && itemSchema.properties[key];
-          var fieldLabel = (propSchema && propSchema.title) || humanizeKey(key);
-
-          var row = document.createElement("div");
-          row.className = "caret-object-array-row";
-
-          var keyLabel = document.createElement("span");
-          keyLabel.className = "caret-object-array-key";
-          keyLabel.textContent = fieldLabel;
-
-          var input = document.createElement("input");
-          input.type = "text";
-          input.className = "studio-input";
-          input.value = typeof val === "string" ? val : (val == null ? "" : JSON.stringify(val));
-          // Write back in the field's declared (or original) type, not always a
-          // string — otherwise editing a number/boolean/nested field silently
-          // rewrites it as text. Unparseable input falls back to the raw string
-          // so server-side validation can report it.
-          input.addEventListener("input", function () {
-            updateField(itemPath, coerceScalarValue(input.value, propSchema, val));
-          });
-
-          row.appendChild(keyLabel);
-          row.appendChild(input);
-          fieldsCont.appendChild(row);
-        });
+        if (itemSchema && itemSchema.properties) {
+          renderFields(fieldsCont, item, itemSchema, path + "." + idx);
+        } else {
+          renderFieldsFallback(fieldsCont, item, path + "." + idx);
+        }
 
         card.appendChild(fieldsCont);
         wrapper.appendChild(card);
@@ -929,22 +1233,34 @@
       var addBtn = document.createElement("button");
       addBtn.type = "button";
       addBtn.className = "caret-object-array-add";
-      addBtn.textContent = "+ Add item";
+      addBtn.textContent = "+ " + msg("field.add", "Add") + " " + singularItemLabel(path);
       addBtn.addEventListener("click", function () {
         var template;
         if (itemSchema && itemSchema.properties) {
-          template = {};
-          Object.keys(itemSchema.properties).forEach(function (k) {
-            var s = itemSchema.properties[k];
-            template[k] = s.type === "number" || s.type === "integer" ? 0 : (s.type === "boolean" ? false : "");
-          });
+          template = templateFromSchema(itemSchema);
+          if (Object.prototype.hasOwnProperty.call(template, "id") && !template.id) {
+            template.id = generatedId(path, current.length);
+          }
         } else {
           template = current.length > 0
-            ? Object.fromEntries(Object.keys(current[0]).map(function (k) { return [k, ""]; }))
+            ? Object.fromEntries(Object.keys(current[0]).map(function (k) {
+              var sample = current[0][k];
+              return [k, typeof sample === "number" ? 0 : (typeof sample === "boolean" ? false : (Array.isArray(sample) ? [] : (sample && typeof sample === "object" ? {} : "")))];
+            }))
             : {};
         }
         updateField(path, current.concat([template]));
         rerender();
+        var cards = wrapper.querySelectorAll(".caret-object-array-item");
+        var newest = cards[cards.length - 1];
+        var firstControl = newest && newest.querySelector("input, textarea, select, button.caret-single-image-empty");
+        // Focus immediately. Deferring focus to the next animation frame can
+        // steal it back after a fast user (or assistive automation) has already
+        // moved to another control in the new row.
+        if (firstControl) firstControl.focus();
+        requestAnimationFrame(function () {
+          if (newest) newest.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        });
       });
       wrapper.appendChild(addBtn);
     }
@@ -992,6 +1308,12 @@
 
         info.appendChild(actionSpan);
         info.appendChild(timeSpan);
+        if (item.editor && typeof item.editor.id === "string") {
+          var editorSpan = document.createElement("span");
+          editorSpan.style.cssText = "font-size:0.7rem;color:var(--studio-text-dim);";
+          editorSpan.textContent = item.editor.name || item.editor.email || item.editor.id;
+          info.appendChild(editorSpan);
+        }
         row.appendChild(info);
 
         var restoreBtn = document.createElement("button");
@@ -1040,6 +1362,7 @@
         return;
       }
       historyPanel.hidden = true;
+      announceChange("cms:saved", entryData);
       showStatus("saved", "Restored");
     }).catch(function () {
       showStatus("error", "Restore failed");
@@ -1048,7 +1371,7 @@
 
   /* ─── Wire events ───────────────────────────────────────────────── */
   saveBtn.addEventListener("click", save);
-  deleteBtn.addEventListener("click", deleteEntry);
+  if (deleteBtn) deleteBtn.addEventListener("click", deleteEntry);
   historyBtn.addEventListener("click", loadHistory);
   historyCloseBtn.addEventListener("click", function () {
     historyPanel.hidden = true;
@@ -1059,6 +1382,41 @@
   deleteDialog.addEventListener("click", function (e) {
     if (e.target === deleteDialog) deleteDialog.hidden = true;
   });
+
+  window.addEventListener("message", function (event) {
+    if (event.origin !== window.location.origin) return;
+    if (event.data && event.data.type === "cms:field-selected") {
+      applyRemoteSelection(event.data);
+    }
+  });
+
+  // Focusing a Studio control locates its live-page counterpart without
+  // stealing focus from the editor. The temporary blue cue is distinct from
+  // green save confirmation.
+  fieldsEl.addEventListener("focusin", function (event) {
+    var control = event.target instanceof Element
+      ? event.target.closest("input, select, textarea, button")
+      : null;
+    var group = control && control.closest("[data-field-path]");
+    var path = group && group.dataset.fieldPath;
+    if (!path) return;
+    showLinkedSelection(group);
+    announceFieldSelection(path);
+  });
+
+  if ("BroadcastChannel" in window) {
+    try {
+      syncChannel = new BroadcastChannel(SYNC_CHANNEL);
+      syncChannel.addEventListener("message", function (event) {
+        if (event.data && event.data.type === "cms:field-selected") {
+          applyRemoteSelection(event.data);
+        }
+      });
+      window.addEventListener("pagehide", function () { syncChannel.close(); }, { once: true });
+    } catch (e) {
+      syncChannel = null;
+    }
+  }
 
   window.addEventListener("keydown", function (e) {
     if ((e.metaKey || e.ctrlKey) && e.key === "s") {
@@ -1097,17 +1455,48 @@
         if (schemaJson && schemaJson.schema) entrySchema = schemaJson.schema;
 
         loadingEl.hidden = true;
-        if (!entry) {
+        var initializedMissingEntry = !entry && (IS_NEW || INITIALIZE_IF_MISSING);
+        if (!entry && !initializedMissingEntry) {
           notFoundEl.hidden = false;
           return;
         }
-        entryData = deepClone(entry.data);
-        entryRevision = typeof entry.revision === "number" ? entry.revision : undefined;
-        originalJson = JSON.stringify(entry.data);
+        var initialData = entry
+          ? entry.data
+          : (schemaJson && schemaJson.template) || templateFromSchema(entrySchema);
+        entryData = deepClone(initialData);
+        entryRevision = entry && typeof entry.revision === "number" ? entry.revision : 0;
+        originalJson = JSON.stringify(initialData);
         titleEl.textContent = getTitle(entryData);
         renderFields(fieldsEl, entryData, entrySchema, "");
+        if (validationWarningEl && entry && Array.isArray(entry.validationIssues) && entry.validationIssues.length > 0) {
+          validationWarningEl.textContent = "This stored entry has invalid fields: " + entry.validationIssues.map(function (issue) {
+            return (issue.path || "entry") + " — " + issue.message;
+          }).join("; ") + ". Correct them and Save to restore public delivery.";
+          validationWarningEl.hidden = false;
+        }
         updateSaveButton();
+        if (IS_NEW || initializedMissingEntry) {
+          var guideTitle = document.getElementById("editor-guide-title");
+          var guideCopy = document.getElementById("editor-guide-copy");
+          if (guideTitle) guideTitle.textContent = msg("entry.newGuideTitle", "Entry created with safe defaults");
+          if (guideCopy) guideCopy.textContent = msg("entry.newGuideCopy", "Fill in the fields below. Save becomes available after your first change. In the sidebar Studio, text and image edits preview on the page as you work; Save confirms them and refreshes the visual preview for structural changes. The Published switch controls whether signed-out visitors can see this entry.");
+        }
         editorEl.hidden = false;
+        if (window.parent !== window) {
+          try {
+            window.parent.postMessage({
+              type: "cms:entry-ready",
+              collection: COLLECTION,
+              id: ID,
+              embedded: true,
+            }, window.location.origin);
+          } catch (e) { /* embedded field linking is a progressive enhancement */ }
+        }
+        if (pendingRemoteSelection) {
+          var pending = pendingRemoteSelection;
+          pendingRemoteSelection = null;
+          applyRemoteSelection(pending);
+        }
       });
     });
   }).catch(function () {

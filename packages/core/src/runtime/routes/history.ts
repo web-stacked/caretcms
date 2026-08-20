@@ -1,7 +1,7 @@
 export const prerender = false;
 
 import type { APIContext } from "astro";
-import { isEditorAuthenticated } from "../auth/session.js";
+import { getEditorIdentity, isEditorAuthenticated } from "../auth/session.js";
 import { parseEntryId } from "../mutations/contracts.js";
 import { withEntryLock } from "../mutations/engine.js";
 import { json, resolveAdapter, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
@@ -53,6 +53,7 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   try {
+    const editor = getEditorIdentity(context);
     const entries = await adapter.getHistory(collectionRaw, id);
     const snapshot = entries.find((entry) => entry.ts === ts);
     if (!snapshot) return json({ error: "Snapshot not found" }, 404);
@@ -80,6 +81,7 @@ export async function POST(context: APIContext): Promise<Response> {
           action: "restore",
           data: snapshotData,
           ...(typeof current === "string" ? { bodySource: current } : {}),
+          ...(editor ? { editor } : {}),
         });
         return next;
       }
@@ -90,6 +92,7 @@ export async function POST(context: APIContext): Promise<Response> {
         ts: Date.now(),
         action: "restore",
         data: snapshotData,
+        ...(editor ? { editor } : {}),
       });
       return next;
     });

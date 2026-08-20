@@ -1,7 +1,7 @@
 /* ========================================================================
    CMS Editor Styles — only loaded when isEditor = true
    ======================================================================== */
-@import "./editor/tokens-and-text.css";
+@import "./editor/tokens-and-text.css?v=studio-upstream-20260819";
 @import "./editor/image.css";
 @import "./editor/section-controls.css";
 @import "./editor/toolbar.css";

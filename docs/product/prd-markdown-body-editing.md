@@ -1,7 +1,6 @@
 # PRD - Markdown Body Inline Editing (v0.3.0)
 
-Status: **Draft — reviewed** (pipeline facts verified against Astro 7.0.6 /
-satteri 0.9.1 dist sources and a local render probe, 2026-07-15)
+Status: **Implemented** (verified against Astro 6 and 7, 2026-08-20)
 Owner: Allen
 Last updated: 2026-07-15
 Target: `@caretcms/core` v0.3.0
@@ -414,57 +413,57 @@ allowlist + sanitizers, editor bootstrap/activation, toolbar UI.
 
 ### Phase 0 - Alignment
 
-- [ ] Land this PRD.
-- [ ] Resolve Q1-Q3 (section 11).
+- [x] Land this PRD.
+- [x] Resolve Q1-Q3 (section 11).
 
 Commit: `docs: add markdown body inline editing PRD`
 
 ### Phase 1 - Contracts + serializer core
 
-- [ ] `data-caret-md` grammar + fnv1a hash in `contracts.ts`.
-- [ ] `md-serialize` logic (write it in TS in core, build a browser copy
+- [x] `data-caret-md` grammar + fnv1a hash in `contracts.ts`.
+- [x] `md-serialize` logic (write it in TS in core, build a browser copy
       into `static/` the same way editor-runtime assets ship).
-- [ ] Round-trip + escaping property tests (satteri as dev dep).
+- [x] Round-trip + escaping property tests (satteri as dev dep).
 
 Commit: `feat(core): data-caret-md contract and markdown block serializer`
 
 ### Phase 2 - Stamping plugins + injection
 
-- [ ] `src/markdown/{stamp,satteri,remark}.ts`, `./markdown` export.
-- [ ] Injection branch in `astro:config:setup` gated on markdown storage.
-- [ ] Island-skipping rules; `.mdx` stamped-nothing; parity corpus test.
+- [x] `src/markdown/{stamp,satteri,remark}.ts`, `./markdown` export.
+- [x] Injection branch in `astro:config:setup` gated on markdown storage.
+- [x] Island-skipping rules; `.mdx` stamped-nothing; parity corpus test.
 
 Commit: `feat(core): stamp markdown body blocks via satteri/remark plugins`
 
 ### Phase 3 - Store path
 
-- [ ] `mdBlock` mutation op (sanitize, validate, hash check, `__body`).
-- [ ] `__body` invisibility in schema registry, loaders, Studio editor.
-- [ ] Concurrency/staleness unit tests.
+- [x] `mdBlock` mutation op (sanitize, validate, hash check, `__body`).
+- [x] `__body` invisibility in schema registry, loaders, Studio editor.
+- [x] Concurrency/staleness unit tests.
 
 Commit: `feat(core): markdown body draft mutations with staleness guard`
 
 ### Phase 4 - Show path
 
-- [ ] `rewrite.ts` preview swap for `data-caret-md`.
-- [ ] Editor client: activation, contenteditable, toolbar code button,
+- [x] `rewrite.ts` preview swap for `data-caret-md`.
+- [x] Editor client: activation, contenteditable, toolbar code button,
       serializer wiring, 409 recovery UX (reuse conflict-preserve flow).
 
 Commit: `feat(editor): inline editing for markdown body blocks`
 
 ### Phase 5 - Publish path
 
-- [ ] `MarkdownAdapter` body splice + history body region + rollback.
-- [ ] `publish.ts` all-or-nothing body flush.
-- [ ] E2E in starter (markdown blog collection).
+- [x] `MarkdownAdapter` body splice + history body region + rollback.
+- [x] `publish.ts` all-or-nothing body flush.
+- [x] Production-shaped E2E in the Markdown-backed content-site example.
 
 Commit: `feat(core): publish markdown body edits back to source files`
 
 ### Phase 6 - Docs + launch
 
-- [ ] Docs page in caretcms-site (`apps/docs`): setup, supported blocks,
+- [x] Docs page in caretcms-site (`apps/docs`): setup, supported blocks,
       islands, concurrency behavior, Astro 6 vs 7 notes.
-- [ ] README + CLAUDE.md/AGENTS.md architecture notes.
+- [x] README + CLAUDE.md/AGENTS.md architecture notes.
 - [ ] v0.3.0 release; blog post; answer the Discord thread (no vaporware:
       post only once shipped).
 
@@ -503,13 +502,10 @@ Commit: `chore(release): v0.3.0`
 - **Q1**: RESOLVED (probe, fact 4.7): stamp the inner paragraphs; their
   positions exclude the `> ` markers, and the newline-free rule bounds
   them to safe single-line splices. Never stamp the blockquote itself.
-- **Q2**: `.mdx` prose blocks outside JSX in v1? Recommended: yes if the
-  parity corpus proves positions are as reliable as `.md`; otherwise defer
-  to v0.4. Decide after Phase 2 spike.
-- **Q3**: Should bake strip `data-caret-md-src` from public HTML (offsets
-  leak file structure; harmless but noisy)? Recommended: keep, matches
-  existing attribute-visibility behavior and enables re-activation without
-  a fetch.
+- **Q2**: RESOLVED: defer `.mdx` prose stamping to v0.4. Version 0.3 stamps
+  `.md` only; JSX and MDX islands remain read-only.
+- **Q3**: RESOLVED: keep `data-caret-md-src`. It follows the existing public
+  binding-attribute behavior and lets the editor reactivate without a fetch.
 
 ## 12. v0.4 outlook - MDX components via GUI (not in scope, sets direction)
 

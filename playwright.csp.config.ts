@@ -7,7 +7,8 @@ import { defineConfig, devices } from "@playwright/test";
  *
  * Astro only emits the CSP policy for a production build (it is ignored in
  * `astro dev`), so unlike the main suite this builds the starter and serves it
- * via `astro preview`. Kept in a separate config + script (`test:e2e:csp`) so
+ * via the Node adapter's built entrypoint. Kept in a separate config + script
+ * (`test:e2e:csp`) so
  * the fast dev-based suite isn't slowed by a production build.
  */
 const PORT = 4400;
@@ -25,17 +26,21 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   projects: [{ name: "chromium-csp", use: { ...devices["Desktop Chrome"] } }],
+  globalTeardown: "./tests/e2e/global-teardown.ts",
   webServer: {
     command:
-      `npm run build:core && npm run build -w @caretcms/example-starter && ` +
-      `npm run preview -w @caretcms/example-starter -- --host --port ${PORT}`,
+      `npm run build:core --prefix ../.. && npm run build && ` +
+      `node dist/server/entry.mjs`,
+    cwd: "examples/starter",
     url: `http://localhost:${PORT}/`,
     timeout: 180_000,
     reuseExistingServer: !process.env.CI,
     env: {
       CARET_EDIT_PASSWORD: "e2e-secret",
-      // astro preview runs in production mode, where a session secret is required.
+      // The built server runs in production mode, where a session secret is required.
       CARET_SESSION_SECRET: "e2e-csp-session-secret-not-for-real-use-0123456789",
+      HOST: "0.0.0.0",
+      PORT: String(PORT),
     },
   },
 });

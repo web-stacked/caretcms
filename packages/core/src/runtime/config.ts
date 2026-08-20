@@ -1,4 +1,5 @@
 import type { CaretMode } from "../types.js";
+import { resolveStudioDictionary, type ResolvedStudioDictionary, type StudioLocale } from "./i18n.js";
 
 declare const __ASTRO_CARET_MOUNT_PATH__: string | undefined;
 declare const __ASTRO_CARET_API_BASE_PATH__: string | undefined;
@@ -6,6 +7,8 @@ declare const __ASTRO_CARET_EDITOR_HOME__: string | undefined;
 declare const __ASTRO_CARET_MODE__: string | undefined;
 declare const __ASTRO_CARET_THEME_CONFIG__: string | undefined;
 declare const __ASTRO_CARET_BRAND_CONFIG__: string | undefined;
+declare const __ASTRO_CARET_LOCALE__: string | undefined;
+declare const __ASTRO_CARET_DICTIONARY__: string | undefined;
 
 export type CaretBrandConfig = {
   name: string;
@@ -25,6 +28,8 @@ export type CaretRuntimeConfig = {
   mode: CaretMode;
   theme: CaretThemeConfig;
   brand: CaretBrandConfig;
+  locale: StudioLocale;
+  messages: ResolvedStudioDictionary;
 };
 
 export function normalizePath(input: string | undefined, fallback: string): string {
@@ -71,6 +76,11 @@ export function getRuntimeConfig(): CaretRuntimeConfig {
     __ASTRO_CARET_BRAND_CONFIG__,
     DEFAULT_BRAND,
   );
+  const locale = (__ASTRO_CARET_LOCALE__ === "es" ? "es" : "en") as StudioLocale;
+  const messages = safeParse<ResolvedStudioDictionary>(
+    __ASTRO_CARET_DICTIONARY__,
+    resolveStudioDictionary(locale),
+  );
 
-  return { mountPath, apiBasePath, editorHome, mode, theme, brand };
+  return { mountPath, apiBasePath, editorHome, mode, theme, brand, locale, messages };
 }

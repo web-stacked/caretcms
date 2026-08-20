@@ -72,6 +72,7 @@ export function mountImageEditors({
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/jpeg,image/png,image/webp,image/avif';
+    input.setAttribute('aria-label', 'Upload replacement image');
     input.style.display = 'none';
     wrapper.appendChild(input);
 

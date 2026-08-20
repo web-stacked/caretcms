@@ -57,6 +57,11 @@ Core has no runtime deps — schemas arrive as JSON Schema, so it's Zod-agnostic
   attributes and injects stored overrides into HTML. **Security-critical** — string
   manipulation with sanitization, no DOM parser; fuzzed by fast-check
   (`tests/unit/rewrite-properties.test.ts`, XSS/injection invariants).
+- **Markdown body editing** (`src/markdown/`): stamps rendered prose with
+  `data-caret-md`, serializes a small safe set of inline marks back to Markdown,
+  and stores block drafts under the private `__body` entry key. Source ranges
+  use the trimmed, frontmatter-free body from `canonicalBody()`; publish checks
+  every range hash before splicing any prose into the source file.
 - **Storage abstraction** (`src/types.ts`): `StorageAdapter` / `UploadHandler`
   interfaces. Core ships filesystem + in-memory **reference** adapters only; it never
   imports platform code. Cloudflare KV/R2 live in `packages/cloudflare` (uses

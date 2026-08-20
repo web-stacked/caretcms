@@ -72,6 +72,15 @@
   box-shadow: 0 0 0 4px var(--cms-blue-dim);
 }
 
+/* Briefly confirms that the paired Studio field was located. Save feedback is
+   green, so linked selection keeps the editor's blue navigation language. */
+.cms-linked-selection {
+  outline: 2px solid var(--cms-blue) !important;
+  outline-offset: 4px;
+  box-shadow: 0 0 0 4px var(--cms-blue-dim);
+  transition: outline-color 0.35s ease, box-shadow 0.35s ease;
+}
+
 /* ---------------------------------------------------------------------------
    Unpublished body draft
    The server rewrite tags blocks whose prose comes from an unpublished draft

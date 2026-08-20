@@ -7,7 +7,7 @@ const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 
 const REQUIRED = {
   devDependencies: {
-    astro: '7.0.6',
+    astro: '7.2.4',
     '@tailwindcss/vite': '4.3.2',
     tailwindcss: '4.3.2',
     typescript: '6.0.3',

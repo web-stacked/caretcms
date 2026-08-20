@@ -5,6 +5,11 @@ import { isEditorAuthenticated } from "../auth/session.js";
 import { getRuntimeConfig } from "../config.js";
 import { resolveAdapter } from "./_helpers.js";
 import {
+  isKnownStudioCollection,
+  resolveCollectionStudioConfig,
+} from "../schema-registry.js";
+import { getRequestContext } from "../request-context.js";
+import {
   escapeHtml,
   htmlResponse,
   redirectResponse,
@@ -30,30 +35,54 @@ export async function GET(context: APIContext): Promise<Response> {
   }
 
   const adapter = await resolveAdapter();
-  const known = await adapter.discoverCollections();
-  if (!known.includes(collection)) {
+  if (!(await isKnownStudioCollection(adapter, collection))) {
     return redirectResponse(`${runtime.mountPath}/cms`);
   }
 
-  const label = humanize(collection);
+  const collectionConfig = await resolveCollectionStudioConfig(adapter, collection);
+  if (collectionConfig.singletonId && id !== collectionConfig.singletonId) {
+    return redirectResponse(
+      `${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(collectionConfig.singletonId)}`,
+    );
+  }
+  const label = collectionConfig.label || humanize(collection);
+  const deletable = collectionConfig.deletable !== false && !collectionConfig.singletonId;
+  const savingToPreview = getRequestContext()?.overlayActive === true;
+  const messages = runtime.messages;
 
   const config = {
     apiBasePath: runtime.apiBasePath,
     mountPath: runtime.mountPath,
     collection,
     id,
+    isNew: context.url.searchParams.get("new") === "1",
+    initializeIfMissing: collectionConfig.singletonId === id,
+    deletable,
+    saveTarget: savingToPreview ? "preview" : "live",
+    messages,
   };
 
-  const extraStyles = `@import "/__caret/admin-entry.css";
+  const extraStyles = `@import "/__caret/admin-entry.css?v=studio-upstream-20260819";
     .editor-action-bar {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 1rem;
       flex-wrap: wrap;
+      position: sticky;
+      top: 0;
+      z-index: 8;
+      padding: 0.875rem 1rem;
+      margin: -0.875rem -1rem 1.5rem;
       margin-bottom: 1.5rem;
+      border: 1px solid var(--studio-border);
+      border-radius: var(--radius-theme-sm);
+      background: var(--studio-bg);
+      background: color-mix(in srgb, var(--studio-bg) 92%, transparent);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+      backdrop-filter: blur(14px);
     }
-    .editor-action-bar h2 {
+    .editor-action-bar h1 {
       font-family: var(--studio-font-heading);
       font-size: 1.25rem;
       font-weight: 500;
@@ -70,6 +99,33 @@ export async function GET(context: APIContext): Promise<Response> {
       display: flex;
       align-items: center;
       gap: 0.75rem;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    #btn-save {
+      min-width: 7.5rem;
+      min-height: 2.5rem;
+    }
+    #btn-save.studio-save-dirty {
+      box-shadow: 0 8px 24px var(--studio-accent-soft);
+    }
+    @media (max-width: 640px) {
+      .editor-action-bar {
+        align-items: flex-start;
+        padding: 0.75rem;
+        margin-inline: -0.5rem;
+      }
+      .editor-actions {
+        width: 100%;
+        justify-content: flex-start;
+        gap: 0.5rem;
+      }
+      #status-msg {
+        width: 100%;
+      }
+      #btn-save {
+        margin-left: auto;
+      }
     }
     .modal-backdrop {
       position: fixed;
@@ -115,6 +171,39 @@ export async function GET(context: APIContext): Promise<Response> {
       border-bottom: 1px solid var(--studio-border);
     }
     .history-panel-body { padding: 1rem; }
+    .editor-guide {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+      padding: 1rem;
+      border: 1px solid var(--studio-border);
+      border-radius: var(--radius-theme-sm);
+      background: var(--studio-accent-soft);
+    }
+    .editor-guide-icon {
+      display: grid;
+      place-items: center;
+      width: 1.75rem;
+      height: 1.75rem;
+      border-radius: 50%;
+      background: var(--studio-accent);
+      color: var(--studio-bg);
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+    .editor-guide strong {
+      display: block;
+      margin-bottom: 0.25rem;
+      color: var(--studio-text);
+      font-size: 0.8rem;
+    }
+    .editor-guide p {
+      margin: 0;
+      color: var(--studio-text-muted);
+      font-size: 0.72rem;
+      line-height: 1.6;
+    }
   `;
 
   const body = `<div class="studio-fade-in" style="max-width:48rem;margin:0 auto;" id="cms-entry-page" data-collection="${escapeHtml(collection)}" data-id="${escapeHtml(id)}">
@@ -123,28 +212,40 @@ export async function GET(context: APIContext): Promise<Response> {
     </div>
 
     <div id="not-found" hidden style="text-align:center;padding:5rem 0;color:var(--studio-text-dim);">
-      <p>Entry not found.</p>
-      <a href="${escapeHtml(`${runtime.mountPath}/cms/${collection}`)}" style="margin-top:1rem;display:inline-block;font-size:0.75rem;color:var(--studio-accent);text-decoration:underline;">Go back</a>
+      <p>${escapeHtml(messages["entry.notFound"])}</p>
+      <a href="${escapeHtml(`${runtime.mountPath}/cms/${collection}`)}" style="margin-top:1rem;display:inline-block;font-size:0.75rem;color:var(--studio-accent);text-decoration:underline;">${escapeHtml(messages["entry.goBack"])}</a>
     </div>
 
     <div id="editor" hidden>
       <div class="editor-action-bar">
         <div>
-          <h2 id="entry-title">…</h2>
+          <h1 id="entry-title">…</h1>
           <p class="meta">${escapeHtml(collection)} / ${escapeHtml(id)}</p>
         </div>
         <div class="editor-actions">
+          <span id="save-target" style="font-size:0.68rem;color:var(--studio-text-dim);">${escapeHtml(savingToPreview ? messages["entry.savingPreview"] : messages["entry.savingLive"])}</span>
           <span id="status-msg" hidden style="font-size:0.75rem;"></span>
-          <button id="btn-history" type="button" class="studio-btn-ghost">History</button>
-          <button id="btn-delete" type="button" class="studio-btn-danger">Delete</button>
-          <button id="btn-save" type="button" class="studio-save-clean" disabled style="padding:8px 18px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;border:none;border-radius:var(--radius-theme-xs);font-family:var(--studio-font);">Save</button>
+          <a id="btn-preview" class="studio-btn-ghost" href="${escapeHtml(runtime.editorHome)}" target="_blank" rel="noopener">${escapeHtml(messages["entry.preview"])}</a>
+          <button id="btn-history" type="button" class="studio-btn-ghost">${escapeHtml(messages["entry.history"])}</button>
+          ${deletable ? `<button id="btn-delete" type="button" class="studio-btn-danger">${escapeHtml(messages["entry.delete"])}</button>` : ""}
+          <button id="btn-save" type="button" class="studio-save-clean" disabled style="padding:8px 18px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;border:none;border-radius:var(--radius-theme-xs);font-family:var(--studio-font);">${escapeHtml(savingToPreview ? messages["entry.saveDraft"] : messages["entry.saveLive"])}</button>
         </div>
       </div>
 
+      <div class="editor-guide" id="editor-guide">
+        <span class="editor-guide-icon">i</span>
+        <div>
+          <strong id="editor-guide-title">${escapeHtml(messages["entry.guideTitle"])}</strong>
+          <p id="editor-guide-copy">${escapeHtml(messages["entry.guideCopy"])}</p>
+        </div>
+      </div>
+
+      <div id="validation-warning" role="alert" hidden style="margin-bottom:1.5rem;padding:1rem;border:1px solid var(--studio-red);background:rgba(239,68,68,0.08);color:var(--studio-text);font-size:0.75rem;"></div>
+
       <div id="history-panel" class="history-panel" hidden>
         <div class="history-panel-header">
-          <span class="studio-label" style="margin:0;">Version History</span>
-          <button id="btn-history-close" type="button" class="studio-btn-ghost">Close</button>
+          <span class="studio-label" style="margin:0;">${escapeHtml(messages["entry.versionHistory"])}</span>
+          <button id="btn-history-close" type="button" class="studio-btn-ghost">${escapeHtml(messages["common.close"])}</button>
         </div>
         <div id="history-list" class="history-panel-body">
           <p style="font-size:0.75rem;color:var(--studio-text-dim);margin:0;">Loading…</p>
@@ -162,17 +263,17 @@ export async function GET(context: APIContext): Promise<Response> {
           <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
         </svg>
       </div>
-      <h3>Delete Entry</h3>
-      <p>Permanently delete <strong id="delete-entry-name" style="color:var(--studio-text);"></strong>? A snapshot will be saved to history for recovery.</p>
+      <h3>${escapeHtml(messages["entry.deleteTitle"])}</h3>
+      <p>${escapeHtml(messages["entry.deleteCopy"])} <strong id="delete-entry-name" style="color:var(--studio-text);"></strong></p>
       <div style="display:flex;justify-content:center;gap:0.75rem;">
-        <button id="btn-delete-cancel" type="button" class="studio-btn-ghost">Cancel</button>
-        <button id="btn-delete-confirm" type="button" class="studio-btn-danger" style="background:var(--studio-red);color:white;">Delete</button>
+        <button id="btn-delete-cancel" type="button" class="studio-btn-ghost">${escapeHtml(messages["common.cancel"])}</button>
+        <button id="btn-delete-confirm" type="button" class="studio-btn-danger" style="background:var(--studio-red);color:white;">${escapeHtml(messages["entry.delete"])}</button>
       </div>
     </div>
   </div>
 
   <script type="application/json" id="caret-entry-config">${JSON.stringify(config).replace(/</g, "\\u003c")}</script>
-  <script src="/__caret/admin-entry.js" defer></script>`;
+  <script src="/__caret/admin-entry.js?v=studio-upstream-20260819" defer></script>`;
 
   return htmlResponse(
     renderStudioPage({

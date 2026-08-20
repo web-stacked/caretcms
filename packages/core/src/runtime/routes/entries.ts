@@ -4,13 +4,32 @@ import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { parseCollectionName, parseEntryId } from "../mutations/contracts.js";
 import { stripBodyOverlay } from "../utils.js";
+import { getRegisteredSchema } from "../schema-registry.js";
+import { validateJsonSchema, type JsonSchemaValidationIssue } from "../../schema-utils.js";
 import { json, resolveAdapter } from "./_helpers.js";
 
 type CmsEntryResponse = {
   id: string;
   data: Record<string, unknown>;
   revision: number;
+  validationIssues?: JsonSchemaValidationIssue[];
 };
+
+function withValidation(
+  collection: string,
+  entry: { id: string; data: Record<string, unknown> },
+  revision: number,
+): CmsEntryResponse {
+  const data = stripBodyOverlay(entry.data);
+  const schema = getRegisteredSchema(collection)?.schema;
+  const validationIssues = schema ? validateJsonSchema(data, schema) : [];
+  return {
+    id: entry.id,
+    data,
+    revision,
+    ...(validationIssues.length > 0 ? { validationIssues } : {}),
+  };
+}
 
 type PaginationResponse = {
   page: number;
@@ -86,7 +105,7 @@ export async function GET(context: APIContext): Promise<Response> {
     const entry = await adapter.getEntry(collection, singleId);
     const revision = entry ? await adapter.getRevision(collection, singleId) : 0;
     const entries: CmsEntryResponse[] = entry
-      ? [{ id: entry.id, data: stripBodyOverlay(entry.data), revision }]
+      ? [withValidation(collection, entry, revision)]
       : [];
 
     return json({
@@ -115,11 +134,11 @@ export async function GET(context: APIContext): Promise<Response> {
   const entries: CmsEntryResponse[] = await Promise.all(
     rawEntries
       .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-      .map(async (entry) => ({
-        id: entry.id,
-        data: stripBodyOverlay(entry.data),
-        revision: await adapter.getRevision(collection, entry.id),
-      })),
+      .map(async (entry) => withValidation(
+        collection,
+        entry,
+        await adapter.getRevision(collection, entry.id),
+      )),
   );
 
   return json({
