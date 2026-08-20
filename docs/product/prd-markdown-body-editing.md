@@ -464,8 +464,8 @@ Commit: `feat(core): publish markdown body edits back to source files`
 - [x] Docs page in caretcms-site (`apps/docs`): setup, supported blocks,
       islands, concurrency behavior, Astro 6 vs 7 notes.
 - [x] README + CLAUDE.md/AGENTS.md architecture notes.
-- [ ] v0.3.0 release; blog post; answer the Discord thread (no vaporware:
-      post only once shipped).
+- [x] v0.3.0 release and blog post.
+- [ ] Answer the Discord thread (no vaporware: post only once shipped).
 
 Commit: `chore(release): v0.3.0`
 

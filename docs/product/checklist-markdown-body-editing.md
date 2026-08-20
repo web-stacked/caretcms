@@ -360,18 +360,18 @@ Docs (site repo `../caretcms-site`, separate commits there):
 
 Core repo:
 
-- [ ] README feature list + demo GIF of the paragraph-click-to-git-diff
-      flow.
+- [x] README feature list.
+- [ ] Demo GIF of the paragraph-click-to-git-diff flow.
 - [x] CLAUDE.md + AGENTS.md: architecture section gains the markdown
       module, `__body`, canonical-base note.
 - [x] Mark PRD Status: Implemented (same convention as static-delivery
       PRD).
-- [ ] Version bump + changelog; `npm run check` + e2e; publish v0.3.0
+- [x] Version bump + changelog; `npm run check` + e2e; publish v0.3.0
       (prepublishOnly guards run).
 
 Launch:
 
-- [ ] Blog post: "Edit your Astro content collections on the page itself"
+- [x] Blog post: "Edit your Astro content collections on the page itself"
       (lead with the GIF; positioning vs Tina/Keystatic per PRD section 1).
 - [ ] Answer the saved Astro Discord thread (shipped feature only, link
       post + repo).
