@@ -1,8 +1,10 @@
 # @caretcms/core
 
-Inline editing and live content collections for Astro. Add one HTML attribute to make any element editable, and use Astro's live loaders to query CMS data with `getLiveEntry` / `getLiveCollection` (stable on Astro 6, experimental on Astro 5.10+).
+Inline editing, Markdown prose editing, and live content collections for Astro 6
+and 7. Add one HTML attribute to make any element editable, or edit supported
+blocks rendered from existing `.md` content collections.
 
-![CaretCMS inline editor demo](https://caretcms.com/preview/caretcms-editor-demo.gif)
+![CaretCMS inline editor demo](https://caretcms.com/preview/caretcms-demo.gif)
 
 ## Install
 
@@ -147,11 +149,11 @@ production stays locked). To set a permanent one, add `CARET_EDIT_PASSWORD=<your
 Log in at `/admin`, then click any tagged element on the page to edit it. The content Studio
 lives at `/admin/cms`.
 
-The inline editor only bootstraps on pages that contain `data-caret` bindings and only after
+The inline editor only bootstraps on pages that contain `data-caret` or `data-caret-md` bindings and only after
 `GET /api/cms/auth/session` confirms an authenticated editor session. Session cookies are issued
 as `HttpOnly`, `SameSite=Lax`, and automatically add `Secure` on HTTPS requests.
 
-When you're signed in and land on a live page that has **no** `data-caret` bindings yet, CaretCMS
+When you're signed in and land on a live page that has **no** editable bindings yet, CaretCMS
 shows a small "signed in · no editable fields on this page" hint pointing you at the next step —
 so a page that isn't annotated yet reads as "nothing to edit here" rather than "is this broken?".
 The hint is editor-only (anonymous visitors never see it) and never appears inside the Studio.
@@ -160,9 +162,7 @@ The hint is editor-only (anonymous visitors never see it) and never appears insi
 
 You can also wire collections into Astro's native content layer using `caretLoader`. This lets you query CMS data with `getLiveEntry` and `getLiveCollection` from `astro:content` — the same API you use for any Astro live collection.
 
-> **Astro 6:** stable, no flag required.
-> **Astro 5.10+:** available behind `experimental.liveContentCollections: true` in `astro.config.*`.
-> **Astro 5.0–5.9:** the live-loader API (`defineLiveCollection`, `getLiveEntry`, `getLiveCollection`) doesn't exist; use `data-caret` inline editing, `bindEntry()`, and `loadEntry()` instead.
+> **Astro 6 and 7:** stable, no experimental flag required.
 
 ### 1. Define collections
 
@@ -246,7 +246,7 @@ existing entries; deriving from Zod just adds proper labels, types, and widget h
 ## What you get
 
 - **Inline editing** on any `data-caret` element (text and images)
-- **Live content collections** via `caretLoader` for `getLiveEntry` / `getLiveCollection` (Astro 6 stable, Astro 5.10+ behind `experimental.liveContentCollections`)
+- **Live content collections** via `caretLoader` for `getLiveEntry` / `getLiveCollection` on Astro 6 and 7
 - **Content Studio** at `/admin/cms` for structured CRUD
 - **Section composer** for reordering and spacing page sections
 - **Response rewriting** middleware (server delivery) or **build-time HTML bake** (static delivery)
@@ -454,7 +454,7 @@ identity adapter described above.
 ## Requirements
 
 - Astro 6 or 7
-- Node 20.19.1+ or 22.12.0+
+- Node 22.12.0+
 - **Static delivery:** default Astro static output (no adapter)
 - **Server delivery:** `output: 'server'` plus an SSR adapter
 

@@ -476,7 +476,7 @@ function assertDeliveryMatchesAstroOutput(
 const KNOWN_OPTION_KEYS = new Set([
   "mode", "cloud", "storage", "uploads", "identity", "mountPath", "apiBasePath",
   "enableAdmin", "enableInlineEditor", "editorHome", "schemas", "collections", "locale", "dictionary",
-  "allowedClasses", "delivery", "theme", "brand",
+  "allowedClasses", "bodyEditing", "delivery", "theme", "brand",
 ]);
 
 /** Unknown option keys, each with its closest known key when one is plausible. */

@@ -2,7 +2,7 @@
 
 **Public**, MIT-licensed. The CaretCMS engine: an Astro integration that adds inline
 editing + a content Studio to any Astro site, with pluggable storage/upload adapters.
-Distributed via npm under the `@caretcms/` scope. v0.1.0 (bootstrap release,
+Distributed via npm under the `@caretcms/` scope. Current release: v0.3.0
 embedded mode; cloud mode is alpha).
 
 ## Packages
@@ -21,10 +21,9 @@ embedded mode; cloud mode is alpha).
   `content-site` (editorial showcase), `demo` (Cloudflare KV/R2 deployment).
 
 ## Stack
-Astro 6.3.8 (peer `^5.0.0 || ^6.0.0`) · TypeScript 6.0.3 (strict, NodeNext, ES2022) ·
-Tailwind 4.3.0 · Vitest 4.1.7 · Playwright `^1.60` · fast-check `^3.23`
-(property-based) · npm workspaces. Node `^20.19.1 || >=22.12.0`. Vite pinned to 7
-via root `overrides` (Astro/Cloudflare require it; tailwind/vitest would pull 8).
+Astro 7.2.4 (peer `^6.0.0 || ^7.0.0`) · TypeScript 6.0.3 (strict, NodeNext, ES2022) ·
+Tailwind 4.3.2 · Vitest 4.1.10 · Playwright `^1.61` · fast-check `^4`
+(property-based) · npm workspaces. Node `>=22.12.0`. Vite 8 via root `overrides`.
 Core has no runtime deps — schemas arrive as JSON Schema, so it's Zod-agnostic.
 
 ## Commands
@@ -66,13 +65,13 @@ Core has no runtime deps — schemas arrive as JSON Schema, so it's Zod-agnostic
   interfaces. Core ships filesystem + in-memory **reference** adapters only; it never
   imports platform code. Cloudflare KV/R2 live in `packages/cloudflare` (uses
   `env.CMS_KV` / `env.CMS_R2`).
-- **Live loaders** (`src/loader.ts`): `caretLoader()` for Astro 6 stable +
-  5.10+ experimental live collections.
-- **Auth** (`src/runtime/auth/`): password + optional demo-session overlay,
+- **Live loaders** (`src/loader.ts`): `caretLoader()` for Astro 6 and 7 stable
+  live collections, including Astro 7 cache tags.
+- **Auth** (`src/runtime/auth/`): password, authoritative identity provider, and optional demo-session overlay,
   rate-limiter, HttpOnly/SameSite=Lax/Secure cookies.
 - **Browser runtime** (`src/browser-runtime.ts`): two-phase — bootstrap checks
-  `/api/cms/auth/session`, then lazy-loads the editor only if authed and `data-caret`
-  present.
+  `/api/cms/auth/session`, then lazy-loads the editor only if authed and an editable
+  `data-caret` or `data-caret-md` binding is present.
 
 ## Public API (`@caretcms/core`)
 Default export `caret()`. Subpaths: `./loader`, `./runtime` (`loadEntry`,

@@ -7,7 +7,7 @@ Use this example when you want to understand the smallest useful CaretCMS setup:
 - one editable landing page
 - one collection scope
 - one obvious inline editing path
-- Astro live content collections via `src/caret.config.ts` (Astro 6 stable, Astro 5.10+ experimental)
+- Astro live content collections via `src/caret.config.ts` (Astro 6 and 7)
 - the admin, theme, schema, and mutation routes wired up end to end
 
 This example exists as both a starter baseline for users and a lightweight integration fixture for the package.

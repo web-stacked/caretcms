@@ -2,7 +2,7 @@
 
 **Public**, MIT-licensed. The CaretCMS engine: an Astro integration that adds inline
 editing + a content Studio to any Astro site, with pluggable storage/upload adapters.
-Distributed via npm under the `@caretcms/` scope. v0.1.0 (bootstrap release,
+Distributed via npm under the `@caretcms/` scope. Current release: v0.3.0
 embedded mode; cloud mode is alpha).
 
 ## Packages
@@ -66,13 +66,13 @@ Schema, so it's Zod-agnostic.
   interfaces. Core ships filesystem + in-memory **reference** adapters only; it never
   imports platform code. Cloudflare KV/R2 live in `packages/cloudflare` (uses
   `env.CMS_KV` / `env.CMS_R2`).
-- **Live loaders** (`src/loader.ts`): `caretLoader()` for Astro 6 stable +
-  5.10+ experimental live collections.
-- **Auth** (`src/runtime/auth/`): password + optional demo-session overlay,
+- **Live loaders** (`src/loader.ts`): `caretLoader()` for Astro 6 and 7 stable
+  live collections, including Astro 7 cache tags.
+- **Auth** (`src/runtime/auth/`): password, authoritative identity provider, and optional demo-session overlay,
   rate-limiter, HttpOnly/SameSite=Lax/Secure cookies.
 - **Browser runtime** (`src/browser-runtime.ts`): two-phase — bootstrap checks
-  `/api/cms/auth/session`, then lazy-loads the editor only if authed and `data-caret`
-  present.
+  `/api/cms/auth/session`, then lazy-loads the editor only if authed and an editable
+  `data-caret` or `data-caret-md` binding is present.
 
 ## Public API (`@caretcms/core`)
 Default export `caret()`. Subpaths: `./loader`, `./runtime` (`loadEntry`,

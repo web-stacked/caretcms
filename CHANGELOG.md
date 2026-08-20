@@ -8,6 +8,11 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+### Fixed
+
+- `bodyEditing` is recognized by the unknown-option guard, so disabling Markdown
+  prose editing no longer emits a false warning that the option was ignored.
+
 ## [0.3.0] - 2026-08-20
 
 ### Added

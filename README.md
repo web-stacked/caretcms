@@ -11,7 +11,7 @@ CaretCMS is a reusable, open-core CMS for Astro:
 
 The CMS ships as `@caretcms/core`, an Astro integration you install into any Astro app.
 
-![CaretCMS inline editor demo](https://caretcms.com/preview/caretcms-editor-demo.gif)
+![CaretCMS inline editor demo](https://caretcms.com/preview/caretcms-demo.gif)
 
 ## Packages
 
@@ -98,7 +98,9 @@ export default defineConfig({
 - For production authoring, set `CARET_EDIT_PASSWORD` and `CARET_SESSION_SECRET` (see [deployment](docs/deployment.md))
 - Optionally create `src/caret.config.ts` with `caretLoader` for `getLiveEntry` / `getLiveCollection`
 
-The inline editor bootstraps when `data-caret` is present **and** `/api/cms/auth/session` confirms an authenticated session. Cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` over HTTPS.
+The inline editor bootstraps when a `data-caret` or `data-caret-md` binding is
+present **and** `/api/cms/auth/session` confirms an authenticated session.
+Cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` over HTTPS.
 
 Full API reference: [`packages/core/README.md`](packages/core/README.md). Static delivery guide: [docs/static-delivery.md](docs/static-delivery.md). Docs site: **https://caretcms.com/docs**.
 

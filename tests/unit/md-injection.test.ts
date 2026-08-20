@@ -18,13 +18,14 @@ function runSetup(opts: {
   const integration = caret(opts.options ?? {});
   const patches: Array<Record<string, unknown>> = [];
   const info: string[] = [];
+  const warnings: string[] = [];
   const noop = () => {};
   const markdown = opts.processor ? { processor: opts.processor } : {};
 
   integration.hooks["astro:config:setup"]!({
     command: "build",
     config: { output: "server", root: pathToFileURL(`${opts.rootDir}/`), markdown },
-    logger: { info: (m: string) => info.push(m), warn: noop },
+    logger: { info: (m: string) => info.push(m), warn: (m: string) => warnings.push(m) },
     addMiddleware: noop,
     injectRoute: noop,
     injectScript: noop,
@@ -38,6 +39,7 @@ function runSetup(opts: {
   );
   return {
     info,
+    warnings,
     mdastPlugins: opts.processor?.options?.mdastPlugins ?? null,
     remarkPlugins:
       (remarkPatch?.markdown as { remarkPlugins?: unknown[] } | undefined)?.remarkPlugins ?? null,
@@ -92,6 +94,7 @@ describe("markdown body-editing injection", () => {
     });
     expect(r.mdastPlugins).toHaveLength(0);
     expect(r.remarkPlugins).toBeNull();
+    expect(r.warnings).toEqual([]);
   });
 
   it("does nothing for non-markdown storage", () => {
