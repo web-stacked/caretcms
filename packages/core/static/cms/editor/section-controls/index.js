@@ -23,6 +23,22 @@ import { createSpacingDragController } from './spacing-drag.js';
 import { bindDragSourceHandlers, bindDropTargetHandlers } from './reorder.js';
 import { bindSectionActivation } from './activation.js';
 
+/** @typedef {import('./model.js').Section} Section */
+/** @typedef {import('./page-context.js').PageContext} PageContext */
+/** @typedef {{ collection: string | null, id: string | null, field: string }} ParsedCaretBinding */
+/** @typedef {ReturnType<typeof createSpacingDragController>} SpacingDragController */
+/** @typedef {'saving' | 'idle' | 'error'} ToolbarStatusState */
+/** @typedef {'success' | 'error'} ToastType */
+
+/**
+ * @param {{
+ *   parseCaretAttr: (value: string) => ParsedCaretBinding | null,
+ *   setStatus: (type: ToolbarStatusState, message: string) => void,
+ *   showToast: (message: string, type?: ToastType) => void,
+ *   onUnauthorized: () => void,
+ *   onCanvasStructureChanged?: () => void,
+ * }} options
+ */
 export function mountSectionControls({
   parseCaretAttr,
   setStatus,
@@ -30,33 +46,46 @@ export function mountSectionControls({
   onUnauthorized,
   onCanvasStructureChanged,
 }) {
+  /** @type {HTMLElement[]} */
   let sectionNodes = Array.from(
     document.querySelectorAll('[data-caret-section][data-caret-section-id]'),
-  );
+  ).filter((node) => node instanceof HTMLElement);
   if (!sectionNodes.length) return;
 
-  const pageContext = getPageContext(parseCaretAttr, sectionNodes);
-  if (!pageContext) return;
+  const detectedPageContext = getPageContext(parseCaretAttr, sectionNodes);
+  if (!detectedPageContext) return;
+  /** @type {PageContext} */
+  const pageContext = detectedPageContext;
 
+  /** @type {Section[]} */
   let sections = sectionsFromDom(sectionNodes);
+  /** @type {Record<string, unknown>} */
   let entryData = {};
   let revision = 0;
   let busy = false;
+  /** @type {string | null} */
   let dragSourceId = null;
   let refreshRequired = false;
 
+  /** @type {Map<string, HTMLElement>} */
   const sectionNodeById = new Map();
+  /** @type {Map<string, HTMLButtonElement>} */
   const toggleButtonsById = new Map();
+  /** @type {Map<string, HTMLButtonElement>} */
   const spacingButtonsById = new Map();
+  /** @type {Map<string, HTMLButtonElement>} */
   const gapHandlesById = new Map();
+  /** @type {Map<string, HTMLElement>} */
   const sectionTemplateByKey = new Map();
+  /** @type {SpacingDragController | null} */
   let spacingDragController = null;
 
   sectionNodes.forEach((sectionNode) => {
     if (!(sectionNode instanceof HTMLElement)) return;
     const sectionKey = sectionNode.getAttribute('data-caret-section') || 'home.hero';
     if (sectionTemplateByKey.has(sectionKey)) return;
-    sectionTemplateByKey.set(sectionKey, sectionNode.cloneNode(true));
+    const cloned = sectionNode.cloneNode(true);
+    if (cloned instanceof HTMLElement) sectionTemplateByKey.set(sectionKey, cloned);
   });
 
   document
@@ -70,7 +99,8 @@ export function mountSectionControls({
         '[data-caret-section][data-caret-section-id]',
       );
       if (!(contentNode instanceof HTMLElement)) return;
-      sectionTemplateByKey.set(sectionKey, contentNode.cloneNode(true));
+      const cloned = contentNode.cloneNode(true);
+      if (cloned instanceof HTMLElement) sectionTemplateByKey.set(sectionKey, cloned);
     });
 
   const addPicker = createAddPicker({
@@ -97,6 +127,7 @@ export function mountSectionControls({
     },
   });
 
+  /** @param {Section[]} sectionList @returns {Section[]} */
   function serializeSectionsForLayout(sectionList) {
     return sectionList.map((section) => ({
       id: section.id,
@@ -130,16 +161,17 @@ export function mountSectionControls({
     document.body.classList.remove('cms-spacing-dragging');
   }
 
+  /** @param {boolean} disabled */
   function setControlsDisabled(disabled) {
     const shouldDisable = disabled || refreshRequired;
     document.querySelectorAll('.cms-section-btn').forEach((button) => {
-      button.disabled = shouldDisable;
+      if (button instanceof HTMLButtonElement) button.disabled = shouldDisable;
     });
     document.querySelectorAll('.cms-section-insert-handle').forEach((button) => {
-      button.disabled = shouldDisable;
+      if (button instanceof HTMLButtonElement) button.disabled = shouldDisable;
     });
     document.querySelectorAll('.cms-section-gap-handle').forEach((button) => {
-      button.disabled = shouldDisable;
+      if (button instanceof HTMLButtonElement) button.disabled = shouldDisable;
     });
     addPicker.setDisabled(shouldDisable);
     spacingPicker.setDisabled(shouldDisable);
@@ -162,6 +194,7 @@ export function mountSectionControls({
       busy || refreshRequired || Boolean(dragSourceId) || Boolean(spacingDragController?.isDragging()),
   });
 
+  /** @param {string} sectionId @param {string | undefined} spacingY */
   function setNodeSpacingPreview(sectionId, spacingY) {
     const node = sectionNodeById.get(sectionId);
     if (!(node instanceof HTMLElement)) return;
@@ -172,6 +205,7 @@ export function mountSectionControls({
     }
   }
 
+  /** @param {string} sectionId */
   function updateSpacingUi(sectionId) {
     const section = sections.find((item) => item.id === sectionId);
     if (!section) return;
@@ -191,6 +225,7 @@ export function mountSectionControls({
     }
   }
 
+  /** @param {string} sectionId */
   function updateToggleUi(sectionId) {
     const section = sections.find((item) => item.id === sectionId);
     if (!section) return;
@@ -200,6 +235,7 @@ export function mountSectionControls({
     }
   }
 
+  /** @param {string} sectionId @param {boolean} enabled */
   function setSectionEnabledPreview(sectionId, enabled) {
     const node = sectionNodeById.get(sectionId);
     if (!(node instanceof HTMLElement)) return;
@@ -207,6 +243,7 @@ export function mountSectionControls({
     node.setAttribute('data-caret-section-enabled', enabled === false ? 'false' : 'true');
   }
 
+  /** @param {string} sectionId @param {string} sectionKey @returns {Section} */
   function getSectionSnapshot(sectionId, sectionKey) {
     return sections.find((item) => item.id === sectionId) || {
       id: sectionId,
@@ -215,6 +252,7 @@ export function mountSectionControls({
     };
   }
 
+  /** @param {string} sectionId @param {number} order @param {string} sectionKey */
   function updateSectionChip(sectionId, order, sectionKey) {
     const node = sectionNodeById.get(sectionId);
     if (!(node instanceof HTMLElement)) return;
@@ -226,6 +264,7 @@ export function mountSectionControls({
     }
   }
 
+  /** @param {HTMLElement} sectionNode @param {number} sectionIndex */
   function mountSectionNode(sectionNode, sectionIndex) {
     if (!(sectionNode instanceof HTMLElement)) return;
 
@@ -362,6 +401,7 @@ export function mountSectionControls({
     updateSectionChip(sectionId, sectionIndex + 1, sectionKey);
   }
 
+  /** @param {Section[]} nextSections @returns {boolean} */
   function applySectionsToCanvas(nextSections) {
     if (!Array.isArray(nextSections) || !nextSections.length) return false;
 
@@ -376,6 +416,7 @@ export function mountSectionControls({
       existingById.set(id, node);
     });
 
+    /** @type {HTMLElement[]} */
     const nextNodes = [];
     let structureChanged = false;
 
@@ -441,6 +482,9 @@ export function mountSectionControls({
     return true;
   }
 
+  /**
+   * @param {{ statusMessage: string, toastMessage: string, statusType?: ToolbarStatusState, toastType?: ToastType }} options
+   */
   function markRefreshRequired({
     statusMessage,
     toastMessage,
@@ -480,6 +524,7 @@ export function mountSectionControls({
     showToast('Layout conflict resolved with latest content.', 'success');
   }
 
+  /** @param {string} sectionId @param {unknown} spacingValue @returns {boolean} */
   function applySectionSpacing(sectionId, spacingValue) {
     const index = sections.findIndex((section) => section.id === sectionId);
     if (index === -1) return false;
@@ -493,6 +538,11 @@ export function mountSectionControls({
     return true;
   }
 
+  /**
+   * @param {string} action
+   * @param {string} sectionId
+   * @param {{ sectionKey?: unknown, spacingY?: unknown }} [payload]
+   */
   function mutateSections(action, sectionId, payload) {
     const result = mutateSectionsModel({
       sections,
@@ -523,6 +573,7 @@ export function mountSectionControls({
     },
   });
 
+  /** @param {string} successMessage */
   async function persistWithReload(successMessage) {
     if (!canEditLayout()) return;
     if (busy) return;
@@ -535,6 +586,7 @@ export function mountSectionControls({
 
     try {
       const result = await savePageLayout({
+        collection: pageContext.collection,
         id: pageContext.id,
         sections,
         expectedRevision: revision,

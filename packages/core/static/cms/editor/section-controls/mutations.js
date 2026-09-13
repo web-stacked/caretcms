@@ -5,6 +5,19 @@ import {
   normalizeSpacingY,
 } from './utils.js';
 
+/** @typedef {import('./model.js').Section} Section */
+/** @typedef {{ sectionKey?: unknown, spacingY?: unknown }} MutationPayload */
+
+/**
+ * @param {{
+ *   sections: Section[],
+ *   action: string,
+ *   sectionId: string,
+ *   payload?: MutationPayload,
+ *   applySpacing: (sectionId: string, spacingY: string | undefined) => boolean,
+ * }} options
+ * @returns {{ ok: true, message: string, sections: Section[] } | { ok: false, message: string }}
+ */
 export function mutateSections({
   sections,
   action,
@@ -33,6 +46,7 @@ export function mutateSections({
 
   if (action === 'duplicate') {
     const source = sections[index];
+    if (!source) return { ok: false, message: 'Section not found' };
     const duplicate = {
       ...source,
       id: `${source.id}-copy-${Math.random().toString(36).slice(2, 5)}`,
@@ -55,6 +69,7 @@ export function mutateSections({
 
   if (action === 'toggle') {
     const section = sections[index];
+    if (!section) return { ok: false, message: 'Section not found' };
     const enabledCount = sections.filter((item) => item.enabled).length;
     if (section.enabled && enabledCount <= 1) {
       return { ok: false, message: 'At least one section must remain visible' };

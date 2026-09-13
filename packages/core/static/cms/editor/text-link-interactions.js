@@ -1,12 +1,26 @@
 import { escapeHtml } from './linkify.js';
 
+/** @typedef {HTMLElement & { _caretSkipSave?: boolean }} EditableElement */
+/** @typedef {{ dirtyEls: Set<Element>, linkPopupEl: HTMLElement | null }} TextEditorState */
+/** @typedef {(message: string, kind: 'success' | 'error') => unknown} ShowToast */
+/** @typedef {(url: string | null) => void} LinkApplyCallback */
+
+/**
+ * @param {object} options
+ * @param {TextEditorState} options.state
+ * @param {(text: string) => string} options.clientLinkify
+ * @param {ShowToast} options.showToast
+ * @param {WeakMap<HTMLElement, string>} options.snapshots
+ */
 export function createTextLinkInteractions({
   state,
   clientLinkify,
   showToast,
   snapshots,
 }) {
+  /** @type {HTMLDivElement | null} */
   let activePopover = null;
+  /** @type {HTMLDivElement | null} */
   let activeLinkHint = null;
 
   function removeLinkHint() {
@@ -24,6 +38,11 @@ export function createTextLinkInteractions({
     state.linkPopupEl = null;
   }
 
+  /**
+   * @param {DOMRect | DOMRectReadOnly} rect
+   * @param {string} initialUrl
+   * @param {LinkApplyCallback} onApply
+   */
   function showLinkPopup(rect, initialUrl, onApply) {
     dismissLinkPopup();
 
@@ -59,9 +78,15 @@ export function createTextLinkInteractions({
     popover.style.left = `${left}px`;
     popover.style.top = `${top}px`;
 
-    const input = popover.querySelector('.cms-link-popover-input');
-    const applyBtn = popover.querySelector('.cms-link-popover-apply');
-    const cancelBtn = popover.querySelector('.cms-link-popover-cancel');
+    const input = /** @type {HTMLInputElement} */ (
+      popover.querySelector('.cms-link-popover-input')
+    );
+    const applyBtn = /** @type {HTMLButtonElement} */ (
+      popover.querySelector('.cms-link-popover-apply')
+    );
+    const cancelBtn = /** @type {HTMLButtonElement} */ (
+      popover.querySelector('.cms-link-popover-cancel')
+    );
 
     requestAnimationFrame(() => input.focus());
     if (initialUrl) input.select();
@@ -80,7 +105,7 @@ export function createTextLinkInteractions({
     applyBtn.addEventListener('click', apply);
     cancelBtn.addEventListener('click', cancel);
 
-    input.addEventListener('keydown', (e) => {
+    input.addEventListener('keydown', (/** @type {KeyboardEvent} */ e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
         apply();
@@ -92,8 +117,9 @@ export function createTextLinkInteractions({
     });
 
     setTimeout(() => {
+      /** @param {MouseEvent} e */
       function onDocClick(e) {
-        if (!popover.contains(e.target)) {
+        if (!(e.target instanceof Node) || !popover.contains(e.target)) {
           document.removeEventListener('click', onDocClick, true);
           cancel();
         }
@@ -102,6 +128,7 @@ export function createTextLinkInteractions({
     }, 0);
   }
 
+  /** @param {HTMLElement} el */
   function showLinkHint(el) {
     removeLinkHint();
     const hint = document.createElement('div');
@@ -115,8 +142,23 @@ export function createTextLinkInteractions({
     hint.style.left = `${rect.right - hint.offsetWidth}px`;
   }
 
+  /**
+   * @param {Range} range
+   * @returns {boolean}
+   */
+  function restoreSelection(range) {
+    const selection = window.getSelection();
+    if (!selection) return false;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  }
+
+  /** @param {KeyboardEvent} e */
   function onKeydown(e) {
-    const focused = document.activeElement;
+    const focused = document.activeElement instanceof HTMLElement
+      ? /** @type {EditableElement} */ (document.activeElement)
+      : null;
 
     // Ctrl+S / Cmd+S — save focused element by triggering blur save
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -148,15 +190,14 @@ export function createTextLinkInteractions({
           : anchorNode instanceof Element ? anchorNode.closest('a') : null;
         const initialUrl = existingLink?.getAttribute('href') || '';
 
-        state.linkPopupEl = focused;
-
         showLinkPopup(selRect, initialUrl, (url) => {
           focused.focus();
 
           if (url) {
-            const newSel = window.getSelection();
-            newSel.removeAllRanges();
-            newSel.addRange(range);
+            if (!restoreSelection(range)) {
+              state.linkPopupEl = null;
+              return;
+            }
 
             if (existingLink) {
               existingLink.setAttribute('href', url);
@@ -179,12 +220,13 @@ export function createTextLinkInteractions({
 
             state.dirtyEls.add(focused);
           } else if (url === '' && existingLink) {
-            document.execCommand('unlink', false, null);
+            document.execCommand('unlink');
             state.dirtyEls.add(focused);
           }
 
           state.linkPopupEl = null;
         });
+        state.linkPopupEl = focused;
         return;
       }
 
@@ -198,21 +240,21 @@ export function createTextLinkInteractions({
 
         const range = sel.getRangeAt(0).cloneRange();
         const selRect = range.getBoundingClientRect();
-        state.linkPopupEl = focused;
-
         showLinkPopup(selRect, '', (url) => {
           focused.focus();
 
           if (url) {
-            const newSel = window.getSelection();
-            newSel.removeAllRanges();
-            newSel.addRange(range);
+            if (!restoreSelection(range)) {
+              state.linkPopupEl = null;
+              return;
+            }
             document.execCommand('insertText', false, `[${selectedText}](${url})`);
             state.dirtyEls.add(focused);
           }
 
           state.linkPopupEl = null;
         });
+        state.linkPopupEl = focused;
       }
       return;
     }

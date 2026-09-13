@@ -25,6 +25,23 @@ test.beforeEach(async ({ page }) => {
     },
   });
   expect(seed.ok()).toBe(true);
+  const aboutSeed = await page.request.post("/api/cms/mutate", {
+    headers: { "x-caret-request": "1" },
+    data: {
+      type: "put_entry",
+      collection: "pages",
+      id: "about",
+      data: {
+        hero: {
+          headline: "About CaretCMS",
+          subtext: "A second route for cross-page Studio preview navigation.",
+          image: "/initial.png",
+        },
+        our_teaching_philosophy: "About philosophy",
+      },
+    },
+  });
+  expect(aboutSeed.ok()).toBe(true);
 });
 
 test("sidebar Studio links fields in both directions and stays on the entry after save", async ({ page }) => {
@@ -86,4 +103,17 @@ test("standalone Studio and preview tab link fields through BroadcastChannel", a
   await headline.dispatchEvent("pointerdown", { bubbles: true });
   await expect(headline).toHaveClass(/cms-linked-selection/);
   await expect(studioPage.locator('[data-field-path="hero.headline"]')).toHaveClass(/caret-field-selected/);
+});
+
+test("Studio selection navigates to another preview route before highlighting the field", async ({ page, context }) => {
+  await page.goto("/");
+
+  const studioPage = await context.newPage();
+  await studioPage.goto("/admin/cms/pages/about");
+  const headlineInput = studioPage.getByRole("textbox", { name: "Headline", exact: true });
+  await expect(headlineInput).toBeVisible();
+
+  await headlineInput.focus();
+  await page.waitForURL("/about");
+  await expect(page.locator('[data-caret="hero.headline"]')).toHaveClass(/cms-linked-selection/);
 });

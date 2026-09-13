@@ -1,3 +1,6 @@
+/**
+ * @param {{ sectionNode: HTMLElement, sectionId: string, setActiveSection: (sectionId: string) => void }} options
+ */
 export function bindSectionActivation({ sectionNode, sectionId, setActiveSection }) {
   sectionNode.addEventListener('mouseenter', () => setActiveSection(sectionId));
   sectionNode.addEventListener('focusin', () => setActiveSection(sectionId));

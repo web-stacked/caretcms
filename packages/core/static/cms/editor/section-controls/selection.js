@@ -1,10 +1,16 @@
+/**
+ * @param {{ sectionNodeById: Map<string, HTMLElement>, isSelectionLocked: () => boolean }} options
+ */
 export function createSectionSelectionController({
   sectionNodeById,
   isSelectionLocked,
 }) {
+  /** @type {string | null} */
   let activeSectionId = null;
+  /** @type {IntersectionObserver | null} */
   let observer = null;
 
+  /** @param {string} sectionId */
   function setActiveSection(sectionId) {
     if (!sectionId || activeSectionId === sectionId) return;
     activeSectionId = sectionId;

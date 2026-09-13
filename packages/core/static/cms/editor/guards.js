@@ -1,3 +1,4 @@
+/** @param {{ dirtyEls: Set<Element> }} state */
 export function mountEditorGuards(state) {
   document.body.classList.add('cms-edit-mode');
 
@@ -14,6 +15,25 @@ export function mountEditorGuards(state) {
     (e) => {
       const target = e.target;
       if (!(target instanceof Element)) return;
+
+      // Preserve the browser's native open-in-new-tab gesture for editable
+      // links. A normal click still enters editing below.
+      if (e.metaKey || e.ctrlKey) {
+        const modifierLink = target.closest('a');
+        if (modifierLink?.matches('[data-caret]') || modifierLink?.querySelector('[data-caret]')) {
+          e.preventDefault();
+          e.stopPropagation();
+          try {
+            const destination = new URL(modifierLink.href, window.location.href);
+            if (['http:', 'https:', 'mailto:', 'tel:'].includes(destination.protocol)) {
+              window.open(destination.href, '_blank', 'noopener,noreferrer');
+            }
+          } catch {
+            // Malformed destinations never execute from edit mode.
+          }
+          return;
+        }
+      }
 
       // Allow clicks inside the CMS toolbar
       if (target.closest('.cms-toolbar')) return;

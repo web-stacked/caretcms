@@ -10,9 +10,10 @@
 // import it). They are `export`ed so tests/unit/sanitizer-parity.test.ts can
 // assert they never drift from the source of truth — CI fails on divergence.
 export const ALLOWED_TAGS = new Set([
-  'b', 'strong', 'i', 'em', 'u', 's', 'a', 'br', 'sub', 'sup', 'span',
+  'b', 'strong', 'i', 'em', 'u', 's', 'a', 'br', 'sub', 'sup', 'span', 'code',
 ]);
 
+/** @type {Readonly<Record<string, ReadonlySet<string>>>} */
 export const ALLOWED_ATTRS = {
   a: new Set(['href', 'target', 'rel']),
 };
@@ -50,9 +51,12 @@ export function classAllowed(cls, patterns) {
 export function sanitizeHtml(html, options) {
   if (!html) return '';
 
+  const injected = typeof window !== 'undefined'
+    ? /** @type {Window & { __CARET__?: { allowedClasses?: Record<string, readonly string[]> } }} */ (window).__CARET__
+    : undefined;
   const allowedClasses =
     options?.allowedClasses ??
-    (typeof window !== 'undefined' ? window.__CARET__?.allowedClasses : undefined) ??
+    injected?.allowedClasses ??
     null;
 
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');

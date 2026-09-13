@@ -18,7 +18,7 @@ import { createToast } from './editor/toast.js';
 import { mountEditorGuards } from './editor/guards.js';
 import { mountToolbar, normalizePreviewForDelivery } from './editor/toolbar.js';
 import { mountStudioPanel } from './editor/panel.js';
-import { mountStudioSync } from './editor/sync.js?v=studio-upstream-20260819';
+import { mountStudioSync } from './editor/sync.js';
 import { mountTextEditors } from './editor/text-edit.js';
 import { mountImageEditors } from './editor/image-edit.js';
 import { mountSectionControls } from './editor/section-controls.js';
@@ -36,6 +36,7 @@ function redirectToEditorLogin() {
 function boot() {
   if (normalizePreviewForDelivery()) return;
 
+  /** @type {{ dirtyEls: Set<Element>, linkPopupEl: HTMLElement | null }} */
   const state = {
     // Every element with unsaved edits. A Set (not a single element) so a save
     // completing on field A can't clear the dirty flag for field B the user has

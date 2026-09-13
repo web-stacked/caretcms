@@ -1,26 +1,55 @@
-import { buildCmsUrl } from './config.js';
+import { buildCmsUrl, isPolicyDraftMode } from './config.js';
 import { mutateHeaders, readHeaders } from './security.js';
 
+/** @typedef {{ revision: number, data: Record<string, unknown> }} EntrySnapshot */
+/**
+ * @typedef {{ ok: true, revision?: number }
+ *   | { ok: false, reason: 'conflict', currentRevision?: number, latestValue?: string }
+ *   | { ok: false, reason: 'unauthorized' | 'error' }} SaveResult
+ */
+/** @typedef {'saving' | 'idle' | 'error'} SaveStatus */
+/** @typedef {{ type: 'save_field', collection: string, id: string, field: string, value: string, expectedRevision?: number }} SaveFieldPayload */
+
+/** @param {string} collection @param {string} id @returns {string} */
 function entryKey(collection, id) {
   return `${collection}::${id}`;
 }
 
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
 function isRecord(value) {
-  return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** @param {unknown} value @returns {value is number} */
+function isRevision(value) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** @param {unknown} data @param {string} path @returns {string | undefined} */
 function getNestedStringValue(data, path) {
   if (!isRecord(data)) return undefined;
 
+  /** @type {unknown} */
   let current = data;
   for (const segment of path.split('.')) {
-    if (!isRecord(current) && !Array.isArray(current)) return undefined;
-    current = current[segment];
+    if (Array.isArray(current)) {
+      if (!/^\d+$/.test(segment)) return undefined;
+      current = current[Number(segment)];
+    } else if (isRecord(current)) {
+      if (!Object.hasOwn(current, segment)) return undefined;
+      current = current[segment];
+    } else return undefined;
   }
 
   return typeof current === 'string' ? current : undefined;
 }
 
+/**
+ * @param {string} collection
+ * @param {string} id
+ * @param {() => void} onUnauthorized
+ * @returns {Promise<EntrySnapshot | null>}
+ */
 async function fetchEntrySnapshot(collection, id, onUnauthorized) {
   const res = await fetch(buildCmsUrl('/entries', { collection, id }), {
     headers: readHeaders(),
@@ -32,27 +61,42 @@ async function fetchEntrySnapshot(collection, id, onUnauthorized) {
   if (!res.ok) throw new Error('Failed to load entry');
 
   const json = await res.json();
-  const entry = Array.isArray(json.entries) ? json.entries[0] : null;
-  if (!entry || !isRecord(entry.data)) {
+  if (!isRecord(json) || !Array.isArray(json.entries)) {
+    throw new Error('Invalid entry response');
+  }
+  const entry = json.entries[0];
+  if (entry === undefined) {
     return { revision: 0, data: {} };
+  }
+  if (!isRecord(entry) || !isRecord(entry.data) || !isRevision(entry.revision)) {
+    throw new Error('Invalid entry response');
   }
 
   return {
-    revision: Number.isInteger(entry.revision) ? entry.revision : 0,
+    revision: entry.revision,
     data: entry.data,
   };
 }
 
+/**
+ * @param {object} options
+ * @param {(status: SaveStatus, message: string) => void} options.setStatus
+ * @param {() => void} options.onUnauthorized
+ * @returns {(collection: string, id: string, field: string, value: string) => Promise<SaveResult>}
+ */
 export function createSaveField({ setStatus, onUnauthorized }) {
+  /** @type {Promise<unknown>} */
   let saveQueue = Promise.resolve();
+  /** @type {Map<string, number>} */
   const revisionByEntry = new Map();
+  /** @type {Map<string, Promise<number | null>>} */
   const revisionLoadByEntry = new Map();
 
+  /** @param {string} collection @param {string} id @returns {Promise<number | null>} */
   async function ensureRevision(collection, id) {
     const key = entryKey(collection, id);
-    if (revisionByEntry.has(key)) {
-      return revisionByEntry.get(key);
-    }
+    const cached = revisionByEntry.get(key);
+    if (cached !== undefined) return cached;
 
     const inFlight = revisionLoadByEntry.get(key);
     if (inFlight) return inFlight;
@@ -70,6 +114,10 @@ export function createSaveField({ setStatus, onUnauthorized }) {
     return task;
   }
 
+  /**
+   * @param {string} collection @param {string} id @param {string} field
+   * @returns {Promise<{ currentRevision: number | undefined, latestValue: string | undefined }>}
+   */
   async function readLatestFieldValue(collection, id, field) {
     const snapshot = await fetchEntrySnapshot(collection, id, onUnauthorized);
     if (!snapshot) return { currentRevision: undefined, latestValue: undefined };
@@ -81,6 +129,10 @@ export function createSaveField({ setStatus, onUnauthorized }) {
     };
   }
 
+  /**
+   * @param {string} collection @param {string} id @param {string} field @param {string} value
+   * @returns {Promise<SaveResult>}
+   */
   async function execSave(collection, id, field, value) {
     setStatus('saving', 'Saving...');
     const key = entryKey(collection, id);
@@ -91,6 +143,7 @@ export function createSaveField({ setStatus, onUnauthorized }) {
         return { ok: false, reason: 'unauthorized' };
       }
 
+      /** @type {SaveFieldPayload} */
       const body = { type: 'save_field', collection, id, field, value };
       if (typeof expectedRevision === 'number') {
         body.expectedRevision = expectedRevision;
@@ -106,16 +159,18 @@ export function createSaveField({ setStatus, onUnauthorized }) {
         return { ok: false, reason: 'unauthorized' };
       }
 
-      const json = await res.json().catch(() => ({}));
+      const parsed = await res.json().catch(() => null);
+      const json = isRecord(parsed) ? parsed : {};
       if (!res.ok) {
         if (res.status === 409) {
-          const currentRevision = Number.isInteger(json.currentRevision)
+          const currentRevision = isRevision(json.currentRevision)
             ? json.currentRevision
             : undefined;
           if (typeof currentRevision === 'number') {
             revisionByEntry.set(key, currentRevision);
           }
 
+          /** @type {{ currentRevision: number | undefined, latestValue: string | undefined }} */
           let latest = { currentRevision: undefined, latestValue: undefined };
           try {
             latest = await readLatestFieldValue(collection, id, field);
@@ -138,16 +193,18 @@ export function createSaveField({ setStatus, onUnauthorized }) {
         return { ok: false, reason: 'error' };
       }
 
-      const nextRevision = Number.isInteger(json.revision)
+      const fallbackRevision = typeof expectedRevision === 'number' && expectedRevision < Number.MAX_SAFE_INTEGER
+        ? expectedRevision + 1
+        : undefined;
+      const nextRevision = isRevision(json.revision)
         ? json.revision
-        : typeof expectedRevision === 'number'
-          ? expectedRevision + 1
-          : undefined;
+        : fallbackRevision;
       if (typeof nextRevision === 'number') {
         revisionByEntry.set(key, nextRevision);
       }
 
-      setStatus('idle', 'Saved');
+      setStatus('idle', isPolicyDraftMode() ? 'Draft saved' : 'Saved');
+      if (isPolicyDraftMode()) window.dispatchEvent(new CustomEvent('cms:draftSaved'));
       return { ok: true, revision: nextRevision };
     } catch {
       setStatus('error', 'Save failed');
@@ -155,6 +212,7 @@ export function createSaveField({ setStatus, onUnauthorized }) {
     }
   }
 
+  /** @param {string} collection @param {string} id @param {string} field @param {string} value */
   return function saveField(collection, id, field, value) {
     const task = saveQueue.then(() => execSave(collection, id, field, value));
     saveQueue = task.then(

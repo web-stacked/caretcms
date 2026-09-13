@@ -40,7 +40,7 @@ function escapeText(value) {
  * @returns {string}
  */
 function escapeLineStart(md) {
-  const ws = /^\s*/.exec(md)[0];
+  const ws = /^\s*/.exec(md)?.[0] ?? '';
   const rest = md.slice(ws.length);
 
   const ordered = /^(\d{1,9})([.)])(\s|$)/.exec(rest);

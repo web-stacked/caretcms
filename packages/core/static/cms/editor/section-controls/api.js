@@ -2,6 +2,17 @@ import { buildCmsUrl } from '../config.js';
 import { isRecord } from './utils.js';
 import { mutateHeaders, readHeaders } from '../security.js';
 
+/** @typedef {import('./model.js').Section} Section */
+
+/** @param {unknown} value @returns {value is number} */
+function isRevision(value) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+/**
+ * @param {{ collection: string, id: string, onUnauthorized: () => void }} options
+ * @returns {Promise<{ data: Record<string, unknown>, revision: number } | null>}
+ */
 export async function fetchPageEntry({ collection, id, onUnauthorized }) {
   const res = await fetch(buildCmsUrl('/entries', { collection, id }), {
     headers: readHeaders(),
@@ -13,18 +24,23 @@ export async function fetchPageEntry({ collection, id, onUnauthorized }) {
   if (!res.ok) throw new Error('Failed to load page data');
 
   const json = await res.json();
-  const entry = Array.isArray(json.entries) ? json.entries[0] : null;
-  if (!entry || !isRecord(entry.data)) {
+  const entry = isRecord(json) && Array.isArray(json.entries) ? json.entries[0] : null;
+  if (!isRecord(entry) || !isRecord(entry.data)) {
     throw new Error('Page entry not found');
   }
 
   return {
     data: entry.data,
-    revision: Number.isInteger(entry.revision) ? entry.revision : 0,
+    revision: isRevision(entry.revision) ? entry.revision : 0,
   };
 }
 
+/**
+ * @param {{ collection: string, id: string, sections: Section[], expectedRevision: number, onUnauthorized: () => void }} options
+ * @returns {Promise<{ ok: true, revision: number } | { ok: false, reason: 'unauthorized' | 'conflict' | 'error', currentRevision?: number | null, error?: string }>}
+ */
 export async function savePageLayout({
+  collection,
   id,
   sections,
   expectedRevision,
@@ -35,6 +51,7 @@ export async function savePageLayout({
     headers: await mutateHeaders(),
     body: JSON.stringify({
       type: 'update_page_layout',
+      collection,
       id,
       sections,
       expectedRevision,
@@ -46,13 +63,14 @@ export async function savePageLayout({
     return { ok: false, reason: 'unauthorized' };
   }
 
-  const json = await res.json().catch(() => ({}));
+  const rawJson = await res.json().catch(() => ({}));
+  const json = isRecord(rawJson) ? rawJson : {};
   if (!res.ok) {
     if (res.status === 409) {
       return {
         ok: false,
         reason: 'conflict',
-        currentRevision: Number.isInteger(json.currentRevision) ? json.currentRevision : null,
+        currentRevision: isRevision(json.currentRevision) ? json.currentRevision : null,
       };
     }
     const issue = Array.isArray(json.issues) ? json.issues[0] : null;
@@ -78,9 +96,9 @@ export async function savePageLayout({
   return {
     ok: true,
     revision:
-      Number.isInteger(json.revision)
+      isRevision(json.revision)
         ? json.revision
-        : Number.isInteger(expectedRevision)
+        : isRevision(expectedRevision)
           ? expectedRevision + 1
           : 1,
   };

@@ -1,39 +1,34 @@
+import { isPolicyDraftMode } from './config.js';
 import { toggleHighlight } from './highlight.js';
 import { buildCmsUrl, isStaticDelivery } from './config.js';
+import { createDeploymentStatusPoller } from './deployment-status.js';
+import { presentPublishResult } from './publish-result.js';
+import { createDraftClient } from './draft-client.js';
+import { createPreviewModeController } from './preview-mode.js';
 
-const PREVIEW_COOKIE = 'caret_preview';
-
-function previewActive() {
-  return document.cookie.split('; ').some((c) => c === `${PREVIEW_COOKIE}=1`);
-}
-
-function setPreviewCookie(on) {
-  document.cookie = on
-    ? `${PREVIEW_COOKIE}=1; path=/; SameSite=Lax`
-    : `${PREVIEW_COOKIE}=; path=/; Max-Age=0; SameSite=Lax`;
-}
+const previewMode = createPreviewModeController({
+  isStaticDelivery,
+  isPolicyDraftMode,
+  documentRef: document,
+  reload: () => window.location.reload(),
+});
 
 /** Static delivery always drafts — turn preview on once so saves stay unpublished. */
 export function ensureStaticPreviewMode() {
-  if (!isStaticDelivery()) return false;
-  if (previewActive()) return false;
-  setPreviewCookie(true);
-  window.location.reload();
-  return true;
+  return previewMode.ensureStaticPreviewMode();
 }
 
 /** Align preview cookie with delivery mode (static on, server off). */
 export function normalizePreviewForDelivery() {
-  if (isStaticDelivery()) return ensureStaticPreviewMode();
-  if (previewActive()) {
-    setPreviewCookie(false);
-    window.location.reload();
-    return true;
-  }
-  return false;
+  return previewMode.normalizePreviewForDelivery();
 }
 
+/** @typedef {{ href: string, label: string, isActive: boolean }} ToolbarNavLink */
+/** @typedef {'saving' | 'idle' | 'error'} ToolbarStatusState */
+
+/** @param {string} pagePath @returns {ToolbarNavLink[]} */
 function getToolbarNavLinks(pagePath) {
+  /** @type {ToolbarNavLink[]} */
   const links = [];
   const headerNav = document.querySelector('#main-header nav');
   if (!headerNav) return links;
@@ -49,13 +44,14 @@ function getToolbarNavLinks(pagePath) {
   return links;
 }
 
+/** @param {boolean} staticDelivery */
 function renderDraftControls(staticDelivery) {
   // Static delivery is always drafting, so the controls stay visible. Server
   // delivery saves field edits straight to the site, but inline body-block
   // edits are ALWAYS drafts (they splice into source files only at publish), so
   // the controls render here too — hidden until at least one draft is pending
   // (toggled by refreshDraftControls) so the toolbar stays quiet otherwise.
-  const publishTitle = staticDelivery
+  const publishTitle = isPolicyDraftMode() ? 'Publish private drafts to shared content' : staticDelivery
     ? 'Publish drafts; static visitors update after rebuild and deploy'
     : 'Publish your body-block drafts into the source files';
   return `
@@ -72,6 +68,7 @@ function renderDraftControls(staticDelivery) {
         </span>`;
 }
 
+/** @param {ToolbarNavLink[]} navLinks @param {boolean} staticDelivery */
 function renderToolbar(navLinks, staticDelivery) {
   const navLinksHtml = navLinks
     .map(
@@ -80,8 +77,8 @@ function renderToolbar(navLinks, staticDelivery) {
     )
     .join('');
 
-  const badgeLabel = staticDelivery ? 'Draft' : 'Live';
-  const badgeHint = staticDelivery
+  const badgeLabel = staticDelivery || isPolicyDraftMode() ? 'Draft' : 'Live';
+  const badgeHint = isPolicyDraftMode() ? 'Changes save to your private draft; publishing requires permission' : staticDelivery
     ? 'Draft preview; visitors update after publish, rebuild, and deploy'
     : 'Changes save directly to your site';
 
@@ -104,6 +101,7 @@ function renderToolbar(navLinks, staticDelivery) {
       ${navLinksHtml ? `<div class="cms-toolbar-nav">${navLinksHtml}</div>` : ''}
       <div class="cms-toolbar-right">
         ${renderDraftControls(staticDelivery)}
+        <button type="button" class="cms-retry-rebuild-btn" hidden>Retry deploy</button>
         <button type="button" class="cms-studio-btn" title="Toggle Content Studio panel">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="9" y1="9" x2="21" y2="9"/></svg>
           Studio
@@ -130,6 +128,13 @@ function renderToolbar(navLinks, staticDelivery) {
   return toolbar;
 }
 
+/**
+ * @param {{
+ *   showToast: (message: string, type: 'success' | 'error') => void,
+ *   clearDirty: () => void,
+ *   onLogout: () => void | Promise<void>,
+ * }} options
+ */
 export function mountToolbar({ showToast, clearDirty, onLogout }) {
   const staticDelivery = isStaticDelivery();
   const navLinks = getToolbarNavLinks(window.location.pathname);
@@ -138,6 +143,7 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
   const statusDot = toolbar.querySelector('.cms-status-dot');
   const statusText = toolbar.querySelector('.cms-status-text');
 
+  /** @param {ToolbarStatusState} state @param {string} text */
   function setStatus(state, text) {
     if (statusDot) {
       statusDot.className = `cms-status-dot cms-status-${state}`;
@@ -147,29 +153,36 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
     }
   }
 
-  const highlightBtn = toolbar.querySelector('.cms-highlight-btn');
+  const deploymentStatus = createDeploymentStatusPoller({
+    fetchStatus: () => fetch(buildCmsUrl('/deployment'), {
+        credentials: 'same-origin',
+        headers: { 'x-caret-request': '1' },
+      }),
+    setStatus,
+    setBuildId(buildId) {
+      const statusGroup = /** @type {HTMLElement | null} */ (toolbar.querySelector('.cms-status-group'));
+      if (statusGroup) {
+        statusGroup.title = buildId ? `Build ${buildId}` : '';
+      }
+    },
+  });
+  const draftClient = createDraftClient({ buildUrl: path => buildCmsUrl(path) });
+
+  const highlightBtn = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-highlight-btn'));
   highlightBtn?.addEventListener('click', () =>
     toggleHighlight(highlightBtn, showToast),
   );
 
-  async function draftRequest(method, path) {
-    return fetch(buildCmsUrl(path), {
-      method,
-      headers: { 'Content-Type': 'application/json', 'x-caret-request': '1' },
-      credentials: 'same-origin',
-      body: method === 'POST' ? '{}' : undefined,
-    });
-  }
-
+  let canPublishDrafts = true;
+  const retryRebuildButton = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-retry-rebuild-btn'));
   async function fetchDraftCount() {
     try {
-      const res = await fetch(buildCmsUrl('/draft'), {
-        credentials: 'same-origin',
-        headers: { 'x-caret-request': '1' },
-      });
-      if (!res.ok) return 0;
-      const data = await res.json();
-      return typeof data.count === 'number' ? data.count : 0;
+      const data = await draftClient.getState();
+      canPublishDrafts = data.canPublish;
+      const publishButton = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-publish-btn'));
+      if (publishButton) publishButton.hidden = !data.canPublish;
+      if (retryRebuildButton) retryRebuildButton.hidden = !data.retryRebuild || !data.canPublish;
+      return data.count;
     } catch {
       return 0;
     }
@@ -178,60 +191,25 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
   async function publishDrafts() {
     setStatus('saving', 'Publishing…');
     try {
-      const res = await draftRequest('POST', '/publish');
-      if (!res.ok) throw new Error('publish failed');
-      const data = await res.json();
-      const n = Array.isArray(data.published) ? data.published.length : 0;
-      const conflicts = Array.isArray(data.conflicts) ? data.conflicts.length : 0;
-      if (conflicts > 0) {
-        // Stale body drafts: preserved server-side, NOT published. Reload so
-        // fresh stamps arrive and the editor can re-apply them.
-        setStatus('error', 'Some drafts conflicted');
-        showToast(
-          n > 0
-            ? `Published ${n} change(s); ${conflicts} draft(s) conflicted with newer content — reloading so you can re-apply.`
-            : `${conflicts} draft(s) conflicted with newer content — reloading so you can re-apply.`,
-          'error',
-        );
-        window.location.reload();
-        return n > 0;
+      const presentation = presentPublishResult(await draftClient.publish());
+      if (retryRebuildButton) retryRebuildButton.hidden = !presentation.retryAvailable;
+      if (presentation.status) {
+        setStatus(presentation.status.state, presentation.status.text);
       }
-      if (data.rebuild?.triggered && data.rebuild.ok === false) {
-        setStatus('error', 'Published, deploy failed');
-        showToast(
-          'Changes are published, but the deploy webhook failed. Check your CI settings.',
-          'error',
-        );
-        return false;
-      }
-      if (data.rebuild?.triggered) {
-        showToast(
-          n > 0
-            ? `Published ${n} change(s) — rebuild started`
-            : 'Your site is rebuilding',
-          'success',
-        );
-      } else {
-        showToast(
-          n > 0
-            ? `Published ${n} change(s) — rebuild and deploy to update visitors`
-            : 'Already up to date',
-          'success',
-        );
-      }
-      window.location.reload();
-      return true;
+      showToast(presentation.toast.message, presentation.toast.kind);
+      if (presentation.reload) window.location.reload();
+      return presentation.completed;
     } catch {
       setStatus('error', 'Publish failed');
-      showToast('Publish failed', 'error');
+      showToast('Publication could not finish. Some content may already be published. Retry Publish to recover.', 'error');
       return false;
     }
   }
 
   toolbar.querySelector('.cms-exit-btn')?.addEventListener('click', async () => {
-    if (staticDelivery) {
+    if (staticDelivery || isPolicyDraftMode()) {
       const count = await fetchDraftCount();
-      if (count > 0) {
+      if (count > 0 && canPublishDrafts) {
         const goLive = window.confirm(
           `You have ${count} unpublished change${count === 1 ? '' : 's'}. Publish before signing out?`,
         );
@@ -244,10 +222,9 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
         );
         if (!discard) return;
         try {
-          const res = await draftRequest('DELETE', '/draft');
-          if (!res.ok) throw new Error('discard failed');
+          await draftClient.discard();
         } catch {
-          showToast('Could not discard drafts', 'error');
+          showToast('Some drafts need publish recovery. Retry Publish before discarding.', 'error');
           return;
         }
       }
@@ -257,7 +234,7 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
     await onLogout();
   });
 
-  const publishBtn = toolbar.querySelector('.cms-publish-btn');
+  const publishBtn = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-publish-btn'));
   publishBtn?.addEventListener('click', async () => {
     if (
       !window.confirm(
@@ -274,8 +251,7 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
   toolbar.querySelector('.cms-discard-btn')?.addEventListener('click', async () => {
     if (!window.confirm('Discard all your draft changes? This cannot be undone.')) return;
     try {
-      const res = await draftRequest('DELETE', '/draft');
-      if (!res.ok) throw new Error('discard failed');
+      await draftClient.discard();
       showToast('Draft discarded', 'success');
       window.location.reload();
     } catch {
@@ -287,15 +263,29 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
   // edits save directly (no draft), so the count reflects pending body blocks.
   // Refresh on mount and whenever a body block is drafted; publish/discard
   // reload the page, so mount re-evaluates from scratch.
-  const draftControls = toolbar.querySelector('.cms-draft-controls');
+  const draftControls = /** @type {HTMLElement | null} */ (toolbar.querySelector('.cms-draft-controls'));
   async function refreshDraftControls() {
-    if (staticDelivery || !draftControls) return;
-    draftControls.hidden = (await fetchDraftCount()) === 0;
+    const count = await fetchDraftCount();
+    if (draftControls) draftControls.hidden = !staticDelivery && !isPolicyDraftMode() && count === 0;
   }
-  if (!staticDelivery) {
-    refreshDraftControls();
-    window.addEventListener('cms:draftSaved', refreshDraftControls);
-  }
+  refreshDraftControls();
+  window.addEventListener('cms:draftSaved', refreshDraftControls);
+  retryRebuildButton?.addEventListener('click', async () => {
+    retryRebuildButton.disabled = true;
+    setStatus('saving', 'Retrying deploy…');
+    try {
+      const data = await draftClient.retryDeployment();
+      retryRebuildButton.hidden = true;
+      setStatus(data.deploymentTracked ? 'saving' : 'idle', data.deploymentTracked ? 'Deploying…' : 'Deploy requested');
+      showToast('Deploy requested. Your published content is unchanged.', 'success');
+      if (data.deploymentTracked) deploymentStatus.schedule();
+    } catch {
+      setStatus('error', 'Published, deploy failed');
+      showToast('The deploy hook failed. Check its configuration and retry.', 'error');
+    } finally { retryRebuildButton.disabled = false; }
+  });
+
+  void deploymentStatus.refresh();
 
   const studioButton = toolbar.querySelector('.cms-studio-btn');
   const mapButton = toolbar.querySelector('.cms-map-btn');

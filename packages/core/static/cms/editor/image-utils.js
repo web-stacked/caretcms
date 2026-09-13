@@ -1,3 +1,9 @@
+/**
+ * @param {File} file
+ * @param {number} [maxWidth]
+ * @param {number} [quality]
+ * @returns {Promise<File>}
+ */
 export async function compressImage(file, maxWidth = 1600, quality = 0.82) {
   if (file.size < 200000 && file.type === 'image/webp') return file;
 
@@ -22,6 +28,10 @@ export async function compressImage(file, maxWidth = 1600, quality = 0.82) {
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    bitmap.close();
+    return file;
+  }
   ctx.drawImage(bitmap, 0, 0, width, height);
   bitmap.close();
 
@@ -29,7 +39,7 @@ export async function compressImage(file, maxWidth = 1600, quality = 0.82) {
   const isPng = file.type === 'image/png';
   const outType = isPng ? 'image/png' : 'image/webp';
 
-  const blob = await new Promise((resolve) =>
+  const blob = await new Promise((/** @type {(value: Blob | null) => void} */ resolve) =>
     canvas.toBlob((b) => resolve(b), outType, isPng ? undefined : quality),
   );
 
@@ -40,6 +50,10 @@ export async function compressImage(file, maxWidth = 1600, quality = 0.82) {
   return new File([blob], name, { type: outType });
 }
 
+/**
+ * @param {HTMLImageElement} img
+ * @param {string} newUrl
+ */
 export function updateEmblaCarousel(img, newUrl) {
   // Find the closest Embla container
   const emblaContainer = img.closest('.embla');
@@ -47,10 +61,12 @@ export function updateEmblaCarousel(img, newUrl) {
 
   // Find the slide this image belongs to
   const slide = img.closest('.embla__slide');
-  if (!slide) return;
+  if (!(slide instanceof HTMLElement)) return;
 
-  const slideIndex = parseInt(slide.dataset.index, 10);
-  if (isNaN(slideIndex)) return;
+  const index = slide.dataset.index;
+  if (!index) return;
+  const slideIndex = Number.parseInt(index, 10);
+  if (Number.isNaN(slideIndex)) return;
 
   // Update the data-full attribute for lightbox
   slide.dataset.full = newUrl;
@@ -59,7 +75,7 @@ export function updateEmblaCarousel(img, newUrl) {
   const thumbBtn = document.querySelector(`.thumb-btn[data-index="${slideIndex}"]`);
   if (thumbBtn) {
     const thumbImg = thumbBtn.querySelector('img');
-    if (thumbImg) {
+    if (thumbImg instanceof HTMLImageElement) {
       thumbImg.src = newUrl;
       // Add a flash effect to show it updated
       thumbBtn.classList.add('cms-thumb-updated');
@@ -69,10 +85,10 @@ export function updateEmblaCarousel(img, newUrl) {
 
   // Update lightbox thumbnails if visible
   const lightboxThumb = document.querySelector(`.lightbox-thumb[data-index="${slideIndex}"]`);
-  if (lightboxThumb) {
+  if (lightboxThumb instanceof HTMLElement) {
     lightboxThumb.dataset.src = newUrl;
     const lbImg = lightboxThumb.querySelector('img');
-    if (lbImg) lbImg.src = newUrl;
+    if (lbImg instanceof HTMLImageElement) lbImg.src = newUrl;
   }
 
   // Dispatch custom event that the product page can listen to

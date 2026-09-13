@@ -1,4 +1,9 @@
 /** Runtime config injected by the integration bootstrap script. */
+/** @typedef {{ endpoint?: unknown, projectId?: unknown, contentPath?: unknown, publicToken?: unknown, environment?: unknown }} RawCloudConfig */
+/** @typedef {{ endpoint: string, projectId: string, contentPath: string, publicToken: string | null, environment: string | null }} CloudConfig */
+/** @typedef {{ mode?: unknown, mountPath?: unknown, apiBasePath?: unknown, cloud?: RawCloudConfig | null, delivery?: { mode?: unknown } | null, draftMode?: unknown }} RuntimeConfig */
+
+/** @type {RuntimeConfig} */
 const defaults = {
   mode: 'embedded',
   mountPath: '/admin',
@@ -6,8 +11,13 @@ const defaults = {
   cloud: null,
 };
 
-const cfg = (typeof window !== 'undefined' && window.__CARET__) || defaults;
+const injected = typeof window !== 'undefined'
+  ? /** @type {Window & { __CARET__?: RuntimeConfig }} */ (window).__CARET__
+  : undefined;
+/** @type {RuntimeConfig} */
+const cfg = injected || defaults;
 
+/** @param {unknown} value @param {string} fallback */
 function normalizePath(value, fallback) {
   if (!value || typeof value !== 'string') return fallback;
   const trimmed = value.trim();
@@ -18,11 +28,13 @@ function normalizePath(value, fallback) {
     : withLeadingSlash;
 }
 
+/** @param {unknown} value */
 function normalizeEndpoint(value) {
   if (!value || typeof value !== 'string') return '';
   return value.trim().replace(/\/$/, '');
 }
 
+/** @returns {CloudConfig | null} */
 function getCloudConfig() {
   if (!cfg || cfg.mode !== 'cloud' || !cfg.cloud || typeof cfg.cloud !== 'object') {
     return null;
@@ -48,6 +60,7 @@ function getCloudConfig() {
   };
 }
 
+/** @param {CloudConfig} cloud */
 function getStorageKey(cloud) {
   return `caretcms:cloud-session:${cloud.endpoint}:${cloud.projectId}`;
 }
@@ -57,6 +70,8 @@ export const CMS_MODE = cfg.mode === 'cloud' || cfg.mode === 'hybrid' ? cfg.mode
 export const DELIVERY_MODE =
   cfg.delivery && cfg.delivery.mode === 'static' ? 'static' : 'server';
 
+export function isPolicyDraftMode() { return cfg.draftMode === true; }
+
 export function isStaticDelivery() {
   return DELIVERY_MODE === 'static';
 }
@@ -64,8 +79,8 @@ export function isStaticDelivery() {
 export function isServerDelivery() {
   return !isStaticDelivery();
 }
-export const MOUNT_PATH = normalizePath(cfg.mountPath, defaults.mountPath);
-export const API_BASE = normalizePath(cfg.apiBasePath, defaults.apiBasePath);
+export const MOUNT_PATH = normalizePath(cfg.mountPath, '/admin');
+export const API_BASE = normalizePath(cfg.apiBasePath, '/api/cms');
 export const CLOUD = getCloudConfig();
 export const STUDIO_PATH = CLOUD ? null : `${MOUNT_PATH}/cms`;
 
@@ -74,9 +89,10 @@ export function isCloudMode() {
 }
 
 export function getCloudSessionToken() {
-  if (!isCloudMode() || typeof window === 'undefined') return null;
+  const cloud = CLOUD;
+  if (!cloud || CMS_MODE !== 'cloud' || typeof window === 'undefined') return null;
   try {
-    const value = window.localStorage.getItem(getStorageKey(CLOUD));
+    const value = window.localStorage.getItem(getStorageKey(cloud));
     return value && value.trim() ? value.trim() : null;
   } catch {
     return null;
@@ -84,23 +100,26 @@ export function getCloudSessionToken() {
 }
 
 export function clearCloudSessionToken() {
-  if (!isCloudMode() || typeof window === 'undefined') return;
+  const cloud = CLOUD;
+  if (!cloud || CMS_MODE !== 'cloud' || typeof window === 'undefined') return;
   try {
-    window.localStorage.removeItem(getStorageKey(CLOUD));
+    window.localStorage.removeItem(getStorageKey(cloud));
   } catch {
     // Ignore localStorage failures.
   }
 }
 
+/** @param {string} path @param {URLSearchParams | Record<string, string> | undefined} [search] */
 export function buildCmsUrl(path, search) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   let url;
 
-  if (isCloudMode()) {
-    url = new URL(`${CLOUD.contentPath}${normalizedPath}`, `${CLOUD.endpoint}/`);
-    url.searchParams.set('projectId', CLOUD.projectId);
-    if (CLOUD.environment) {
-      url.searchParams.set('environment', CLOUD.environment);
+  const cloud = CLOUD;
+  if (CMS_MODE === 'cloud' && cloud) {
+    url = new URL(`${cloud.contentPath}${normalizedPath}`, `${cloud.endpoint}/`);
+    url.searchParams.set('projectId', cloud.projectId);
+    if (cloud.environment) {
+      url.searchParams.set('environment', cloud.environment);
     }
   } else {
     url = new URL(`${API_BASE}${normalizedPath}`, window.location.origin);
@@ -117,9 +136,10 @@ export function buildCmsUrl(path, search) {
 }
 
 export function getEditorLoginUrl(redirectTo = window.location.href) {
-  if (isCloudMode()) {
-    const url = new URL(`${CLOUD.contentPath}/admin`, `${CLOUD.endpoint}/`);
-    url.searchParams.set('projectId', CLOUD.projectId);
+  const cloud = CLOUD;
+  if (CMS_MODE === 'cloud' && cloud) {
+    const url = new URL(`${cloud.contentPath}/admin`, `${cloud.endpoint}/`);
+    url.searchParams.set('projectId', cloud.projectId);
     url.searchParams.set('redirect', redirectTo);
     return url.toString();
   }

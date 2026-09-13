@@ -2,6 +2,40 @@ import { buildCmsUrl } from './config.js';
 import { uploadHeaders } from './security.js';
 import { resolveBinding } from './helpers.js';
 
+/** @typedef {{ collection: string, id: string, field: string }} ResolvedCaretBinding */
+/** @typedef {{ collection: string | null, id: string | null, field: string }} ParsedCaretBinding */
+/** @typedef {{ ok: true, revision?: number } | { ok: false, reason: 'conflict' | 'unauthorized' | 'error', latestValue?: unknown }} SaveResult */
+/**
+ * @typedef {((message: string, kind: 'success' | 'error') => unknown) & {
+ *   conflict: (options: {
+ *     message: string,
+ *     onKeepMine: () => void | Promise<void>,
+ *     onLoadLatest: () => void,
+ *   }) => unknown,
+ * }} ConflictToast
+ */
+
+/**
+ * @param {unknown} value
+ * @returns {string | null}
+ */
+export function readUploadUrl(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const url = /** @type {Record<string, unknown>} */ (value).url;
+  return typeof url === 'string' && url.trim() ? url.trim() : null;
+}
+
+/**
+ * @param {object} options
+ * @param {(attr: string) => ParsedCaretBinding | null} options.parseCaretAttr
+ * @param {(element: Element, success: boolean) => void} options.flash
+ * @param {(file: File) => Promise<File>} options.compressImage
+ * @param {(image: HTMLImageElement, url: string) => void} options.updateEmblaCarousel
+ * @param {(collection: string, id: string, field: string, value: string) => Promise<SaveResult>} options.saveField
+ * @param {(state: 'saving' | 'error', text: string) => void} options.setStatus
+ * @param {ConflictToast} options.showToast
+ * @param {() => void} options.onUnauthorized
+ */
 export function mountImageEditors({
   parseCaretAttr,
   flash,
@@ -12,6 +46,7 @@ export function mountImageEditors({
   showToast,
   onUnauthorized,
 }) {
+  /** @param {string} marker @param {string} src */
   const syncBoundImages = (marker, src) => {
     document.querySelectorAll('[data-caret]').forEach((node) => {
       if (!(node instanceof HTMLImageElement)) return;
@@ -85,6 +120,12 @@ export function mountImageEditors({
     // (we hold the stored `mineUrl`); only writing it into the entry conflicted.
     // Keep the uploaded image shown and let the user choose, rather than
     // silently swapping in whatever landed elsewhere.
+    /**
+     * @param {ResolvedCaretBinding} resolved
+     * @param {string} marker
+     * @param {string} mineUrl
+     * @param {unknown} latestValue
+     */
     const runImageConflict = (resolved, marker, mineUrl, latestValue) => {
       showToast.conflict({
         message: 'This image changed elsewhere while you were editing.',
@@ -146,7 +187,8 @@ export function mountImageEditors({
           return;
         }
         if (!uploadRes.ok) throw new Error('Upload failed');
-        const { url } = await uploadRes.json();
+        const url = readUploadUrl(await uploadRes.json());
+        if (!url) throw new Error('Invalid upload response');
 
         // Point at the durable uploaded URL now, so the shown image survives the
         // optimistic blob being revoked in `finally` (and any conflict prompt).

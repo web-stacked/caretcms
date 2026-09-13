@@ -14,6 +14,7 @@
 
 let highlightActive = false;
 
+/** @param {Element} highlightBtn @param {(message: string, type: 'success' | 'error') => void} showToast */
 export function toggleHighlight(highlightBtn, showToast) {
   highlightActive = !highlightActive;
   document.body.classList.toggle('cms-highlight-all', highlightActive);

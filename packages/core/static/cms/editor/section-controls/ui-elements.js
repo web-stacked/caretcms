@@ -1,5 +1,8 @@
 import { spacingToken, humanizeSectionKey } from './utils.js';
 
+/** @typedef {import('./model.js').Section} Section */
+
+/** @returns {HTMLDivElement} */
 export function createSectionControlsElement() {
   const controls = document.createElement('div');
   controls.className = 'cms-section-controls';
@@ -17,6 +20,7 @@ export function createSectionControlsElement() {
   return controls;
 }
 
+/** @param {Section} section @param {number} order @returns {HTMLDivElement} */
 export function createSectionBadge(section, order) {
   const badge = document.createElement('div');
   badge.className = 'cms-section-chip';
@@ -24,11 +28,13 @@ export function createSectionBadge(section, order) {
   return badge;
 }
 
+/** @param {Section} section @returns {HTMLButtonElement} */
 export function createSpacingDragHandle(section) {
   const handle = document.createElement('button');
   handle.type = 'button';
   handle.className = 'cms-section-gap-handle';
   handle.title = 'Drag vertically to resize section spacing';
+  handle.setAttribute('aria-label', 'Resize vertical section spacing');
   handle.dataset.sectionId = section.id;
   handle.innerHTML = `
     <span class="cms-section-gap-grip"></span>
@@ -41,6 +47,7 @@ export function createSpacingDragHandle(section) {
   return handle;
 }
 
+/** @returns {HTMLButtonElement} */
 export function createInsertHandle() {
   const handle = document.createElement('button');
   handle.type = 'button';

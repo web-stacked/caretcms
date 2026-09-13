@@ -148,7 +148,7 @@
    --------------------------------------------------------------------------- */
 
 .cms-link-follow {
-  position: absolute;
+  position: fixed;
   z-index: 100000;
   display: inline-flex;
   align-items: center;
@@ -167,6 +167,15 @@
   white-space: nowrap;
   cursor: pointer;
   animation: cms-link-follow-in 0.16s ease-out;
+}
+
+.cms-link-follow.cms-link-follow-compact span,
+.cms-link-follow.cms-link-follow-compact em {
+  display: none;
+}
+
+.cms-link-follow.cms-link-follow-compact {
+  padding: 7px;
 }
 
 .cms-link-follow:hover {

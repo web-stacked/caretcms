@@ -2,6 +2,22 @@ import { createTextLinkInteractions } from './text-link-interactions.js';
 import { resolveBinding } from './helpers.js';
 import { sanitizeHtml } from './sanitize.js';
 
+/** @typedef {HTMLElement & { _caretSkipSave?: boolean }} EditableElement */
+/** @typedef {{ collection: string, id: string, field: string }} ResolvedCaretBinding */
+/** @typedef {{ collection: string | null, id: string | null, field: string }} ParsedCaretBinding */
+/** @typedef {{ dirtyEls: Set<Element>, linkPopupEl: HTMLElement | null }} TextEditorState */
+/** @typedef {{ ok: true, revision?: number } | { ok: false, reason: 'conflict' | 'unauthorized' | 'error', latestValue?: unknown }} SaveResult */
+/**
+ * @typedef {((message: string, kind: 'success' | 'error') => unknown) & {
+ *   conflict: (options: {
+ *     message: string,
+ *     onKeepMine: () => void | Promise<void>,
+ *     onLoadLatest: () => void,
+ *   }) => unknown,
+ * }} ConflictToast
+ */
+
+/** @type {WeakMap<HTMLElement, string>} */
 const snapshots = new WeakMap();
 let keydownBound = false;
 
@@ -19,6 +35,15 @@ const PLAINTEXT_ONLY_SUPPORTED = (() => {
   }
 })();
 
+/**
+ * @param {object} options
+ * @param {TextEditorState} options.state
+ * @param {(attr: string) => ParsedCaretBinding | null} options.parseCaretAttr
+ * @param {(text: string) => string} options.clientLinkify
+ * @param {(collection: string, id: string, field: string, value: string) => Promise<SaveResult>} options.saveField
+ * @param {(element: Element, success: boolean) => void} options.flash
+ * @param {ConflictToast} options.showToast
+ */
 export function mountTextEditors({
   state,
   parseCaretAttr,
@@ -27,6 +52,7 @@ export function mountTextEditors({
   flash,
   showToast,
 }) {
+  /** @param {HTMLElement} target @param {string} value */
   const applyTextValue = (target, value) => {
     if (target.hasAttribute('data-caret-rich')) {
       target.innerHTML = sanitizeHtml(value);
@@ -37,6 +63,7 @@ export function mountTextEditors({
       target.textContent = value;
     }
   };
+  /** @param {string} attr @param {string} value */
   const syncBoundText = (attr, value) => {
     document.querySelectorAll('[data-caret]').forEach((node) => {
       if (!(node instanceof HTMLElement)) return;
@@ -58,11 +85,13 @@ export function mountTextEditors({
   }
 
   document.querySelectorAll('[data-caret]').forEach((el) => {
-    if (el instanceof HTMLImageElement) return;
+    if (!(el instanceof HTMLElement) || el instanceof HTMLImageElement) return;
+    const editableEl = /** @type {EditableElement} */ (el);
     if (el.dataset.caretTextMounted === 'true') return;
     el.dataset.caretTextMounted = 'true';
 
     const attr = el.getAttribute('data-caret');
+    if (!attr) return;
     const isRich = el.hasAttribute('data-caret-rich');
     const isLinkable = !isRich && el.hasAttribute('data-caret-raw');
 
@@ -121,6 +150,11 @@ export function mountTextEditors({
     // (the save queue refreshed the cached revision on the 409, so the retry
     // targets the current revision and overwrites); "Load latest" replaces the
     // field with the server value. The element stays dirty until resolved.
+    /**
+     * @param {ResolvedCaretBinding} resolved
+     * @param {string} mine
+     * @param {unknown} latestValue
+     */
     const runConflict = (resolved, mine, latestValue) => {
       state.dirtyEls.add(el);
       el.classList.add('cms-conflict');
@@ -161,8 +195,8 @@ export function mountTextEditors({
       if (state.linkPopupEl === el) return;
 
       // Skip save if Escape was pressed
-      if (el._caretSkipSave) {
-        el._caretSkipSave = false;
+      if (editableEl._caretSkipSave) {
+        editableEl._caretSkipSave = false;
         state.dirtyEls.delete(el);
         if (isRich) {
           el.innerHTML = snapshots.get(el) || '';

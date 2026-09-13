@@ -25,7 +25,6 @@
 .cms-section-editable.cms-section-disabled-preview .cms-section-chip {
   opacity: 1;
   transform: translateY(0);
-  pointer-events: auto;
 }
 
 .cms-highlight-all .cms-section-editable {
@@ -57,7 +56,6 @@
 .cms-section-controls:focus-within {
   opacity: 1;
   transform: translateY(0);
-  pointer-events: auto;
 }
 
 .cms-section-chip {
@@ -112,6 +110,14 @@
   padding: 5px 7px;
   cursor: pointer;
   transition: all 0.16s ease;
+  pointer-events: none;
+}
+
+.cms-section-editable:hover .cms-section-btn,
+.cms-section-editable.cms-section-active .cms-section-btn,
+.cms-section-controls:focus-within .cms-section-btn,
+.cms-section-editable.cms-section-disabled-preview .cms-section-btn {
+  pointer-events: auto;
 }
 
 .cms-section-btn:hover {
@@ -173,7 +179,6 @@ body.cms-section-dragging .cms-section-controls {
 .cms-section-editable.cms-section-active .cms-section-boundary-actions,
 body.cms-spacing-dragging .cms-section-boundary-actions {
   opacity: 1;
-  pointer-events: auto;
 }
 
 .cms-section-insert-handle {
@@ -189,6 +194,7 @@ body.cms-spacing-dragging .cms-section-boundary-actions {
   cursor: pointer;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.26);
   transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease;
+  pointer-events: none;
 }
 
 .cms-section-insert-plus {
@@ -224,6 +230,15 @@ body.cms-spacing-dragging .cms-section-boundary-actions {
   cursor: ns-resize;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
   transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+  pointer-events: none;
+}
+
+.cms-section-editable:hover .cms-section-insert-handle,
+.cms-section-editable.cms-section-active .cms-section-insert-handle,
+.cms-section-editable:hover .cms-section-gap-handle,
+.cms-section-editable.cms-section-active .cms-section-gap-handle,
+body.cms-spacing-dragging .cms-section-gap-handle {
+  pointer-events: auto;
 }
 
 .cms-section-gap-grip {

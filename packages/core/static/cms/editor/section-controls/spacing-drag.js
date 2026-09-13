@@ -1,6 +1,19 @@
 import { SPACING_Y_VALUES } from './constants.js';
 import { spacingIndex } from './utils.js';
 
+/** @typedef {{ sectionId: string, startY: number, startIndex: number, currentIndex: number, changed: boolean, handle: HTMLButtonElement }} SpacingDragState */
+
+/**
+ * @param {{
+ *   isBusy: () => boolean,
+ *   isReordering: () => boolean,
+ *   closePickers: () => void,
+ *   getSectionSpacing: (sectionId: string) => string | undefined,
+ *   updateSpacingByToken: (sectionId: string, token: string) => boolean,
+ *   setActiveSection: (sectionId: string) => void,
+ *   onCommitted: (sectionId: string) => void,
+ * }} options
+ */
 export function createSpacingDragController({
   isBusy,
   isReordering,
@@ -10,6 +23,7 @@ export function createSpacingDragController({
   setActiveSection,
   onCommitted,
 }) {
+  /** @type {SpacingDragState | null} */
   let dragState = null;
 
   function stop() {
@@ -22,6 +36,7 @@ export function createSpacingDragController({
     dragState = null;
   }
 
+  /** @param {PointerEvent} event @param {string} sectionId @param {HTMLButtonElement} handle */
   function start(event, sectionId, handle) {
     if (isBusy()) return;
 
@@ -47,6 +62,7 @@ export function createSpacingDragController({
     window.addEventListener('pointercancel', onEnd, { once: true });
   }
 
+  /** @param {PointerEvent} event */
   function onMove(event) {
     if (!dragState || isBusy() || isReordering()) return;
 

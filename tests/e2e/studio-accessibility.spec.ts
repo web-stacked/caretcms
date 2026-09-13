@@ -51,9 +51,33 @@ test("login, collection list, and schema-rendered entry pass axe", async ({ page
   await expect(page.locator(".entry-card")).toBeVisible();
   await expectNoAxeViolations(page);
 
+  await page.locator("#btn-new").click();
+  await expect(page.getByRole("dialog", { name: "New Entry" })).toBeVisible();
+  await expect(page.locator("#create-id-input")).toBeFocused();
+  await expectNoAxeViolations(page);
+  await page.locator("#create-id-input").press("Escape");
+
+  await page.locator("#btn-reorder").click();
+  await expect(page.getByRole("region", { name: "Reorder" })).toBeVisible();
+  await expect(page.locator("#btn-reorder-cancel")).toBeFocused();
+  await expectNoAxeViolations(page);
+  await page.locator("#btn-reorder-cancel").press("Escape");
+
   await page.goto("/admin/cms/studio-fixture/axe-entry");
   await expect(page.locator("#editor")).toBeVisible();
   await expectNoAxeViolations(page);
+
+  await page.locator("#btn-delete").click();
+  await expect(page.getByRole("dialog", { name: "Delete Entry" })).toBeVisible();
+  await expect(page.locator("#btn-delete-cancel")).toBeFocused();
+  await expectNoAxeViolations(page);
+  await page.locator("#btn-delete-cancel").press("Escape");
+
+  await page.locator("#btn-history").click();
+  await expect(page.getByRole("region", { name: "Version History" })).toBeVisible();
+  await expect(page.locator("#btn-history-close")).toBeFocused();
+  await expectNoAxeViolations(page);
+  await page.locator("#btn-history-close").press("Escape");
 
   await page.goto("/");
   await expect(page.locator(".cms-img-overlay")).toBeVisible();

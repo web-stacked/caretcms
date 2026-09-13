@@ -5,6 +5,13 @@ const ERROR_SVG =
 const WARNING_SVG =
   '<svg class="cms-toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
 
+/** @typedef {'success' | 'error' | 'warning'} ToastType */
+/** @typedef {{ label: string, primary?: boolean, onClick: () => void | Promise<void> }} ToastAction */
+/** @typedef {{ message: string, sticky?: boolean, actions?: ToastAction[], role?: string }} ToastOptions */
+/** @typedef {{ message: string, onKeepMine: () => void | Promise<void>, onLoadLatest: () => void | Promise<void>, keepLabel?: string, latestLabel?: string }} ConflictOptions */
+/** @typedef {((message: string, type?: 'success' | 'error') => HTMLDivElement) & { conflict: (options: ConflictOptions) => HTMLDivElement }} ToastController */
+
+/** @param {ToastType} type @returns {string} */
 function iconFor(type) {
   if (type === 'success') return SUCCESS_SVG;
   if (type === 'warning') return WARNING_SVG;
@@ -24,9 +31,13 @@ function iconFor(type) {
  *    server-provided error string can't inject markup into the editor chrome.
  *  - The container is an aria-live region; errors/conflicts are role="alert".
  */
+/** @returns {ToastController} */
 export function createToast() {
+  /** @type {HTMLDivElement | null} */
   let container = null;
+  const dismissed = new WeakSet();
 
+  /** @returns {HTMLDivElement} */
   function ensureContainer() {
     if (container && document.body.contains(container)) return container;
     container = document.createElement('div');
@@ -36,13 +47,15 @@ export function createToast() {
     return container;
   }
 
+  /** @param {HTMLDivElement} toast */
   function dismiss(toast) {
-    if (toast._caretDismissed) return;
-    toast._caretDismissed = true;
+    if (dismissed.has(toast)) return;
+    dismissed.add(toast);
     toast.classList.add('cms-toast-out');
     setTimeout(() => toast.remove(), 300);
   }
 
+  /** @param {ToastType} type @param {ToastOptions} options @returns {HTMLDivElement} */
   function render(type, { message, sticky, actions, role }) {
     const stack = ensureContainer();
 
@@ -72,11 +85,11 @@ export function createToast() {
         btn.textContent = action.label;
         btn.addEventListener('click', () => {
           dismiss(toast);
-          try {
-            action.onClick();
-          } catch (e) {
-            /* action errors shouldn't break the toast */
-          }
+          Promise.resolve()
+            .then(() => action.onClick())
+            .catch(() => {
+              /* action errors shouldn't break the toast */
+            });
         });
         group.appendChild(btn);
       }
@@ -96,14 +109,15 @@ export function createToast() {
     return toast;
   }
 
-  function showToast(message, type) {
+  /** @type {ToastController} */
+  const showToast = (message, type) => {
     const t = type === 'error' ? 'error' : type || 'success';
     return render(t, {
       message,
       sticky: t === 'error',
       role: t === 'error' ? 'alert' : undefined,
     });
-  }
+  };
 
   // Two-choice save-conflict prompt. Sticky so the user's edit is never silently
   // discarded — they explicitly choose to keep theirs or load the latest.

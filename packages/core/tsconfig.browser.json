@@ -1,0 +1,31 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "types": []
+  },
+  "include": [
+    "static/cms/dev-toolbar/app.js",
+    "static/cms/editor.js",
+    "static/cms/admin-entry.js",
+    "static/cms/studio/**/*.js",
+    "static/cms/editor/deployment-status.js",
+    "static/cms/editor/publish-result.js",
+    "static/cms/editor/draft-client.js",
+    "static/cms/editor/preview-mode.js",
+    "static/cms/editor/toolbar.js",
+    "static/cms/editor/save-queue.js",
+    "static/cms/editor/content-map.js",
+    "static/cms/editor/section-controls.js",
+    "static/cms/editor/sync.js",
+    "static/cms/editor/text-edit.js",
+    "static/cms/editor/text-link-interactions.js",
+    "static/cms/editor/image-edit.js",
+    "static/cms/editor/image-utils.js",
+    "static/cms/editor/rich-toolbar.js",
+    "static/cms/editor/md-block-edit.js",
+    "static/cms/editor/md-paragraphs.js",
+    "static/cms/editor/md-serialize.js"
+  ]
+}

@@ -5,22 +5,32 @@
  * module restores a visible way to follow the link without leaving edit mode.
  */
 
+/** @type {HTMLAnchorElement | null} */
 let activeBtn = null;
+/** @type {HTMLAnchorElement | null} */
 let activeAnchor = null;
+/** @type {number | null} */
 let hideTimer = null;
 
+/** @param {string | null} href @returns {boolean} */
 function isFollowableHref(href) {
   if (!href) return false;
   const trimmed = href.trim();
   if (!trimmed || trimmed === "#") return false;
-  if (trimmed.startsWith("javascript:")) return false;
-  return true;
+  try {
+    const url = new URL(trimmed, window.location.href);
+    return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol);
+  } catch {
+    return false;
+  }
 }
 
+/** @param {string} href @returns {boolean} */
 function isExternal(href) {
   return /^https?:\/\//i.test(href);
 }
 
+/** @param {string} href @returns {string} */
 function shortLabel(href) {
   if (isExternal(href)) {
     try {
@@ -32,45 +42,94 @@ function shortLabel(href) {
   return href;
 }
 
+function cancelHide() {
+  if (hideTimer !== null) {
+    clearTimeout(hideTimer);
+    hideTimer = null;
+  }
+}
+
 function removeBtn() {
   if (activeBtn) {
     activeBtn.remove();
     activeBtn = null;
     activeAnchor = null;
   }
-  if (hideTimer) {
-    clearTimeout(hideTimer);
-    hideTimer = null;
-  }
+  cancelHide();
 }
 
+/** @param {HTMLAnchorElement} anchor @param {HTMLAnchorElement} btn */
 function position(anchor, btn) {
+  if (!anchor.isConnected || !btn.isConnected) {
+    removeBtn();
+    return;
+  }
   const rect = anchor.getBoundingClientRect();
-  // Place above the anchor, right-aligned to its right edge so it doesn't
-  // overlap the editable text on hover.
-  const top = rect.top + window.scrollY - btn.offsetHeight - 8;
-  const left = rect.right + window.scrollX - btn.offsetWidth;
-  btn.style.top = `${Math.max(8 + window.scrollY, top)}px`;
-  btn.style.left = `${Math.max(8, left)}px`;
+  if (rect.bottom < 0 || rect.top > window.innerHeight) {
+    removeBtn();
+    return;
+  }
+
+  const gap = 8;
+  const margin = 8;
+  const width = btn.offsetWidth;
+  const height = btn.offsetHeight;
+  const candidates = [
+    { left: rect.right + gap, top: rect.top + (rect.height - height) / 2 },
+    { left: rect.left, top: rect.bottom + gap },
+    { left: rect.left, top: rect.top - height - gap },
+    { left: rect.left - width - gap, top: rect.top + (rect.height - height) / 2 },
+  ];
+  const otherEditables = Array.from(document.querySelectorAll('[data-caret]'))
+    .filter((el) => !anchor.contains(el))
+    .map((el) => el.getBoundingClientRect());
+
+  /** @param {{ left: number, top: number }} candidate */
+  function overlapsEditable(candidate) {
+    const box = {
+      left: candidate.left,
+      top: candidate.top,
+      right: candidate.left + width,
+      bottom: candidate.top + height,
+    };
+    return otherEditables.some((other) =>
+      box.left < other.right && box.right > other.left && box.top < other.bottom && box.bottom > other.top
+    );
+  }
+
+  const placed = candidates.find((candidate) =>
+    candidate.left >= margin
+    && candidate.top >= margin
+    && candidate.left + width <= window.innerWidth - margin
+    && candidate.top + height <= window.innerHeight - margin
+    && !overlapsEditable(candidate)
+  );
+
+  btn.classList.toggle('cms-link-follow-compact', !placed);
+  const fallback = {
+    left: Math.min(window.innerWidth - width - margin, Math.max(margin, rect.right - width)),
+    top: Math.min(window.innerHeight - height - margin, Math.max(margin, rect.top)),
+  };
+  const target = placed || fallback;
+  btn.style.top = `${target.top}px`;
+  btn.style.left = `${target.left}px`;
 }
 
 function scheduleHide() {
-  if (hideTimer) clearTimeout(hideTimer);
+  cancelHide();
   hideTimer = window.setTimeout(removeBtn, 180);
 }
 
+/** @param {HTMLAnchorElement} anchor */
 function show(anchor) {
   if (activeAnchor === anchor && activeBtn) {
-    if (hideTimer) {
-      clearTimeout(hideTimer);
-      hideTimer = null;
-    }
+    cancelHide();
     return;
   }
   removeBtn();
 
   const href = anchor.getAttribute("href");
-  if (!isFollowableHref(href)) return;
+  if (!isFollowableHref(href) || typeof href !== 'string') return;
 
   const external = isExternal(href);
   const btn = document.createElement("a");
@@ -81,20 +140,20 @@ function show(anchor) {
     btn.target = "_blank";
     btn.rel = "noopener noreferrer";
   }
-  btn.innerHTML = `
-    <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="M5 11 L11 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/>
-      <path d="M6 5 L11 5 L11 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/>
-    </svg>
-    <span>Open ${external ? "link" : "page"}</span>
-    <em>${shortLabel(href)}</em>
-  `;
+  btn.setAttribute('aria-label', `Open ${external ? "link" : "page"}: ${shortLabel(href)}`);
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  icon.setAttribute('viewBox', '0 0 16 16');
+  icon.setAttribute('fill', 'none');
+  icon.setAttribute('aria-hidden', 'true');
+  icon.innerHTML = '<path d="M5 11 L11 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/><path d="M6 5 L11 5 L11 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/>';
+  const label = document.createElement('span');
+  label.textContent = `Open ${external ? "link" : "page"}`;
+  const destination = document.createElement('em');
+  destination.textContent = shortLabel(href);
+  btn.append(icon, label, destination);
 
   btn.addEventListener("mouseenter", () => {
-    if (hideTimer) {
-      clearTimeout(hideTimer);
-      hideTimer = null;
-    }
+    cancelHide();
   });
   btn.addEventListener("mouseleave", scheduleHide);
 
@@ -105,18 +164,27 @@ function show(anchor) {
 }
 
 export function mountLinkFollowAffordances() {
+  /** @param {Element} target @returns {Element | null} */
+  function editableFromTarget(target) {
+    const direct = target.closest('[data-caret]');
+    if (direct) return direct;
+    return target.closest('.cms-img-wrapper')?.querySelector('img[data-caret]') || null;
+  }
+
+  /** @param {Element} editable @returns {HTMLAnchorElement | null} */
+  function anchorFromEditable(editable) {
+    return editable instanceof HTMLAnchorElement ? editable : editable.closest('a');
+  }
+
   document.addEventListener("mouseover", (e) => {
     const target = e.target;
     if (!(target instanceof Element)) return;
     if (target.closest(".cms-link-follow")) return;
 
-    const editable = target.closest("[data-caret]");
+    const editable = editableFromTarget(target);
     if (!editable) return;
 
-    // Image editables have their own overlay treatment — skip.
-    if (editable instanceof HTMLImageElement) return;
-
-    const anchor = editable.matches("a") ? editable : editable.closest("a");
+    const anchor = anchorFromEditable(editable);
     if (!anchor) return;
 
     show(anchor);
@@ -127,12 +195,8 @@ export function mountLinkFollowAffordances() {
     if (!(target instanceof Element)) return;
     if (target.closest(".cms-link-follow")) return;
 
-    const editable = target.closest("[data-caret]");
-    const anchor = editable
-      ? editable.matches("a")
-        ? editable
-        : editable.closest("a")
-      : null;
+    const editable = editableFromTarget(target);
+    const anchor = editable ? anchorFromEditable(editable) : null;
     if (anchor === activeAnchor) scheduleHide();
   });
 
@@ -141,4 +205,21 @@ export function mountLinkFollowAffordances() {
   };
   window.addEventListener("scroll", reposition, { passive: true });
   window.addEventListener("resize", reposition);
+
+  document.addEventListener('focusin', (e) => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest('.cms-link-follow')) {
+      cancelHide();
+      return;
+    }
+    const editable = editableFromTarget(target);
+    const anchor = editable ? anchorFromEditable(editable) : null;
+    if (anchor) show(anchor);
+  });
+  document.addEventListener('focusout', (e) => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    if (editableFromTarget(target)) scheduleHide();
+  });
 }

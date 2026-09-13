@@ -1,3 +1,4 @@
+/** @param {string} s */
 export function escapeHtml(s) {
   return s
     .replace(/&/g, '&amp;')
@@ -6,6 +7,7 @@ export function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
+/** @param {string} text */
 export function clientLinkify(text) {
   if (!text) return '';
 

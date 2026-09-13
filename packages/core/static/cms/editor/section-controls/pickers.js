@@ -1,6 +1,10 @@
 import { HOME_SECTION_KEYS, SPACING_Y_OPTIONS } from './constants.js';
 import { humanizeSectionKey } from './utils.js';
 
+/**
+ * @param {{ picker: HTMLElement, getAnchor: () => HTMLButtonElement | null }} options
+ * @returns {() => void}
+ */
 function attachGlobalPositioning({ picker, getAnchor }) {
   function position() {
     const anchorButton = getAnchor();
@@ -25,6 +29,9 @@ function attachGlobalPositioning({ picker, getAnchor }) {
   return position;
 }
 
+/**
+ * @param {{ picker: HTMLElement, getAnchor: () => HTMLButtonElement | null, close: () => void }} options
+ */
 function attachOutsideClose({ picker, getAnchor, close }) {
   document.addEventListener('click', (event) => {
     if (picker.hidden) return;
@@ -38,9 +45,13 @@ function attachOutsideClose({ picker, getAnchor, close }) {
   });
 }
 
+/** @param {{ onPick: (sectionId: string, key: string) => void }} options */
 export function createAddPicker({ onPick }) {
   const picker = document.createElement('div');
+  picker.id = 'cms-section-add-picker';
   picker.className = 'cms-section-add-picker';
+  picker.setAttribute('role', 'dialog');
+  picker.setAttribute('aria-label', 'Insert section');
   picker.hidden = true;
   picker.innerHTML = `
     <div class="cms-section-add-picker-head">Insert Section</div>
@@ -59,10 +70,13 @@ export function createAddPicker({ onPick }) {
 
   document.body.appendChild(picker);
 
+  /** @type {string | null} */
   let openForSectionId = null;
+  /** @type {HTMLButtonElement | null} */
   let anchorButton = null;
 
   function close() {
+    anchorButton?.setAttribute('aria-expanded', 'false');
     picker.hidden = true;
     picker.classList.remove('open');
     openForSectionId = null;
@@ -74,13 +88,27 @@ export function createAddPicker({ onPick }) {
     getAnchor: () => anchorButton,
   });
 
+  /** @param {HTMLButtonElement} button @param {string} sectionId */
   function open(button, sectionId) {
     anchorButton = button;
     openForSectionId = sectionId;
+    button.setAttribute('aria-haspopup', 'dialog');
+    button.setAttribute('aria-controls', picker.id);
+    button.setAttribute('aria-expanded', 'true');
     picker.hidden = false;
     picker.classList.add('open');
     position();
+    const firstButton = picker.querySelector('button');
+    if (firstButton instanceof HTMLButtonElement) firstButton.focus();
   }
+
+  picker.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    const previousAnchor = anchorButton;
+    close();
+    previousAnchor?.focus();
+  });
 
   picker.addEventListener('click', (event) => {
     const target = event.target;
@@ -104,17 +132,22 @@ export function createAddPicker({ onPick }) {
   return {
     open,
     close,
+    /** @param {boolean} disabled */
     setDisabled(disabled) {
       picker.querySelectorAll('.cms-section-add-option').forEach((button) => {
-        button.disabled = disabled;
+        if (button instanceof HTMLButtonElement) button.disabled = disabled;
       });
     },
   };
 }
 
+/** @param {{ onPick: (sectionId: string, value: string) => void }} options */
 export function createSpacingPicker({ onPick }) {
   const picker = document.createElement('div');
+  picker.id = 'cms-section-spacing-picker';
   picker.className = 'cms-section-add-picker cms-section-spacing-picker';
+  picker.setAttribute('role', 'dialog');
+  picker.setAttribute('aria-label', 'Vertical spacing');
   picker.hidden = true;
   picker.innerHTML = `
     <div class="cms-section-add-picker-head">Vertical Spacing</div>
@@ -133,10 +166,13 @@ export function createSpacingPicker({ onPick }) {
 
   document.body.appendChild(picker);
 
+  /** @type {string | null} */
   let openForSectionId = null;
+  /** @type {HTMLButtonElement | null} */
   let anchorButton = null;
 
   function close() {
+    anchorButton?.setAttribute('aria-expanded', 'false');
     picker.hidden = true;
     picker.classList.remove('open');
     openForSectionId = null;
@@ -148,9 +184,13 @@ export function createSpacingPicker({ onPick }) {
     getAnchor: () => anchorButton,
   });
 
+  /** @param {HTMLButtonElement} button @param {string} sectionId @param {unknown} currentValue */
   function open(button, sectionId, currentValue) {
     anchorButton = button;
     openForSectionId = sectionId;
+    button.setAttribute('aria-haspopup', 'dialog');
+    button.setAttribute('aria-controls', picker.id);
+    button.setAttribute('aria-expanded', 'true');
     picker.hidden = false;
     picker.classList.add('open');
 
@@ -163,7 +203,17 @@ export function createSpacingPicker({ onPick }) {
     });
 
     position();
+    const selectedButton = picker.querySelector('button.active, button');
+    if (selectedButton instanceof HTMLButtonElement) selectedButton.focus();
   }
+
+  picker.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    const previousAnchor = anchorButton;
+    close();
+    previousAnchor?.focus();
+  });
 
   picker.addEventListener('click', (event) => {
     const target = event.target;
@@ -187,9 +237,10 @@ export function createSpacingPicker({ onPick }) {
   return {
     open,
     close,
+    /** @param {boolean} disabled */
     setDisabled(disabled) {
       picker.querySelectorAll('.cms-section-add-option').forEach((button) => {
-        button.disabled = disabled;
+        if (button instanceof HTMLButtonElement) button.disabled = disabled;
       });
     },
   };

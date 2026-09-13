@@ -1,3 +1,15 @@
+import { deepClone, templateFromSchema, generatedId, friendlyFileTitle, singularItemLabel, getTitle, humanizeKey, fieldIdFromPath, getNestedValue, setNestedValue } from './studio/field-model.js';
+import { createFieldGroup, createFieldRenderer } from './studio/fields.js';
+import { createStudioMutationClient } from './studio/mutation-client.js';
+import { createStudioHistoryClient } from './studio/history-client.js';
+import { createStudioUploadClient, isSupportedImage } from './studio/upload-client.js';
+import { createStudioEntryLoader } from './studio/entry-loader.js';
+import { createStudioSync } from './studio/sync-client.js';
+
+/** @typedef {import('../../src/schema-utils.js').JsonSchemaNode} Schema */
+/** @typedef {{ path: string, message: string }} ValidationIssue */
+/** @typedef {{ apiBasePath?: string, mountPath?: string, collection?: string, id?: string, isNew?: boolean, initializeIfMissing?: boolean, saveTarget?: string, previewPath?: string, editable?: boolean, messages?: Record<string, string> }} EntryConfig */
+
 /**
  * Studio entry editor — runtime.
  *
@@ -29,148 +41,115 @@
   var pageRoot = document.getElementById("cms-entry-page");
   if (!configEl || !pageRoot) return;
 
+  /** @type {EntryConfig} */
   var CFG;
   try {
-    CFG = JSON.parse(configEl.textContent || "{}");
+    CFG = /** @type {EntryConfig} */ (JSON.parse(configEl.textContent || "{}"));
   } catch (e) {
     console.error("[caret] invalid entry config", e);
     return;
   }
 
-  var API = CFG.apiBasePath;
-  var MOUNT = CFG.mountPath;
-  var COLLECTION = CFG.collection;
-  var ID = CFG.id;
+  var API = typeof CFG.apiBasePath === "string" ? CFG.apiBasePath : "";
+  var MOUNT = typeof CFG.mountPath === "string" ? CFG.mountPath : "";
+  var COLLECTION = typeof CFG.collection === "string" ? CFG.collection : "";
+  var ID = typeof CFG.id === "string" ? CFG.id : "";
   var IS_NEW = CFG.isNew === true;
   var INITIALIZE_IF_MISSING = CFG.initializeIfMissing === true;
   var SAVE_TARGET = CFG.saveTarget === "preview" ? "preview" : "live";
+  var PREVIEW_PATH = typeof CFG.previewPath === "string" ? CFG.previewPath : null;
+  /** @type {Record<string, string>} */
   var MSG = CFG.messages || {};
+  /** @param {string} key @param {string} fallback */
   function msg(key, fallback) { return typeof MSG[key] === "string" ? MSG[key] : fallback; }
+  /** @param {unknown} value */
   function htmlEscape(value) {
+    /** @type {Record<string, string>} */
+    var entities = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
     return String(value).replace(/[&<>"']/g, function (char) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char];
+      return entities[char] || char;
     });
   }
   if (!API || !COLLECTION || !ID) return;
+  var mutationClient = createStudioMutationClient({ apiBasePath: API });
+  var historyClient = createStudioHistoryClient({ apiBasePath: API });
+  var uploadClient = createStudioUploadClient({ apiBasePath: API, onUnauthorized: loginRedirect });
+  var entryLoader = createStudioEntryLoader({ apiBasePath: API });
 
   /* ─── State ─────────────────────────────────────────────────────── */
+  /** @type {Record<string, unknown> | null} */
   var entryData = null;
+  /** @type {Schema | null} */
   var entrySchema = null;
+  /** @type {number | undefined} */
   var entryRevision = undefined;
   var originalJson = "";
   var saving = false;
   var dirtyTimer = 0;
-  var previewTimer = 0;
   var linkedSelectionTimer = 0;
+  /** @type {Record<string, unknown> | null} */
   var pendingRemoteSelection = null;
-  var SYNC_CHANNEL = "caretcms:content";
-  var syncChannel = null;
+  /** @type {string | null} */
+  var publicationFieldName = null;
+  var studioSync = createStudioSync({
+    collection: COLLECTION,
+    id: ID,
+    previewPath: PREVIEW_PATH,
+    origin: window.location.origin,
+    isEmbedded: window.parent !== window,
+    studioPath: function () { return window.location.pathname + window.location.search; },
+    postToParent: function (message) { window.parent.postMessage(message, window.location.origin); },
+    onSelection: applyRemoteSelection,
+    addWindowMessageListener: function (listener) { window.addEventListener("message", listener); },
+    addPagehideListener: function (listener) { window.addEventListener("pagehide", listener, { once: true }); },
+    openChannel: "BroadcastChannel" in window ? function (name) { return new BroadcastChannel(name); } : undefined,
+  });
 
   /* ─── DOM refs ──────────────────────────────────────────────────── */
-  var loadingEl = document.getElementById("loading");
-  var notFoundEl = document.getElementById("not-found");
-  var editorEl = document.getElementById("editor");
-  var fieldsEl = document.getElementById("fields");
-  var titleEl = document.getElementById("entry-title");
-  var statusEl = document.getElementById("status-msg");
-  var validationWarningEl = document.getElementById("validation-warning");
-  var saveBtn = document.getElementById("btn-save");
-  var deleteBtn = document.getElementById("btn-delete");
-  var historyBtn = document.getElementById("btn-history");
-  var historyPanel = document.getElementById("history-panel");
-  var historyList = document.getElementById("history-list");
-  var historyCloseBtn = document.getElementById("btn-history-close");
-  var deleteDialog = document.getElementById("delete-dialog");
-  var deleteNameEl = document.getElementById("delete-entry-name");
-  var deleteCancelBtn = document.getElementById("btn-delete-cancel");
-  var deleteConfirmBtn = document.getElementById("btn-delete-confirm");
+  var loadingEl = /** @type {HTMLElement} */ (document.getElementById("loading"));
+  var notFoundEl = /** @type {HTMLElement} */ (document.getElementById("not-found"));
+  var editorEl = /** @type {HTMLElement} */ (document.getElementById("editor"));
+  var fieldsEl = /** @type {HTMLElement} */ (document.getElementById("fields"));
+  var titleEl = /** @type {HTMLElement} */ (document.getElementById("entry-title"));
+  var statusEl = /** @type {HTMLElement} */ (document.getElementById("status-msg"));
+  var validationWarningEl = /** @type {HTMLElement | null} */ (document.getElementById("validation-warning"));
+  var saveBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-save"));
+  var deleteBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-delete"));
+  var historyBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-history"));
+  var historyPanel = /** @type {HTMLElement} */ (document.getElementById("history-panel"));
+  var historyList = /** @type {HTMLElement} */ (document.getElementById("history-list"));
+  var historyCloseBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-history-close"));
+  var deleteDialog = /** @type {HTMLElement} */ (document.getElementById("delete-dialog"));
+  var deleteNameEl = /** @type {HTMLElement} */ (document.getElementById("delete-entry-name"));
+  var deleteCancelBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-delete-cancel"));
+  var deleteConfirmBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-delete-confirm"));
+  /** @type {HTMLElement | null} */
+  var deleteRestoreFocus = null;
 
   /* ─── Helpers ───────────────────────────────────────────────────── */
-  function deepClone(v) { return JSON.parse(JSON.stringify(v)); }
-
-  function templateFromSchema(schema) {
-    if (!schema || typeof schema !== "object") return "";
-    if (schema.default !== undefined) return deepClone(schema.default);
-    if (Array.isArray(schema.enum) && schema.enum.length > 0) return deepClone(schema.enum[0]);
-    if (schema.type === "object") {
-      var objectTemplate = {};
-      Object.keys(schema.properties || {}).forEach(function (key) {
-        objectTemplate[key] = templateFromSchema(schema.properties[key]);
-      });
-      return objectTemplate;
-    }
-    if (schema.type === "array") return [];
-    if (schema.type === "boolean") return false;
-    if (schema.type === "number" || schema.type === "integer") {
-      return typeof schema.minimum === "number" ? schema.minimum : 0;
-    }
-    return "";
-  }
-
-  function generatedId(path, index) {
-    var parts = path.split(".").filter(Boolean);
-    var key = parts.pop() || "item";
-    if (/^\d+$/.test(key)) key = parts.pop() || "item";
-    key = key.replace(/ies$/, "y").replace(/s$/, "");
-    return (key + "-" + (index + 1) + "-" + Date.now().toString(36))
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "");
-  }
-
-  function friendlyFileTitle(filename) {
-    return String(filename || "Image")
-      .replace(/\.[^.]+$/, "")
-      .replace(/[-_]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .replace(/\b\w/g, function (c) { return c.toUpperCase(); }) || "Image";
-  }
-
-  function singularItemLabel(path) {
-    var key = (path.split(".").filter(Boolean).pop() || "item").toLowerCase();
-    if (key === "images") return "image";
-    if (key === "details") return "detail";
-    if (key === "documents") return "document";
-    if (key === "videos") return "video";
-    if (key === "links") return "link";
-    if (key === "resume") return "résumé item";
-    return key.replace(/ies$/, "y").replace(/s$/, "") || "item";
-  }
-
-  function getTitle(data) {
-    if (!data) return "Untitled";
-    var keys = ["name", "title", "question", "company_name", "headline", "label"];
-    for (var i = 0; i < keys.length; i++) {
-      if (typeof data[keys[i]] === "string" && data[keys[i]]) return data[keys[i]];
-    }
-    return "Untitled";
-  }
-
-  function humanizeKey(key) {
-    return key.replace(/_/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
-  }
 
   function isDirty() {
     return entryData !== null && JSON.stringify(entryData) !== originalJson;
   }
 
-  function updateSaveButton() {
+  /** @param {boolean} [preserveStatus] */
+  function updateSaveButton(preserveStatus) {
     var dirty = isDirty();
-    saveBtn.disabled = !dirty || saving;
+    saveBtn.disabled = CFG.editable === false || !dirty || saving;
     saveBtn.classList.remove("studio-save-dirty", "studio-save-clean", "studio-save-saving");
     saveBtn.classList.add(saving ? "studio-save-saving" : (dirty ? "studio-save-dirty" : "studio-save-clean"));
     saveBtn.textContent = saving ? msg("common.saving", "Saving…") : (SAVE_TARGET === "preview" ? msg("entry.saveDraft", "Save draft") : msg("entry.saveLive", "Save live"));
     titleEl.textContent = getTitle(entryData);
-    if (entryData !== null) {
+    if (entryData !== null && !preserveStatus) {
       if (saving) showStatus("saving", msg("entry.savingChanges", "Saving changes…"));
       else if (dirty) showStatus("dirty", msg("entry.unsaved", "Unsaved changes"));
       else showStatus("saved", msg("entry.allSaved", "All changes saved"));
     }
   }
 
-  function showStatus(type, msg) {
-    statusEl.textContent = msg;
+  /** @param {string} type @param {string} message */
+  function showStatus(type, message) {
+    statusEl.textContent = message;
     statusEl.hidden = false;
     statusEl.dataset.status = type;
     statusEl.style.color = type === "saved"
@@ -178,151 +157,31 @@
       : (type === "dirty" || type === "saving" ? "var(--studio-text-muted)" : "var(--studio-red)");
   }
 
-  function setNestedValue(obj, path, value) {
-    var keys = path.split(".");
-    var cur = obj;
-    for (var i = 0; i < keys.length - 1; i++) {
-      var k = keys[i];
-      if (typeof cur[k] !== "object" || cur[k] === null) {
-        cur[k] = /^\d+$/.test(keys[i + 1]) ? [] : {};
-      }
-      cur = cur[k];
-    }
-    cur[keys[keys.length - 1]] = value;
-  }
-
-  function getNestedValue(obj, path) {
-    return path.split(".").reduce(function (o, k) { return o == null ? undefined : o[k]; }, obj);
-  }
-
+  /** @param {string} path @param {unknown} value */
   function updateField(path, value) {
+    if (!entryData) return;
     setNestedValue(entryData, path, value);
     if (!saving) {
-      saveBtn.disabled = false;
+      saveBtn.disabled = CFG.editable === false;
       saveBtn.classList.remove("studio-save-clean", "studio-save-saving");
       saveBtn.classList.add("studio-save-dirty");
     }
     clearTimeout(dirtyTimer);
     dirtyTimer = setTimeout(updateSaveButton, 300);
-    queueEmbeddedPreview();
+    studioSync.queuePreview(entryData);
   }
 
   function loginRedirect() {
     window.location.href = MOUNT + "?redirect=" + encodeURIComponent(window.location.pathname);
   }
 
+  /** @param {Response} res */
   function handleAuth(res) {
     if (res.status === 401) { loginRedirect(); return true; }
     return false;
   }
 
-  function queueEmbeddedPreview() {
-    if (window.parent === window || !entryData) return;
-    clearTimeout(previewTimer);
-    previewTimer = setTimeout(function () {
-      try {
-        window.parent.postMessage({
-          type: "cms:preview",
-          collection: COLLECTION,
-          id: ID,
-          data: deepClone(entryData),
-          embedded: true,
-          studioPath: window.location.pathname + window.location.search,
-        }, window.location.origin);
-      } catch (e) { /* visual preview is a progressive enhancement */ }
-    }, 80);
-  }
-
-  function announceChange(type, data) {
-    var message = {
-      type: type,
-      collection: COLLECTION,
-      id: ID,
-      data: data ? deepClone(data) : null,
-      embedded: window.parent !== window,
-      studioPath: window.location.pathname + window.location.search,
-      savedAt: Date.now(),
-    };
-
-    if (window.parent !== window) {
-      try { window.parent.postMessage(message, window.location.origin); } catch (e) { /* noop */ }
-    }
-
-    if ("BroadcastChannel" in window) {
-      try {
-        var channel = new BroadcastChannel(SYNC_CHANNEL);
-        channel.postMessage(message);
-        setTimeout(function () { channel.close(); }, 0);
-      } catch (e) { /* automatic preview sync is a progressive enhancement */ }
-    }
-  }
-
-  /* ─── Image compression + upload ────────────────────────────────── */
-  function compressImage(file, maxWidth, quality) {
-    maxWidth = maxWidth || 1600;
-    quality = quality || 0.82;
-    return Promise.resolve().then(function () {
-      if (file.size < 200000 && file.type === "image/webp") return file;
-      return createImageBitmap(file).then(function (bitmap) {
-        var width = bitmap.width;
-        var height = bitmap.height;
-        var needsResize = width > maxWidth;
-        if (file.type === "image/png" && !needsResize) {
-          bitmap.close();
-          return file;
-        }
-        if (needsResize) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
-        }
-        var canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        canvas.getContext("2d").drawImage(bitmap, 0, 0, width, height);
-        bitmap.close();
-        var isPng = file.type === "image/png";
-        var outType = isPng ? "image/png" : "image/webp";
-        return new Promise(function (resolve) {
-          canvas.toBlob(function (blob) {
-            if (!blob || blob.size >= file.size) return resolve(file);
-            var ext = isPng ? ".png" : ".webp";
-            resolve(new File([blob], file.name.replace(/\.[^.]+$/, ext), { type: outType }));
-          }, outType, isPng ? undefined : quality);
-        });
-      });
-    });
-  }
-
-  function uploadFile(file) {
-    return compressImage(file).then(function (compressed) {
-      var fd = new FormData();
-      fd.append("file", compressed);
-      return fetch(API + "/upload", {
-        method: "POST",
-        body: fd,
-        headers: { "x-caret-request": "1" },
-        credentials: "same-origin",
-      });
-    }).then(function (res) {
-      if (handleAuth(res)) throw new Error("Unauthorized");
-      if (!res.ok) throw new Error("Upload failed");
-      return res.json();
-    }).then(function (json) { return json.url; });
-  }
-
-  function readImageDimensions(file) {
-    return createImageBitmap(file).then(function (bitmap) {
-      var width = bitmap.width;
-      var height = bitmap.height;
-      bitmap.close();
-      if (width > 1600) {
-        height = Math.round((height * 1600) / width);
-        width = 1600;
-      }
-      return { width: width, height: height };
-    }).catch(function () { return null; });
-  }
-
+  /** @param {string} path @param {File} file @param {{ width: number, height: number } | null} dimensions */
   function populateImageObject(path, file, dimensions) {
     var parts = path.split(".");
     if (parts.length < 2 || parts[parts.length - 1] !== "src") return;
@@ -330,7 +189,7 @@
     var current = getNestedValue(entryData, parentPath);
     if (!current || typeof current !== "object" || Array.isArray(current)) return;
 
-    var next = deepClone(current);
+    var next = /** @type {Record<string, unknown>} */ (deepClone(current));
     var title = friendlyFileTitle(file.name);
     if (Object.prototype.hasOwnProperty.call(next, "id") && !next.id) {
       next.id = generatedId(parentPath, Number(parts[parts.length - 2]) || 0);
@@ -360,79 +219,76 @@
     }
     saving = true;
     updateSaveButton();
+    var preserveSaveStatus = false;
+    /** @type {{ collection: string, id: string, data: Record<string, unknown>, expectedRevision?: number }} */
     var payload = {
-      type: "put_entry",
       collection: COLLECTION,
       id: ID,
       data: entryData,
     };
     if (typeof entryRevision === "number") payload.expectedRevision = entryRevision;
 
-    fetch(API + "/mutate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-caret-request": "1" },
-      credentials: "same-origin",
-      body: JSON.stringify(payload),
-    }).then(function (res) {
-      if (handleAuth(res)) return null;
-      return res.json().catch(function () { return null; }).then(function (body) {
-        return { ok: res.ok, status: res.status, body: body };
-      });
-    }).then(function (result) {
-      if (!result) return;
-      if (!result.ok) {
-        if (result.body && result.body.issues) {
-          showValidationErrors(result.body.issues);
-          showStatus("error", msg("entry.validationFailed", "Validation failed") + " (" + result.body.issues.length + ")");
+    mutationClient.save(payload).then(function (result) {
+      if (result.kind === "unauthorized") { loginRedirect(); return; }
+      if (result.kind === "validation") {
+          preserveSaveStatus = true;
+          showValidationErrors(result.issues);
+          showStatus("error", msg("entry.validationFailed", "Validation failed") + " (" + result.issues.length + ")");
           var firstErr = fieldsEl.querySelector(".studio-field-error");
           if (firstErr) firstErr.scrollIntoView({ behavior: "smooth", block: "center" });
           return;
-        }
-        if (result.status === 409 && result.body && typeof result.body.currentRevision === "number") {
+      }
+      if (result.kind === "conflict") {
+          preserveSaveStatus = true;
           // Your edits are still in the form; we've refreshed to the server's
           // revision, so saving again overwrites. Don't tell the user to reload
           // (that would throw their edits away).
-          entryRevision = result.body.currentRevision;
+          entryRevision = result.currentRevision;
           showStatus("error", msg("entry.changedElsewhere", "Changed elsewhere — Save again to overwrite"));
           return;
-        }
-        throw new Error("save failed");
       }
+      if (result.kind === "error") throw new Error("save failed");
       clearFieldErrors();
-      if (result.body && typeof result.body.revision === "number") entryRevision = result.body.revision;
+      if (typeof result.revision === "number") entryRevision = result.revision;
       originalJson = JSON.stringify(entryData);
-      announceChange("cms:saved", entryData);
+      studioSync.announceChange("cms:saved", entryData);
       showStatus("saved", msg("entry.saved", "Saved"));
     }).catch(function () {
+      preserveSaveStatus = true;
       showStatus("error", msg("common.error", "Error"));
     }).then(function () {
       saving = false;
-      updateSaveButton();
+      updateSaveButton(preserveSaveStatus);
     });
   }
 
   function deleteEntry() {
     deleteNameEl.textContent = ID;
+    deleteRestoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : deleteBtn;
     deleteDialog.hidden = false;
+    deleteCancelBtn.focus();
+  }
+
+  function closeDeleteDialog() {
+    deleteDialog.hidden = true;
+    var restore = deleteRestoreFocus || deleteBtn;
+    deleteRestoreFocus = null;
+    if (restore instanceof HTMLElement && restore.isConnected) restore.focus();
   }
 
   function confirmDelete() {
     deleteConfirmBtn.disabled = true;
     deleteConfirmBtn.textContent = msg("entry.deleting", "Deleting…");
-    var payload = { type: "delete_entry", collection: COLLECTION, id: ID };
+    /** @type {{ collection: string, id: string, expectedRevision?: number }} */
+    var payload = { collection: COLLECTION, id: ID };
     if (typeof entryRevision === "number") payload.expectedRevision = entryRevision;
-    fetch(API + "/mutate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-caret-request": "1" },
-      credentials: "same-origin",
-      body: JSON.stringify(payload),
-    }).then(function (res) {
-      if (handleAuth(res)) return;
-      if (!res.ok) throw new Error("delete failed");
-      announceChange("cms:deleted", null);
+    mutationClient.remove(payload).then(function (result) {
+      if (result === "unauthorized") { loginRedirect(); return; }
+      if (result !== "deleted") throw new Error("delete failed");
+      studioSync.announceChange("cms:deleted", null);
       window.location.href = MOUNT + "/cms/" + encodeURIComponent(COLLECTION);
     }).catch(function () {
-      deleteDialog.hidden = true;
+      closeDeleteDialog();
       deleteConfirmBtn.disabled = false;
       deleteConfirmBtn.textContent = msg("entry.delete", "Delete");
       showStatus("error", msg("entry.deleteFailed", "Delete failed"));
@@ -440,6 +296,7 @@
   }
 
   /* ─── Validation rendering ──────────────────────────────────────── */
+  /** @param {Element} group @param {string} message */
   function showFieldError(group, message) {
     var errEl = group.querySelector(".studio-error-text");
     if (message) {
@@ -449,7 +306,7 @@
         group.appendChild(errEl);
       }
       errEl.textContent = message;
-      errEl.hidden = false;
+      /** @type {HTMLElement} */ (errEl).hidden = false;
       group.classList.add("studio-field-error");
     } else if (errEl) {
       errEl.remove();
@@ -462,6 +319,7 @@
     fieldsEl.querySelectorAll(".caret-field-group").forEach(function (el) { el.classList.remove("studio-field-error"); });
   }
 
+  /** @param {ValidationIssue[]} issues */
   function showValidationErrors(issues) {
     clearFieldErrors();
     issues.forEach(function (issue) {
@@ -470,15 +328,18 @@
     });
   }
 
+  /** @param {string} value */
   function cssEscape(value) {
     if (window.CSS && CSS.escape) return CSS.escape(value);
     return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
   }
 
+  /** @param {string} path */
   function fieldControl(path) {
     return fieldsEl.querySelector("#" + cssEscape(fieldIdFromPath(path)));
   }
 
+  /** @param {Element} group */
   function showLinkedSelection(group) {
     window.clearTimeout(linkedSelectionTimer);
     fieldsEl.querySelectorAll(".caret-field-selected").forEach(function (selected) {
@@ -490,6 +351,7 @@
     }, 1500);
   }
 
+  /** @param {Record<string, unknown>} message */
   function applyRemoteSelection(message) {
     if (
       !message
@@ -510,331 +372,33 @@
     group.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
   }
 
-  function announceFieldSelection(path) {
-    var message = {
-      type: "cms:field-selected",
-      collection: COLLECTION,
-      id: ID,
-      field: path,
-      source: "studio",
-    };
+  /* ─── Field rendering ───────────────────────────────────────────── */
 
-    if (window.parent !== window) {
-      try {
-        window.parent.postMessage(Object.assign({ embedded: true }, message), window.location.origin);
-      } catch (e) { /* embedded selection linking is a progressive enhancement */ }
-      return;
-    }
-
-    try {
-      if (syncChannel) syncChannel.postMessage(message);
-    } catch (e) { /* cross-tab selection linking is a progressive enhancement */ }
-  }
-
-  /* ─── Field group ───────────────────────────────────────────────── */
-  function fieldIdFromPath(path) {
-    return "caret-field-" + String(path || "").replace(/[^a-zA-Z0-9_-]/g, "-");
-  }
-
-  function createFieldGroup(label, isRequired, inline) {
-    var wrapper = document.createElement("div");
-    wrapper.className = "caret-field-group" + (inline ? " caret-field-inline" : "");
-
-    var labelEl = document.createElement("label");
-    labelEl.className = "studio-label";
-    labelEl.textContent = label;
-    if (isRequired === false) {
-      var opt = document.createElement("span");
-      opt.textContent = " (optional)";
-      opt.style.cssText = "color:var(--studio-text-dim);font-weight:400;text-transform:none;letter-spacing:normal;";
-      labelEl.appendChild(opt);
-    }
-    wrapper.appendChild(labelEl);
-
-    // Once children are populated, link the label to the first form control
-    // for screen-reader accessibility. Path is read from data-fieldPath
-    // (set by the caller after createFieldGroup returns).
-    queueMicrotask(function () {
-      var path = wrapper.dataset.fieldPath;
-      if (!path) return;
-      // Nested object/array groups contain other field groups. Only claim a
-      // control whose nearest field-group owner is this wrapper; otherwise an
-      // outer `hero` group can overwrite `hero.headline`'s stable identity.
-      var control = Array.from(wrapper.querySelectorAll("input, select, textarea")).find(function (candidate) {
-        return candidate.closest(".caret-field-group") === wrapper;
-      });
-      if (!control) return;
-      var fid = fieldIdFromPath(path);
-      control.id = fid;
-      control.name = path;
-      labelEl.htmlFor = control.id;
-    });
-
-    return wrapper;
-  }
-
-  /* ─── Schema-driven rendering ───────────────────────────────────── */
-  function renderFields(container, data, schema, basePath) {
-    if (!schema || !schema.properties) {
-      renderFieldsFallback(container, data, basePath);
-      return;
-    }
-
-    var required = new Set(schema.required || []);
-
-    Object.keys(schema.properties).forEach(function (key) {
-      var prop = schema.properties[key];
-      var path = basePath ? basePath + "." + key : key;
-      var label = prop.title || humanizeKey(key);
-      var isRequired = required.has(key);
-      var value = data ? data[key] : undefined;
-
-      // Backfill missing keys with sensible defaults
-      if (value === undefined && data) {
-        data[key] = templateFromSchema(prop);
-      }
-      var current = data ? data[key] : undefined;
-
-      var group;
-
-      if (prop.type === "string" && prop.enum) {
-        group = createFieldGroup(label, isRequired);
-        group.dataset.fieldPath = path;
-        var select = document.createElement("select");
-        select.className = "studio-input";
-        prop.enum.forEach(function (opt) {
-          var option = document.createElement("option");
-          option.value = opt;
-          option.textContent = String(opt).charAt(0).toUpperCase() + String(opt).slice(1);
-          if (opt === current) option.selected = true;
-          select.appendChild(option);
-        });
-        select.addEventListener("change", function () { updateField(path, select.value); });
-        group.appendChild(select);
-      } else if (prop.type === "string" && prop.format === "image") {
-        group = createFieldGroup(label, isRequired);
-        group.dataset.fieldPath = path;
-        group.appendChild(buildSingleImage(current || "", path));
-      } else if (prop.type === "string" && (prop.format === "textarea" || prop.format === "html")) {
-        group = createFieldGroup(label, isRequired);
-        group.dataset.fieldPath = path;
-        var ta = document.createElement("textarea");
-        ta.className = "studio-input";
-        ta.rows = 4;
-        ta.value = current || "";
-        ta.addEventListener("input", function () { updateField(path, ta.value); });
-        group.appendChild(ta);
-      } else if (prop.type === "string" && (prop.format === "email" || prop.format === "uri" || prop.format === "url")) {
-        group = createFieldGroup(label, isRequired);
-        group.dataset.fieldPath = path;
-        var emailInput = document.createElement("input");
-        emailInput.type = prop.format === "email" ? "email" : "url";
-        emailInput.className = "studio-input";
-        emailInput.value = current || "";
-        emailInput.addEventListener("input", function () { updateField(path, emailInput.value); });
-        group.appendChild(emailInput);
-      } else if (prop.type === "string") {
-        group = createFieldGroup(label, isRequired);
-        group.dataset.fieldPath = path;
-        var input;
-        if (typeof current === "string" && current.length > 100) {
-          input = document.createElement("textarea");
-          input.rows = 4;
-        } else {
-          input = document.createElement("input");
-          input.type = "text";
-        }
-        input.className = "studio-input";
-        input.value = current || "";
-        input.addEventListener("input", function () { updateField(path, input.value); });
-        group.appendChild(input);
-      } else if (prop.type === "number" || prop.type === "integer") {
-        group = createFieldGroup(label, isRequired);
-        group.dataset.fieldPath = path;
-        var num = document.createElement("input");
-        num.type = "number";
-        num.className = "studio-input";
-        num.value = (current == null ? 0 : current);
-        if (prop.minimum !== undefined) num.min = prop.minimum;
-        if (prop.maximum !== undefined) num.max = prop.maximum;
-        num.addEventListener("input", function () { updateField(path, Number(num.value) || 0); });
-        group.appendChild(num);
-      } else if (prop.type === "boolean") {
-        group = createFieldGroup(label, isRequired, true);
-        group.dataset.fieldPath = path;
-        var toggle = document.createElement("button");
-        toggle.type = "button";
-        toggle.className = "studio-toggle" + (current ? " active" : "");
-        toggle.addEventListener("click", function () {
-          var next = !toggle.classList.contains("active");
-          toggle.classList.toggle("active");
-          updateField(path, next);
-        });
-        toggle.setAttribute("role", "switch");
-        toggle.setAttribute("aria-label", label);
-        toggle.setAttribute("aria-checked", current ? "true" : "false");
-        toggle.addEventListener("click", function () {
-          toggle.setAttribute("aria-checked", toggle.classList.contains("active") ? "true" : "false");
-        });
-        group.appendChild(toggle);
-        if (key === "published") {
-          group.classList.add("caret-field-with-help");
-          var publishHelp = document.createElement("p");
-          publishHelp.className = "caret-field-help";
-          publishHelp.textContent = "Turn this on and Save when the entry is ready to appear on the live site.";
-          group.appendChild(publishHelp);
-        }
-      } else if (prop.type === "array" && prop.format === "image-gallery") {
-        group = createFieldGroup(label, isRequired);
-        group.dataset.fieldPath = path;
-        group.appendChild(buildImageGallery(current || [], path));
-      } else if (prop.type === "array" && prop.items && prop.items.type === "object") {
-        group = createFieldGroup(label, isRequired);
-        group.dataset.fieldPath = path;
-        group.appendChild(buildObjectArray(current || [], path, prop.items));
-      } else if (prop.type === "array" && prop.items && prop.items.type === "string") {
-        group = createFieldGroup(label, isRequired);
-        group.dataset.fieldPath = path;
-        group.appendChild(buildTagList(current || [], path));
-      } else if (prop.type === "object" && prop.properties) {
-        group = createFieldGroup(label, isRequired);
-        group.dataset.fieldPath = path;
-        var nested = document.createElement("div");
-        nested.className = "caret-nested";
-        renderFields(nested, current || {}, prop, path);
-        group.appendChild(nested);
-      } else {
-        group = createFieldGroup(label, isRequired);
-        group.dataset.fieldPath = path;
-        var jsonTa = document.createElement("textarea");
-        jsonTa.className = "studio-input";
-        jsonTa.style.fontFamily = "var(--studio-font-mono)";
-        jsonTa.style.fontSize = "11px";
-        jsonTa.rows = 4;
-        jsonTa.value = JSON.stringify(current, null, 2);
-        jsonTa.addEventListener("input", function () {
-          try { updateField(path, JSON.parse(jsonTa.value)); } catch (e) { /* ignore until valid */ }
-        });
-        group.appendChild(jsonTa);
-      }
-
-      container.appendChild(group);
-    });
-  }
-
-  function renderFieldsFallback(container, data, basePath) {
-    if (!data || typeof data !== "object") return;
-    Object.keys(data).forEach(function (key) {
-      var value = data[key];
-      var path = basePath ? basePath + "." + key : key;
-      var label = humanizeKey(key);
-
-      if (key === "images" && Array.isArray(value) && value.every(function (v) { return typeof v === "string"; })) {
-        var g = createFieldGroup(label, true);
-        g.dataset.fieldPath = path;
-        g.appendChild(buildImageGallery(value, path));
-        container.appendChild(g);
-        return;
-      }
-      if ((key === "image" || key === "thumbnail" || key === "bg_image") && typeof value === "string") {
-        var g2 = createFieldGroup(label, true);
-        g2.dataset.fieldPath = path;
-        g2.appendChild(buildSingleImage(value, path));
-        container.appendChild(g2);
-        return;
-      }
-      if (Array.isArray(value) && value.every(function (v) { return typeof v === "string"; })) {
-        var g3 = createFieldGroup(label, true);
-        g3.dataset.fieldPath = path;
-        g3.appendChild(buildTagList(value, path));
-        container.appendChild(g3);
-        return;
-      }
-      if (Array.isArray(value) && value.every(function (v) { return typeof v === "object" && v !== null && !Array.isArray(v); })) {
-        var g4 = createFieldGroup(label, true);
-        g4.dataset.fieldPath = path;
-        g4.appendChild(buildObjectArray(value, path, null));
-        container.appendChild(g4);
-        return;
-      }
-      if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-        var g5 = createFieldGroup(label, true);
-        g5.dataset.fieldPath = path;
-        var nested = document.createElement("div");
-        nested.className = "caret-nested";
-        renderFieldsFallback(nested, value, path);
-        g5.appendChild(nested);
-        container.appendChild(g5);
-        return;
-      }
-      if (typeof value === "boolean") {
-        var g6 = createFieldGroup(label, true, true);
-        g6.dataset.fieldPath = path;
-        var t = document.createElement("button");
-        t.type = "button";
-        t.className = "studio-toggle" + (value ? " active" : "");
-        t.addEventListener("click", function () {
-          var next = !t.classList.contains("active");
-          t.classList.toggle("active");
-          updateField(path, next);
-        });
-        g6.appendChild(t);
-        container.appendChild(g6);
-        return;
-      }
-      if (typeof value === "number") {
-        var g7 = createFieldGroup(label, true);
-        g7.dataset.fieldPath = path;
-        var n = document.createElement("input");
-        n.type = "number";
-        n.className = "studio-input";
-        n.value = value;
-        n.addEventListener("input", function () { updateField(path, Number(n.value) || 0); });
-        g7.appendChild(n);
-        container.appendChild(g7);
-        return;
-      }
-      if (typeof value === "string") {
-        var g8 = createFieldGroup(label, true);
-        g8.dataset.fieldPath = path;
-        var i;
-        if (value.length > 100) { i = document.createElement("textarea"); i.rows = 4; }
-        else { i = document.createElement("input"); i.type = "text"; }
-        i.className = "studio-input";
-        i.value = value;
-        i.addEventListener("input", function () { updateField(path, i.value); });
-        g8.appendChild(i);
-        container.appendChild(g8);
-        return;
-      }
-      // Fallback to JSON
-      var g9 = createFieldGroup(label, true);
-      g9.dataset.fieldPath = path;
-      var jt = document.createElement("textarea");
-      jt.className = "studio-input";
-      jt.style.fontFamily = "var(--studio-font-mono)";
-      jt.style.fontSize = "11px";
-      jt.rows = 4;
-      jt.value = JSON.stringify(value, null, 2);
-      jt.addEventListener("input", function () {
-        try { updateField(path, JSON.parse(jt.value)); } catch (e) { /* ignore */ }
-      });
-      g9.appendChild(jt);
-      container.appendChild(g9);
-    });
-  }
+  const { renderFields, renderFieldsFallback } = createFieldRenderer({
+    updateField,
+    buildSingleImage,
+    buildImageGallery,
+    buildObjectArray,
+    buildTagList,
+    getPublicationField: () => publicationFieldName,
+  });
 
   /* ─── Image gallery ─────────────────────────────────────────────── */
+  /** @param {unknown} images @param {string} path */
   function buildImageGallery(images, path) {
     var wrapper = document.createElement("div");
 
     function rerender() {
       wrapper.innerHTML = "";
-      var current = getNestedValue(entryData, path) || [];
+      var galleryValue = getNestedValue(entryData, path);
+      var current = Array.isArray(galleryValue)
+        ? galleryValue.filter(function (value) { return typeof value === "string"; })
+        : [];
 
       if (current.length > 0) {
         var grid = document.createElement("div");
         grid.className = "caret-gallery-grid";
+        /** @type {number | null} */
         var dragIdx = null;
 
         current.forEach(function (url, idx) {
@@ -845,7 +409,7 @@
             '<img src="' + url + '" alt="Image ' + (idx + 1) + '" loading="lazy" />' +
             '<button class="caret-gallery-remove" type="button" title="' + htmlEscape(msg("field.remove", "Remove")) + '">×</button>' +
             '<span class="caret-gallery-index">' + (idx + 1) + "</span>";
-          item.querySelector(".caret-gallery-remove").addEventListener("click", function (e) {
+          item.querySelector(".caret-gallery-remove")?.addEventListener("click", function (e) {
             e.stopPropagation();
             var imgs = current.slice();
             imgs.splice(idx, 1);
@@ -891,9 +455,10 @@
       fileInput.setAttribute("aria-label", "Upload images for " + humanizeKey(path.split(".").pop() || "images"));
       fileInput.style.display = "none";
 
+      /** @param {ArrayLike<File>} files */
       function handleFiles(files) {
-        var valid = Array.prototype.filter.call(files, function (f) {
-          return ["image/jpeg", "image/png", "image/webp", "image/avif"].indexOf(f.type) >= 0;
+        var valid = Array.from(files).filter(function (f) {
+          return isSupportedImage(f);
         });
         if (!valid.length) return;
         dropzone.innerHTML =
@@ -901,8 +466,11 @@
           '<p style="margin:0;font-size:0.75rem;color:var(--studio-text-muted);">Uploading ' + valid.length + " image" + (valid.length > 1 ? "s" : "") + "…</p>";
         dropzone.style.pointerEvents = "none";
 
-        var imgs = (getNestedValue(entryData, path) || []).slice();
-        Promise.allSettled(valid.map(function (f) { return uploadFile(f); })).then(function (results) {
+        var existingImages = getNestedValue(entryData, path);
+        var imgs = Array.isArray(existingImages)
+          ? existingImages.filter(function (value) { return typeof value === "string"; })
+          : [];
+        Promise.allSettled(valid.map(function (f) { return uploadClient.upload(f); })).then(function (results) {
           results.forEach(function (r) { if (r.status === "fulfilled") imgs.push(r.value); });
           updateField(path, imgs);
           rerender();
@@ -915,10 +483,11 @@
       dropzone.addEventListener("drop", function (e) {
         e.preventDefault();
         dropzone.classList.remove("drag-over");
-        if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+        var files = e.dataTransfer && e.dataTransfer.files;
+        if (files && files.length) handleFiles(files);
       });
       fileInput.addEventListener("change", function () {
-        if (fileInput.files.length) handleFiles(fileInput.files);
+        if (fileInput.files && fileInput.files.length) handleFiles(fileInput.files);
         fileInput.value = "";
       });
 
@@ -931,13 +500,15 @@
   }
 
   /* ─── Single image ──────────────────────────────────────────────── */
+  /** @param {unknown} url @param {string} path */
   function buildSingleImage(url, path) {
     var wrapper = document.createElement("div");
     wrapper.className = "caret-single-image";
 
     function rerender() {
       wrapper.innerHTML = "";
-      var current = getNestedValue(entryData, path) || "";
+      var imageValue = getNestedValue(entryData, path);
+      var current = typeof imageValue === "string" ? imageValue : "";
 
       var fileInput = document.createElement("input");
       fileInput.type = "file";
@@ -999,11 +570,12 @@
       fileInput.addEventListener("change", function () {
         var file = fileInput.files && fileInput.files[0];
         if (!file) return;
+        var selectedFile = file;
         uploadBtn.textContent = "Uploading…";
         uploadBtn.disabled = true;
-        Promise.all([uploadFile(file), readImageDimensions(file)]).then(function (results) {
+        Promise.all([uploadClient.upload(selectedFile), uploadClient.readDimensions(selectedFile)]).then(function (results) {
           updateField(path, results[0]);
-          populateImageObject(path, file, results[1]);
+          populateImageObject(path, selectedFile, results[1]);
           rerender();
         }).catch(function () {
           help.textContent = "Upload failed. Check the image type and try again.";
@@ -1026,12 +598,16 @@
   }
 
   /* ─── Tag list ──────────────────────────────────────────────────── */
+  /** @param {unknown} items @param {string} path */
   function buildTagList(items, path) {
     var wrapper = document.createElement("div");
 
     function rerender() {
       wrapper.innerHTML = "";
-      var current = getNestedValue(entryData, path) || [];
+      var tagValue = getNestedValue(entryData, path);
+      var current = Array.isArray(tagValue)
+        ? tagValue.filter(function (value) { return typeof value === "string"; })
+        : [];
 
       if (current.length > 0) {
         var tagsEl = document.createElement("div");
@@ -1091,11 +667,14 @@
   }
 
   /* ─── Object array ──────────────────────────────────────────────── */
+  /** @param {unknown} items @param {string} path @param {Schema | null | undefined} itemSchema */
   function buildObjectArray(items, path, itemSchema) {
     var wrapper = document.createElement("div");
     wrapper.className = "caret-object-array";
+    /** @type {number | null} */
     var draggedIndex = null;
 
+    /** @param {Record<string, unknown>} item @param {number} idx */
     function itemSummary(item, idx) {
       var summaryKeys = ["title", "label", "name", "alt", "src"];
       for (var i = 0; i < summaryKeys.length; i++) {
@@ -1111,6 +690,7 @@
       return singularItemLabel(path).replace(/^./, function (c) { return c.toUpperCase(); }) + " " + (idx + 1);
     }
 
+    /** @param {Record<string, unknown>[]} current @param {number} from @param {number} to */
     function moveItem(current, from, to) {
       if (to < 0 || to >= current.length || from === to) return;
       var next = current.slice();
@@ -1122,7 +702,10 @@
 
     function rerender() {
       wrapper.innerHTML = "";
-      var current = getNestedValue(entryData, path) || [];
+      var arrayValue = getNestedValue(entryData, path);
+      var current = Array.isArray(arrayValue)
+        ? arrayValue.filter(function (value) { return value !== null && typeof value === "object" && !Array.isArray(value); })
+        : [];
 
       current.forEach(function (item, idx) {
         var card = document.createElement("div");
@@ -1235,9 +818,13 @@
       addBtn.className = "caret-object-array-add";
       addBtn.textContent = "+ " + msg("field.add", "Add") + " " + singularItemLabel(path);
       addBtn.addEventListener("click", function () {
+        /** @type {Record<string, unknown>} */
         var template;
         if (itemSchema && itemSchema.properties) {
-          template = templateFromSchema(itemSchema);
+          var templateValue = templateFromSchema(itemSchema);
+          template = templateValue && typeof templateValue === "object" && !Array.isArray(templateValue)
+            ? /** @type {Record<string, unknown>} */ (templateValue)
+            : {};
           if (Object.prototype.hasOwnProperty.call(template, "id") && !template.id) {
             template.id = generatedId(path, current.length);
           }
@@ -1257,7 +844,7 @@
         // Focus immediately. Deferring focus to the next animation frame can
         // steal it back after a fast user (or assistive automation) has already
         // moved to another control in the new row.
-        if (firstControl) firstControl.focus();
+        if (firstControl instanceof HTMLElement) firstControl.focus();
         requestAnimationFrame(function () {
           if (newest) newest.scrollIntoView({ behavior: "smooth", block: "nearest" });
         });
@@ -1273,16 +860,13 @@
   function loadHistory() {
     historyList.innerHTML = '<p style="font-size:0.75rem;color:var(--studio-text-dim);margin:0;">Loading…</p>';
     historyPanel.hidden = false;
+    historyBtn.setAttribute("aria-expanded", "true");
+    historyCloseBtn.focus();
 
-    fetch(API + "/history?collection=" + encodeURIComponent(COLLECTION) + "&id=" + encodeURIComponent(ID), {
-      credentials: "same-origin",
-    }).then(function (res) {
-      if (handleAuth(res)) return null;
-      if (!res.ok) throw new Error("history failed");
-      return res.json();
-    }).then(function (json) {
-      if (!json) return;
-      var items = json.history || [];
+    historyClient.list({ collection: COLLECTION, id: ID }).then(function (result) {
+      if (result.kind === "unauthorized") { loginRedirect(); return; }
+      if (result.kind === "error") throw new Error("history failed");
+      var items = result.items;
       if (items.length === 0) {
         historyList.innerHTML = '<p style="font-size:0.75rem;color:var(--studio-text-dim);margin:0;">No history yet. Edits create snapshots automatically.</p>';
         return;
@@ -1330,25 +914,28 @@
     });
   }
 
+  function closeHistoryPanel() {
+    historyPanel.hidden = true;
+    historyBtn.setAttribute("aria-expanded", "false");
+    historyList.innerHTML = "";
+    if (historyBtn.isConnected) historyBtn.focus();
+  }
+
+  /** @param {number} ts */
   function restoreSnapshot(ts) {
     if (!window.confirm("Restore this version? Current changes will be saved to history first.")) return;
-    fetch(API + "/history", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-caret-request": "1" },
-      credentials: "same-origin",
-      body: JSON.stringify({ collection: COLLECTION, id: ID, ts: ts }),
-    }).then(function (res) {
-      if (handleAuth(res)) return null;
-      if (!res.ok) throw new Error("restore failed");
-      return res.json();
-    }).then(function (json) {
-      if (!json) return;
+    historyClient.restore({ collection: COLLECTION, id: ID, ts: ts }).then(function (result) {
+      if (result.kind === "unauthorized") { loginRedirect(); return; }
+      if (result.kind === "error") throw new Error("restore failed");
       var prevData = entryData;
       var prevJson = originalJson;
       try {
-        entryData = deepClone(json.data);
-        originalJson = JSON.stringify(json.data);
-        if (typeof json.revision === "number") entryRevision = json.revision;
+        if (!result.data || typeof result.data !== "object" || Array.isArray(result.data)) {
+          throw new Error("invalid restored entry data");
+        }
+        entryData = deepClone(/** @type {Record<string, unknown>} */ (result.data));
+        originalJson = JSON.stringify(result.data);
+        if (typeof result.revision === "number") entryRevision = result.revision;
         fieldsEl.innerHTML = "";
         renderFields(fieldsEl, entryData, entrySchema, "");
         updateSaveButton();
@@ -1361,8 +948,8 @@
         showStatus("error", "Restore failed — invalid data");
         return;
       }
-      historyPanel.hidden = true;
-      announceChange("cms:saved", entryData);
+      closeHistoryPanel();
+      studioSync.announceChange("cms:saved", entryData);
       showStatus("saved", "Restored");
     }).catch(function () {
       showStatus("error", "Restore failed");
@@ -1373,20 +960,26 @@
   saveBtn.addEventListener("click", save);
   if (deleteBtn) deleteBtn.addEventListener("click", deleteEntry);
   historyBtn.addEventListener("click", loadHistory);
-  historyCloseBtn.addEventListener("click", function () {
-    historyPanel.hidden = true;
-    historyList.innerHTML = "";
-  });
-  deleteCancelBtn.addEventListener("click", function () { deleteDialog.hidden = true; });
+  historyCloseBtn.addEventListener("click", closeHistoryPanel);
+  deleteCancelBtn.addEventListener("click", closeDeleteDialog);
   deleteConfirmBtn.addEventListener("click", confirmDelete);
   deleteDialog.addEventListener("click", function (e) {
-    if (e.target === deleteDialog) deleteDialog.hidden = true;
+    if (e.target === deleteDialog) closeDeleteDialog();
   });
-
-  window.addEventListener("message", function (event) {
-    if (event.origin !== window.location.origin) return;
-    if (event.data && event.data.type === "cms:field-selected") {
-      applyRemoteSelection(event.data);
+  deleteDialog.addEventListener("keydown", function (e) {
+    if (deleteDialog.hidden) return;
+    if (e.key !== "Tab") return;
+    var controls = Array.from(deleteDialog.querySelectorAll("button:not([disabled])"));
+    var first = controls[0];
+    var last = controls[controls.length - 1];
+    if (!(first instanceof HTMLElement) || !(last instanceof HTMLElement)) return;
+    var active = document.activeElement;
+    if (e.shiftKey && (active === first || !deleteDialog.contains(active))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
     }
   });
 
@@ -1398,109 +991,80 @@
       ? event.target.closest("input, select, textarea, button")
       : null;
     var group = control && control.closest("[data-field-path]");
-    var path = group && group.dataset.fieldPath;
+    var path = group instanceof HTMLElement ? group.dataset.fieldPath : undefined;
     if (!path) return;
+    if (!group) return;
     showLinkedSelection(group);
-    announceFieldSelection(path);
+    studioSync.announceFieldSelection(path);
   });
 
-  if ("BroadcastChannel" in window) {
-    try {
-      syncChannel = new BroadcastChannel(SYNC_CHANNEL);
-      syncChannel.addEventListener("message", function (event) {
-        if (event.data && event.data.type === "cms:field-selected") {
-          applyRemoteSelection(event.data);
-        }
-      });
-      window.addEventListener("pagehide", function () { syncChannel.close(); }, { once: true });
-    } catch (e) {
-      syncChannel = null;
-    }
-  }
-
   window.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && (!deleteDialog.hidden || !historyPanel.hidden)) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!deleteDialog.hidden) closeDeleteDialog();
+      else closeHistoryPanel();
+      return;
+    }
     if ((e.metaKey || e.ctrlKey) && e.key === "s") {
       e.preventDefault();
       if (isDirty()) save();
     }
-    if (e.key === "Escape") {
-      if (!deleteDialog.hidden) deleteDialog.hidden = true;
-      if (!historyPanel.hidden) {
-        historyPanel.hidden = true;
-        historyList.innerHTML = "";
-      }
-    }
-  });
+  }, true);
 
   window.addEventListener("beforeunload", function (e) {
     if (isDirty()) { e.preventDefault(); e.returnValue = ""; }
   });
 
   /* ─── Load entry + schema ───────────────────────────────────────── */
-  Promise.all([
-    fetch(API + "/entries?collection=" + encodeURIComponent(COLLECTION) + "&id=" + encodeURIComponent(ID), { credentials: "same-origin" }),
-    fetch(API + "/schema?collection=" + encodeURIComponent(COLLECTION), { credentials: "same-origin" }),
-  ]).then(function (results) {
-    var entryRes = results[0];
-    var schemaRes = results[1];
-
-    if (handleAuth(entryRes)) return;
-    if (!entryRes.ok) throw new Error("load failed");
-
-    return entryRes.json().then(function (entryJson) {
-      var entry = (entryJson && entryJson.entries) ? entryJson.entries[0] : null;
-
-      var schemaPromise = schemaRes.ok ? schemaRes.json() : Promise.resolve(null);
-      return schemaPromise.then(function (schemaJson) {
-        if (schemaJson && schemaJson.schema) entrySchema = schemaJson.schema;
-
+  entryLoader.load({
+    collection: COLLECTION,
+    id: ID,
+    isNew: IS_NEW,
+    initializeIfMissing: INITIALIZE_IF_MISSING,
+  }).then(function (result) {
+        if (result.kind === "unauthorized") { loginRedirect(); return; }
+        if (result.kind === "error") {
+          throw new Error(msg("entry." + result.code, msg("entry.loadFailed", "Could not load this entry. Retry after checking its source or storage.")));
+        }
+        entrySchema = result.schema;
+        publicationFieldName = result.publicationFieldName;
         loadingEl.hidden = true;
-        var initializedMissingEntry = !entry && (IS_NEW || INITIALIZE_IF_MISSING);
-        if (!entry && !initializedMissingEntry) {
+        if (result.kind === "missing") {
           notFoundEl.hidden = false;
           return;
         }
-        var initialData = entry
-          ? entry.data
-          : (schemaJson && schemaJson.template) || templateFromSchema(entrySchema);
+        var initialData = result.data;
         entryData = deepClone(initialData);
-        entryRevision = entry && typeof entry.revision === "number" ? entry.revision : 0;
+        entryRevision = result.revision;
         originalJson = JSON.stringify(initialData);
         titleEl.textContent = getTitle(entryData);
         renderFields(fieldsEl, entryData, entrySchema, "");
-        if (validationWarningEl && entry && Array.isArray(entry.validationIssues) && entry.validationIssues.length > 0) {
-          validationWarningEl.textContent = "This stored entry has invalid fields: " + entry.validationIssues.map(function (issue) {
+        if (validationWarningEl && result.validationIssues.length > 0) {
+          validationWarningEl.textContent = "This stored entry has invalid fields: " + result.validationIssues.map(function (issue) {
             return (issue.path || "entry") + " — " + issue.message;
           }).join("; ") + ". Correct them and Save to restore public delivery.";
           validationWarningEl.hidden = false;
         }
         updateSaveButton();
-        if (IS_NEW || initializedMissingEntry) {
+        if (IS_NEW || result.initialized) {
           var guideTitle = document.getElementById("editor-guide-title");
           var guideCopy = document.getElementById("editor-guide-copy");
           if (guideTitle) guideTitle.textContent = msg("entry.newGuideTitle", "Entry created with safe defaults");
-          if (guideCopy) guideCopy.textContent = msg("entry.newGuideCopy", "Fill in the fields below. Save becomes available after your first change. In the sidebar Studio, text and image edits preview on the page as you work; Save confirms them and refreshes the visual preview for structural changes. The Published switch controls whether signed-out visitors can see this entry.");
+          if (guideCopy) guideCopy.textContent = msg("entry.newGuideCopy", "Fill in the fields below. Save becomes available after your first change. In the sidebar Studio, text and image edits preview on the page as you work; Save confirms them and refreshes the visual preview for structural changes. When publication is enabled, new entries stay private until Published is turned on.");
         }
         editorEl.hidden = false;
-        if (window.parent !== window) {
-          try {
-            window.parent.postMessage({
-              type: "cms:entry-ready",
-              collection: COLLECTION,
-              id: ID,
-              embedded: true,
-            }, window.location.origin);
-          } catch (e) { /* embedded field linking is a progressive enhancement */ }
-        }
+        studioSync.announceReady();
         if (pendingRemoteSelection) {
           var pending = pendingRemoteSelection;
           pendingRemoteSelection = null;
           applyRemoteSelection(pending);
         }
-      });
-    });
-  }).catch(function () {
+  }).catch(function (error) {
     loadingEl.hidden = true;
-    notFoundEl.hidden = false;
+    notFoundEl.hidden = true;
+    /** @type {HTMLElement} */ (document.getElementById("load-error")).hidden = false;
+    /** @type {HTMLElement} */ (document.getElementById("load-error-message")).textContent = error instanceof Error ? error.message : msg("entry.loadFailed", "Could not load this entry.");
   });
+  /** @type {HTMLElement} */ (document.getElementById("load-error-retry")).addEventListener("click", function () { window.location.reload(); });
 })();

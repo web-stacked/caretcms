@@ -1,3 +1,21 @@
+/**
+ * @typedef {object} ParsedCaretBinding
+ * @property {string | null} collection
+ * @property {string | null} id
+ * @property {string} field
+ */
+
+/**
+ * @typedef {object} ResolvedCaretBinding
+ * @property {string} collection
+ * @property {string} id
+ * @property {string} field
+ */
+
+/**
+ * @param {string} attr
+ * @returns {ParsedCaretBinding | null}
+ */
 export function parseCaretAttr(attr) {
   const parts = attr.split('::');
   if (parts.length === 3) return { collection: parts[0], id: parts[1], field: parts[2] };
@@ -11,6 +29,9 @@ export function parseCaretAttr(attr) {
  * If the binding already has collection+id, returns as-is.
  * If field-only, walks up to nearest [data-caret-scope] ancestor.
  * Returns null if scope cannot be resolved.
+ * @param {Element} el
+ * @param {ParsedCaretBinding | null} parsed
+ * @returns {ResolvedCaretBinding | null}
  */
 export function resolveBinding(el, parsed) {
   if (!parsed) return null;
@@ -18,7 +39,9 @@ export function resolveBinding(el, parsed) {
   // segment ("::x::y") must stay a (rejected) triple like the server treats
   // it, not silently fall back to scope resolution and save elsewhere.
   // Held to the rewrite engine by tests/unit/caret-parser-parity.test.ts.
-  if (parsed.collection !== null && parsed.id !== null) return parsed;
+  if (parsed.collection !== null && parsed.id !== null) {
+    return { collection: parsed.collection, id: parsed.id, field: parsed.field };
+  }
 
   // Walk up to find nearest data-caret-scope
   let node = el.parentElement;
@@ -38,6 +61,8 @@ export function resolveBinding(el, parsed) {
 /**
  * Get the full data-caret key for an element, resolving scope if needed.
  * Returns "collection::id::field" or null if unresolvable.
+ * @param {Element} el
+ * @returns {string | null}
  */
 export function getResolvedKey(el) {
   const attr = el.getAttribute('data-caret');
@@ -48,6 +73,10 @@ export function getResolvedKey(el) {
   return `${resolved.collection}::${resolved.id}::${resolved.field}`;
 }
 
+/**
+ * @param {Element} el
+ * @param {boolean} success
+ */
 export function flash(el, success) {
   const cls = success ? 'cms-saved' : 'cms-error';
   el.classList.add(cls);

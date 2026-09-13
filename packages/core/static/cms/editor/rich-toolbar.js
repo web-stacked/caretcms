@@ -6,12 +6,21 @@
  * cross-browser approach for contenteditable formatting).
  */
 
-import { sanitizeHtml } from './sanitize.js';
+/** @typedef {{ dirtyEls: Set<Element>, linkPopupEl: HTMLElement | null }} RichEditorState */
+/** @typedef {(url: string | null) => void} LinkApplyCallback */
+/** @typedef {(rect: DOMRect | DOMRectReadOnly, initialUrl: string, onApply: LinkApplyCallback) => void} ShowLinkPopup */
+/** @typedef {{ sep?: boolean, cmd?: string, label?: string, title?: string, style?: string, isLink?: boolean }} ToolbarItem */
 
+/** @type {HTMLDivElement | null} */
 let toolbar = null;
+/** @type {HTMLElement | null} */
 let currentRichEl = null;
+/** @type {ShowLinkPopup | null} */
 let showLinkPopupFn = null;
+/** @type {RichEditorState | null} */
+let editorState = null;
 
+/** @type {ToolbarItem[]} */
 const BUTTONS = [
   { cmd: 'bold', label: 'B', title: 'Bold (Ctrl+B)', style: 'font-weight:700' },
   { cmd: 'italic', label: 'I', title: 'Italic (Ctrl+I)', style: 'font-style:italic' },
@@ -20,6 +29,7 @@ const BUTTONS = [
   { cmd: 'removeFormat', label: 'T\u2093', title: 'Clear formatting' },
 ];
 
+/** @returns {HTMLDivElement} */
 function createToolbar() {
   const el = document.createElement('div');
   el.className = 'cms-rich-toolbar';
@@ -32,19 +42,21 @@ function createToolbar() {
       el.appendChild(sep);
       continue;
     }
+    if (!btn.cmd) continue;
+    const command = btn.cmd;
 
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'cms-rich-toolbar-btn';
-    button.title = btn.title;
-    button.dataset.cmd = btn.cmd;
+    button.title = btn.title || '';
+    button.dataset.cmd = command;
     if (btn.style) button.style.cssText = btn.style;
 
     // Use text for simple labels, innerHTML for the link icon
     if (btn.isLink) {
       button.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>`;
     } else {
-      button.textContent = btn.label;
+      button.textContent = btn.label || '';
     }
 
     button.addEventListener('mousedown', (e) => {
@@ -52,7 +64,8 @@ function createToolbar() {
       if (btn.isLink) {
         handleLinkButton();
       } else {
-        document.execCommand(btn.cmd, false, null);
+        document.execCommand(command);
+        if (currentRichEl) editorState?.dirtyEls.add(currentRichEl);
         updateActiveStates();
       }
     });
@@ -69,10 +82,12 @@ function createToolbar() {
 
 function handleLinkButton() {
   const sel = window.getSelection();
-  if (!sel || sel.isCollapsed || !currentRichEl) return;
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !currentRichEl) return;
 
   const range = sel.getRangeAt(0).cloneRange();
   const selRect = range.getBoundingClientRect();
+  const target = currentRichEl;
+  const selectedText = sel.toString();
 
   // Check if selection is already a link
   const anchorNode = sel.anchorNode;
@@ -81,18 +96,32 @@ function handleLinkButton() {
     : anchorNode instanceof Element ? anchorNode.closest('a') : null;
   const initialUrl = existingLink?.getAttribute('href') || '';
 
+  function liveExistingLink() {
+    if (!existingLink) return null;
+    if (target.contains(existingLink)) return existingLink;
+    return Array.from(target.querySelectorAll('a')).find((link) =>
+      link.getAttribute('href') === initialUrl && link.textContent === selectedText
+    ) || null;
+  }
+
   if (showLinkPopupFn) {
     showLinkPopupFn(selRect, initialUrl, (url) => {
-      currentRichEl?.focus();
+      target.focus();
+      const link = liveExistingLink();
 
       if (url) {
         const newSel = window.getSelection();
+        if (!newSel) {
+          if (editorState) editorState.linkPopupEl = null;
+          hide();
+          return;
+        }
         newSel.removeAllRanges();
         newSel.addRange(range);
 
-        if (existingLink) {
+        if (link) {
           // Update existing link
-          existingLink.setAttribute('href', url);
+          link.setAttribute('href', url);
         } else {
           document.execCommand('createLink', false, url);
         }
@@ -109,13 +138,19 @@ function handleLinkButton() {
             newLink.setAttribute('rel', 'noopener noreferrer');
           }
         }
-      } else if (url === '' && existingLink) {
+        editorState?.dirtyEls.add(target);
+      } else if (url === '' && link) {
         // Empty URL = unlink
-        document.execCommand('unlink', false, null);
+        document.execCommand('unlink');
+        editorState?.dirtyEls.add(target);
       }
 
+      if (editorState) editorState.linkPopupEl = null;
       hide();
     });
+    // showLinkPopup dismisses any prior popover first, which clears this state.
+    // Claim the new popover only after it has completed that cleanup.
+    if (editorState) editorState.linkPopupEl = target;
   }
 }
 
@@ -123,8 +158,9 @@ function updateActiveStates() {
   if (!toolbar) return;
   const buttons = toolbar.querySelectorAll('.cms-rich-toolbar-btn[data-cmd]');
   for (const btn of buttons) {
+    if (!(btn instanceof HTMLButtonElement)) continue;
     const cmd = btn.dataset.cmd;
-    if (cmd === 'createLink' || cmd === 'removeFormat') continue;
+    if (!cmd || cmd === 'createLink' || cmd === 'removeFormat') continue;
     try {
       btn.classList.toggle('active', document.queryCommandState(cmd));
     } catch {
@@ -133,8 +169,9 @@ function updateActiveStates() {
   }
 }
 
+/** @param {Selection} sel */
 function position(sel) {
-  if (!toolbar || !sel || sel.isCollapsed) return;
+  if (!toolbar || sel.isCollapsed || sel.rangeCount === 0) return;
 
   const range = sel.getRangeAt(0);
   const rect = range.getBoundingClientRect();
@@ -154,6 +191,7 @@ function position(sel) {
   toolbar.style.top = `${top}px`;
 }
 
+/** @param {Selection} sel */
 function show(sel) {
   if (!toolbar) toolbar = createToolbar();
   toolbar.style.display = 'flex';
@@ -182,7 +220,7 @@ function onSelectionChange() {
     ? anchor.closest('[data-caret-rich], [data-caret-md]')
     : anchor?.parentElement?.closest('[data-caret-rich], [data-caret-md]');
 
-  if (!richEl) {
+  if (!(richEl instanceof HTMLElement)) {
     hide();
     return;
   }
@@ -193,9 +231,14 @@ function onSelectionChange() {
 
 /**
  * Mount the rich text toolbar. Call once during editor boot.
- * @param {{ state: object, showToast: Function, showLinkPopup?: Function }} opts
+ * @param {object} options
+ * @param {RichEditorState} options.state
+ * @param {(message: string, kind: 'success' | 'error') => unknown} options.showToast
+ * @param {ShowLinkPopup} [options.showLinkPopup]
  */
 export function mountRichToolbar({ state, showToast, showLinkPopup }) {
+  editorState = state;
+  void showToast;
   showLinkPopupFn = showLinkPopup || null;
   document.addEventListener('selectionchange', onSelectionChange);
 }

@@ -32,6 +32,15 @@
 }
 .caret-image-help.is-error { color: var(--studio-red); }
 
+.studio-btn-danger-confirm,
+.studio-btn-danger-confirm:hover {
+  background: #991b1b;
+  background: color-mix(in srgb, var(--studio-red) 35%, #000);
+  border-color: #991b1b;
+  border-color: color-mix(in srgb, var(--studio-red) 35%, #000);
+  color: #fff;
+}
+
 .caret-nested {
   padding-left: 1rem;
   border-left: 1px solid var(--studio-border);

@@ -86,9 +86,10 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && npm run typecheck:browser",
     "clean": "rm -rf dist",
-    "prepublishOnly": "node scripts/check-version.mjs && npm run clean && npm run build"
+    "prepublishOnly": "node scripts/check-version.mjs && npm run clean && npm run build",
+    "typecheck:browser": "tsc -p tsconfig.browser.json"
   },
   "publishConfig": {
     "access": "public"

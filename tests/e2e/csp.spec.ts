@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { test, expect } from "@playwright/test";
 import { blurToSave, loginAsEditor, replaceText, resetCmsStorage } from "./helpers";
 
@@ -62,4 +63,58 @@ test.describe("inline editor — strict CSP", () => {
     );
     expect(violations).toEqual([]);
   });
+});
+
+
+test("Studio modules load and save under a script CSP with hashes", async ({ page }) => {
+  resetCmsStorage();
+  await loginAsEditor(page);
+  const seeded = await page.request.post("/api/cms/mutate", {
+    headers: { "x-caret-request": "1" },
+    data: { type: "put_entry", collection: "studio-fixture", id: "module-entry", data: {
+      title: "Module entry", summary: "First\nSecond\n", website: "", published: false, details: [], images: [],
+    } },
+  });
+  expect(seeded.ok()).toBe(true);
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.addInitScript(() => {
+    document.addEventListener("securitypolicyviolation", event => {
+      document.documentElement.setAttribute("data-csp-violation", event.violatedDirective);
+    });
+  });
+  // Studio is an HTML API route. Apply a test policy to its actual server HTML,
+  // hashing the existing inline shell scripts and allowing same-origin modules.
+  await page.route("**/admin/cms/studio-fixture/module-entry", async route => {
+    const response = await route.fetch();
+    const html = await response.text();
+    const hashes = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)]
+      .map(match => "'sha256-" + createHash("sha256").update(match[1]).digest("base64") + "'");
+    await route.fulfill({ response, headers: { ...response.headers(), "content-security-policy": "script-src 'self' " + hashes.join(" ") } });
+  });
+  const modules = new Set<string>();
+  page.on("response", response => {
+    if (response.ok() && response.url().includes("/__caret/studio/")) modules.add(new URL(response.url()).pathname);
+  });
+  await page.goto("/admin/cms/studio-fixture/module-entry");
+  await expect(page.getByRole("textbox", { name: /^Summary/ })).toHaveValue("First\nSecond\n");
+  await page.getByRole("textbox", { name: /^Title/ }).fill("Saved through Studio modules");
+  page.once("dialog", dialog => dialog.accept());
+  const saved = page.waitForResponse(response => response.url().includes("/api/cms/mutate") && response.request().method() === "POST");
+  await page.locator("#btn-save").click();
+  expect((await saved).ok()).toBe(true);
+  await page.reload();
+  await expect(page.getByRole("textbox", { name: /^Title/ })).toHaveValue("Saved through Studio modules");
+  await expect(page.getByRole("textbox", { name: /^Summary/ })).toHaveValue("First\nSecond\n");
+  expect(modules).toEqual(new Set([
+    "/__caret/studio/entry-loader.js",
+    "/__caret/studio/field-model.js",
+    "/__caret/studio/fields.js",
+    "/__caret/studio/history-client.js",
+    "/__caret/studio/mutation-client.js",
+    "/__caret/studio/sync-client.js",
+    "/__caret/studio/upload-client.js",
+  ]));
+  await expect(page.locator("html")).not.toHaveAttribute("data-csp-violation");
+  expect(errors).toEqual([]);
 });

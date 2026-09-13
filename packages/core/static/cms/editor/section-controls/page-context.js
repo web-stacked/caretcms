@@ -1,3 +1,11 @@
+/** @typedef {{ collection: string, id: string }} PageContext */
+/** @typedef {{ collection: string | null, id: string | null, field: string }} ParsedCaretBinding */
+
+/**
+ * @param {(value: string) => ParsedCaretBinding | null} parseCaretAttr
+ * @param {Element[]} sectionNodes
+ * @returns {PageContext | null}
+ */
 export function getPageContext(parseCaretAttr, sectionNodes) {
   for (const sectionNode of sectionNodes) {
     if (!(sectionNode instanceof Element)) continue;
@@ -19,6 +27,7 @@ export function getPageContext(parseCaretAttr, sectionNodes) {
     const parsed = parseCaretAttr(attr);
     if (!parsed) continue;
     if (parsed.collection !== 'pages') continue;
+    if (!parsed.id) continue;
 
     return {
       collection: parsed.collection,

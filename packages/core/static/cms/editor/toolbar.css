@@ -357,3 +357,8 @@ body:has(.cms-toolbar) #back-to-top {
     transform: translateY(0);
   }
 }
+
+/* Leave the Astro development dock usable when it opens or receives focus. */
+body:has(astro-dev-toolbar) .cms-toolbar {
+  bottom: 72px;
+}

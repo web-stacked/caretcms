@@ -1,15 +1,24 @@
 import { CLOUD, getCloudSessionToken, isCloudMode } from './config.js';
 
+/**
+ * @param {string} action
+ * @returns {Promise<string | null>}
+ */
 async function getTurnstileToken(action) {
-  if (typeof window.cmsGetTurnstileToken !== 'function') return null;
+  const getToken = /** @type {Window & { cmsGetTurnstileToken?: (action: string) => unknown }} */ (
+    window
+  ).cmsGetTurnstileToken;
+  if (typeof getToken !== 'function') return null;
   try {
-    return await window.cmsGetTurnstileToken(action);
+    const token = await getToken(action);
+    return typeof token === 'string' && token.trim() ? token.trim() : null;
   } catch {
     return null;
   }
 }
 
 export async function mutateHeaders() {
+  /** @type {Record<string, string>} */
   const headers = { 'Content-Type': 'application/json', 'x-caret-request': '1' };
   if (isCloudMode()) {
     if (CLOUD?.publicToken) headers['x-caret-token'] = CLOUD.publicToken;
@@ -24,6 +33,7 @@ export async function mutateHeaders() {
 }
 
 export function readHeaders() {
+  /** @type {Record<string, string>} */
   const headers = {};
   if (isCloudMode()) {
     if (CLOUD?.publicToken) headers['x-caret-token'] = CLOUD.publicToken;
@@ -34,6 +44,7 @@ export function readHeaders() {
 }
 
 export async function uploadHeaders() {
+  /** @type {Record<string, string>} */
   const headers = { 'x-caret-request': '1' };
   if (isCloudMode()) {
     if (CLOUD?.publicToken) headers['x-caret-token'] = CLOUD.publicToken;

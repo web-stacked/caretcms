@@ -1,5 +1,16 @@
 import { reorderByDrag } from './model.js';
 
+/** @typedef {import('./model.js').Section} Section */
+
+/**
+ * @param {{
+ *   controls: HTMLElement,
+ *   sectionId: string,
+ *   sectionNode: HTMLElement,
+ *   setDragSourceId: (sectionId: string | null) => void,
+ *   clearDropIndicators: () => void,
+ * }} options
+ */
 export function bindDragSourceHandlers({
   controls,
   sectionId,
@@ -29,6 +40,18 @@ export function bindDragSourceHandlers({
   });
 }
 
+/**
+ * @param {{
+ *   sectionNode: HTMLElement,
+ *   sectionId: string,
+ *   isBusy: () => boolean,
+ *   getDragSourceId: () => string | null,
+ *   getSections: () => Section[],
+ *   setSections: (sections: Section[]) => void,
+ *   clearDropIndicators: () => void,
+ *   onReordered: () => void,
+ * }} options
+ */
 export function bindDropTargetHandlers({
   sectionNode,
   sectionId,

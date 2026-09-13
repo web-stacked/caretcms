@@ -10,6 +10,19 @@ import { defineToolbarApp } from "astro/toolbar";
 // keeps working in `output: 'static'` projects where /__caret/ is not served.
 // If helpers.js changes, keep these two in sync.
 
+/**
+ * @typedef {{ collection: string | null, id: string | null, field: string }} ParsedBinding
+ * @typedef {{ collection: string, id: string, field: string }} ResolvedBinding
+ * @typedef {"text" | "image" | "rich"} BindingKind
+ * @typedef {{ el: Element, index: number, collection: string, id: string, field: string, key: string, kind: BindingKind }} PageBinding
+ * @typedef {{ el: Element, attr: string, kind: BindingKind, index: number }} OrphanBinding
+ * @typedef {{ bindings: PageBinding[], orphans: OrphanBinding[], duplicates: PageBinding[], stega: boolean, total: number }} BindingScan
+ */
+
+/**
+ * @param {string} attr
+ * @returns {ParsedBinding | null}
+ */
 function parseCaretAttr(attr) {
   const parts = attr.split("::");
   if (parts.length === 3) return { collection: parts[0], id: parts[1], field: parts[2] };
@@ -17,11 +30,18 @@ function parseCaretAttr(attr) {
   return null;
 }
 
+/**
+ * @param {Element} el
+ * @param {ParsedBinding | null} parsed
+ * @returns {ResolvedBinding | null}
+ */
 function resolveBinding(el, parsed) {
   if (!parsed) return null;
   // Explicit null check, not truthiness — mirrors helpers.js; see the parity
   // test (tests/unit/caret-parser-parity.test.ts).
-  if (parsed.collection !== null && parsed.id !== null) return parsed;
+  if (parsed.collection !== null && parsed.id !== null) {
+    return { collection: parsed.collection, id: parsed.id, field: parsed.field };
+  }
   let node = el.parentElement;
   while (node) {
     const scope = node.getAttribute("data-caret-scope");
@@ -35,13 +55,21 @@ function resolveBinding(el, parsed) {
 }
 
 function devConfig() {
-  const c = (typeof window !== "undefined" && window.__CARET_DEV__) || {};
+  const c =
+    (typeof window !== "undefined" &&
+      /** @type {Window & { __CARET_DEV__?: { mountPath?: unknown, apiBasePath?: unknown } }} */ (window)
+        .__CARET_DEV__) ||
+    {};
   return {
     mountPath: typeof c.mountPath === "string" ? c.mountPath : "/admin",
     apiBasePath: typeof c.apiBasePath === "string" ? c.apiBasePath : "/api/cms",
   };
 }
 
+/**
+ * @param {Element} el
+ * @returns {BindingKind}
+ */
 function classify(el) {
   if (el.tagName.toLowerCase() === "img") return "image";
   if (el.hasAttribute("data-caret-rich")) return "rich";
@@ -50,9 +78,12 @@ function classify(el) {
 
 // Walk the page and resolve every data-caret element to a full key, splitting
 // out orphans (field-only attrs with no resolvable scope) and duplicate keys.
+/** @returns {BindingScan} */
 function scanBindings() {
   const els = Array.from(document.querySelectorAll("[data-caret]"));
+  /** @type {PageBinding[]} */
   const bindings = [];
+  /** @type {OrphanBinding[]} */
   const orphans = [];
 
   els.forEach((el, i) => {
@@ -75,9 +106,10 @@ function scanBindings() {
     });
   });
 
+  /** @type {Map<string, number>} */
   const counts = new Map();
   bindings.forEach((b) => counts.set(b.key, (counts.get(b.key) || 0) + 1));
-  const duplicates = bindings.filter((b) => counts.get(b.key) > 1);
+  const duplicates = bindings.filter((b) => (counts.get(b.key) ?? 0) > 1);
 
   // Stega-encoded bindings (live-loader content) only become real data-caret
   // attributes after the editor's stega-hydrate.js runs, which needs auth — so
@@ -93,6 +125,7 @@ function scanBindings() {
 // be told apart when both are active at once.
 const HIGHLIGHT_STYLE_ID = "__caret-devtoolbar-highlight__";
 
+/** @param {boolean} active */
 function applyHighlight(active) {
   const existing = document.getElementById(HIGHLIGHT_STYLE_ID);
   if (existing) existing.remove();
@@ -107,22 +140,43 @@ function applyHighlight(active) {
   document.head.appendChild(style);
 }
 
+/**
+ * Repeated jumps share the first inline style snapshot so overlapping timers
+ * cannot restore a temporary outline and leave it stuck on the page.
+ * @type {WeakMap<HTMLElement | SVGElement, { outline: string, outlineOffset: string, timer: number }>}
+ */
+const scrollFlashes = new WeakMap();
+
+/** @param {Element} el */
 function scrollTo(el) {
   el.scrollIntoView({ behavior: "smooth", block: "center" });
-  const prev = el.style.outline;
-  const prevOffset = el.style.outlineOffset;
+  if (!(el instanceof HTMLElement || el instanceof SVGElement)) return;
+
+  const active = scrollFlashes.get(el);
+  if (active) window.clearTimeout(active.timer);
+  const outline = active?.outline ?? el.style.outline;
+  const outlineOffset = active?.outlineOffset ?? el.style.outlineOffset;
   el.style.outline = "3px solid #6366f1";
   el.style.outlineOffset = "3px";
-  setTimeout(() => {
-    el.style.outline = prev;
-    el.style.outlineOffset = prevOffset;
+  const timer = window.setTimeout(() => {
+    const current = scrollFlashes.get(el);
+    if (!current || current.timer !== timer) return;
+    el.style.outline = current.outline;
+    el.style.outlineOffset = current.outlineOffset;
+    scrollFlashes.delete(el);
   }, 1500);
+  scrollFlashes.set(el, { outline, outlineOffset, timer });
 }
 
+/** @type {Record<BindingKind, string>} */
 const KIND_LABEL = { text: "text", image: "image", rich: "rich" };
 
+/** @type {Record<string, string>} */
+const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
+
+/** @param {string} s */
 function esc(s) {
-  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  return s.replace(/[&<>"]/g, (c) => HTML_ESCAPES[c] ?? c);
 }
 
 const PANEL_CSS = `
@@ -169,19 +223,22 @@ export default defineToolbarApp({
     canvas.appendChild(win);
 
     let highlightOn = false;
+    /** @type {BindingScan} */
     let scan = { bindings: [], orphans: [], duplicates: [], stega: false, total: 0 };
 
     function render() {
       scan = scanBindings();
       const { mountPath } = devConfig();
-      const { bindings, orphans, duplicates, stega, total } = scan;
+      const { bindings, orphans, duplicates, stega } = scan;
 
       // Group bindings by collection::id, preserving first-seen order.
+      /** @type {Map<string, PageBinding[]>} */
       const groups = new Map();
       for (const b of bindings) {
         const gk = `${b.collection}::${b.id}`;
-        if (!groups.has(gk)) groups.set(gk, []);
-        groups.get(gk).push(b);
+        const rows = groups.get(gk);
+        if (rows) rows.push(b);
+        else groups.set(gk, [b]);
       }
 
       const dupKeys = new Set(duplicates.map((d) => d.key));
@@ -192,8 +249,8 @@ export default defineToolbarApp({
           <span class="count">${bindings.length} on page${orphans.length ? ` · ${orphans.length} orphan${orphans.length > 1 ? "s" : ""}` : ""}</span>
         </div>
         <div class="actions">
-          <button class="btn ${highlightOn ? "on" : ""}" data-action="highlight">${highlightOn ? "Hide" : "Highlight"} all</button>
-          <button class="btn" data-action="rescan">Rescan</button>
+          <button type="button" class="btn ${highlightOn ? "on" : ""}" data-action="highlight" aria-pressed="${highlightOn}">${highlightOn ? "Hide" : "Highlight"} all</button>
+          <button type="button" class="btn" data-action="rescan">Rescan</button>
         </div>
         <div class="scroll">`;
 
@@ -209,7 +266,7 @@ export default defineToolbarApp({
       }
 
       if (!bindings.length && !orphans.length) {
-        html += `<div class="empty">No <code>data-caret</code> bindings found on this page.${total ? "" : ""}</div>`;
+        html += `<div class="empty">No <code>data-caret</code> bindings found on this page.</div>`;
       }
 
       for (const [gk, rows] of groups) {
@@ -221,7 +278,7 @@ export default defineToolbarApp({
           html += `<div class="row">
             <span class="field ${dupKeys.has(b.key) ? "dup" : ""}">${esc(b.field)}</span>
             <span class="kind ${b.kind}">${KIND_LABEL[b.kind]}</span>
-            <button class="jump" data-action="scroll" data-index="${b.index}">scroll to</button>
+            <button type="button" class="jump" data-action="scroll" data-index="${b.index}">scroll to</button>
           </div>`;
         }
         html += `</div>`;
@@ -229,23 +286,27 @@ export default defineToolbarApp({
 
       html += `</div>`;
       wrap.innerHTML = html;
+      const probs = scan.orphans.length + scan.duplicates.length;
+      app.toggleNotification({ state: probs > 0, level: "warning" });
     }
 
+    /** @param {string | null} index */
     function elementByIndex(index) {
       const b = scan.bindings.find((x) => x.index === Number(index));
       return b ? b.el : null;
     }
 
     wrap.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element)) return;
       const target = event.target.closest("[data-action]");
       if (!target) return;
       const action = target.getAttribute("data-action");
       if (action === "highlight") {
         highlightOn = !highlightOn;
         applyHighlight(highlightOn);
-        app.toggleState({ state: highlightOn });
         target.textContent = `${highlightOn ? "Hide" : "Highlight"} all`;
         target.classList.toggle("on", highlightOn);
+        target.setAttribute("aria-pressed", String(highlightOn));
       } else if (action === "rescan") {
         render();
       } else if (action === "scroll") {
@@ -258,8 +319,6 @@ export default defineToolbarApp({
     app.onToggled(({ state }) => {
       if (!state) return;
       render();
-      const probs = scan.orphans.length + scan.duplicates.length;
-      app.toggleNotification({ state: probs > 0, level: "warning" });
     });
   },
 });
