@@ -133,7 +133,7 @@ const ITERATOR_RE = /(?:([A-Za-z_$][\w$]*)\s*)?\.\s*(map|filter|forEach|flatMap|
 // save, so promoting it would not round-trip. Held in lockstep by
 // tests/unit/contracts-parity.test.ts.
 export const RICH_INLINE_TAGS = new Set([
-  "b", "strong", "i", "em", "u", "s", "a", "br", "sub", "sup", "span",
+  "b", "strong", "i", "em", "u", "s", "a", "br", "sub", "sup", "span", "code",
 ]);
 
 // Attributes the sanitizer keeps. Everything else (notably `class`) is stripped

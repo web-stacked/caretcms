@@ -236,8 +236,8 @@ describe("detect — real withastro fixtures", () => {
     expect(h1).toBeDefined();
     expect(h1!.text).toContain("Hello, Astronaut!"); // emoji present, multibyte
 
-    // The intro <p> wraps an <a>, so it is mixed-children → skipped.
-    expect(r.skipped.some((s) => s.tag === "p" && s.reason === "mixed-children")).toBe(true);
+    // Links and inline code are safe rich content; without --rich they stay unbound.
+    expect(r.skipped.some((s) => s.tag === "p" && s.reason === "rich-eligible")).toBe(true);
 
     // BaseHead / Header / Footer are components → never candidates.
     for (const c of r.candidates) expect(c.node.type).toBe("element");
