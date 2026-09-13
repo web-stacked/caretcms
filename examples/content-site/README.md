@@ -1,8 +1,8 @@
 # Content Site Example — Atlas & Co.
 
-A robust, multi-page editorial site that exercises the **full CaretCMS surface**
-on the Node adapter. Everything you see is a real `.md` file under
-`src/content/`, edited in place and written straight back to disk.
+A multi-page editorial site that exercises CaretCMS on the Node adapter. Its
+content is stored in `.md` files under `src/content/`, where published edits are
+written back to disk.
 
 ## What it demonstrates
 
@@ -17,6 +17,7 @@ on the Node adapter. Everything you see is a real `.md` file under
 | **Editable component props** (a child renders the prop as text) | `src/components/PostCard.astro` |
 | **Image uploads** (`<img data-caret>` → `localUploads`) | hero cover, gallery, avatars, post covers |
 | **Per-collection schemas** (Studio field labels/types) | `src/caret.schemas.mjs` |
+| **Collection capabilities** (singleton, create, reorder, delete) | `collections` in `astro.config.mjs` |
 | **`caretize`** (auto-tag the `.astro` that isn't bound yet) | `npm run caretize` |
 
 > **Why Node, not Cloudflare?** `markdownStorage` needs a filesystem, so the
@@ -28,7 +29,8 @@ on the Node adapter. Everything you see is a real `.md` file under
 - **`blog`** is a normal **Astro content collection** (glob loader + Zod schema).
   Its markdown *body* renders via `render()`; its *frontmatter* (title, excerpt,
   …) is caret-editable because the same files back `markdownStorage`. Edit a
-  title inline → it's written to the post's frontmatter → Astro re-renders.
+  title inline → it's written to the post's frontmatter. In development Astro
+  refreshes the collection; a production build needs to run again.
 - **`site` / `pages` / `gallery` / `team`** are **caret live collections**
   (`caretLoader`). They're queried with `getLiveEntry` / `getLiveCollection` and,
   for an authenticated editor, every string is stega-encoded so it's click-to-edit
@@ -53,7 +55,12 @@ CARET_EDIT_PASSWORD=devpass npm run dev -w @caretcms/example-content-site
 - `/admin` — login (password: `devpass`)
 - `/admin/cms` — the Studio: browse and edit every collection
 
-Sign in, then click any line to edit it. Saves land in `src/content/**.md`.
+Sign in, then click a marked field or supported Markdown block to edit it.
+Published changes land in `src/content/**.md`.
+
+This is a local authoring example. `localUploads()` writes new files to
+`public/uploads/`, and production builds do not serve files uploaded after the
+build. Use R2 or another durable upload handler for a deployed editor.
 
 ## caretize
 

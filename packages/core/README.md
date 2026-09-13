@@ -101,6 +101,11 @@ blockquotes. Bold, emphasis, links, inline code, and line breaks round-trip to
 Markdown. Code blocks, tables, raw HTML blocks, and MDX stay read-only. Nested
 blocks must fit on one source line.
 
+Consecutive top-level paragraphs support Enter to split or insert, Backspace and
+Delete to merge, selection deletion, and browser undo. Paste accepts plain text
+with paragraph breaks. See [paragraph editing](../../docs/markdown-paragraph-editing.md)
+for boundaries, source preservation, preview styling, and browser coverage.
+
 Each draft records the source range and a hash of the original text. If the file
 changes before publish, Caret returns a conflict and leaves both the file and the
 draft untouched. Set `bodyEditing: false` in `caret()` to disable this feature.
@@ -148,6 +153,11 @@ production stays locked). To set a permanent one, add `CARET_EDIT_PASSWORD=<your
 
 Log in at `/admin`, then click any tagged element on the page to edit it. The content Studio
 lives at `/admin/cms`.
+
+For editable content inside a link, a normal click edits while Command-click
+(macOS) or Ctrl-click (Windows/Linux) opens the destination in a new tab. The
+editor also shows a collision-aware Open action on hover or keyboard focus;
+linked images keep separate Replace image and Open link actions.
 
 The inline editor only bootstraps on pages that contain `data-caret` or `data-caret-md` bindings and only after
 `GET /api/cms/auth/session` confirms an authenticated editor session. Session cookies are issued
@@ -200,6 +210,65 @@ Inline editing (`data-caret`) and live collections read from the same storage ad
 
 - `data-caret` for visual, in-place editing of rendered pages
 - `getLiveEntry` / `getLiveCollection` for programmatic data access in frontmatter
+
+Authenticated live-loader responses hide binding metadata inside string values.
+Rendered text uses that metadata for automatic click-to-edit. Strip it before a
+value enters an HTML attribute that is not itself editable, such as `href`,
+`src`, `alt`, `<title>`, or a meta description:
+
+```astro
+---
+import { stegaClean } from '@caretcms/core';
+const href = stegaClean(home?.data.ctaHref ?? '/');
+---
+<a href={href}>{home?.data.ctaLabel}</a>
+```
+
+### Preview routes and managed publication
+
+Collection metadata can connect Studio entries to their actual site routes and
+make publication a reversible visibility state:
+
+```js
+caret({
+  collections: {
+    pages: {
+      previewPath: { home: '/', about: '/about' },
+      publication: { field: 'published' },
+    },
+    posts: {
+      previewPath: '/blog/{id}',
+      publication: { field: 'published' },
+    },
+  },
+})
+```
+
+Selecting a Studio field first uses the current page when that binding is
+present. Otherwise Caret navigates the preview to `previewPath`, then scrolls to
+and highlights the field. Preview paths must be same-origin absolute paths.
+
+For a collection with `publication`, public `caretLoader`, `loadEntry`, and
+`loadCollection` reads include only entries whose configured field is exactly
+`true`. Authenticated editor previews include both published and unpublished
+entries. Turning the field off and saving therefore removes the entry publicly
+without deleting it; it can be turned on again later. The configured field must
+also be a top-level boolean in that collection's explicit schema, so an invalid
+publication setup fails during configuration instead of behaving ambiguously.
+
+Astro's native build-time `getCollection()` does not pass through Caret's
+request-aware loader. Filter those results explicitly:
+
+```astro
+---
+import { getCollection } from 'astro:content';
+import { isPublishedEntry } from '@caretcms/core/runtime';
+
+const posts = (await getCollection('posts')).filter((post) =>
+  isPublishedEntry(post.data),
+);
+---
+```
 
 ## Explicit schemas (optional)
 
@@ -287,6 +356,7 @@ All routes are under `/api/cms` by default (configurable via `apiBasePath`):
 | `/api/cms/mutate` | POST | Save content mutations |
 | `/api/cms/history` | GET | Entry revision history |
 | `/api/cms/upload` | POST | File uploads |
+| `/api/cms/deployment` | GET | Provider-backed status for the editor's latest accepted deployment |
 | `/api/cms/auth/login` | POST | Editor login |
 | `/api/cms/auth/session` | GET | Editor session status |
 | `/api/cms/auth/logout` | POST | Editor logout |
@@ -306,8 +376,9 @@ caret({
   storage: filesystemStorage(), // Storage adapter (default: markdownStorage when
                                 //   src/content collections exist, else filesystem)
   uploads: localUploads(),      // Upload handler (default: local filesystem)
+  deployment: undefined,        // Optional build/deployment status provider
   schemas: {},                  // Optional JSON Schema map for Studio (default: inferred)
-  collections: {},              // Labels, ordering, capabilities, and singletons
+  collections: {},              // Labels, capabilities, preview paths, publication
   locale: 'en',                 // 'en' | 'es'; dictionary overrides are also supported
   bodyEditing: true,            // Inline editing for rendered Markdown prose
 })
@@ -338,7 +409,7 @@ import type { IdentityAdapter } from '@caretcms/core';
 export function identityProvider(options: { loginOrigin: string }): IdentityAdapter {
   return {
     async authenticate(request) {
-      // Verify a trusted session/header and enforce editor authorization here.
+      // Verify a trusted session/header. Return null to deny authentication.
       // Return null to deny access. IDs must match /^[A-Za-z0-9_-]{1,64}$/.
       return { id: 'editor_01', name: 'Alex Rivera', roles: ['editor'] };
     },
@@ -347,6 +418,12 @@ export function identityProvider(options: { loginOrigin: string }): IdentityAdap
     },
     logoutUrl({ redirectTo }) {
       return `${options.loginOrigin}/logout?returnTo=${encodeURIComponent(redirectTo)}`;
+    },
+    async authorize({ identity, action, collection }) {
+      if (identity.roles?.includes('admin')) return true;
+      if (action === 'edit') return collection === 'pages';
+      if (action === 'publish') return identity.roles?.includes('reviewer') === true;
+      return false;
     },
   };
 }
@@ -357,6 +434,11 @@ the shared password. Authentication errors and unsafe IDs fail closed. Named
 identity is exposed by `/api/cms/auth/session`, shown in Studio, used as the
 private-preview overlay key, and attached to new history snapshots. Only trust
 identity headers when a proxy strips client-supplied copies and writes its own.
+The optional `authorize` hook controls edit, publish, delete, collection-management,
+and upload writes. When present, all content saves go to per-editor drafts so a
+writer cannot bypass publish permission in server delivery. See the
+[authorization policy](../../docs/authorization-policy.md) for exact action
+semantics, backward-compatible defaults, and review-workflow boundaries.
 
 ## Rendering & output
 
@@ -385,6 +467,7 @@ caret({
     bake: true,
     publish: {
       webhookUrl: 'https://ci.example.com/hooks/rebuild',
+      timeoutMs: 5000, // bounded webhook wait; 1–30000 ms
     },
   },
 })
@@ -394,6 +477,17 @@ Use `delivery: 'static'` when you want the integration to error if Astro output 
 changed away from static.
 
 Full guide: [docs/static-delivery.md](../../docs/static-delivery.md).
+Draft migration, conflicts, interrupted publication, and deployment retries:
+[publish recovery](../../docs/publish-recovery.md).
+
+The webhook's 2xx response means accepted, not deployed. Configure a
+`DeploymentStatusProvider` to show provider-backed Deploying, Live, and failed
+states; Live requires evidence for the published commit or every target entry
+revision. The bundled `simulatedDeployment()` provider exercises the complete
+local flow. `githubDeployment()` reads exact-correlation build evidence from the
+GitHub Deployments API, including progress, failure, environment URL, commit,
+and published revisions. See
+[deployment completion status](../../docs/deployment-status.md).
 
 ### Server delivery
 
@@ -427,6 +521,10 @@ workflow in [docs/deployment.md](../../docs/deployment.md)):
 public/uploads/
 ```
 
+Multiline literal/folded strings and source-preserving saves are supported by
+Markdown storage. See [frontmatter compatibility](../../docs/markdown-frontmatter.md)
+for supported forms and formatting limits.
+
 ## Production checklist
 
 - `CARET_EDIT_PASSWORD` — the editor password. Without it, production is locked (no dev fallback).
@@ -457,6 +555,13 @@ identity adapter described above.
 - Node 22.12.0+
 - **Static delivery:** default Astro static output (no adapter)
 - **Server delivery:** `output: 'server'` plus an SSR adapter
+
+## Browser development
+
+`npm run typecheck:browser` checks the extracted Studio modules with strict
+JavaScript types. It also runs as part of core type checking and the standard
+check gate. See [browser maintenance](../../docs/browser-maintenance.md) for
+module boundaries, asset delivery, and the remaining incremental work.
 
 ## License
 

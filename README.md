@@ -7,7 +7,8 @@ CaretCMS is a reusable, open-core CMS for Astro:
 - **Inline canvas editing** — text, images, and section layout edited directly on the page
 - **Studio admin** for structured entry editing
 - **Attribute-first binding** — add `data-caret` attributes; no schema rewrite required
-- **Pluggable storage** — filesystem out of the box, Cloudflare KV/R2 adapter included
+- **Pluggable storage** — filesystem out of the box, coordinated Cloudflare Durable Object storage, plus KV/R2 adapters
+- **Verified deployment status** — optional providers connect published revisions to a real build identity and outcome
 
 The CMS ships as `@caretcms/core`, an Astro integration you install into any Astro app.
 
@@ -18,7 +19,7 @@ The CMS ships as `@caretcms/core`, an Astro integration you install into any Ast
 | Package | Description |
 |---------|-------------|
 | [`@caretcms/core`](packages/core) | Platform-neutral core: integration, mutation engine, studio admin, inline editor, `StorageAdapter` interface |
-| [`@caretcms/cloudflare`](packages/cloudflare) | Cloudflare storage + upload adapters (KV/R2) |
+| [`@caretcms/cloudflare`](packages/cloudflare) | Cloudflare storage + upload adapters (Durable Objects, KV, and R2) |
 | [`@caretcms/caretize`](packages/caretize) | CLI that scans an existing Astro site and adds `data-caret` attributes interactively |
 | [`@caretcms/zod`](packages/zod) | Optional Zod → JSON Schema bridge for `caret({ schemas })` |
 

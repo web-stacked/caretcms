@@ -1,20 +1,20 @@
 # @caretcms/cloudflare
 
-Cloudflare-native storage, uploads, and runtime helpers for CaretCMS.
+Cloudflare-native Durable Object/KV storage, uploads, and runtime helpers for CaretCMS.
 
 ## Usage
 
 ```js
 import { defineConfig } from "astro/config";
 import caret from "@caretcms/core";
-import { cloudflareStorage, r2Uploads } from "@caretcms/cloudflare";
+import { cloudflareDurableStorage, r2Uploads } from "@caretcms/cloudflare";
 
 export default defineConfig({
   output: "server",
   integrations: [
     caret({
       mode: "embedded",
-      storage: cloudflareStorage({ binding: "CMS_KV" }),
+      storage: cloudflareDurableStorage({ binding: "CMS_CONTENT" }),
       uploads: r2Uploads({ binding: "CMS_R2" }),
     }),
   ],
@@ -26,6 +26,10 @@ export default defineConfig({
 - `cloudflareStorage()`
 - `cloudflareStorageProvider()`
 - `CloudflareKvStorageAdapter`
+- `cloudflareDurableStorage()`
+- `cloudflareDurableStorageProvider()`
+- `CloudflareDurableStorageAdapter`
+- `CaretCmsContent` from `@caretcms/cloudflare/durable-object`
 - `r2Uploads()`
 - `r2UploadsProvider()`
 - `R2UploadHandler`
@@ -39,6 +43,7 @@ bindings/secrets (`wrangler secret put …` or `[vars]` in `wrangler.toml`):
 
 | Binding | Purpose |
 | --- | --- |
+| `CMS_CONTENT` | Durable Object namespace for coordinated content storage (name configurable via `binding`). |
 | `CMS_KV` | KV namespace for content storage (name configurable via `binding`). |
 | `CMS_R2` | R2 bucket for uploads (name configurable via `binding`). |
 | `R2_PUBLIC_DOMAIN` | Public R2 hostname (for example `assets.example.com` or the bucket's enabled `r2.dev` hostname). Required for uploads unless `publicBaseUrl` is configured explicitly. |
@@ -55,7 +60,18 @@ available; it never returns a relative URL that points at a nonexistent proxy.
 `devServePath` is an explicit escape hatch only for hosts that mount their own
 matching local image route.
 
-## Concurrency: single-writer only
+## Coordinated writes with Durable Objects
+
+Use `cloudflareDurableStorage()` for concurrent editors. It routes a site's
+validated writes through one SQLite-backed Durable Object and implements core's
+atomic compare-and-commit contract. Entry data, revisions, history, and collection
+indexes change together; stale revisions and stale reorder batches change nothing.
+
+Cloudflare setup requires a custom Worker entrypoint that re-exports
+`CaretCmsContent`, a Durable Object binding, and a SQLite class lifecycle
+declaration. See [coordinated Cloudflare storage](../../docs/cloudflare-durable-storage.md).
+
+## KV concurrency: single-writer only
 
 > **Important.** The KV adapter provides best-effort optimistic concurrency, but
 > it **cannot guarantee** conflict detection across concurrent writers.
@@ -65,8 +81,8 @@ revision counter. On Workers that lock is per-isolate (isolates are numerous and
 ephemeral), and KV has no compare-and-swap and is eventually consistent. So two
 editors saving the same entry — or two saves to different entries in the same
 collection — can read the same revision/index, both pass the check, and the
-later write silently wins (a lost update). A durable fix would require Durable
-Objects (a compare-and-swap coordinator), which this adapter does not use.
+later write silently wins (a lost update). The separate Durable Object adapter
+addresses this; the KV adapter deliberately retains its existing behavior.
 
 **Guidance:** treat KV-backed deployments as **single-writer** (one editor at a
 time, or the demo/preview overlay which is per-session and isolated). Don't run

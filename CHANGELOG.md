@@ -8,10 +8,138 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+### Changed
+
+- Studio deletion now opens a named modal dialog, focuses the safe Cancel action,
+  contains keyboard traversal, restores the invoking control when dismissed,
+  and consumes Escape before an embedded Studio drawer can close. Its heading
+  order and destructive-action contrast pass an open-dialog axe scan.
+- Studio history now exposes a named disclosure region with expanded state,
+  moves focus into and back out of the panel, and contains Escape inside an
+  embedded Studio drawer. The open region passes axe.
+- Studio entry creation now opens a named modal dialog, retains keyboard focus
+  within its controls, restores the invoking create button when dismissed, and
+  consumes Escape before an embedded Studio drawer can close. The open dialog
+  passes axe.
+- Collection reordering now exposes a named disclosure region and native Move
+  up and Move down controls alongside drag-and-drop. Entry, row movement,
+  cancellation, saving, and embedded Escape preserve keyboard focus and mode
+  state, the open region passes axe, and independently disabled creation no
+  longer crashes ordering.
+- Studio home collection cards now show the complete pagination total instead
+  of truncating counts to the first 24-entry page.
+- Creating an entry with an ID that exists on another collection page now keeps
+  the dialog open, shows the localized duplicate-ID conflict, disables Create,
+  and returns focus to the selected ID instead of reporting a generic failure.
+- Studio field rendering, schema helpers, toolbar deployment polling, publish
+  outcome presentation, draft HTTP operations, and preview-cookie transitions are separate browser modules
+  with strict JavaScript type checks included in core type checking and CI.
+  Assets retain their existing package and `/__caret/` delivery paths.
+- Studio nested field reads and writes now share the strictly checked field
+  model, including creation of missing object and array path segments.
+- Studio save and delete requests now use a strictly checked mutation client;
+  revision-conflict guidance remains visible while the edited form is retained
+  for a safe retry.
+- Studio history loading and restoration now use a strictly checked client with
+  normalized history rows and curated authentication and failure outcomes.
+- Studio image preparation and uploads now use a strictly checked client for
+  MIME filtering, resizing, dimension normalization, multipart requests, and
+  curated authentication and response failures.
+- Studio entry and schema loading now use a strictly checked client for parallel
+  requests, missing/new initialization, revisions, validation issues,
+  publication metadata, and curated source-read failures.
+- Studio preview and field-selection synchronization now use a strictly checked
+  controller for embedded messages, cross-tab channels, origin filtering,
+  debounced previews, and lifecycle cleanup.
+- The complete Studio entry orchestrator is now covered by strict browser
+  JavaScript checks, with explicit guards for dynamic config, DOM, collection,
+  file, schema-template, entry, and restored-history values.
+- The complete inline toolbar and its configuration/highlight dependencies are
+  now strictly checked, including injected configuration normalization, cloud
+  URL/session handling, status callbacks, and optional draft/deployment controls.
+- Page-side Studio synchronization and its binding/sanitizer dependencies are
+  now strictly checked. Iframe, cross-tab, and persisted selection messages are
+  validated before selector, navigation, or DOM use.
+- Inline text editing, link interactions, and linkification are now strictly
+  checked. Applying a rich-text link exits safely if the browser selection is
+  no longer available after opening the link popover.
+- Inline image editing, compression/carousel utilities, and request-security
+  helpers are now strictly checked. Malformed upload responses are rejected,
+  and a missing canvas context falls back to uploading the original image.
+- The floating rich-text toolbar is now strictly checked. Link popovers retain
+  their editable field across focus changes and update the live anchor after DOM
+  normalization, including when formatting Markdown blocks.
+- Markdown block editing, paragraph grouping, and browser serialization are now
+  strictly checked. Malformed paragraph-source metadata leaves the affected
+  group read-only instead of crashing editor boot or entering a mutation.
+- The inline save queue is now strictly checked. Malformed mutation response
+  JSON no longer turns a committed save into a reported failure or suppresses
+  revision-conflict recovery; malformed entry snapshots fail safely.
+- The content map is now strictly checked. Duplicate binding rows target their
+  exact page elements, malformed entry data and stale refreshes fail safely,
+  and the map uses keyboard-accessible rows and named panel controls.
+- Section and layout controls are now strictly checked. Layout saves preserve
+  collection context, malformed responses and duplicate IDs fail safely,
+  picker focus is managed, and control overlays no longer block editable text.
+- The complete inline editor entry graph is now strictly checked. Studio panel
+  state tolerates blocked session storage and iframe Escape, keyboard-focused
+  link affordances remain visible, async toast actions are contained, and stega
+  hydration promotes only valid complete bindings.
+- The development-toolbar app is now strictly checked. Highlight toggles no
+  longer close the inspector, repeated scroll flashes restore the original
+  inline style, controls expose their pressed state, and rescans keep warning
+  notifications current.
+
+### Added
+
+- Deployment status providers can associate an accepted rebuild request with a
+  provider build ID and report deploying, failed, or live. Live status is shown
+  only when provider evidence covers the published commit or entry revisions;
+  a deterministic simulated provider supports local and browser testing. The
+  GitHub Deployments provider resolves an exact Caret correlation ID, maps real
+  deployment statuses, reads runtime tokens without serializing them into the
+  provider configuration, and returns only provider-supplied build links.
+- Cloudflare deployments can use a SQLite-backed Durable Object storage adapter
+  with atomic revision, entry, history, index, and multi-entry reorder commits.
+  The existing KV adapter remains available with its single-writer limit.
+- Authoritative identity adapters can define a fail-closed write policy for
+  editing, publishing, deleting, collection management, and uploads. Policy
+  mode stores content changes in isolated per-editor drafts and preflights an
+  entire bulk publication before applying it.
+- Top-level Markdown paragraph regions support splitting, insertion, merging,
+  deletion, undo, and plain-text paste. Drafts retain source conflict checks and
+  support preview reload, publication, and history restore.
+- Markdown frontmatter supports literal and folded multiline strings, including
+  chomping and indentation indicators. Studio renders multiline values as textareas.
+- Markdown saves and draft publication preserve untouched top-level frontmatter
+  blocks and body bytes; changed fields use canonical serialization. See
+  [frontmatter compatibility](docs/markdown-frontmatter.md) for limits.
+
 ### Fixed
+
+- Markdown network-save failures retain unsaved edits for retry. Inline code
+  survives sanitization; core, browser, and caretize allowlists remain aligned.
+- Static structured drafts retain their original base and reject stale publications
+  instead of overwriting newer edits. Legacy structured drafts require reapplication.
+- Interrupted publishing retains a recovery plan; retries finish content, revision,
+  history, and cleanup without repeating completed steps. Bulk results distinguish
+  completed, conflicted, and recovery-required entries.
+- Studio paginates collections and searches IDs and displayed titles across pages.
+  Reordering is disabled when the complete collection is not loaded.
+- Rebuild hooks have a bounded timeout and an editor-specific manual deployment
+  retry that survives draft cleanup on supported adapters.
+- Studio distinguishes missing entries from unsupported frontmatter, invalid
+  content, and storage failures, with per-entry diagnostics and Retry.
+- Caret's toolbar reserves space above Astro's development toolbar.
 
 - `bodyEditing` is recognized by the unknown-option guard, so disabling Markdown
   prose editing no longer emits a false warning that the option was ignored.
+- Studio history restore now returns the restored entry to the browser, records
+  the replaced state for undo, and restores Markdown source byte-for-byte without
+  reserializing its frontmatter.
+
+See [draft and publish recovery](docs/publish-recovery.md) for migration, storage
+requirements, and deployment retry limitations.
 
 ## [0.3.0] - 2026-08-20
 

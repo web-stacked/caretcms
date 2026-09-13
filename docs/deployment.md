@@ -18,17 +18,17 @@ delivery, and server output resolves to server delivery.
 
 ## The matrix
 
-| | **Filesystem + git** (editorial) | **Cloudflare KV/R2** (edge / high-write) |
+| | **Filesystem + git** (editorial) | **Cloudflare Durable Objects/R2** (coordinated edge) |
 |---|---|---|
-| Adapter | `markdownStorage` / `filesystemStorage` | `cloudflareStorage` + `r2Uploads` |
-| Content lives in | the repo (`src/content/*.md`, `.caret/data`) | KV namespace + R2 bucket |
-| Static delivery | ✅ bake at build from same storage | ✅ bake at build from KV |
+| Adapter | `markdownStorage` / `filesystemStorage` | `cloudflareDurableStorage` + `r2Uploads` |
+| Content lives in | the repo (`src/content/*.md`, `.caret/data`) | Durable Object + R2 bucket |
+| Static delivery | ✅ bake at build from same storage | ✅ bake at build from the object |
 | Also powers `getCollection()` | ✅ same `.md` files (markdown adapter) | — |
 | History / audit | **git** (commit-on-publish) + sidecar | sidecar revisions only |
-| Drafts overlay | `.caret/drafts/<editorId>/` (JSON) | `draft/<editorId>/` KV prefix |
-| Demo sandbox overlay | — | `session/<id>/` KV prefix, 2h TTL |
+| Drafts overlay | `.caret/drafts/<editorId>/` (JSON) | separate per-editor objects |
+| Demo sandbox overlay | — | separate session object, 2h alarm |
 | Hosting | static CDN, or Node if using server delivery | Cloudflare Workers — no CMS to run |
-| Best for | docs sites, blogs, marketing — content reviewed like code | apps with frequent, programmatic, or high-volume writes |
+| Best for | docs sites, blogs, marketing — content reviewed like code | concurrent web editorial workflows |
 | Gives up | needs a writable disk; single-writer (embedded) | no git history of content edits |
 
 ## Filesystem + git (the "repo is the CMS" path)
@@ -52,7 +52,23 @@ caret({
 - **Drafts** land under `.caret/drafts/<editorId>/` — add `.caret/` to `.gitignore`
   so unpublished drafts never get committed; only a Publish writes to tracked files.
 
-## Cloudflare KV/R2 (edge path)
+## Cloudflare Durable Objects/R2 (coordinated edge path)
+
+```js
+caret({
+  storage: cloudflareDurableStorage({ binding: "CMS_CONTENT", instanceName: "production" }),
+  uploads: r2Uploads({ binding: "CMS_R2" }),
+})
+```
+
+- Content, revisions, history, and indexes live in a SQLite-backed Durable Object.
+- Concurrent saves use atomic revision checks; a reorder batch commits as one unit.
+- Configure the custom Worker entrypoint, `CMS_CONTENT` binding, and class lifecycle
+  described in [coordinated Cloudflare storage](cloudflare-durable-storage.md).
+- Verify the deployed binding and concurrent behavior before advertising a
+  production multi-editor guarantee.
+
+## Cloudflare KV/R2 (legacy single-writer edge path)
 
 ```js
 caret({
@@ -70,7 +86,7 @@ caret({
   consistent, so the revision-based conflict check is best-effort: concurrent
   editors can lose updates silently. Treat KV deployments as one-editor-at-a-time
   (the per-session/per-editor overlays are isolated and safe). See
-  [`@caretcms/cloudflare` README](../packages/cloudflare/README.md#concurrency-single-writer-only).
+  [`@caretcms/cloudflare` README](../packages/cloudflare/README.md#kv-concurrency-single-writer-only).
 - Set `CARET_SESSION_SECRET` (required in production) and `CARET_EDIT_PASSWORD`
   as Worker secrets — the auth layer reads them from the Worker `env`.
 
@@ -84,11 +100,17 @@ caret({
 | `CARET_DEMO_MODE=true` | per-visitor sandbox overlays (needs an adapter with `makeSessionOverlay`) |
 | `caret_preview` cookie | per-editor **draft preview**: read/write the draft overlay; toggled by the editor toolbar's Preview button |
 | `caret({ delivery: { publish: { webhookUrl }}})` | POST/PUT rebuild hook after publish (static delivery CI) |
+| `caret({ deployment })` | Provider-backed build identity and completion status for authenticated editors |
 
 For a credential rotation, replace `CARET_EDIT_PASSWORD` and
 `CARET_SESSION_SECRET` together and redeploy all instances. Rotating the session
 secret is the forced-sign-out mechanism: every existing editor cookie becomes
 invalid immediately.
+
+The webhook's 2xx acknowledgement is only request acceptance. To show verified
+Deploying, Live, and failed states, configure the separate
+[deployment status provider](deployment-status.md). Live status requires commit
+or entry-revision evidence from the deployed build.
 
 ## Drafts → publish, in one line
 

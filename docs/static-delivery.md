@@ -119,6 +119,10 @@ Typical CI flow:
 3. CI receives the webhook, runs `astro build`, deploys `dist/`.
 4. Bake step reads storage and rewrites HTML.
 
+Add a `deployment` provider when the editor should track the accepted request
+through a real provider build and verify that the published revisions reached
+the live artifact. See [deployment completion status](./deployment-status.md).
+
 The publish still succeeds if the webhook fails — check server logs for webhook errors
 and retry the deploy manually.
 
@@ -129,11 +133,13 @@ Webhook body (JSON):
   "source": "caretcms",
   "event": "publish",
   "published": [{ "collection": "pages", "id": "home", "revision": 3, "deleted": false }],
-  "commit": "abc123..."
+  "commit": "abc123...",
+  "deploymentId": "5df5b238-4df4-46ba-91a8-e347be6b5a3f"
 }
 ```
 
 `commit` is set when `CARET_GIT_ON_PUBLISH=true` and git commit-on-publish succeeds.
+`deploymentId` correlates the request with a deployment status provider.
 
 ## Storage and git
 
@@ -157,6 +163,7 @@ See [deployment.md](./deployment.md) for adapter topology and env vars.
 | `delivery.publish.webhookUrl` | none | Called after successful publish |
 | `delivery.publish.method` | `POST` | `POST` or `PUT` |
 | `delivery.publish.headers` | `{}` | Extra headers for the webhook |
+| `deployment` | none | Runtime provider for build identity and evidence-backed completion status |
 
 Other `caret()` options (`mountPath`, `storage`, `allowedClasses`, …) behave the same
 as server delivery during dev authoring.
