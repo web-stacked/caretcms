@@ -132,11 +132,11 @@ test("edits rendered Markdown, publishes through the toolbar, and renders after 
   await expect(paragraph).toHaveText(EDITED_TEXT);
   expect(readFileSync(POST, "utf8")).toBe(ORIGINAL);
 
-  page.once("dialog", (dialog) => dialog.accept());
   const publishPromise = page.waitForResponse((response) =>
     response.url().includes("/api/cms/publish") && response.request().method() === "POST",
   );
   await page.locator(".cms-publish-btn").click();
+  await page.getByRole("dialog", { name: "Publish drafts?" }).getByRole("button", { name: "Publish", exact: true }).click();
   const publish = await publishPromise;
   expect(publish.ok()).toBeTruthy();
 
@@ -390,7 +390,6 @@ test("renders gallery entries in the order saved by Studio", async ({ page }) =>
 
 
 test("recovers a Markdown publish after history storage fails", async ({ page }) => {
-  page.on("dialog", dialog => dialog.accept());
   await loginAsEditor(page);
   await page.goto("/blog/ship-something-real/");
   const paragraph = page.locator(".post-body [data-caret-md]").first();
@@ -404,6 +403,7 @@ test("recovers a Markdown publish after history storage fails", async ({ page })
   try {
     const pending = page.waitForResponse(response => response.url().includes("/api/cms/publish"));
     await page.locator(".cms-publish-btn").click();
+    await page.getByRole("dialog", { name: "Publish drafts?" }).getByRole("button", { name: "Publish", exact: true }).click();
     const failed = await (await pending).json();
     expect(failed.failed).toEqual([{ collection: "blog", id: "ship-something-real", reason: "storage_error" }]);
     await expect(page.locator(".cms-status-text")).toHaveText("Publish needs recovery");
@@ -438,7 +438,6 @@ test("unsupported YAML remains visible with an actionable error and retry", asyn
 for (const style of ["|", ">"] as const) {
 test(`Studio edits ${style} frontmatter and preserves untouched YAML and body`, async ({ page }) => {
   await loginAsEditor(page);
-  page.on("dialog", dialog => dialog.accept());
   const path = resolve(CONTENT_SITE, "src/content/gallery/multiline-yaml.md");
   const scalar = `caption: ${style}+ # preserve this block\n  Café first line\n  second line\n\n`;
   const body = "\nA **Markdown** body that must stay unchanged.\n";
@@ -451,6 +450,7 @@ test(`Studio edits ${style} frontmatter and preserves untouched YAML and body`, 
     await page.locator('[name="alt"]').fill("Changed alt");
     let pending = page.waitForResponse(isMutatePost);
     await page.locator("#btn-save").click();
+    await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
     expect((await pending).ok()).toBe(true);
     expect(readFileSync(path, "utf8")).toContain(scalar);
     await caption.fill("Edited first line\nEdited second line\n\n");
@@ -539,9 +539,9 @@ test('splits, merges, inserts and deletes paragraphs with undo, then publishes a
   const resaving = page.waitForResponse(isMutatePost);
   await group.evaluate(element => (element as HTMLElement).blur());
   expect((await resaving).ok()).toBe(true);
-  page.once('dialog', dialog => dialog.accept());
   const publishing = page.waitForResponse(response => response.url().includes('/api/cms/publish') && response.request().method() === 'POST');
   await page.locator('.cms-publish-btn').click();
+  await page.getByRole('dialog', { name: 'Publish drafts?' }).getByRole('button', { name: 'Publish', exact: true }).click();
   expect((await publishing).ok()).toBe(true);
   const source = readFileSync(POST, 'utf8');
   expect(source).toContain('Alpha\n\nBeta continued\n\nInserted paragraph.');

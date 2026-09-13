@@ -1,4 +1,4 @@
-import { buildCmsUrl, isPolicyDraftMode } from './config.js';
+import { buildCmsUrl, isPolicyDraftMode, isStaticDelivery } from './config.js';
 import { mutateHeaders, readHeaders } from './security.js';
 
 /** @typedef {{ revision: number, data: Record<string, unknown> }} EntrySnapshot */
@@ -85,6 +85,7 @@ async function fetchEntrySnapshot(collection, id, onUnauthorized) {
  * @returns {(collection: string, id: string, field: string, value: string) => Promise<SaveResult>}
  */
 export function createSaveField({ setStatus, onUnauthorized }) {
+  const savesToDraft = isPolicyDraftMode() || isStaticDelivery();
   /** @type {Promise<unknown>} */
   let saveQueue = Promise.resolve();
   /** @type {Map<string, number>} */
@@ -134,7 +135,7 @@ export function createSaveField({ setStatus, onUnauthorized }) {
    * @returns {Promise<SaveResult>}
    */
   async function execSave(collection, id, field, value) {
-    setStatus('saving', 'Saving...');
+    setStatus('saving', savesToDraft ? 'Saving draft…' : 'Saving live changes…');
     const key = entryKey(collection, id);
 
     try {
@@ -203,8 +204,8 @@ export function createSaveField({ setStatus, onUnauthorized }) {
         revisionByEntry.set(key, nextRevision);
       }
 
-      setStatus('idle', isPolicyDraftMode() ? 'Draft saved' : 'Saved');
-      if (isPolicyDraftMode()) window.dispatchEvent(new CustomEvent('cms:draftSaved'));
+      setStatus('idle', savesToDraft ? 'Draft saved' : 'Changes are live');
+      if (savesToDraft) window.dispatchEvent(new CustomEvent('cms:draftSaved'));
       return { ok: true, revision: nextRevision };
     } catch {
       setStatus('error', 'Save failed');

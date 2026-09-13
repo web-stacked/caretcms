@@ -8,7 +8,7 @@ import { createStudioSync } from './studio/sync-client.js';
 
 /** @typedef {import('../../src/schema-utils.js').JsonSchemaNode} Schema */
 /** @typedef {{ path: string, message: string }} ValidationIssue */
-/** @typedef {{ apiBasePath?: string, mountPath?: string, collection?: string, id?: string, isNew?: boolean, initializeIfMissing?: boolean, saveTarget?: string, previewPath?: string, editable?: boolean, messages?: Record<string, string> }} EntryConfig */
+/** @typedef {{ apiBasePath?: string, mountPath?: string, collection?: string, id?: string, isNew?: boolean, initializeIfMissing?: boolean, saveTarget?: string, previewPath?: string, titleField?: string | null, fallbackTitle?: string | null, publicationField?: string | null, editable?: boolean, messages?: Record<string, string> }} EntryConfig */
 
 /**
  * Studio entry editor — runtime.
@@ -112,6 +112,7 @@ import { createStudioSync } from './studio/sync-client.js';
   var fieldsEl = /** @type {HTMLElement} */ (document.getElementById("fields"));
   var titleEl = /** @type {HTMLElement} */ (document.getElementById("entry-title"));
   var statusEl = /** @type {HTMLElement} */ (document.getElementById("status-msg"));
+  var visibilityEl = /** @type {HTMLElement | null} */ (document.getElementById("visibility-status"));
   var validationWarningEl = /** @type {HTMLElement | null} */ (document.getElementById("validation-warning"));
   var saveBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-save"));
   var deleteBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-delete"));
@@ -123,6 +124,16 @@ import { createStudioSync } from './studio/sync-client.js';
   var deleteNameEl = /** @type {HTMLElement} */ (document.getElementById("delete-entry-name"));
   var deleteCancelBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-delete-cancel"));
   var deleteConfirmBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-delete-confirm"));
+  var confirmDialog = /** @type {HTMLElement} */ (document.getElementById("confirm-dialog"));
+  var confirmTitleEl = /** @type {HTMLElement} */ (document.getElementById("confirm-dialog-title"));
+  var confirmCopyEl = /** @type {HTMLElement} */ (document.getElementById("confirm-dialog-copy"));
+  var confirmCancelBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-confirm-cancel"));
+  var confirmActionBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-confirm-action"));
+  var conflictDialog = /** @type {HTMLElement} */ (document.getElementById("conflict-dialog"));
+  var conflictFieldsEl = /** @type {HTMLElement} */ (document.getElementById("conflict-fields"));
+  var conflictCancelBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-conflict-cancel"));
+  var conflictLatestBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-conflict-latest"));
+  var conflictKeepBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-conflict-keep"));
   /** @type {HTMLElement | null} */
   var deleteRestoreFocus = null;
 
@@ -132,6 +143,29 @@ import { createStudioSync } from './studio/sync-client.js';
     return entryData !== null && JSON.stringify(entryData) !== originalJson;
   }
 
+  /** @param {Record<string, unknown> | null} data */
+  function displayTitle(data) {
+    if (data && CFG.titleField) {
+      var configured = getNestedValue(data, CFG.titleField);
+      if (typeof configured === "string" && configured.trim()) return configured;
+    }
+    var inferred = getTitle(data);
+    return inferred === "Untitled" && CFG.fallbackTitle ? CFG.fallbackTitle : inferred;
+  }
+
+  function updateDisplayedTitle() {
+    var title = displayTitle(entryData);
+    titleEl.textContent = title;
+    document.title = document.title.replace(/^Edit .*?(?= — )/, "Edit " + title);
+  }
+
+  function updateVisibility() {
+    if (!visibilityEl || !entryData || !CFG.publicationField) return;
+    var visible = getNestedValue(entryData, CFG.publicationField) === true;
+    visibilityEl.textContent = visible ? msg("entry.public", "Public") : msg("entry.hidden", "Hidden");
+    visibilityEl.dataset.visible = visible ? "true" : "false";
+  }
+
   /** @param {boolean} [preserveStatus] */
   function updateSaveButton(preserveStatus) {
     var dirty = isDirty();
@@ -139,11 +173,12 @@ import { createStudioSync } from './studio/sync-client.js';
     saveBtn.classList.remove("studio-save-dirty", "studio-save-clean", "studio-save-saving");
     saveBtn.classList.add(saving ? "studio-save-saving" : (dirty ? "studio-save-dirty" : "studio-save-clean"));
     saveBtn.textContent = saving ? msg("common.saving", "Saving…") : (SAVE_TARGET === "preview" ? msg("entry.saveDraft", "Save draft") : msg("entry.saveLive", "Save live"));
-    titleEl.textContent = getTitle(entryData);
+    updateDisplayedTitle();
+    updateVisibility();
     if (entryData !== null && !preserveStatus) {
-      if (saving) showStatus("saving", msg("entry.savingChanges", "Saving changes…"));
+      if (saving) showStatus("saving", SAVE_TARGET === "preview" ? msg("entry.savingDraft", "Saving draft…") : msg("entry.savingLiveChanges", "Saving live changes…"));
       else if (dirty) showStatus("dirty", msg("entry.unsaved", "Unsaved changes"));
-      else showStatus("saved", msg("entry.allSaved", "All changes saved"));
+      else showStatus("saved", SAVE_TARGET === "preview" ? msg("entry.draftSaved", "Draft saved") : msg("entry.allLive", "All changes live"));
     }
   }
 
@@ -181,6 +216,97 @@ import { createStudioSync } from './studio/sync-client.js';
     return false;
   }
 
+  /** @param {{ title: string, copy: string, action: string, danger?: boolean }} options */
+  function confirmAction(options) {
+    var restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    confirmTitleEl.textContent = options.title;
+    confirmCopyEl.textContent = options.copy;
+    confirmActionBtn.textContent = options.action;
+    confirmActionBtn.className = options.danger ? "studio-btn-danger studio-btn-danger-confirm" : "studio-btn-primary";
+    confirmDialog.hidden = false;
+    confirmCancelBtn.focus();
+    return new Promise(function (resolve) {
+      /** @param {boolean} accepted */
+      function finish(accepted) {
+        confirmDialog.hidden = true;
+        confirmCancelBtn.removeEventListener("click", cancel);
+        confirmActionBtn.removeEventListener("click", accept);
+        confirmDialog.removeEventListener("click", backdrop);
+        confirmDialog.removeEventListener("keydown", keydown);
+        if (restoreFocus && restoreFocus.isConnected) restoreFocus.focus();
+        resolve(accepted);
+      }
+      function cancel() { finish(false); }
+      function accept() { finish(true); }
+      /** @param {MouseEvent} event */
+      function backdrop(event) { if (event.target === confirmDialog) finish(false); }
+      /** @param {KeyboardEvent} event */
+      function keydown(event) {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); finish(false); return; }
+        if (event.key !== "Tab") return;
+        if (event.shiftKey && document.activeElement === confirmCancelBtn) {
+          event.preventDefault(); confirmActionBtn.focus();
+        } else if (!event.shiftKey && document.activeElement === confirmActionBtn) {
+          event.preventDefault(); confirmCancelBtn.focus();
+        }
+      }
+      confirmCancelBtn.addEventListener("click", cancel);
+      confirmActionBtn.addEventListener("click", accept);
+      confirmDialog.addEventListener("click", backdrop);
+      confirmDialog.addEventListener("keydown", keydown);
+    });
+  }
+
+  /** @param {Record<string, unknown>} latest */
+  function resolveConflict(latest) {
+    var restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : saveBtn;
+    var local = entryData || {};
+    var changed = Array.from(new Set(Object.keys(local).concat(Object.keys(latest)))).filter(function (key) {
+      return JSON.stringify(local[key]) !== JSON.stringify(latest[key]);
+    });
+    conflictFieldsEl.innerHTML = "";
+    (changed.length ? changed : ["entry"]).forEach(function (key) {
+      var item = document.createElement("li");
+      item.textContent = key === "entry" ? "The entry revision changed" : humanizeKey(key);
+      conflictFieldsEl.appendChild(item);
+    });
+    conflictDialog.hidden = false;
+    conflictCancelBtn.focus();
+    return new Promise(function (resolve) {
+      /** @param {'cancel' | 'latest' | 'keep'} choice */
+      function finish(choice) {
+        conflictDialog.hidden = true;
+        conflictCancelBtn.removeEventListener("click", cancel);
+        conflictLatestBtn.removeEventListener("click", latestAction);
+        conflictKeepBtn.removeEventListener("click", keep);
+        conflictDialog.removeEventListener("click", backdrop);
+        conflictDialog.removeEventListener("keydown", keydown);
+        if (restoreFocus && restoreFocus.isConnected) restoreFocus.focus();
+        resolve(choice);
+      }
+      function cancel() { finish("cancel"); }
+      function latestAction() { finish("latest"); }
+      function keep() { finish("keep"); }
+      /** @param {MouseEvent} event */
+      function backdrop(event) { if (event.target === conflictDialog) finish("cancel"); }
+      /** @param {KeyboardEvent} event */
+      function keydown(event) {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); finish("cancel"); return; }
+        if (event.key !== "Tab") return;
+        var controls = [conflictCancelBtn, conflictLatestBtn, conflictKeepBtn];
+        var first = controls[0];
+        var last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+      conflictCancelBtn.addEventListener("click", cancel);
+      conflictLatestBtn.addEventListener("click", latestAction);
+      conflictKeepBtn.addEventListener("click", keep);
+      conflictDialog.addEventListener("click", backdrop);
+      conflictDialog.addEventListener("keydown", keydown);
+    });
+  }
+
   /** @param {string} path @param {File} file @param {{ width: number, height: number } | null} dimensions */
   function populateImageObject(path, file, dimensions) {
     var parts = path.split(".");
@@ -208,13 +334,17 @@ import { createStudioSync } from './studio/sync-client.js';
   }
 
   /* ─── Save / Delete ─────────────────────────────────────────────── */
-  function save() {
+  async function save() {
     if (!entryData || saving) return;
     if (SAVE_TARGET === "live") {
       var liveConfirmationKey = "caretcms:confirmed-live-save";
       var confirmed = false;
       try { confirmed = sessionStorage.getItem(liveConfirmationKey) === "1"; } catch (e) { /* storage may be disabled */ }
-      if (!confirmed && !window.confirm(msg("entry.liveConfirm", "Save these changes directly to the live site?"))) return;
+      if (!confirmed && !(await confirmAction({
+        title: msg("entry.liveConfirmTitle", "Save live changes?"),
+        copy: msg("entry.liveConfirm", "These changes will be visible on the live site as soon as saving finishes."),
+        action: msg("entry.saveLive", "Save live"),
+      }))) return;
       try { sessionStorage.setItem(liveConfirmationKey, "1"); } catch (e) { /* confirmation still applies to this save */ }
     }
     saving = true;
@@ -228,23 +358,40 @@ import { createStudioSync } from './studio/sync-client.js';
     };
     if (typeof entryRevision === "number") payload.expectedRevision = entryRevision;
 
-    mutationClient.save(payload).then(function (result) {
+    mutationClient.save(payload).then(async function (result) {
       if (result.kind === "unauthorized") { loginRedirect(); return; }
       if (result.kind === "validation") {
           preserveSaveStatus = true;
-          showValidationErrors(result.issues);
+          var firstInvalid = showValidationErrors(result.issues);
           showStatus("error", msg("entry.validationFailed", "Validation failed") + " (" + result.issues.length + ")");
-          var firstErr = fieldsEl.querySelector(".studio-field-error");
-          if (firstErr) firstErr.scrollIntoView({ behavior: "smooth", block: "center" });
+          if (firstInvalid) {
+            firstInvalid.scrollIntoView({ behavior: "smooth", block: "center" });
+            firstInvalid.focus({ preventScroll: true });
+          }
           return;
       }
       if (result.kind === "conflict") {
           preserveSaveStatus = true;
-          // Your edits are still in the form; we've refreshed to the server's
-          // revision, so saving again overwrites. Don't tell the user to reload
-          // (that would throw their edits away).
           entryRevision = result.currentRevision;
-          showStatus("error", msg("entry.changedElsewhere", "Changed elsewhere — Save again to overwrite"));
+          var latest = await entryLoader.load({ collection: COLLECTION, id: ID, isNew: false, initializeIfMissing: false });
+          if (latest.kind !== "ready") {
+            showStatus("error", msg("entry.changedElsewhere", "Changed elsewhere — your edits are still here"));
+            return;
+          }
+          entryRevision = latest.revision;
+          var choice = await resolveConflict(latest.data);
+          if (choice === "latest") {
+            entryData = deepClone(latest.data);
+            originalJson = JSON.stringify(latest.data);
+            fieldsEl.innerHTML = "";
+            renderFields(fieldsEl, entryData, entrySchema, "");
+            studioSync.queuePreview(entryData);
+            showStatus("saved", msg("entry.loadedLatest", "Loaded latest changes"));
+          } else if (choice === "keep") {
+            showStatus("dirty", msg("entry.keptMine", "Your edits are kept — Save again to overwrite"));
+          } else {
+            showStatus("dirty", msg("entry.unsaved", "Unsaved changes"));
+          }
           return;
       }
       if (result.kind === "error") throw new Error("save failed");
@@ -252,7 +399,7 @@ import { createStudioSync } from './studio/sync-client.js';
       if (typeof result.revision === "number") entryRevision = result.revision;
       originalJson = JSON.stringify(entryData);
       studioSync.announceChange("cms:saved", entryData);
-      showStatus("saved", msg("entry.saved", "Saved"));
+      showStatus("saved", SAVE_TARGET === "preview" ? msg("entry.draftSaved", "Draft saved") : msg("entry.savedLive", "Changes are live"));
     }).catch(function () {
       preserveSaveStatus = true;
       showStatus("error", msg("common.error", "Error"));
@@ -263,7 +410,7 @@ import { createStudioSync } from './studio/sync-client.js';
   }
 
   function deleteEntry() {
-    deleteNameEl.textContent = ID;
+    deleteNameEl.textContent = displayTitle(entryData);
     deleteRestoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : deleteBtn;
     deleteDialog.hidden = false;
     deleteCancelBtn.focus();
@@ -298,6 +445,7 @@ import { createStudioSync } from './studio/sync-client.js';
   /* ─── Validation rendering ──────────────────────────────────────── */
   /** @param {Element} group @param {string} message */
   function showFieldError(group, message) {
+    var control = group.querySelector("input, textarea, select, [contenteditable='true']");
     var errEl = group.querySelector(".studio-error-text");
     if (message) {
       if (!errEl) {
@@ -306,26 +454,53 @@ import { createStudioSync } from './studio/sync-client.js';
         group.appendChild(errEl);
       }
       errEl.textContent = message;
+      var path = group instanceof HTMLElement ? group.dataset.fieldPath || "field" : "field";
+      errEl.id = fieldIdFromPath(path) + "-error";
       /** @type {HTMLElement} */ (errEl).hidden = false;
       group.classList.add("studio-field-error");
+      if (control instanceof HTMLElement) {
+        control.setAttribute("aria-invalid", "true");
+        var describedBy = (control.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+        if (!describedBy.includes(errEl.id)) describedBy.push(errEl.id);
+        control.setAttribute("aria-describedby", describedBy.join(" "));
+      }
     } else if (errEl) {
+      var errorId = errEl.id;
+      if (control instanceof HTMLElement) {
+        control.removeAttribute("aria-invalid");
+        var ids = (control.getAttribute("aria-describedby") || "").split(/\s+/).filter(function (id) { return id && id !== errorId; });
+        if (ids.length) control.setAttribute("aria-describedby", ids.join(" "));
+        else control.removeAttribute("aria-describedby");
+      }
       errEl.remove();
       group.classList.remove("studio-field-error");
     }
   }
 
   function clearFieldErrors() {
-    fieldsEl.querySelectorAll(".studio-error-text").forEach(function (el) { el.remove(); });
-    fieldsEl.querySelectorAll(".caret-field-group").forEach(function (el) { el.classList.remove("studio-field-error"); });
+    fieldsEl.querySelectorAll(".caret-field-group.studio-field-error").forEach(function (group) { showFieldError(group, ""); });
   }
 
-  /** @param {ValidationIssue[]} issues */
+  /** @param {ValidationIssue[]} issues @returns {HTMLElement | null} */
   function showValidationErrors(issues) {
     clearFieldErrors();
+    /** @type {HTMLElement | null} */
+    var firstControl = null;
     issues.forEach(function (issue) {
       var group = fieldsEl.querySelector('[data-field-path="' + cssEscape(issue.path) + '"]');
-      if (group) showFieldError(group, issue.message);
+      if (group) {
+        revealObjectArrayItem(group);
+        var ancestor = group.parentElement;
+        while (ancestor && ancestor !== fieldsEl) {
+          if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
+          ancestor = ancestor.parentElement;
+        }
+        showFieldError(group, issue.message);
+        var control = group.querySelector("input, textarea, select, [contenteditable='true']");
+        if (!firstControl && control instanceof HTMLElement) firstControl = control;
+      }
     });
+    return firstControl;
   }
 
   /** @param {string} value */
@@ -337,6 +512,19 @@ import { createStudioSync } from './studio/sync-client.js';
   /** @param {string} path */
   function fieldControl(path) {
     return fieldsEl.querySelector("#" + cssEscape(fieldIdFromPath(path)));
+  }
+
+  /** @param {Element} element */
+  function revealObjectArrayItem(element) {
+    var nestedDetails = element.closest("details");
+    if (nestedDetails instanceof HTMLDetailsElement) nestedDetails.open = true;
+    var card = element.closest(".caret-object-array-item");
+    if (!card) return;
+    card.classList.add("is-expanded");
+    var fields = card.querySelector(".caret-object-array-fields");
+    if (fields instanceof HTMLElement) fields.hidden = false;
+    var toggle = card.querySelector(".caret-object-array-toggle");
+    if (toggle) toggle.setAttribute("aria-expanded", "true");
   }
 
   /** @param {Element} group */
@@ -368,6 +556,7 @@ import { createStudioSync } from './studio/sync-client.js';
     var control = fieldControl(message.field);
     var group = control && control.closest(".caret-field-group");
     if (!group) return;
+    revealObjectArrayItem(group);
     showLinkedSelection(group);
     group.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
   }
@@ -381,6 +570,7 @@ import { createStudioSync } from './studio/sync-client.js';
     buildObjectArray,
     buildTagList,
     getPublicationField: () => publicationFieldName,
+    getMessage: msg,
   });
 
   /* ─── Image gallery ─────────────────────────────────────────────── */
@@ -504,6 +694,7 @@ import { createStudioSync } from './studio/sync-client.js';
   function buildSingleImage(url, path) {
     var wrapper = document.createElement("div");
     wrapper.className = "caret-single-image";
+    var errorMessage = "";
 
     function rerender() {
       wrapper.innerHTML = "";
@@ -536,13 +727,16 @@ import { createStudioSync } from './studio/sync-client.js';
         var emptyPreview = document.createElement("button");
         emptyPreview.type = "button";
         emptyPreview.className = "caret-single-image-empty";
-        emptyPreview.textContent = "+ Choose an image";
+        emptyPreview.textContent = "+ " + msg("field.chooseImage", "Choose an image");
         emptyPreview.addEventListener("click", function () { fileInput.click(); });
         wrapper.appendChild(emptyPreview);
       }
 
-      var row = document.createElement("div");
-      row.className = "caret-single-image-row";
+      var urlDetails = document.createElement("details");
+      urlDetails.className = "caret-image-url";
+      var urlSummary = document.createElement("summary");
+      urlSummary.textContent = msg("field.useImageUrl", "Use image URL");
+      urlDetails.appendChild(urlSummary);
 
       var input = document.createElement("input");
       input.type = "text";
@@ -551,46 +745,45 @@ import { createStudioSync } from './studio/sync-client.js';
       input.name = path;
       input.style.flex = "1";
       input.value = current;
-      input.placeholder = "Image URL";
+      input.placeholder = msg("field.imageUrl", "Image URL");
+      input.setAttribute("aria-label", msg("field.imageUrl", "Image URL"));
       input.addEventListener("input", function () { updateField(path, input.value); });
       input.addEventListener("blur", rerender);
+      urlDetails.appendChild(input);
 
-      var uploadBtn = document.createElement("button");
-      uploadBtn.type = "button";
-      uploadBtn.className = "studio-btn-ghost";
-      uploadBtn.textContent = current ? "Replace" : "Upload";
+      var status = document.createElement("p");
+      status.className = "caret-image-help" + (errorMessage ? " is-error" : "");
+      status.hidden = !errorMessage;
+      status.setAttribute("role", "status");
+      status.textContent = errorMessage;
 
-      var help = document.createElement("p");
-      help.className = "caret-image-help";
-      help.textContent = current
-        ? "Click the preview or Replace to upload a new image. You can also paste a URL. For gallery images, blank title and alt fields are filled from the filename—review them before saving."
-        : "Upload an image or paste its URL.";
-
-      uploadBtn.addEventListener("click", function () { fileInput.click(); });
       fileInput.addEventListener("change", function () {
         var file = fileInput.files && fileInput.files[0];
         if (!file) return;
         var selectedFile = file;
-        uploadBtn.textContent = "Uploading…";
-        uploadBtn.disabled = true;
+        errorMessage = "";
+        var uploadAction = wrapper.querySelector(".caret-single-image-preview, .caret-single-image-empty");
+        if (uploadAction instanceof HTMLButtonElement) {
+          uploadAction.disabled = true;
+          uploadAction.classList.add("is-uploading");
+          var uploadLabel = uploadAction.querySelector(".caret-single-image-overlay");
+          if (uploadLabel) uploadLabel.textContent = msg("field.uploading", "Uploading…");
+          else uploadAction.textContent = msg("field.uploading", "Uploading…");
+        }
         Promise.all([uploadClient.upload(selectedFile), uploadClient.readDimensions(selectedFile)]).then(function (results) {
           updateField(path, results[0]);
           populateImageObject(path, selectedFile, results[1]);
           rerender();
         }).catch(function () {
-          help.textContent = "Upload failed. Check the image type and try again.";
-          help.classList.add("is-error");
-          uploadBtn.textContent = current ? "Replace" : "Upload";
-          uploadBtn.disabled = false;
+          errorMessage = msg("field.uploadFailed", "Upload failed. Check the image type and try again.");
+          rerender();
         });
         fileInput.value = "";
       });
 
-      row.appendChild(input);
-      row.appendChild(uploadBtn);
-      row.appendChild(fileInput);
-      wrapper.appendChild(row);
-      wrapper.appendChild(help);
+      wrapper.appendChild(urlDetails);
+      wrapper.appendChild(status);
+      wrapper.appendChild(fileInput);
     }
 
     rerender();
@@ -673,6 +866,8 @@ import { createStudioSync } from './studio/sync-client.js';
     wrapper.className = "caret-object-array";
     /** @type {number | null} */
     var draggedIndex = null;
+    /** @type {number | null} */
+    var expandedIndex = null;
 
     /** @param {Record<string, unknown>} item @param {number} idx */
     function itemSummary(item, idx) {
@@ -696,8 +891,13 @@ import { createStudioSync } from './studio/sync-client.js';
       var next = current.slice();
       var moved = next.splice(from, 1)[0];
       next.splice(to, 0, moved);
+      if (expandedIndex === from) expandedIndex = to;
+      else if (expandedIndex !== null && from < expandedIndex && expandedIndex <= to) expandedIndex -= 1;
+      else if (expandedIndex !== null && to <= expandedIndex && expandedIndex < from) expandedIndex += 1;
       updateField(path, next);
       rerender();
+      var movedToggle = wrapper.querySelector('[data-array-index="' + expandedIndex + '"] .caret-object-array-toggle');
+      if (movedToggle instanceof HTMLElement) movedToggle.focus();
     }
 
     function rerender() {
@@ -709,7 +909,8 @@ import { createStudioSync } from './studio/sync-client.js';
 
       current.forEach(function (item, idx) {
         var card = document.createElement("div");
-        card.className = "caret-object-array-item";
+        card.className = "caret-object-array-item" + (expandedIndex === idx ? " is-expanded" : "");
+        card.dataset.arrayIndex = String(idx);
 
         var header = document.createElement("div");
         header.className = "caret-object-array-header";
@@ -737,9 +938,27 @@ import { createStudioSync } from './studio/sync-client.js';
         });
         header.appendChild(dragHandle);
 
-        var idxLabel = document.createElement("span");
-        idxLabel.className = "caret-object-array-index";
+        var thumbnailUrl = typeof item.src === "string" ? item.src : "";
+        if (thumbnailUrl) {
+          var thumbnail = document.createElement("img");
+          thumbnail.className = "caret-object-array-thumbnail";
+          thumbnail.src = thumbnailUrl;
+          thumbnail.alt = "";
+          header.appendChild(thumbnail);
+        }
+
+        var idxLabel = document.createElement("button");
+        idxLabel.type = "button";
+        idxLabel.className = "caret-object-array-index caret-object-array-toggle";
         idxLabel.textContent = itemSummary(item, idx);
+        idxLabel.setAttribute("aria-expanded", expandedIndex === idx ? "true" : "false");
+        idxLabel.setAttribute("aria-controls", fieldIdFromPath(path + "." + idx) + "-fields");
+        idxLabel.addEventListener("click", function () {
+          expandedIndex = expandedIndex === idx ? null : idx;
+          rerender();
+          var toggle = wrapper.querySelector('[data-array-index="' + idx + '"] .caret-object-array-toggle');
+          if (toggle instanceof HTMLElement) toggle.focus();
+        });
         header.appendChild(idxLabel);
 
         card.addEventListener("dragover", function (event) {
@@ -790,23 +1009,54 @@ import { createStudioSync } from './studio/sync-client.js';
         removeBtn.addEventListener("click", function () {
           var next = current.slice();
           next.splice(idx, 1);
+          if (!next.length) expandedIndex = null;
+          else if (expandedIndex === idx) expandedIndex = Math.min(idx, next.length - 1);
+          else if (expandedIndex !== null && expandedIndex > idx) expandedIndex -= 1;
           updateField(path, next);
           rerender();
+          var nextToggle = wrapper.querySelector('[data-array-index="' + expandedIndex + '"] .caret-object-array-toggle');
+          if (nextToggle instanceof HTMLElement) nextToggle.focus();
         });
 
         actions.appendChild(upBtn);
         actions.appendChild(downBtn);
         actions.appendChild(removeBtn);
-        header.appendChild(actions);
         card.appendChild(header);
 
         var fieldsCont = document.createElement("div");
         fieldsCont.className = "caret-object-array-fields";
+        fieldsCont.id = fieldIdFromPath(path + "." + idx) + "-fields";
+        fieldsCont.hidden = expandedIndex !== idx;
+        fieldsCont.appendChild(actions);
 
         if (itemSchema && itemSchema.properties) {
           renderFields(fieldsCont, item, itemSchema, path + "." + idx);
         } else {
           renderFieldsFallback(fieldsCont, item, path + "." + idx);
+        }
+
+        var technicalKeys = itemSchema && itemSchema.properties
+          ? Object.keys(itemSchema.properties).filter(function (key) {
+              var fieldSchema = itemSchema.properties?.[key];
+              return fieldSchema?.["x-caret-technical"] === true || key === "id" || key === "width" || key === "height";
+            })
+          : [];
+        var technicalFields = technicalKeys.map(function (key) {
+          return fieldsCont.querySelector('[data-field-path="' + cssEscape(path + "." + idx + "." + key) + '"]');
+        }).filter(Boolean);
+        if (technicalFields.length) {
+          var technical = document.createElement("details");
+          technical.className = "caret-object-array-technical";
+          var technicalSummary = document.createElement("summary");
+          technicalSummary.textContent = msg("field.technicalDetails", "Technical details");
+          technical.appendChild(technicalSummary);
+          var technicalBody = document.createElement("div");
+          technicalBody.className = "caret-object-array-technical-body";
+          technicalFields.forEach(function (field) {
+            if (field) technicalBody.appendChild(field);
+          });
+          technical.appendChild(technicalBody);
+          fieldsCont.appendChild(technical);
         }
 
         card.appendChild(fieldsCont);
@@ -836,6 +1086,7 @@ import { createStudioSync } from './studio/sync-client.js';
             }))
             : {};
         }
+        expandedIndex = current.length;
         updateField(path, current.concat([template]));
         rerender();
         var cards = wrapper.querySelectorAll(".caret-object-array-item");
@@ -857,7 +1108,35 @@ import { createStudioSync } from './studio/sync-client.js';
   }
 
   /* ─── History ───────────────────────────────────────────────────── */
+  /** @param {unknown} value */
+  function historyValue(value) {
+    if (typeof value === "string") return value.length > 100 ? value.slice(0, 97) + "…" : (value || "Empty");
+    if (typeof value === "boolean") return value ? "Yes" : "No";
+    if (typeof value === "number") return String(value);
+    if (Array.isArray(value)) return value.length + (value.length === 1 ? " item" : " items");
+    if (value && typeof value === "object") return Object.keys(value).length + " fields";
+    return "Empty";
+  }
+
+  /** @param {Record<string, unknown> | undefined} snapshot */
+  function changedHistoryFields(snapshot) {
+    if (!snapshot || !entryData) return [];
+    return Array.from(new Set(Object.keys(snapshot).concat(Object.keys(entryData)))).filter(function (key) {
+      return JSON.stringify(snapshot[key]) !== JSON.stringify(entryData && entryData[key]);
+    });
+  }
+
+  /** @param {string} action */
+  function historyActionLabel(action) {
+    if (action === "restore") return "Restored";
+    if (action === "delete") return "Deleted";
+    if (action === "publish") return "Published";
+    return "Saved";
+  }
+
   function loadHistory() {
+    var moreMenu = document.getElementById("entry-more");
+    if (moreMenu) moreMenu.removeAttribute("open");
     historyList.innerHTML = '<p style="font-size:0.75rem;color:var(--studio-text-dim);margin:0;">Loading…</p>';
     historyPanel.hidden = false;
     historyBtn.setAttribute("aria-expanded", "true");
@@ -878,13 +1157,15 @@ import { createStudioSync } from './studio/sync-client.js';
         var date = new Date(item.ts);
         var timeStr = date.toLocaleString();
 
+        var summary = document.createElement("div");
+        summary.className = "caret-history-summary";
         var info = document.createElement("div");
-        info.style.cssText = "display:flex;align-items:center;gap:0.75rem;";
+        info.className = "caret-history-meta";
 
         var actionSpan = document.createElement("span");
         actionSpan.className = "caret-history-action";
         actionSpan.dataset.action = item.action || "save";
-        actionSpan.textContent = item.action || "save";
+        actionSpan.textContent = historyActionLabel(item.action || "save");
 
         var timeSpan = document.createElement("span");
         timeSpan.style.cssText = "font-size:0.75rem;color:var(--studio-text-muted);";
@@ -898,12 +1179,41 @@ import { createStudioSync } from './studio/sync-client.js';
           editorSpan.textContent = item.editor.name || item.editor.email || item.editor.id;
           info.appendChild(editorSpan);
         }
-        row.appendChild(info);
+        summary.appendChild(info);
+
+        var changed = changedHistoryFields(item.data);
+        var changes = document.createElement("p");
+        changes.className = "caret-history-changes";
+        changes.textContent = changed.length > 0
+          ? "Differs in " + changed.slice(0, 4).map(humanizeKey).join(", ") + (changed.length > 4 ? " and " + (changed.length - 4) + " more" : "")
+          : "Matches the current version";
+        summary.appendChild(changes);
+
+        if (item.data) {
+          var preview = document.createElement("details");
+          preview.className = "caret-history-preview";
+          var previewSummary = document.createElement("summary");
+          previewSummary.textContent = "Review version";
+          preview.appendChild(previewSummary);
+          var values = document.createElement("dl");
+          Object.keys(item.data).slice(0, 8).forEach(function (key) {
+            var term = document.createElement("dt");
+            term.textContent = humanizeKey(key);
+            var description = document.createElement("dd");
+            description.textContent = historyValue(item.data && item.data[key]);
+            values.appendChild(term);
+            values.appendChild(description);
+          });
+          preview.appendChild(values);
+          summary.appendChild(preview);
+        }
+        row.appendChild(summary);
 
         var restoreBtn = document.createElement("button");
         restoreBtn.type = "button";
         restoreBtn.className = "studio-btn-ghost";
         restoreBtn.textContent = "Restore";
+        restoreBtn.setAttribute("aria-label", "Restore version from " + timeStr);
         restoreBtn.addEventListener("click", function () { restoreSnapshot(item.ts); });
         row.appendChild(restoreBtn);
 
@@ -918,12 +1228,17 @@ import { createStudioSync } from './studio/sync-client.js';
     historyPanel.hidden = true;
     historyBtn.setAttribute("aria-expanded", "false");
     historyList.innerHTML = "";
-    if (historyBtn.isConnected) historyBtn.focus();
+    var moreSummary = document.querySelector("#entry-more > summary");
+    if (moreSummary instanceof HTMLElement) moreSummary.focus();
   }
 
   /** @param {number} ts */
-  function restoreSnapshot(ts) {
-    if (!window.confirm("Restore this version? Current changes will be saved to history first.")) return;
+  async function restoreSnapshot(ts) {
+    if (!(await confirmAction({
+      title: msg("entry.restoreTitle", "Restore this version?"),
+      copy: msg("entry.restoreCopy", "The current version will remain in History so you can restore it again."),
+      action: msg("entry.restore", "Restore"),
+    }))) return;
     historyClient.restore({ collection: COLLECTION, id: ID, ts: ts }).then(function (result) {
       if (result.kind === "unauthorized") { loginRedirect(); return; }
       if (result.kind === "error") throw new Error("restore failed");
@@ -1038,7 +1353,7 @@ import { createStudioSync } from './studio/sync-client.js';
         entryData = deepClone(initialData);
         entryRevision = result.revision;
         originalJson = JSON.stringify(initialData);
-        titleEl.textContent = getTitle(entryData);
+        updateDisplayedTitle();
         renderFields(fieldsEl, entryData, entrySchema, "");
         if (validationWarningEl && result.validationIssues.length > 0) {
           validationWarningEl.textContent = "This stored entry has invalid fields: " + result.validationIssues.map(function (issue) {
@@ -1048,8 +1363,10 @@ import { createStudioSync } from './studio/sync-client.js';
         }
         updateSaveButton();
         if (IS_NEW || result.initialized) {
+          var guide = document.getElementById("editor-guide");
           var guideTitle = document.getElementById("editor-guide-title");
           var guideCopy = document.getElementById("editor-guide-copy");
+          if (guide) guide.setAttribute("open", "");
           if (guideTitle) guideTitle.textContent = msg("entry.newGuideTitle", "Entry created with safe defaults");
           if (guideCopy) guideCopy.textContent = msg("entry.newGuideCopy", "Fill in the fields below. Save becomes available after your first change. In the sidebar Studio, text and image edits preview on the page as you work; Save confirms them and refreshes the visual preview for structural changes. When publication is enabled, new entries stay private until Published is turned on.");
         }

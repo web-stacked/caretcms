@@ -1,7 +1,7 @@
 /**
  * Owns the `cms-highlight-all` body class — the single source of truth for
  * "show every editable region". Two callers share it:
- * - the toolbar "Show all" button, via the persistent `toggleHighlight` toggle
+ * - the toolbar "Show editable areas" button, via the persistent toggle
  * - the post-login welcome reveal, via the ephemeral `revealAndFade`
  *
  * Keeping `highlightActive` here (rather than in the toolbar closure) lets the
@@ -19,14 +19,17 @@ export function toggleHighlight(highlightBtn, showToast) {
   highlightActive = !highlightActive;
   document.body.classList.toggle('cms-highlight-all', highlightActive);
   highlightBtn.classList.toggle('cms-highlight-btn-active', highlightActive);
+  highlightBtn.setAttribute('aria-pressed', String(highlightActive));
 
   const label = highlightBtn.querySelector('.cms-highlight-label');
 
   if (highlightActive) {
-    if (label) label.textContent = 'Hide all';
-    showToast('Showing all editable regions', 'success');
+    if (label) label.textContent = 'Hide editable areas';
+    highlightBtn.setAttribute('aria-label', 'Hide editable areas');
+    showToast('Editable areas are visible', 'success');
   } else {
-    if (label) label.textContent = 'Show all';
+    if (label) label.textContent = 'Show editable areas';
+    highlightBtn.setAttribute('aria-label', 'Show editable areas');
   }
 }
 

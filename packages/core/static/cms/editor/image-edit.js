@@ -130,7 +130,6 @@ export function mountImageEditors({
       showToast.conflict({
         message: 'This image changed elsewhere while you were editing.',
         onKeepMine: async () => {
-          setStatus('saving', 'Saving...');
           const retry = await saveField(resolved.collection, resolved.id, resolved.field, mineUrl);
           flash(img, retry.ok);
           if (retry.ok) {

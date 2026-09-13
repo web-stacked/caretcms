@@ -116,8 +116,9 @@ export function normalizePendingSelection(value) {
  * @param {InlineEditorState} options.state
  * @param {(message: string, kind: 'success' | 'error') => void} options.showToast
  * @param {(text: string) => string} options.clientLinkify
+ * @param {(element: Element) => void} options.onInlineSelection
  */
-export function mountStudioSync({ studioIframe, state, showToast, clientLinkify }) {
+export function mountStudioSync({ studioIframe, state, showToast, clientLinkify, onInlineSelection }) {
   let refreshTimer = 0;
   /** @type {Element | null} */
   let selectedInlineEl = null;
@@ -148,8 +149,9 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify 
    * @param {string} id
    * @param {string} field
    * @param {boolean} shouldScroll
+   * @param {Element} [placementTarget]
    */
-  function selectInlineField(collection, id, field, shouldScroll) {
+  function selectInlineField(collection, id, field, shouldScroll, placementTarget) {
     const target = matchingElements(collection, id, field)[0];
     if (!target) return false;
 
@@ -159,6 +161,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify 
     }
     selectedInlineEl = target;
     target.classList.add('cms-linked-selection');
+    onInlineSelection(placementTarget || target);
     if (shouldScroll) {
       target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
     }
@@ -281,7 +284,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify 
     const resolved = resolveBinding(el, parseCaretAttr(el.getAttribute('data-caret') || ''));
     if (!resolved) return;
 
-    selectInlineField(resolved.collection, resolved.id, resolved.field, false);
+    selectInlineField(resolved.collection, resolved.id, resolved.field, false, el);
     /** @type {SelectionMessage} */
     const message = {
       type: 'cms:field-selected',

@@ -28,9 +28,20 @@
   box-shadow: 4px 0 30px rgba(0, 0, 0, 0.3);
   transform: translateX(-100%);
   transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
 }
 
-.cms-studio-panel.open {
+.cms-studio-panel.side-right {
+  right: 0;
+  left: auto;
+  border-right: 0;
+  border-left: 1px solid rgba(59, 130, 246, 0.12);
+  transform: translateX(100%);
+}
+
+.cms-studio-panel.open,
+.cms-studio-panel.side-right.open {
   transform: translateX(0);
 }
 
@@ -40,15 +51,70 @@
 
 .cms-studio-panel iframe {
   width: 100%;
-  height: 100%;
+  min-height: 0;
+  flex: 1;
   border: none;
   display: block;
+}
+
+.cms-studio-panel-header {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  color: rgba(255, 255, 255, 0.78);
+  font-family: var(--cms-font);
+  font-size: 12px;
+}
+
+.cms-panel-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+}
+
+.cms-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.cms-studio-panel-header button {
+  padding: 5px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.68);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cms-studio-panel-header button:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.1);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.cms-studio-panel-header button:focus-visible {
+  outline: 2px solid var(--cms-accent, #3b82f6);
+  outline-offset: 1px;
+}
+
+.cms-studio-panel-header button:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 /* Loading skeleton shown until the Studio iframe reports load. */
 .cms-studio-panel-loading {
   position: absolute;
-  inset: 0;
+  inset: 42px 0 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -88,6 +154,11 @@ body.cms-panel-open .cms-toolbar {
   transition: left 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+body.cms-panel-open.cms-panel-right .cms-toolbar {
+  right: var(--cms-panel-width);
+  left: 0;
+}
+
 body.cms-panel-open.no-transition .cms-toolbar {
   transition: none;
 }
@@ -119,9 +190,12 @@ body.cms-panel-open.caret-push-content.no-transition {
 
   body.cms-panel-open .cms-toolbar,
   body.cms-panel-open.caret-push-content {
+    right: 0;
     left: 0;
     padding-left: 0;
   }
+
+  .cms-panel-move { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

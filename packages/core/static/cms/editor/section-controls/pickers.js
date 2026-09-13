@@ -19,7 +19,18 @@ function attachGlobalPositioning({ picker, getAnchor }) {
     }
     if (left < 12) left = 12;
 
-    const top = rect.bottom + 8;
+    const viewportMargin = 12;
+    const gap = 8;
+    const toolbar = document.querySelector('.cms-toolbar');
+    const toolbarRect = toolbar instanceof HTMLElement ? toolbar.getBoundingClientRect() : null;
+    const lowerBoundary = toolbarRect && toolbarRect.top > 0 && toolbarRect.top < window.innerHeight
+      ? Math.min(window.innerHeight - viewportMargin, toolbarRect.top - gap)
+      : window.innerHeight - viewportMargin;
+    const spaceBelow = lowerBoundary - rect.bottom - gap;
+    const spaceAbove = rect.top - viewportMargin - gap;
+    const top = pickerRect.height <= spaceBelow || spaceBelow >= spaceAbove
+      ? rect.bottom + gap
+      : Math.max(viewportMargin, rect.top - pickerRect.height - gap);
     picker.style.left = `${Math.round(left)}px`;
     picker.style.top = `${Math.round(top)}px`;
   }

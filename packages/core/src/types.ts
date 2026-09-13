@@ -78,8 +78,14 @@ export type CollectionSchema = {
 /** Studio presentation and mutation capabilities for a collection. */
 export type CollectionStudioConfig = {
   label?: string;
+  /** Singular noun used by creation actions, for example "post". */
+  entryLabel?: string;
   description?: string;
   icon?: string;
+  /** Fields used to recognize entries in Studio lists and creation. */
+  titleField?: string;
+  thumbnailField?: string;
+  subtitleField?: string;
   /** Lower values appear first on the Studio home screen. */
   order?: number;
   creatable?: boolean;
@@ -107,8 +113,12 @@ export type CollectionStudioConfig = {
 export type CollectionMetadata = {
   id: string;
   label: string;
+  entryLabel?: string;
   description?: string;
   icon?: string;
+  titleField?: string;
+  thumbnailField?: string;
+  subtitleField?: string;
   creatable?: boolean;
   orderable?: boolean;
   deletable?: boolean;

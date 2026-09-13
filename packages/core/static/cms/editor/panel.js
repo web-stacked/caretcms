@@ -23,8 +23,9 @@ export function mountStudioPanel({ studioButton }) {
   if (!STUDIO_PATH) {
     studioButton?.setAttribute('hidden', 'hidden');
     studioButton?.setAttribute('aria-hidden', 'true');
-    return { iframe: null, closePanel() {} };
+    return { iframe: null, closePanel() {}, placeOpposite() {} };
   }
+  const studioPath = STUDIO_PATH;
 
   const panel = document.createElement('div');
   panel.className = 'cms-studio-panel';
@@ -37,6 +38,24 @@ export function mountStudioPanel({ studioButton }) {
   studioButton?.setAttribute('aria-haspopup', 'dialog');
   studioButton?.setAttribute('aria-expanded', 'false');
 
+  const panelHeader = document.createElement('div');
+  panelHeader.className = 'cms-studio-panel-header';
+  panelHeader.innerHTML =
+    '<button type="button" class="cms-panel-back">Back</button>' +
+    '<strong class="cms-panel-title">Studio</strong>' +
+    '<div class="cms-panel-actions">' +
+      '<button type="button" class="cms-panel-move">Move right</button>' +
+      '<button type="button" class="cms-panel-expand">Expand</button>' +
+      '<button type="button" class="cms-panel-close">Close</button>' +
+    '</div>';
+  panel.appendChild(panelHeader);
+
+  const backButton = /** @type {HTMLButtonElement} */ (panelHeader.querySelector('.cms-panel-back'));
+  const titleElement = /** @type {HTMLElement} */ (panelHeader.querySelector('.cms-panel-title'));
+  const moveButton = /** @type {HTMLButtonElement} */ (panelHeader.querySelector('.cms-panel-move'));
+  const expandButton = /** @type {HTMLButtonElement} */ (panelHeader.querySelector('.cms-panel-expand'));
+  const closeButton = /** @type {HTMLButtonElement} */ (panelHeader.querySelector('.cms-panel-close'));
+
   // Loading skeleton shown until the iframe reports load — the iframe is blank
   // until then, which reads as "broken".
   const loading = document.createElement('div');
@@ -47,12 +66,14 @@ export function mountStudioPanel({ studioButton }) {
   panel.appendChild(loading);
 
   const iframe = document.createElement('iframe');
+  /** @type {'left' | 'right'} */
+  let panelSide = readSessionValue('cms-panel-side') === 'right' ? 'right' : 'left';
   let rememberedPath = '';
   const storedPath = readSessionValue('cms-panel-path') || '';
-  if (storedPath === STUDIO_PATH || storedPath.startsWith(`${STUDIO_PATH}/`)) {
+  if (storedPath === studioPath || storedPath.startsWith(`${studioPath}/`)) {
     rememberedPath = storedPath;
   }
-  iframe.src = rememberedPath || STUDIO_PATH;
+  iframe.src = rememberedPath || studioPath;
   iframe.title = 'Content Studio';
   iframe.addEventListener('load', () => {
     loading.setAttribute('hidden', 'hidden');
@@ -60,9 +81,12 @@ export function mountStudioPanel({ studioButton }) {
       const iframeWindow = iframe.contentWindow;
       if (!iframeWindow) return;
       const currentPath = `${iframeWindow.location.pathname}${iframeWindow.location.search}`;
-      if (currentPath === STUDIO_PATH || currentPath.startsWith(`${STUDIO_PATH}/`)) {
+      if (currentPath === studioPath || currentPath.startsWith(`${studioPath}/`)) {
         writeSessionValue('cms-panel-path', currentPath);
       }
+      const documentTitle = iframeWindow.document.title.split(' — ')[0]?.trim();
+      titleElement.textContent = documentTitle || 'Studio';
+      backButton.disabled = currentPath === studioPath;
       iframeWindow.document.addEventListener('keydown', handleEscape);
     } catch {
       // The configured Studio may be cross-origin, in which case its route is
@@ -75,6 +99,28 @@ export function mountStudioPanel({ studioButton }) {
   // Remember what had focus so we can restore it on close.
   /** @type {HTMLElement | null} */
   let lastFocused = null;
+
+  /** @param {'left' | 'right'} side */
+  function setPanelSide(side) {
+    panelSide = side;
+    const onRight = side === 'right';
+    panel.classList.toggle('side-right', onRight);
+    document.body.classList.toggle('cms-panel-right', onRight);
+    moveButton.textContent = onRight ? 'Move left' : 'Move right';
+    moveButton.setAttribute('aria-label', onRight ? 'Move Studio panel left' : 'Move Studio panel right');
+    writeSessionValue('cms-panel-side', side);
+  }
+
+  /** Keep the selected page content beside the drawer without reflowing host layout.
+   * @param {Element} element
+   */
+  function placeOpposite(element) {
+    if (!(element instanceof Element) || window.innerWidth <= 768) return;
+    const rect = element.getBoundingClientRect();
+    setPanelSide(rect.left + rect.width / 2 < window.innerWidth / 2 ? 'right' : 'left');
+  }
+
+  setPanelSide(panelSide);
 
   /** @param {boolean} [animate] */
   function openPanel(animate = true) {
@@ -123,6 +169,24 @@ export function mountStudioPanel({ studioButton }) {
     lastFocused = null;
   }
 
+  backButton.addEventListener('click', () => {
+    try {
+      iframe.contentWindow?.history.back();
+    } catch {
+      iframe.src = studioPath;
+    }
+  });
+  moveButton.addEventListener('click', () => setPanelSide(panelSide === 'left' ? 'right' : 'left'));
+  expandButton.addEventListener('click', () => {
+    try {
+      const href = iframe.contentWindow?.location.href;
+      window.location.href = href || studioPath;
+    } catch {
+      window.location.href = studioPath;
+    }
+  });
+  closeButton.addEventListener('click', closePanel);
+
   function togglePanel() {
     if (panel.classList.contains('open')) {
       closePanel();
@@ -151,5 +215,5 @@ export function mountStudioPanel({ studioButton }) {
   // do not cross an iframe boundary after focus moves into the Studio.
   document.addEventListener('keydown', handleEscape);
 
-  return { iframe, closePanel };
+  return { iframe, closePanel, placeOpposite };
 }

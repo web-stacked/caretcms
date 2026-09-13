@@ -52,13 +52,13 @@ test("login, collection list, and schema-rendered entry pass axe", async ({ page
   await expectNoAxeViolations(page);
 
   await page.locator("#btn-new").click();
-  await expect(page.getByRole("dialog", { name: "New Entry" })).toBeVisible();
-  await expect(page.locator("#create-id-input")).toBeFocused();
+  await expect(page.getByRole("dialog", { name: "New entry" })).toBeVisible();
+  await expect(page.locator("#create-title-input")).toBeFocused();
   await expectNoAxeViolations(page);
-  await page.locator("#create-id-input").press("Escape");
+  await page.locator("#create-title-input").press("Escape");
 
   await page.locator("#btn-reorder").click();
-  await expect(page.getByRole("region", { name: "Reorder" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Arrange entries" })).toBeVisible();
   await expect(page.locator("#btn-reorder-cancel")).toBeFocused();
   await expectNoAxeViolations(page);
   await page.locator("#btn-reorder-cancel").press("Escape");
@@ -67,14 +67,15 @@ test("login, collection list, and schema-rendered entry pass axe", async ({ page
   await expect(page.locator("#editor")).toBeVisible();
   await expectNoAxeViolations(page);
 
+  await page.locator("#entry-more > summary").click();
   await page.locator("#btn-delete").click();
-  await expect(page.getByRole("dialog", { name: "Delete Entry" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Delete entry" })).toBeVisible();
   await expect(page.locator("#btn-delete-cancel")).toBeFocused();
   await expectNoAxeViolations(page);
   await page.locator("#btn-delete-cancel").press("Escape");
 
   await page.locator("#btn-history").click();
-  await expect(page.getByRole("region", { name: "Version History" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Version history" })).toBeVisible();
   await expect(page.locator("#btn-history-close")).toBeFocused();
   await expectNoAxeViolations(page);
   await page.locator("#btn-history-close").press("Escape");

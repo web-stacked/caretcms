@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import { loginAsEditor, resetCmsStorage } from "./helpers";
 
 const fixtureImage = resolve(process.cwd(), "tests/e2e/fixtures/sample.png");
@@ -39,14 +39,16 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
 
   await expect(page.locator(".entry-thumb img")).toHaveAttribute("src", "/initial.png");
   await expect(page.getByText("Unpublished")).toBeVisible();
+  await expect(page.getByLabel("Collection", { exact: true })).toHaveValue("/admin/cms/studio-fixture");
 
   const createButton = page.locator("#btn-new");
   await createButton.click();
-  const createDialog = page.getByRole("dialog", { name: "New Entry" });
+  const createDialog = page.getByRole("dialog", { name: "New entry" });
   const createClose = page.locator("#btn-create-close");
+  const createTitle = page.locator("#create-title-input");
   const createId = page.locator("#create-id-input");
   await expect(createDialog).toBeVisible();
-  await expect(createId).toBeFocused();
+  await expect(createTitle).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   await expect(createClose).toBeFocused();
   await page.keyboard.press("Shift+Tab");
@@ -54,30 +56,43 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   await page.keyboard.press("Tab");
   await expect(createClose).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(createId).toBeFocused();
+  await expect(createTitle).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(createDialog).toBeHidden();
   await expect(createButton).toBeFocused();
 
   await createButton.click();
-  await page.locator("#create-id-input").fill("first-studio-entry");
+  await createTitle.fill("Draft title");
+  await expect(createId).toHaveValue("draft-title");
+  await createId.fill("first-studio-entry");
   await Promise.all([
     page.waitForURL(/\/admin\/cms\/studio-fixture\/first-studio-entry\?new=1$/),
     page.locator("#btn-create-confirm").click(),
   ]);
 
   await expect(page.getByText("Entry created with safe defaults")).toBeVisible();
-  await expect(page.locator("#status-msg")).toHaveText("All changes saved");
+  await expect(page.locator("#fields")).not.toContainText("(optional)");
+  await expect(page.getByText("Fields marked * are required.")).toBeVisible();
+  await expect(page.locator(".caret-field-section-title")).toHaveText(["Content", "Repeatable content"]);
+  await expect(page.getByText("Use bold, italic, or links to add emphasis.")).toBeVisible();
+  await expect(page.locator('[name="title"]')).toHaveAttribute("aria-required", "true");
+  await expect(page.locator('[name="summary"]')).toHaveAttribute("aria-describedby", "caret-field-summary-help");
+  await expect(page.locator("#status-msg")).toHaveText("All changes live");
   await expect(page.locator("#save-target")).toHaveText("Saving live");
+  await expect(page.locator("#visibility-status")).toHaveText("Hidden");
   await expect(page.locator("#btn-preview")).toHaveAttribute("target", "_blank");
   await expect(page.locator(".editor-action-bar")).toHaveCSS("position", "sticky");
   await page.locator('[name="title"]').fill("First studio entry");
   await expect(page.locator("#status-msg")).toHaveText("Unsaved changes");
+  await page.locator('[name="published"]').check();
+  await expect(page.locator("#visibility-status")).toHaveText("Public");
 
   await page.getByRole("button", { name: "+ Add detail" }).click();
+  await expect(page.locator(".caret-object-array-item").first()).toHaveClass(/is-expanded/);
   await page.locator('[name="details.0.label"]').fill("Medium");
   await page.locator('[name="details.0.value"]').fill("Mixed media");
   await page.getByRole("button", { name: "+ Add detail" }).click();
+  await expect(page.locator(".caret-object-array-item").first().locator(".caret-object-array-fields")).toBeHidden();
   await page.locator('[name="details.1.label"]').fill("Location");
   await page.locator('[name="details.1.value"]').fill("Montréal");
   const dragData = await page.evaluateHandle(() => new DataTransfer());
@@ -92,6 +107,8 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   await expect(page.locator('[name="images.0.id"]')).not.toHaveValue("");
   await expect(page.locator('[name="images.0.width"]')).toHaveValue("1600");
   await expect(page.locator('[name="images.0.height"]')).toHaveValue("1200");
+  await expect(page.locator('[data-field-path="images.0.alt"]')).toBeVisible();
+  await expect(page.locator('[data-field-path="images.0.width"]')).toBeHidden();
 
   const unlabeledControls = await page.locator("#fields input, #fields textarea, #fields select").evaluateAll((controls) =>
     controls.filter((control) => {
@@ -106,6 +123,8 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   );
   expect(unlabeledControls).toEqual([]);
 
+  await page.locator('[data-field-path="images"] .caret-object-array-toggle').click();
+  await expect(page.locator('[data-field-path="images.0.src"]')).toBeHidden();
   await page.evaluate(() => {
     const channel = new BroadcastChannel("caretcms:content");
     channel.postMessage({
@@ -118,6 +137,7 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
     setTimeout(() => channel.close(), 0);
   });
   await expect(page.locator('[data-field-path="images.0.src"]')).toHaveClass(/caret-field-selected/);
+  await expect(page.locator('[data-field-path="images.0.src"]')).toBeVisible();
 
   const chooserPromise = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "+ Choose an image" }).click();
@@ -129,14 +149,24 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   await expect(page.locator('[name="images.0.title"]')).toHaveValue("Sample");
   await expect(page.locator('[name="images.0.alt"]')).toHaveValue("Sample");
   await expect(page.locator('input[type="file"]')).toHaveAttribute("aria-label", "Upload or replace image");
+  await expect(page.getByRole("button", { name: "Replace image" })).toHaveCount(1);
+  await expect(page.getByLabel("Image URL")).toBeHidden();
+  await page.getByText("Use image URL").click();
+  await expect(page.getByLabel("Image URL")).toBeVisible();
 
+  await page.getByText("Technical details").click();
   await page.locator('[name="images.0.width"]').fill("0");
+  await page.getByText("Technical details").click();
+  await expect(page.locator('[name="images.0.width"]')).toBeHidden();
   const rejectedSave = page.waitForResponse((response) =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
-  page.once("dialog", (dialog) => dialog.accept());
   await page.locator("#btn-save").click();
+  await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await rejectedSave).status()).toBe(400);
+  await expect(page.locator('[name="images.0.width"]')).toBeVisible();
+  await expect(page.locator('[name="images.0.width"]')).toBeFocused();
+  await expect(page.locator('[name="images.0.width"]')).toHaveAttribute("aria-invalid", "true");
   await expect(page.locator('[data-field-path="images.0.width"] .studio-error-text')).toContainText("at least 1");
   await page.locator('[name="images.0.width"]').fill("1600");
 
@@ -155,7 +185,7 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   expect((await createSave).ok()).toBe(true);
   await previewReload;
   await expect(previewPage).toHaveURL("/");
-  await expect(page.locator("#status-msg")).toHaveText("All changes saved");
+  await expect(page.locator("#status-msg")).toHaveText("All changes live");
 
   const created = await page.request.get("/api/cms/entries?collection=studio-fixture&id=first-studio-entry");
   const createdBody = await created.json();
@@ -180,11 +210,13 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   expect(updatedBody.entries[0].revision).toBeGreaterThan(firstRevision);
 
   const deleteButton = page.locator("#btn-delete");
+  await page.locator("#entry-more > summary").click();
   await deleteButton.click();
-  const deleteDialog = page.getByRole("dialog", { name: "Delete Entry" });
+  const deleteDialog = page.getByRole("dialog", { name: "Delete entry" });
   const deleteCancel = page.locator("#btn-delete-cancel");
   const deleteConfirm = page.locator("#btn-delete-confirm");
   await expect(deleteDialog).toBeVisible();
+  await expect(deleteDialog).toContainText("First studio entry");
   await expect(deleteCancel).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   await expect(deleteConfirm).toBeFocused();
@@ -208,6 +240,52 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   expect((await deleted.json()).entries).toHaveLength(0);
 });
 
+test("formatted fields keep supported markup while HTML editing stays secondary", async ({ page }) => {
+  await page.goto("/admin/cms/studio-fixture/seed-entry");
+
+  const editor = page.locator('[name="summary"]');
+  const saveButton = page.locator("#btn-save");
+  await expect(page.locator("#status-msg")).toHaveText("All changes live");
+  await expect(saveButton).toBeDisabled();
+  await page.getByRole("button", { name: "Edit HTML" }).click();
+  await page.getByRole("button", { name: "Show formatted" }).click();
+  await expect(page.locator("#status-msg")).toHaveText("All changes live");
+  await expect(saveButton).toBeDisabled();
+
+  await editor.fill("Make this clear");
+  await editor.evaluate((element) => {
+    const text = element.firstChild;
+    if (!text) throw new Error("Missing rich field text");
+    const range = document.createRange();
+    range.setStart(text, 5);
+    range.setEnd(text, 9);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+  await page.getByRole("button", { name: "Bold" }).click();
+  await expect(editor.locator("b, strong")).toHaveText("this");
+
+  await page.getByRole("button", { name: "Edit HTML" }).click();
+  const source = page.locator(".caret-rich-source");
+  await expect(source).toBeVisible();
+  await source.fill('<strong>Bold opening</strong> with a <a href="/work">work link</a><script>bad()</script>');
+  await page.getByRole("button", { name: "Show formatted" }).click();
+  await expect(editor.locator("strong")).toHaveText("Bold opening");
+  await expect(editor.locator('a[href="/work"]')).toHaveText("work link");
+  await expect(editor.locator("script")).toHaveCount(0);
+
+  const saved = page.waitForResponse((response) =>
+    response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
+  );
+  await page.locator("#btn-save").click();
+  await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
+  expect((await saved).ok()).toBe(true);
+  await page.reload();
+  await expect(page.locator('[name="summary"] strong')).toHaveText("Bold opening");
+  await expect(page.locator('[name="summary"] a[href="/work"]')).toHaveText("work link");
+});
+
 test("embedded Studio Escape closes local overlays before the Studio drawer", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Studio", exact: true }).click();
@@ -220,10 +298,11 @@ test("embedded Studio Escape closes local overlays before the Studio drawer", as
 
   const studio = page.frameLocator('iframe[title="Content Studio"]');
   const deleteButton = studio.locator("#btn-delete");
+  await studio.locator("#entry-more > summary").click();
   await expect(deleteButton).toBeVisible();
   await deleteButton.click();
 
-  const deleteDialog = studio.getByRole("dialog", { name: "Delete Entry" });
+  const deleteDialog = studio.getByRole("dialog", { name: "Delete entry" });
   const cancel = studio.locator("#btn-delete-cancel");
   await expect(deleteDialog).toBeVisible();
   await cancel.press("Escape");
@@ -236,14 +315,14 @@ test("embedded Studio Escape closes local overlays before the Studio drawer", as
 
   const historyButton = studio.locator("#btn-history");
   await historyButton.click();
-  const historyPanel = studio.getByRole("region", { name: "Version History" });
+  const historyPanel = studio.getByRole("region", { name: "Version history" });
   const historyClose = studio.locator("#btn-history-close");
   await expect(historyPanel).toBeVisible();
   await expect(historyClose).toBeFocused();
   await historyClose.press("Escape");
 
   await expect(historyPanel).toBeHidden();
-  await expect(historyButton).toBeFocused();
+  await expect(studio.locator("#entry-more > summary")).toBeFocused();
   await expect(panel).toBeVisible();
 
   await iframe.evaluate((element) => {
@@ -252,11 +331,11 @@ test("embedded Studio Escape closes local overlays before the Studio drawer", as
   const createButton = studio.locator("#btn-new");
   await expect(createButton).toBeVisible();
   await createButton.click();
-  const createDialog = studio.getByRole("dialog", { name: "New Entry" });
-  const createId = studio.locator("#create-id-input");
+  const createDialog = studio.getByRole("dialog", { name: "New entry" });
+  const createTitle = studio.locator("#create-title-input");
   await expect(createDialog).toBeVisible();
-  await expect(createId).toBeFocused();
-  await createId.press("Escape");
+  await expect(createTitle).toBeFocused();
+  await createTitle.press("Escape");
 
   await expect(createDialog).toBeHidden();
   await expect(createButton).toBeFocused();
@@ -264,7 +343,7 @@ test("embedded Studio Escape closes local overlays before the Studio drawer", as
 
   const reorderButton = studio.locator("#btn-reorder");
   await reorderButton.click();
-  const reorderRegion = studio.getByRole("region", { name: "Reorder" });
+  const reorderRegion = studio.getByRole("region", { name: "Arrange entries" });
   const reorderCancel = studio.locator("#btn-reorder-cancel");
   await expect(reorderRegion).toBeVisible();
   await expect(reorderCancel).toBeFocused();
@@ -306,10 +385,13 @@ test("Studio keeps form edits after a revision conflict and saves on retry", asy
   const conflict = page.waitForResponse(response =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
-  page.once("dialog", dialog => dialog.accept());
   await page.locator("#btn-save").click();
+  await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await conflict).status()).toBe(409);
-  await expect(page.locator("#status-msg")).toHaveText("Changed elsewhere — Save again to overwrite");
+  const conflictDialog = page.getByRole("dialog", { name: "Newer changes found" });
+  await expect(conflictDialog).toContainText("Title");
+  await conflictDialog.getByRole("button", { name: "Keep my edits" }).click();
+  await expect(page.locator("#status-msg")).toHaveText("Your edits are kept — Save again to overwrite");
   await expect(page.locator('[name="title"]')).toHaveValue("Local form edit");
 
   const retry = page.waitForResponse(response =>
@@ -317,10 +399,30 @@ test("Studio keeps form edits after a revision conflict and saves on retry", asy
   );
   await page.locator("#btn-save").click();
   expect((await retry).ok()).toBe(true);
-  await expect(page.locator("#status-msg")).toHaveText("All changes saved");
+  await expect(page.locator("#status-msg")).toHaveText("All changes live");
 
   const stored = await page.request.get(`/api/cms/entries?collection=studio-fixture&id=${id}`);
-  expect((await stored.json()).entries[0].data.title).toBe("Local form edit");
+  const current = await stored.json();
+  expect(current.entries[0].data.title).toBe("Local form edit");
+  await page.locator('[name="title"]').fill("Another local edit");
+  const latestWrite = await page.request.post("/api/cms/mutate", {
+    headers: { "x-caret-request": "1" },
+    data: {
+      type: "put_entry",
+      collection: "studio-fixture",
+      id,
+      expectedRevision: current.entries[0].revision,
+      data: { title: "Latest remote edit", summary: "", website: "", published: false, details: [], images: [] },
+    },
+  });
+  expect(latestWrite.ok()).toBe(true);
+  const loadConflict = page.waitForResponse(response =>
+    response.url().includes("/api/cms/mutate") && response.request().method() === "POST");
+  await page.locator("#btn-save").click();
+  expect((await loadConflict).status()).toBe(409);
+  await page.getByRole("dialog", { name: "Newer changes found" }).getByRole("button", { name: "Load latest" }).click();
+  await expect(page.locator('[name="title"]')).toHaveValue("Latest remote edit");
+  await expect(page.locator("#status-msg")).toHaveText("Loaded latest changes");
   const cleanup = await page.request.post("/api/cms/mutate", {
     headers: { "x-caret-request": "1" },
     data: { type: "delete_entry", collection: "studio-fixture", id },
@@ -335,7 +437,7 @@ test("Studio routes singleton collections directly and hides impossible actions"
       type: "put_entry",
       collection: "site-settings-fixture",
       id: "global",
-      data: { title: "Example site" },
+      data: { title: "" },
     },
   });
   expect(seed.ok()).toBe(true);
@@ -345,6 +447,7 @@ test("Studio routes singleton collections directly and hides impossible actions"
   await expect(card).toHaveAttribute("href", "/admin/cms/site-settings-fixture/global");
   await card.click();
   await expect(page).toHaveURL(/\/admin\/cms\/site-settings-fixture\/global$/);
+  await expect(page.locator("#entry-title")).toHaveText("Site Settings");
   await expect(page.locator("#btn-delete")).toHaveCount(0);
 
   await page.goto("/admin/cms/site-settings-fixture");
@@ -356,51 +459,109 @@ test("collection search has a persistent associated label", async ({ page }) => 
   await expect(page.getByLabel("Search")).toHaveAttribute("name", "search");
 });
 
+test("collection navigation and title-first creation fit a narrow viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/admin/cms/studio-fixture");
+
+  await expect(page.getByLabel("Collection", { exact: true })).toBeVisible();
+  for (const control of await page.locator(".collection-actions > input, .collection-actions > button").all()) {
+    const bounds = await control.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(390);
+  }
+
+  await page.locator("#btn-new").click();
+  const title = page.locator("#create-title-input");
+  await expect(title).toBeFocused();
+  await title.fill("A clear title");
+  await expect(page.locator("#create-id-input")).toHaveValue("a-clear-title");
+  const dialogBounds = await page.locator(".modal-card").boundingBox();
+  expect(dialogBounds).not.toBeNull();
+  expect((dialogBounds?.x ?? 0) + (dialogBounds?.width ?? 0)).toBeLessThanOrEqual(390);
+});
+
+test("entry More actions stays within narrow Studio viewports", async ({ page }) => {
+  const expectMenuInsideViewport = async (menu: Locator) => {
+    const bounds = await menu.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        left: rect.left,
+        right: rect.right,
+        viewportWidth: document.documentElement.clientWidth,
+      };
+    });
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeLessThanOrEqual(bounds.viewportWidth);
+  };
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/admin/cms/studio-fixture/seed-entry");
+  await page.locator("#entry-more > summary").click();
+  await expectMenuInsideViewport(page.locator(".editor-more-menu"));
+
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Studio", exact: true }).click();
+  const iframe = page.locator('iframe[title="Content Studio"]');
+  await iframe.evaluate((element) => {
+    (element as HTMLIFrameElement).src = "/admin/cms/studio-fixture/seed-entry";
+  });
+  const studio = page.frameLocator('iframe[title="Content Studio"]');
+  await studio.locator("#entry-more > summary").click();
+  await expectMenuInsideViewport(studio.locator(".editor-more-menu"));
+});
+
 test("Studio history restores the previous entry and keeps the replaced state undoable", async ({ page }) => {
   await page.goto("/admin/cms/studio-fixture/seed-entry");
   const title = page.locator('[name="title"]');
   await expect(title).toHaveValue("Seed entry");
 
   await title.fill("Changed after the snapshot");
-  page.once("dialog", (dialog) => dialog.accept());
   const save = page.waitForResponse((response) =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
   await page.locator("#btn-save").click();
+  await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await save).ok()).toBeTruthy();
 
   const historyButton = page.locator("#btn-history");
+  await page.locator("#entry-more > summary").click();
   await expect(historyButton).toHaveAttribute("aria-controls", "history-panel");
   await expect(historyButton).toHaveAttribute("aria-expanded", "false");
   await historyButton.click();
-  const historyPanel = page.getByRole("region", { name: "Version History" });
+  const historyPanel = page.getByRole("region", { name: "Version history" });
   await expect(historyPanel).toBeVisible();
   await expect(historyButton).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("#btn-history-close")).toBeFocused();
   await page.locator("#btn-history-close").press("Escape");
   await expect(historyPanel).toBeHidden();
   await expect(historyButton).toHaveAttribute("aria-expanded", "false");
-  await expect(historyButton).toBeFocused();
+  await expect(page.locator("#entry-more > summary")).toBeFocused();
 
+  await page.locator("#entry-more > summary").click();
   await historyButton.click();
   const historyRows = page.locator(".caret-history-row");
   await expect(historyRows).toHaveCount(1);
-  await expect(historyRows.first().locator(".caret-history-action")).toHaveText("put");
+  await expect(historyRows.first().locator(".caret-history-action")).toHaveText("Saved");
+  await expect(historyRows.first().locator(".caret-history-changes")).toContainText("Title");
+  await historyRows.first().getByText("Review version").click();
+  await expect(historyRows.first().locator(".caret-history-preview")).toContainText("Seed entry");
 
-  page.once("dialog", (dialog) => dialog.accept());
   const restore = page.waitForResponse((response) =>
     response.url().includes("/api/cms/history") && response.request().method() === "POST",
   );
   await historyRows.first().getByRole("button", { name: "Restore" }).click();
+  await page.getByRole("dialog", { name: "Restore this version?" }).getByRole("button", { name: "Restore" }).click();
   expect((await restore).ok()).toBeTruthy();
 
   await expect(title).toHaveValue("Seed entry");
   await expect(page.locator("#status-msg")).toHaveText("Restored");
 
+  await page.locator("#entry-more > summary").click();
   await historyButton.click();
   await expect(page.locator(".caret-history-row")).toHaveCount(2);
   await expect(page.locator(".caret-history-row").first().locator(".caret-history-action"))
-    .toHaveText("restore");
+    .toHaveText("Restored");
 
   const history = await page.request.get(
     "/api/cms/history?collection=studio-fixture&id=seed-entry",
@@ -437,7 +598,7 @@ test("collection reordering is keyboard operable and restores mode focus", async
   await expect(reorderButton).toHaveAttribute("aria-expanded", "false");
   await reorderButton.click();
 
-  const reorderRegion = page.getByRole("region", { name: "Reorder" });
+  const reorderRegion = page.getByRole("region", { name: "Arrange entries" });
   const moveSeedDown = page.getByRole("button", { name: "Move down Seed entry" });
   await expect(reorderRegion).toBeVisible();
   await expect(reorderButton).toHaveAttribute("aria-expanded", "true");
@@ -492,7 +653,7 @@ test("collection reordering is keyboard operable and restores mode focus", async
   await page.goto("/admin/cms/reorder-only-fixture");
   await expect(page.locator("#btn-new")).toHaveCount(0);
   await page.locator("#btn-reorder").click();
-  await expect(page.getByRole("region", { name: "Reorder" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Arrange entries" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Move down Locked A" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.locator("#btn-reorder")).toBeFocused();
@@ -536,9 +697,10 @@ test("collection pagination reaches every entry and title search crosses pages",
   await page.goto("/admin/cms/studio-fixture");
   await expect(page.locator("#entries-grid a")).toHaveCount(24);
   await expect(page.locator("#page-range")).toContainText("31");
-  await expect(page.locator("#btn-reorder")).toBeDisabled();
+  await expect(page.locator("#btn-reorder")).toBeHidden();
 
   await page.locator("#btn-new").click();
+  await page.locator("#create-title-input").fill("Duplicate post");
   await page.locator("#create-id-input").fill("post-30");
   await expect(page.locator("#btn-create-confirm")).toBeEnabled();
   const duplicateResponse = page.waitForResponse((response) =>
@@ -574,5 +736,5 @@ test("collection pagination reaches every entry and title search crosses pages",
   await page.locator("#page-prev").click();
   await expect(page.locator("#entries-grid a")).toHaveCount(24);
   await expect(page.locator("#entry-count")).toHaveText("24 entries");
-  await expect(page.locator("#page-next")).toBeDisabled();
+  await expect(page.locator("#pagination")).toBeHidden();
 });
