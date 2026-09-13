@@ -1,3 +1,4 @@
+import { PRIVATE_ENTRY_KEYS } from "../draft-state.js";
 import type { StorageAdapter } from "../../types.js";
 import { COLLECTION_NAME_RE, ENTRY_ID_RE } from "../storage/id-contracts.js";
 import {
@@ -36,6 +37,8 @@ export type PutEntryCommand = {
   id: string;
   data: Record<string, unknown>;
   expectedRevision?: number;
+  /** Reject an existing ID under the mutation lock, including revision-zero seeds. */
+  createOnly?: boolean;
 };
 
 export type DeleteEntryCommand = {
@@ -107,6 +110,9 @@ export type MdBlockCommand = {
    * (client markdown would be spliced into source files verbatim on publish).
    */
   html: string;
+  /** Consecutive top-level source paragraphs, edited as one atomic group. */
+  sources?: Array<{ blockPath: string; src: MdSrc; html: string }>;
+  paragraphs?: string[];
   expectedRevision?: number;
 };
 
@@ -188,8 +194,8 @@ async function parseSaveFieldCommand(
   // The body-draft map is written ONLY by md_block (whose markdown is derived
   // server-side). A save_field into it would smuggle unvalidated markdown that
   // publish later splices into a source file.
-  if (field && (field === BODY_OVERLAY_KEY || field.startsWith(`${BODY_OVERLAY_KEY}.`))) {
-    issues.push(issue("field", "reserved_field", `"${BODY_OVERLAY_KEY}" is reserved`));
+  if (field && PRIVATE_ENTRY_KEYS.some(key => field === key || field.startsWith(`${key}.`))) {
+    issues.push(issue("field", "reserved_field", "Private CMS fields are reserved"));
   }
 
   if (issues.length > 0 || !collection || !id || !field || typeof value !== "string") {
@@ -225,9 +231,12 @@ async function parsePutEntryCommand(
   if (expectedRevision === null) {
     issues.push(issue("expectedRevision", "invalid_type", "expectedRevision must be a non-negative integer"));
   }
+  if (input.createOnly !== undefined && typeof input.createOnly !== "boolean") {
+    issues.push(issue("createOnly", "invalid_type", "createOnly must be a boolean"));
+  }
   // See parseSaveFieldCommand: only md_block may write the body-draft map.
-  if (isRecord(data) && Object.prototype.hasOwnProperty.call(data, BODY_OVERLAY_KEY)) {
-    issues.push(issue(`data.${BODY_OVERLAY_KEY}`, "reserved_field", `"${BODY_OVERLAY_KEY}" is reserved`));
+  if (isRecord(data) && PRIVATE_ENTRY_KEYS.some(key => Object.hasOwn(data, key))) {
+    issues.push(issue(`data.${BODY_OVERLAY_KEY}`, "reserved_field", "Private CMS fields are reserved"));
   }
 
   if (issues.length > 0 || !collection || !id || !isRecord(data)) return { ok: false, issues };
@@ -239,6 +248,7 @@ async function parsePutEntryCommand(
       collection,
       id,
       data,
+      ...(input.createOnly === true ? { createOnly: true } : {}),
       expectedRevision: expectedRevision ?? undefined,
     },
   };
@@ -289,6 +299,7 @@ async function parseReorderEntriesCommand(
   }
 
   const items: ReorderEntriesCommand["items"] = [];
+  const seenIds = new Set<string>();
   rawItems.forEach((item, index) => {
     if (!isRecord(item)) {
       issues.push(issue(`items.${index}`, "invalid_type", "Item must be an object"));
@@ -299,6 +310,11 @@ async function parseReorderEntriesCommand(
     const expectedRevision = asOptionalExpectedRevision(item.expectedRevision);
 
     if (!id) issues.push(issue(`items.${index}.id`, "invalid_type", "Invalid id"));
+    else if (seenIds.has(id)) {
+      issues.push(issue(`items.${index}.id`, "duplicate", "Entry ids must be unique"));
+    } else {
+      seenIds.add(id);
+    }
     if (!(typeof order === "number" && Number.isInteger(order) && order >= 0)) {
       issues.push(issue(`items.${index}.order`, "invalid_type", "order must be a non-negative integer"));
     }
@@ -406,6 +422,30 @@ async function parseMdBlockCommand(
   } else if (html.length > MAX_MD_BLOCK_HTML_LENGTH) {
     issues.push(issue("html", "too_long", `html exceeds ${MAX_MD_BLOCK_HTML_LENGTH} characters`));
   }
+  let sources: MdBlockCommand["sources"];
+  let paragraphs: string[] | undefined;
+  if (input.sources !== undefined || input.paragraphs !== undefined) {
+    if (!Array.isArray(input.sources) || input.sources.length < 1 || input.sources.length > 128 ||
+        !Array.isArray(input.paragraphs) || input.paragraphs.length > 128 ||
+        !input.paragraphs.every(p => typeof p === "string")) {
+      issues.push(issue("paragraphs", "invalid_type", "Expected at most 128 paragraphs and 1–128 sources"));
+    } else {
+      sources = [];
+      paragraphs = input.paragraphs as string[];
+      for (const source of input.sources) {
+        const hint = isRecord(source) && typeof source.src === "string" ? parseMdSrc(source.src) : null;
+        if (!isRecord(source) || typeof source.blockPath !== "string" || !/^\d+$/.test(source.blockPath) ||
+            !hint || typeof source.html !== "string") {
+          issues.push(issue("sources", "invalid_type", "Invalid paragraph source"));
+        } else sources.push({ blockPath: source.blockPath, src: hint, html: source.html });
+      }
+      const size = paragraphs.reduce((n, p) => n + p.length, 0) + sources.reduce((n, p) => n + p.html.length, 0);
+      if (size > MAX_MD_BLOCK_HTML_LENGTH) issues.push(issue("paragraphs", "too_long", "Paragraph group exceeds 65536 characters"));
+      if (sources[0]?.blockPath !== blockPath || JSON.stringify(sources[0]?.src) !== JSON.stringify(src)) {
+        issues.push(issue("sources", "invalid_type", "Group must start at its bound source"));
+      }
+    }
+  }
   if (expectedRevision === null) {
     issues.push(issue("expectedRevision", "invalid_type", "expectedRevision must be a non-negative integer"));
   }
@@ -430,6 +470,7 @@ async function parseMdBlockCommand(
       blockPath,
       src,
       html,
+      ...(sources && paragraphs ? { sources, paragraphs } : {}),
       expectedRevision: expectedRevision ?? undefined,
     },
   };

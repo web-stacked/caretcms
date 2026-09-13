@@ -1,8 +1,15 @@
+import type { DeploymentTarget, RebuildReceipt } from "../../types.js";
 import type { CollectionMetadata, EntryData, HistoryEntry, StorageAdapter } from "../../types.js";
 
 const HISTORY_LIMIT = 50;
 
 export class InMemoryAdapter implements StorageAdapter {
+  private rebuildReceipt: RebuildReceipt | null = null;
+  private deploymentTarget: DeploymentTarget | null = null;
+  async getRebuildReceipt(): Promise<RebuildReceipt | null> { return structuredClone(this.rebuildReceipt); }
+  async setRebuildReceipt(receipt: RebuildReceipt | null): Promise<void> { this.rebuildReceipt = structuredClone(receipt); }
+  async getDeploymentTarget(): Promise<DeploymentTarget | null> { return structuredClone(this.deploymentTarget); }
+  async setDeploymentTarget(target: DeploymentTarget | null): Promise<void> { this.deploymentTarget = structuredClone(target); }
   private collections = new Map<string, Map<string, Record<string, unknown>>>();
   private revisions = new Map<string, number>();
   private history = new Map<string, HistoryEntry[]>();

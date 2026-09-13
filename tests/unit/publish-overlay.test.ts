@@ -65,7 +65,7 @@ describe("publishOverlay", () => {
     expect((await base.getEntry("pages", "home"))?.data).toEqual({ title: "home draft" });
     // the unscoped draft is still pending in the overlay
     expect((await base.getEntry("pages", "about"))?.data).toEqual({ title: "About published" });
-    expect((await overlay.getEntry("pages", "about"))?.data).toEqual({ title: "about draft" });
+    expect((await overlay.getEntry("pages", "about"))?.data).toMatchObject({ title: "about draft" });
   });
 
   it("publishes everything when scope is empty", async () => {

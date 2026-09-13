@@ -10,6 +10,7 @@ export { bindEntry } from "./bind.js";
 // Content loading — read stored data in .astro frontmatter (power-user API)
 export { loadEntry, loadCollection, listCollections } from "./content.js";
 export type { EntryData } from "./content.js";
+export { isPublicEntry, isPublishedEntry } from "./collection-policy.js";
 
 // Sandbox / multi-tenant primitives — used by Cloudflare adapter for demo mode
 export { SessionOverlayAdapter } from "./storage/session-overlay-adapter.js";

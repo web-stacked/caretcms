@@ -49,6 +49,14 @@
       "types": "./dist/providers/uploads/local.d.ts",
       "import": "./dist/providers/uploads/local.js"
     },
+    "./providers/deployment/simulated": {
+      "types": "./dist/providers/deployment/simulated.d.ts",
+      "import": "./dist/providers/deployment/simulated.js"
+    },
+    "./providers/deployment/github": {
+      "types": "./dist/providers/deployment/github.d.ts",
+      "import": "./dist/providers/deployment/github.js"
+    },
     "./contracts": {
       "types": "./dist/contracts.d.ts",
       "import": "./dist/contracts.js"

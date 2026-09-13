@@ -1,3 +1,4 @@
+import { canPerform } from "../authorization.js";
 export const prerender = false;
 
 import type { APIContext } from "astro";
@@ -19,6 +20,8 @@ export async function POST(context: APIContext): Promise<Response> {
   if (!isEditorAuthenticated(context)) {
     return json({ error: "Unauthorized" }, 401);
   }
+
+  if (!(await canPerform("upload"))) return json({ error: "Permission denied" }, 403);
 
   const contentType = context.request.headers.get("content-type") ?? "";
   if (!contentType.includes("multipart/form-data")) {

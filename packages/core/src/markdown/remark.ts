@@ -72,6 +72,7 @@ export function transformCaretRemark(tree: MdNode, file: VFileLike, contentRoot:
           blockPath: toParent ? idxPath.slice(0, -1) : idxPath,
           ancestorTypes: toParent ? ancestorTypes.slice(1) : ancestorTypes,
           nested: toParent ? true : plan.nested,
+          blockType: "paragraph",
         });
         if (attrs) setData(target, attrs);
       }

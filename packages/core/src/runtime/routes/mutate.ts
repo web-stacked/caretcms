@@ -1,3 +1,4 @@
+import { getRequestContext } from "../request-context.js";
 export const prerender = false;
 
 import type { APIContext } from "astro";
@@ -57,7 +58,9 @@ export async function POST(context: APIContext): Promise<Response> {
     adapter = new SessionOverlayAdapter(base, await base.makeEditorOverlay(editorId));
     options = { allowedClasses: services.allowedClasses };
   } else {
-    adapter = await resolveAdapter();
+    const type = (parsed.value as { type?: unknown } | null)?.type;
+    adapter = getRequestContext()?.authorize && (type === "create_collection" || type === "delete_collection")
+      ? (await getRuntimeServices()).adapter : await resolveAdapter();
   }
 
   try {

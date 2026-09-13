@@ -93,6 +93,8 @@ export async function resolveCollectionStudioConfig(
     orderable: dynamic?.orderable,
     deletable: dynamic?.deletable,
     singletonId: dynamic?.singletonId,
+    previewPath: dynamic?.previewPath,
+    publication: dynamic?.publication,
     ...registered,
   };
 }

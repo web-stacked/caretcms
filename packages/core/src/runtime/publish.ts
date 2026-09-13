@@ -1,3 +1,4 @@
+import { canPerform, PermissionDenied } from "./authorization.js";
 /**
  * Draft publish / discard — flush a per-editor draft overlay into the base store
  * (or throw it away). The overlay is built by `StorageAdapter.makeEditorOverlay`;
@@ -9,7 +10,10 @@ import type { StorageAdapter } from "../types.js";
 import { BODY_OVERLAY_KEY, parseMdSrc, formatMdSrc, type MdSrc } from "../markdown/contracts.js";
 import { withEntryLock } from "./mutations/engine.js";
 import { TOMBSTONE_KEY } from "./storage/session-overlay-adapter.js";
+import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, readDraftState, sameContent } from "./draft-state.js";
+import { prepareSource, recoveryState, resumePublish, RecoveryConflict, type PublishRecovery } from "./publish-recovery.js";
 import { getRequestContext } from "./request-context.js";
+import { commitEntryChanges } from "./storage/entry-commit.js";
 
 export interface PublishScope {
   /** Limit to one collection (with `id`, to one entry). Omit to publish all. */
@@ -29,15 +33,15 @@ export interface PublishedEntry {
 export interface PublishConflict {
   collection: string;
   id: string;
-  /** `stale_body` = the source file changed since the body draft was made;
-   *  `invalid_body` = the draft's body map is corrupt or the adapter can't
-   *  splice. The entry was NOT published and its draft is preserved. */
-  reason: "stale_body" | "invalid_body";
+  /** Body hashes, structured baselines, or legacy drafts failed validation.
+   * The entry was not published and its draft is preserved. */
+  reason: "stale_body" | "invalid_body" | "stale_entry" | "legacy_draft";
 }
 
 export interface PublishOutcome {
   published: PublishedEntry[];
   conflicts: PublishConflict[];
+  failed: Array<{ collection: string; id: string; reason: "storage_error" | "recovery_conflict" }>;
 }
 
 /** Extract + validate the body-draft map from draft data, or null when absent.
@@ -90,6 +94,20 @@ async function overlayEntriesInScope(
   return out;
 }
 
+/** Preflight the entire batch before any source, revision, journal or hook write. */
+export async function canPublishOverlay(overlay: StorageAdapter, scope: PublishScope = {}): Promise<boolean> {
+  if (!getRequestContext()?.authorize) return true;
+  const targets = await overlayEntriesInScope(overlay, scope);
+  if (!targets.length) return canPerform("publish", scope.collection, scope.id);
+  for (const { collection, id } of targets) {
+    if (!(await canPerform("publish", collection, id))) return false;
+    const draft = await overlay.getEntry(collection, id);
+    const plan = draft ? recoveryState(draft.data) : null;
+    if ((isTombstoneData(draft?.data) || plan?.afterData === null) && !(await canPerform("delete", collection, id))) return false;
+  }
+  return true;
+}
+
 /**
  * Flush the overlay into the base. A tombstoned draft entry deletes from the
  * base; any other draft entry is written, the base revision bumped, and a
@@ -107,85 +125,81 @@ export async function publishOverlay(
   overlay: StorageAdapter,
   scope: PublishScope = {},
 ): Promise<PublishOutcome> {
+  if (!(await canPublishOverlay(overlay, scope))) throw new PermissionDenied();
   const targets = await overlayEntriesInScope(overlay, scope);
   const published: PublishedEntry[] = [];
   const conflicts: PublishConflict[] = [];
-
+  const failed: PublishOutcome["failed"] = [];
   for (const { collection, id } of targets) {
-    const result = await withEntryLock(
-      collection,
-      id,
-      async (): Promise<PublishedEntry | PublishConflict | null> => {
+    try {
+      await withEntryLock(collection, id, async () => {
+        const draftRevision = await overlay.getRevision(collection, id);
         const draft = await overlay.getEntry(collection, id);
-        if (!draft) return null; // raced away; nothing to publish
-
-        if (isTombstoneData(draft.data)) {
-          await base.deleteEntry(collection, id);
-          await overlay.deleteEntry(collection, id);
-          // Contract: a deleted entry reports revision 0. `deleteEntry` doesn't
-          // necessarily clear the revision counter (filesystem keeps it for ABA
-          // safety), so getRevision would return a stale non-zero value — return 0
-          // explicitly to match PublishedEntry's documented meaning.
-          return { collection, id, revision: 0, deleted: true };
-        }
-
-        // Body drafts ride the entry under the reserved key. They are flushed
-        // as source-file splices and MUST NOT reach writeEntry — the markdown
-        // adapter would serialize them into frontmatter.
-        const bodyBlocks = extractBodyBlocks(draft.data);
-        if (bodyBlocks === undefined) return { collection, id, reason: "invalid_body" };
-        const { [BODY_OVERLAY_KEY]: _drafts, ...entryData } = draft.data;
-
-        // Splice FIRST, all-or-nothing: a stale block aborts the whole entry
-        // (frontmatter included) with the draft preserved, so a publish can
-        // never land half of an entry's edits.
-        let bodySource: string | undefined;
-        if (bodyBlocks && bodyBlocks.length > 0) {
-          if (!base.spliceBodyBlocks || !base.readBodySource) {
-            return { collection, id, reason: "invalid_body" };
+        if (!draft) return;
+        let plan = recoveryState(draft.data);
+        if (!plan) {
+          const state = readDraftState(draft.data);
+          const { [BODY_OVERLAY_KEY]: _body, [DRAFT_STATE_KEY]: _state,
+            [PUBLISH_RECOVERY_KEY]: _recovery, [TOMBSTONE_KEY]: _tombstone, ...fields } = draft.data;
+          const blocks = extractBodyBlocks(draft.data);
+          if (blocks === undefined) {
+            conflicts.push({ collection, id, reason: "invalid_body" });
+            return;
           }
-          bodySource = (await base.readBodySource(collection, id)) ?? undefined;
-          const spliced = await base.spliceBodyBlocks(collection, id, bodyBlocks);
-          if (!spliced.ok) {
-            return { collection, id, reason: "stale_body" };
+          const deleted = isTombstoneData(draft.data);
+          const structured = state?.structured ?? (deleted || Object.keys(fields).length > 0);
+          if (!state && structured) {
+            conflicts.push({ collection, id, reason: "legacy_draft" });
+            return;
+          }
+          const before = (await base.getEntry(collection, id))?.data ?? null;
+          const beforeRevision = await base.getRevision(collection, id);
+          if (structured && state && (state.baseRevision !== beforeRevision || !sameContent(state.baseData, before))) {
+            conflicts.push({ collection, id, reason: "stale_entry" });
+            return;
+          }
+          const after = deleted ? null : structured ? fields : { ...(before ?? {}), ...fields };
+          const source = base.readBodySource ? await base.readBodySource(collection, id) : null;
+          if (blocks?.length && (!source || !base.writeBodySource)) {
+            conflicts.push({ collection, id, reason: "invalid_body" });
+            return;
+          }
+          const afterSource = source !== null && after !== null && base.writeBodySource
+            ? prepareSource(source, before, after, blocks ?? []) : undefined;
+          if (afterSource === null) {
+            conflicts.push({ collection, id, reason: "stale_body" });
+            return;
+          }
+          const context = getRequestContext();
+          const editor = context?.identity ?? (context?.editorId ? { id: context.editorId } : null);
+          plan = {
+            version: 1, beforeRevision, beforeData: before, afterData: after,
+            ...(source !== null ? { beforeSource: source } : {}),
+            ...(afterSource !== undefined ? { afterSource } : {}),
+            history: { operationId: crypto.randomUUID(), ts: Date.now(), action: "publish", data: before,
+              ...(source !== null ? { bodySource: source } : {}), ...(editor ? { editor } : {}) },
+          };
+          const persisted = await commitEntryChanges(overlay, [{
+            collection,
+            id,
+            expectedRevision: draftRevision,
+            expectedExists: true,
+            data: { ...draft.data, [PUBLISH_RECOVERY_KEY]: plan },
+          }]);
+          if (!persisted.ok) {
+            conflicts.push({ collection, id, reason: "stale_entry" });
+            return;
           }
         }
-
-        const before = await base.getEntry(collection, id);
-        // Merge the draft's frontmatter DELTAS onto the current base rather than
-        // replacing it. A body-only draft carries no frontmatter keys, so base
-        // fields edited after the draft was staged (e.g. a Studio field save,
-        // which writes straight to base in server delivery) survive instead of
-        // being clobbered by a stale snapshot. Skip the write entirely when the
-        // merge changes nothing — a body-only publish must not re-serialize
-        // untouched frontmatter (it re-quotes scalars and pollutes the diff).
-        // Same-shape objects come through the same parse path, so stringify
-        // comparison is order-stable here.
-        const mergedData = { ...(before?.data ?? {}), ...entryData };
-        if (JSON.stringify(before?.data ?? null) !== JSON.stringify(mergedData)) {
-          await base.writeEntry(collection, id, mergedData);
-        }
-        const revision = await base.bumpRevision(collection, id);
-        const requestContext = getRequestContext();
-        const editor = requestContext?.identity
-          ?? (requestContext?.editorId ? { id: requestContext.editorId } : null);
-        await base.appendHistory(collection, id, {
-          ts: Date.now(),
-          action: "publish",
-          data: before?.data ?? null,
-          // Pre-publish source file, so a restore can put the prose back.
-          ...(bodySource !== undefined ? { bodySource } : {}),
-          ...(editor ? { editor } : {}),
-        });
-        await overlay.deleteEntry(collection, id);
-        return { collection, id, revision, deleted: false };
-      },
-    );
-    if (result && "reason" in result) conflicts.push(result);
-    else if (result) published.push(result);
+        const revision = await resumePublish(base, overlay, collection, id, plan);
+        published.push({ collection, id, revision, deleted: plan.afterData === null });
+      });
+    } catch (error) {
+      console.error("[caretcms] Publish requires recovery:", error);
+      failed.push({ collection, id, reason: error instanceof RecoveryConflict ? "recovery_conflict" : "storage_error" });
+    }
   }
-
-  return { published, conflicts };
+  return { published, conflicts, failed };
 }
 
 /** Count draft entries currently held in an editor overlay. */
@@ -204,7 +218,17 @@ export async function discardOverlay(
 ): Promise<number> {
   const targets = await overlayEntriesInScope(overlay, scope);
   for (const { collection, id } of targets) {
-    await withEntryLock(collection, id, () => overlay.deleteEntry(collection, id));
+    await withEntryLock(collection, id, async () => {
+      const revision = await overlay.getRevision(collection, id);
+      const draft = await overlay.getEntry(collection, id);
+      if (draft?.data[PUBLISH_RECOVERY_KEY]) throw new Error("Finish pending publication before discarding drafts");
+      if (draft) {
+        const discarded = await commitEntryChanges(overlay, [{
+          collection, id, expectedRevision: revision, expectedExists: true, data: null,
+        }]);
+        if (!discarded.ok) throw new Error("Draft changed while it was being discarded");
+      }
+    });
   }
   return targets.length;
 }

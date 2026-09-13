@@ -1,8 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { EditorIdentity, StorageAdapter, UploadHandler } from "../types.js";
+import type { AuthorizationAction, EditorIdentity, StorageAdapter, UploadHandler } from "../types.js";
 
 export interface CaretRequestContext {
   adapter: StorageAdapter;
+  /** A request-bound, fail-closed policy. Omitted in legacy full-access mode. */
+  authorize?: (action: AuthorizationAction, collection?: string, id?: string) => Promise<boolean>;
   uploadHandler: UploadHandler;
   sessionId: string | null;
   demoMode: boolean;

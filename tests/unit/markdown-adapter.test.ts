@@ -62,8 +62,8 @@ describe("MarkdownAdapter", () => {
     });
 
     it("throws (fails loud) on unparseable frontmatter", async () => {
-      await seed("blog", "bad.md", `---\nbody: |\n  block scalar\n---\n`);
-      await expect(adapter.getEntry("blog", "bad")).rejects.toThrow(/Failed to parse frontmatter/);
+      await seed("blog", "bad.md", `---\nbody: &anchor value\n---\n`);
+      await expect(adapter.getEntry("blog", "bad")).rejects.toThrow(/unsupported_content/);
     });
   });
 
@@ -136,13 +136,13 @@ describe("MarkdownAdapter", () => {
     });
 
     it("refuses to overwrite an entry whose existing frontmatter is unparseable", async () => {
-      await seed("blog", "bad.md", `---\nbody: |\n  block\n---\nkeep me\n`);
+      await seed("blog", "bad.md", `---\nbody: &anchor value\n---\nkeep me\n`);
       await expect(adapter.writeEntry("blog", "bad", { title: "x" })).rejects.toThrow(
         /Refusing to overwrite/,
       );
       // File must be untouched.
       const raw = await readFile(join(contentRoot, "blog", "bad.md"), "utf8");
-      expect(raw).toBe(`---\nbody: |\n  block\n---\nkeep me\n`);
+      expect(raw).toBe(`---\nbody: &anchor value\n---\nkeep me\n`);
     });
 
     it("rejects an invalid id without writing", async () => {

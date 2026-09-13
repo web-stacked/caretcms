@@ -1,7 +1,12 @@
+import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, contentWithoutState, readDraftState } from "../draft-state.js";
 import type {
   CollectionMetadata,
+  EntryCommit,
+  EntryCommitResult,
   EntryData,
   HistoryEntry,
+  DeploymentTarget,
+  RebuildReceipt,
   StorageAdapter,
 } from "../../types.js";
 
@@ -17,8 +22,8 @@ function isTombstone(entry: EntryData | null): boolean {
  * Overlay adapter for demo / multi-tenant sandbox use. Reads check the overlay
  * first and fall back to the shared base adapter; writes go only to the overlay.
  *
- * Visitor edits a single field → only that key lands in the overlay; everything
- * else is served from the seeded base. Storage cost is bounded to deltas.
+ * Structured editor drafts retain a full snapshot and the first published base
+ * for conflict detection. Body-only drafts and demo overlays merge over base.
  *
  * Deletes write a tombstone sentinel into the overlay rather than removing the
  * overlay key, so deleting a base-only entry stays deleted for the session
@@ -28,7 +33,24 @@ export class SessionOverlayAdapter implements StorageAdapter {
   constructor(
     private readonly base: StorageAdapter,
     private readonly overlay: StorageAdapter,
+    private readonly trackDrafts = true,
   ) {}
+
+  getRebuildReceipt(): Promise<RebuildReceipt | null> {
+    return this.overlay.getRebuildReceipt?.() ?? Promise.resolve(null);
+  }
+
+  setRebuildReceipt(receipt: RebuildReceipt | null): Promise<void> {
+    return this.overlay.setRebuildReceipt?.(receipt) ?? Promise.resolve();
+  }
+
+  getDeploymentTarget(): Promise<DeploymentTarget | null> {
+    return this.overlay.getDeploymentTarget?.() ?? Promise.resolve(null);
+  }
+
+  setDeploymentTarget(target: DeploymentTarget | null): Promise<void> {
+    return this.overlay.setDeploymentTarget?.(target) ?? Promise.resolve();
+  }
 
   async discoverCollections(): Promise<string[]> {
     const [base, ov] = await Promise.all([
@@ -47,13 +69,12 @@ export class SessionOverlayAdapter implements StorageAdapter {
     const overlaid = await this.overlay.getEntry(collection, id);
     if (isTombstone(overlaid)) return null;
     if (!overlaid) return this.base.getEntry(collection, id);
-    // The overlay holds DELTAS, not a full snapshot: a body draft stores only
-    // its reserved `__body` map, a demo field edit only the touched keys. Merge
-    // base under the overlay so reads stay complete without the draft having to
-    // snapshot (and later clobber) frontmatter it never edited.
+    // Structured snapshots preserve removed fields. Body-only drafts and demo
+    // overlays merge over base so untouched fields remain current.
     const base = await this.base.getEntry(collection, id);
-    if (!base) return overlaid;
-    return { ...overlaid, data: { ...base.data, ...overlaid.data } };
+    const state = readDraftState(overlaid.data);
+    const content = contentWithoutState(overlaid.data);
+    return { ...overlaid, data: state?.structured || !base ? content : { ...base.data, ...content } };
   }
 
   /** The overlay's OWN entry (draft deltas only), with no base fallback or
@@ -63,7 +84,7 @@ export class SessionOverlayAdapter implements StorageAdapter {
   async getOwnEntry(collection: string, id: string): Promise<EntryData | null> {
     const overlaid = await this.overlay.getEntry(collection, id);
     if (isTombstone(overlaid)) return null;
-    return overlaid;
+    return overlaid ? { ...overlaid, data: contentWithoutState(overlaid.data) } : null;
   }
 
   async listEntryIds(collection: string): Promise<string[]> {
@@ -105,14 +126,32 @@ export class SessionOverlayAdapter implements StorageAdapter {
     id: string,
     data: Record<string, unknown>,
   ): Promise<void> {
-    await this.overlay.writeEntry(collection, id, data);
+    await this.writeDraft(collection, id, data, true);
+  }
+
+  async writeBodyDraft(collection: string, id: string, data: Record<string, unknown>): Promise<void> {
+    await this.writeDraft(collection, id, data, false);
+  }
+
+  private async writeDraft(collection: string, id: string, data: Record<string, unknown>, structured: boolean): Promise<void> {
+    const existing = await this.overlay.getEntry(collection, id);
+    if (existing?.data[PUBLISH_RECOVERY_KEY]) throw new Error("Finish pending publication before editing this draft");
+    let state = existing ? readDraftState(existing.data) : null;
+    // Legacy drafts retain their unknown baseline and are rejected at publish.
+    if (this.trackDrafts && !existing) {
+      state = { version: 1, baseRevision: await this.base.getRevision(collection, id),
+        baseData: (await this.base.getEntry(collection, id))?.data ?? null, structured };
+    }
+    if (state) state = { ...state, structured: state.structured || structured };
+    await this.overlay.writeEntry(collection, id, { ...contentWithoutState(data),
+      ...(state ? { [DRAFT_STATE_KEY]: state } : {}) });
   }
 
   async deleteEntry(collection: string, id: string): Promise<void> {
     // Write a tombstone instead of deleting. A plain overlay delete would be
     // a no-op for any entry that lives only in the base, and the next read
     // would resurrect it from the seeded data.
-    await this.overlay.writeEntry(collection, id, { [TOMBSTONE_KEY]: true });
+    await this.writeDraft(collection, id, { [TOMBSTONE_KEY]: true }, true);
   }
 
   async getRevision(collection: string, id: string): Promise<number> {
@@ -133,6 +172,64 @@ export class SessionOverlayAdapter implements StorageAdapter {
     entry: HistoryEntry,
   ): Promise<void> {
     await this.overlay.appendHistory(collection, id, entry);
+  }
+
+  async commitEntries(changes: readonly EntryCommit[]): Promise<EntryCommitResult> {
+    const prepared: EntryCommit[] = [];
+    for (const change of changes) {
+      const existing = await this.overlay.getEntry(change.collection, change.id);
+      if (existing?.data[PUBLISH_RECOVERY_KEY]) {
+        throw new Error("Finish pending publication before editing this draft");
+      }
+      let state = existing ? readDraftState(existing.data) : null;
+      const structured = change.writeMode !== "body";
+      if (this.trackDrafts && !existing) {
+        state = {
+          version: 1,
+          baseRevision: await this.base.getRevision(change.collection, change.id),
+          baseData: (await this.base.getEntry(change.collection, change.id))?.data ?? null,
+          structured,
+        };
+      }
+      if (state) state = { ...state, structured: state.structured || structured };
+      const content = change.data === null ? { [TOMBSTONE_KEY]: true } : change.data;
+      prepared.push({
+        ...change,
+        expectedExists: Boolean(existing),
+        data: {
+          ...contentWithoutState(content),
+          ...(state ? { [DRAFT_STATE_KEY]: state } : {}),
+        },
+      });
+    }
+
+    if (this.overlay.commitEntries) return this.overlay.commitEntries(prepared);
+
+    for (const change of prepared) {
+      const [revision, entry] = await Promise.all([
+        this.overlay.getRevision(change.collection, change.id),
+        this.overlay.getEntry(change.collection, change.id),
+      ]);
+      if (revision !== change.expectedRevision || Boolean(entry) !== change.expectedExists) {
+        return { ok: false, conflict: {
+          collection: change.collection,
+          id: change.id,
+          currentRevision: revision,
+          exists: Boolean(entry),
+        } };
+      }
+    }
+
+    const revisions: Array<{ collection: string; id: string; revision: number }> = [];
+    for (const change of prepared) {
+      await this.overlay.writeEntry(change.collection, change.id, change.data!);
+      const revision = await this.overlay.bumpRevision(change.collection, change.id);
+      if (change.history) {
+        await this.overlay.appendHistory(change.collection, change.id, change.history);
+      }
+      revisions.push({ collection: change.collection, id: change.id, revision });
+    }
+    return { ok: true, revisions };
   }
 
   /** Body source always comes from the BASE — drafts shadow entry data, never

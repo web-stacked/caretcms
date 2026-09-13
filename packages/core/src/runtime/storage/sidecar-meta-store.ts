@@ -1,3 +1,4 @@
+import type { DeploymentTarget, RebuildReceipt } from "../../types.js";
 import { mkdir, readFile, readdir, rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { CollectionMetadata, HistoryEntry } from "../../types.js";
@@ -51,6 +52,30 @@ export class SidecarMetaStore {
 
   constructor(options: { metaRoot: string }) {
     this.metaRoot = options.metaRoot;
+  }
+
+  async getRebuildReceipt(): Promise<RebuildReceipt | null> {
+    try { return JSON.parse(await readFile(join(this.metaRoot, "rebuild.json"), "utf8")) as RebuildReceipt; }
+    catch (error) { if ((error as { code?: string }).code === "ENOENT") return null; throw error; }
+  }
+
+  async setRebuildReceipt(receipt: RebuildReceipt | null): Promise<void> {
+    const path = join(this.metaRoot, "rebuild.json");
+    if (receipt === null) { await rm(path, { force: true }); return; }
+    await mkdir(this.metaRoot, { recursive: true });
+    await atomicWrite(path, JSON.stringify(receipt));
+  }
+
+  async getDeploymentTarget(): Promise<DeploymentTarget | null> {
+    try { return JSON.parse(await readFile(join(this.metaRoot, "deployment.json"), "utf8")) as DeploymentTarget; }
+    catch (error) { if ((error as { code?: string }).code === "ENOENT") return null; throw error; }
+  }
+
+  async setDeploymentTarget(target: DeploymentTarget | null): Promise<void> {
+    const path = join(this.metaRoot, "deployment.json");
+    if (target === null) { await rm(path, { force: true }); return; }
+    await mkdir(this.metaRoot, { recursive: true });
+    await atomicWrite(path, JSON.stringify(target));
   }
 
   private revisionStorePath(): string {
@@ -144,10 +169,15 @@ export class SidecarMetaStore {
     try {
       const raw = await readFile(filePath, "utf8");
       const parsed = JSON.parse(raw) as unknown;
-      if (!Array.isArray(parsed)) return [];
-      return parsed.filter(isHistoryEntry);
-    } catch {
-      return [];
+      if (!Array.isArray(parsed) || !parsed.every(isHistoryEntry)) {
+        throw new Error("Invalid history store");
+      }
+      return parsed;
+    } catch (error) {
+      // Recovery deduplicates by operationId. Treating a failed read as empty
+      // could append a second copy or overwrite existing history.
+      if ((error as { code?: string }).code === "ENOENT") return [];
+      throw error;
     }
   }
 

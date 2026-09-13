@@ -3,6 +3,7 @@ import fc from "fast-check";
 import {
   parseFrontmatter,
   serializeFrontmatter,
+  rewriteFrontmatter,
 } from "../../packages/core/src/runtime/storage/frontmatter-codec";
 
 /** Compose a full file the way the markdown adapter does, for round-trip checks. */
@@ -104,15 +105,34 @@ authors:
     expect(r.ok && r.data).toEqual({ a: true, b: false, c: true, d: false });
   });
 
-  it("fails loud on block scalars", () => {
-    const r = parseFrontmatter(`---\nbody: |\n  line one\n  line two\n---\n`);
-    expect(r.ok).toBe(false);
+  it.each([
+    ["|", "one\ntwo\n"], ["|-", "one\ntwo"], ["|+", "one\ntwo\n\n"],
+    [">", "one two\n"], [">-", "one two"], [">+", "one two\n\n"],
+    ["|2-", "one\ntwo"], ["|-2", "one\ntwo"], [">2+", "one two\n\n"],
+  ])("parses block scalar %s", (header, expected) => {
+    expect(parseFrontmatter(`---\ntext: ${header} # header comment\n  one\n  two\n\n---\n`)).toMatchObject({ ok: true, data: { text: expected } });
   });
 
-  it("fails loud on block-scalar chomping/indent variants (|-, >+, |2)", () => {
-    for (const header of ["|-", "|+", ">-", ">+", "|2", ">2-"]) {
-      const r = parseFrontmatter(`---\ndescription: ${header}\n  multi line\n  body here\n---\n`);
-      expect(r.ok, `header ${header} should fail loud`).toBe(false);
+  it("preserves empty lines, indentation, comments, Unicode and tabs within scalar content", () => {
+    const source = "---\ntext: >-\n  First line\n  continues\n\n  Next paragraph\n    indented\n\n  # literal café\n  \tcode\n---\n";
+    expect(parseFrontmatter(source)).toMatchObject({ ok: true, data: { text: "First line continues\nNext paragraph\n  indented\n\n# literal café\n\tcode" } });
+  });
+
+  it("parses scalar fields nested in mappings and sequence items", () => {
+    expect(parseFrontmatter("---\nitems:\n  - title: |-\n      First\n      second\n    text: >-\n      Third\n      fourth\n  - |2\n    Last\n---\n")).toMatchObject({ ok: true, data: { items: [{ title: "First\nsecond", text: "Third fourth" }, "Last\n"] } });
+  });
+
+  it("preserves spaces beyond explicit indentation, including otherwise blank content", () => {
+    expect(parseFrontmatter("---\na: |2\n    text\n    \nb: |2+\n    \n---\n")).toMatchObject({ ok: true, data: { a: "  text\n  \n", b: "  \n" } });
+  });
+
+  it.each(["|0", "|10", "|--", ">-+", "|2x"])("rejects invalid scalar header %s", header => {
+    expect(parseFrontmatter(`---\na: ${header}\n  text\n---\n`).ok).toBe(false);
+  });
+
+  it("rejects invalid scalar indentation", () => {
+    for (const yaml of ["a: |\n   \n  text\n", "a: |2\n text\n", "a: |\n   first\n  second\n"]) {
+      expect(parseFrontmatter(`---\n${yaml}---\n`).ok).toBe(false);
     }
   });
 
@@ -232,6 +252,21 @@ describe("round-trip property", () => {
     );
   });
 
+  it("source-aware updates round-trip changed data and preserve arbitrary body bytes", () => {
+    fc.assert(fc.property(record, leaf, fc.string(), (data, replacement, body) => {
+      const source = compose(data, body);
+      const after = { ...data, updated: replacement };
+      const rewritten = rewriteFrontmatter(source, after);
+      expect(rewritten.ok).toBe(true);
+      if (!rewritten.ok) return;
+      const parsed = parseFrontmatter(rewritten.content);
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) return;
+      expect(parsed.data).toEqual(after);
+      expect(rewritten.content.slice(parsed.bodyStart)).toBe(body);
+    }), { numRuns: 300 });
+  });
+
   it("serialized frontmatter never corrupts the body", () => {
     fc.assert(
       fc.property(record, fc.string(), (data, body) => {
@@ -245,5 +280,30 @@ describe("round-trip property", () => {
       }),
       { numRuns: 300 },
     );
+  });
+});
+
+
+describe("rewriteFrontmatter", () => {
+  it("preserves untouched comments, block scalars, quotes, fences and CRLF body bytes", () => {
+    const source = "---\r\n# heading\r\ntitle: 'Original'\r\ncaption: |+ # keep format\r\n  Café\r\n  second line\r\n\r\nyear: \"2026\" # keep comment\r\n---\r\n<Component />\r\n";
+    const parsed = parseFrontmatter(source);
+    if (!parsed.ok) throw new Error(parsed.reason);
+    expect(rewriteFrontmatter(source, parsed.data)).toEqual({ ok: true, content: source });
+    expect(rewriteFrontmatter(source, { ...parsed.data, title: "Changed" })).toEqual({ ok: true, content: source.replace("title: 'Original'", "title: Changed") });
+    const edited = rewriteFrontmatter(source, { ...parsed.data, caption: "New\ncaption\n\n" });
+    if (!edited.ok) throw new Error(edited.reason);
+    expect(parseFrontmatter(edited.content)).toMatchObject({ ok: true, data: { caption: "New\ncaption\n\n", year: "2026" } });
+    expect(edited.content).toContain('year: "2026" # keep comment\r\n');
+    expect(edited.content.endsWith("<Component />\r\n")).toBe(true);
+  });
+
+  it("handles added/deleted fields and rejects unsupported source before writing", () => {
+    const result = rewriteFrontmatter("---\na: 1\nb: |\n  text\n---\nBODY", { b: "text\n", c: "new\nvalue" });
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.content).not.toContain("a: 1");
+    expect(result.content).toContain("b: |\n  text\n");
+    expect(parseFrontmatter(result.content)).toMatchObject({ ok: true, data: { b: "text\n", c: "new\nvalue" } });
+    expect(rewriteFrontmatter("---\na: &anchor value\n---\nBODY", { a: "changed" }).ok).toBe(false);
   });
 });

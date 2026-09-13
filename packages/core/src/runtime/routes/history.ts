@@ -1,9 +1,13 @@
+import { canPerform } from "../authorization.js";
+import { getRequestContext } from "../request-context.js";
+import { getRuntimeServices } from "../providers.js";
 export const prerender = false;
 
 import type { APIContext } from "astro";
 import { getEditorIdentity, isEditorAuthenticated } from "../auth/session.js";
 import { parseEntryId } from "../mutations/contracts.js";
 import { withEntryLock } from "../mutations/engine.js";
+import { commitEntryChanges } from "../storage/entry-commit.js";
 import { json, resolveAdapter, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
 
 export async function GET(context: APIContext): Promise<Response> {
@@ -11,7 +15,7 @@ export async function GET(context: APIContext): Promise<Response> {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  const adapter = await resolveAdapter();
+  const adapter = getRequestContext()?.authorize ? (await getRuntimeServices()).adapter : await resolveAdapter();
   const collectionRaw = (context.url.searchParams.get("collection") ?? "")
     .trim()
     .toLowerCase();
@@ -41,7 +45,7 @@ export async function POST(context: APIContext): Promise<Response> {
       : null;
   if (!body) return json({ error: "Invalid payload" }, 400);
 
-  const adapter = await resolveAdapter();
+  const adapter = getRequestContext()?.authorize ? (await getRuntimeServices()).adapter : await resolveAdapter();
   const collectionRaw = typeof body.collection === "string"
     ? body.collection.trim().toLowerCase()
     : "";
@@ -50,6 +54,10 @@ export async function POST(context: APIContext): Promise<Response> {
 
   if (!(await adapter.isKnownCollection(collectionRaw)) || !id || !Number.isFinite(ts)) {
     return json({ error: "Invalid restore payload" }, 400);
+  }
+
+  if (!(await canPerform("edit", collectionRaw, id)) || !(await canPerform("publish", collectionRaw, id))) {
+    return json({ error: "Permission denied" }, 403);
   }
 
   try {
@@ -65,39 +73,47 @@ export async function POST(context: APIContext): Promise<Response> {
     // Hold the engine's per-entry lock so the restore can't interleave with a
     // concurrent save_field/put_entry and tear the entry/revision pair. Write
     // before appending history so a failed write doesn't record a phantom event.
-    const revision = await withEntryLock(collectionRaw, id, async () => {
+    const restored = await withEntryLock(collectionRaw, id, async () => {
+      const beforeRevision = await adapter.getRevision(collectionRaw, id);
+      const before = await adapter.getEntry(collectionRaw, id);
       // A publish snapshot that spliced body blocks carries the full
-      // pre-publish source file — restore it first (prose + frontmatter as
-      // they were), then writeEntry re-applies the snapshot's data on top so
-      // both restore paths converge on the same final state.
+      // pre-publish source file — restore that exact file (prose + frontmatter
+      // formatting). Its frontmatter already represents snapshotData, so a
+      // follow-up writeEntry would only reserialize it and destroy byte parity.
       if (typeof snapshot.bodySource === "string" && adapter.writeBodySource) {
-        const current = await adapter.readBodySource?.(collectionRaw, id);
+        const currentSource = await adapter.readBodySource?.(collectionRaw, id);
         await adapter.writeBodySource(collectionRaw, id, snapshot.bodySource);
-        await adapter.writeEntry(collectionRaw, id, snapshotData);
         const next = await adapter.bumpRevision(collectionRaw, id);
         // Undo-of-the-undo: record what the file looked like before this restore.
         await adapter.appendHistory(collectionRaw, id, {
           ts: Date.now(),
           action: "restore",
-          data: snapshotData,
-          ...(typeof current === "string" ? { bodySource: current } : {}),
+          data: before?.data ?? snapshotData,
+          ...(typeof currentSource === "string" ? { bodySource: currentSource } : {}),
           ...(editor ? { editor } : {}),
         });
-        return next;
+        return { revision: next, data: snapshotData };
       }
 
-      await adapter.writeEntry(collectionRaw, id, snapshotData);
-      const next = await adapter.bumpRevision(collectionRaw, id);
-      await adapter.appendHistory(collectionRaw, id, {
-        ts: Date.now(),
-        action: "restore",
+      const committed = await commitEntryChanges(adapter, [{
+        collection: collectionRaw,
+        id,
+        expectedRevision: beforeRevision,
+        expectedExists: Boolean(before),
         data: snapshotData,
-        ...(editor ? { editor } : {}),
-      });
-      return next;
+        history: {
+          ts: Date.now(),
+          action: "restore",
+          data: before?.data ?? snapshotData,
+          ...(editor ? { editor } : {}),
+        },
+      }]);
+      if (!committed.ok) throw new Error("Entry changed while restoring history");
+      const next = committed.revisions[0].revision;
+      return { revision: next, data: snapshotData };
     });
 
-    return json({ ok: true, revision });
+    return json({ ok: true, revision: restored.revision, data: restored.data });
   } catch (error) {
     // An adapter throw must not leak a stack/path via a framework 500.
     console.error("[caretcms] History restore failed:", error);

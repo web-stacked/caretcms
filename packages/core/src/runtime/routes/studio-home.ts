@@ -117,7 +117,9 @@ export async function GET(context: APIContext): Promise<Response> {
         .then(function (data) {
           if (!data) return;
           var entries = Array.isArray(data.entries) ? data.entries : [];
-          var n = entries.length;
+          var pagination = data && typeof data.pagination === 'object' ? data.pagination : null;
+          var total = pagination && pagination.total;
+          var n = Number.isSafeInteger(total) && total >= 0 ? total : entries.length;
           el.textContent = n + ' ' + (n === 1 ? messages['count.entry'] : messages['count.entries']);
         })
         .catch(function () {

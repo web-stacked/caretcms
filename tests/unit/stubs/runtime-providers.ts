@@ -13,6 +13,10 @@ export async function loadConfiguredIdentityAdapter() {
   return null;
 }
 
+export async function loadConfiguredDeploymentStatus() {
+  return null;
+}
+
 export const allowedClasses: Record<string, string[]> = {};
 export const delivery = {
   mode: "server" as const,

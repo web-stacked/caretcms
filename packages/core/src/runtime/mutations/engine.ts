@@ -1,3 +1,5 @@
+import { canMutate } from "../authorization.js";
+import { paragraphSourcesMatch, serializeParagraphs } from "../../markdown/paragraphs.js";
 import type { StorageAdapter } from "../../types.js";
 import { setNestedValue } from "../utils.js";
 import { sanitizeHtml } from "../sanitize-html.js";
@@ -16,7 +18,8 @@ import { resolveCollectionStudioConfig } from "../schema-registry.js";
 import { getRegisteredSchema } from "../schema-registry.js";
 import { validateJsonSchema, type JsonSchemaNode } from "../../schema-utils.js";
 import { getRequestContext } from "../request-context.js";
-import type { HistoryEntry } from "../../types.js";
+import { publicationField } from "../collection-policy.js";
+import { commitEntryChanges, historyForEditor } from "../storage/entry-commit.js";
 
 /** Request-scoped extras a route can thread into `executeMutation`. */
 export interface MutationOptions {
@@ -70,6 +73,11 @@ function withLocks<T>(keys: string[], task: () => Promise<T>): Promise<T> {
   return acquire(0);
 }
 
+/** Separate lock namespace for an editor's publish requests and deploy receipts. */
+export function withEditorPublishLock<T>(editorId: string, task: () => Promise<T>): Promise<T> {
+  return withLock(`publish-editor::${editorId}`, task);
+}
+
 const entryKey = (collection: string, id: string) => `entry::${collection}::${id}`;
 const collectionKey = (collection: string) => `collection::${collection}`;
 
@@ -109,17 +117,12 @@ function fail(status: number, error: string, extra?: Partial<MutationErrorBody>)
   };
 }
 
-async function appendHistory(
-  adapter: StorageAdapter,
-  collection: string,
-  id: string,
-  entry: HistoryEntry,
-): Promise<void> {
-  const context = getRequestContext();
-  const editor = context?.identity ?? (context?.editorId ? { id: context.editorId } : null);
-  await adapter.appendHistory(collection, id, {
-    ...entry,
-    ...(editor ? { editor } : {}),
+function commitConflict(
+  result: Extract<Awaited<ReturnType<typeof commitEntryChanges>>, { ok: false }>,
+): MutationResult {
+  return fail(409, "Revision conflict", {
+    currentRevision: result.conflict.currentRevision,
+    conflictId: result.conflict.id,
   });
 }
 
@@ -203,6 +206,16 @@ function validateEntry(schema: JsonSchemaNode | null, data: Record<string, unkno
     : null;
 }
 
+async function validatePublication(
+  adapter: StorageAdapter,
+  collection: string,
+  data: Record<string, unknown>,
+): Promise<MutationResult | null> {
+  const field = publicationField(await resolveCollectionStudioConfig(adapter, collection));
+  if (!field || typeof data[field] === "boolean") return null;
+  return fail(400, `Managed publication field "${field}" must be a boolean`);
+}
+
 async function ensureExpectedRevisionMatches(
   adapter: StorageAdapter,
   collection: string,
@@ -229,7 +242,8 @@ async function applySaveField(
     const revision = await ensureExpectedRevisionMatches(adapter, collection, id, expectedRevision);
     if (!revision.ok) return revision.result;
 
-    const before = (await adapter.getEntry(collection, id))?.data ?? {};
+    const beforeEntry = await adapter.getEntry(collection, id);
+    const before = beforeEntry?.data ?? {};
     const current = structuredClone(before);
     const schema = await collectionSchema(adapter, collection);
 
@@ -240,18 +254,18 @@ async function applySaveField(
       return fail(400, message);
     }
 
+    const publicationFailure = await validatePublication(adapter, collection, current);
+    if (publicationFailure) return publicationFailure;
     const validationFailure = validateEntry(schema, current);
     if (validationFailure) return validationFailure;
 
-    // Write first, then record history. If the write throws we surface the
-    // error without leaving a history event for a save that never landed.
-    await adapter.writeEntry(collection, id, current);
-    const nextRevision = await adapter.bumpRevision(collection, id);
-    await appendHistory(adapter, collection, id, {
-      ts: Date.now(),
-      action: "save",
-      data: before,
-    });
+    const committed = await commitEntryChanges(adapter, [{
+      collection, id, expectedRevision: revision.currentRevision,
+      expectedExists: Boolean(beforeEntry), data: current,
+      history: historyForEditor({ ts: Date.now(), action: "save", data: before }),
+    }]);
+    if (!committed.ok) return commitConflict(committed);
+    const nextRevision = committed.revisions[0].revision;
     return { ok: true, body: { ok: true, revision: nextRevision } };
   });
 }
@@ -267,6 +281,8 @@ async function applyPutEntry(
 
     const before = (await adapter.getEntry(collection, id))?.data ?? null;
 
+    if (command.createOnly && before !== null) return fail(409, "Entry already exists");
+
     // Carry drafted body blocks forward. The Studio form's payload never
     // contains __body (read boundaries strip it and the parse contract rejects
     // it), so a full-entry save must not clobber body drafts already stored in
@@ -277,18 +293,20 @@ async function applyPutEntry(
         ? { ...data, [BODY_OVERLAY_KEY]: before[BODY_OVERLAY_KEY] }
         : data;
 
+    const publicationFailure = await validatePublication(adapter, collection, data);
+    if (publicationFailure) return publicationFailure;
     const validationFailure = validateEntry(await collectionSchema(adapter, collection), data);
     if (validationFailure) return validationFailure;
 
-    await adapter.writeEntry(collection, id, write);
-    const nextRevision = await adapter.bumpRevision(collection, id);
-    if (before !== null) {
-      await appendHistory(adapter, collection, id, {
-        ts: Date.now(),
-        action: "put",
-        data: before,
-      });
-    }
+    const committed = await commitEntryChanges(adapter, [{
+      collection, id, expectedRevision: revision.currentRevision,
+      expectedExists: before !== null, data: write,
+      ...(before !== null ? { history: historyForEditor({
+        ts: Date.now(), action: "put", data: before,
+      }) } : {}),
+    }]);
+    if (!committed.ok) return commitConflict(committed);
+    const nextRevision = committed.revisions[0].revision;
     return { ok: true, body: { ok: true, revision: nextRevision } };
   });
 }
@@ -304,15 +322,15 @@ async function applyDeleteEntry(
 
     const before = (await adapter.getEntry(collection, id))?.data ?? null;
 
-    await adapter.deleteEntry(collection, id);
-    const nextRevision = await adapter.bumpRevision(collection, id);
-    if (before !== null) {
-      await appendHistory(adapter, collection, id, {
-        ts: Date.now(),
-        action: "delete",
-        data: before,
-      });
-    }
+    const committed = await commitEntryChanges(adapter, [{
+      collection, id, expectedRevision: revision.currentRevision,
+      expectedExists: before !== null, data: null,
+      ...(before !== null ? { history: historyForEditor({
+        ts: Date.now(), action: "delete", data: before,
+      }) } : {}),
+    }]);
+    if (!committed.ok) return commitConflict(committed);
+    const nextRevision = committed.revisions[0].revision;
     return { ok: true, body: { ok: true, revision: nextRevision } };
   });
 }
@@ -331,9 +349,9 @@ async function applyReorderEntries(
     const currentById = new Map<string, { data: Record<string, unknown>; revision: number }>();
 
     for (const item of items) {
+      const revision = await adapter.getRevision(collection, item.id);
       const entry = await adapter.getEntry(collection, item.id);
       if (!entry) return fail(404, "Entry not found", { conflictId: item.id });
-      const revision = await adapter.getRevision(collection, item.id);
       if (item.expectedRevision !== undefined && item.expectedRevision !== revision) {
         return fail(409, "Revision conflict", {
           conflictId: item.id,
@@ -357,19 +375,18 @@ async function applyReorderEntries(
 
     // Validate the complete batch before writing any member so one invalid
     // entry cannot leave a partially reordered collection behind.
-    const revisions: Record<string, number> = {};
-    for (const item of items) {
+    const committed = await commitEntryChanges(adapter, items.map((item) => {
       const current = currentById.get(item.id);
       const nextData = pending.get(item.id);
-      if (!current || !nextData) return fail(500, "Failed to prepare reorder item");
-      await adapter.writeEntry(collection, item.id, nextData);
-      revisions[item.id] = await adapter.bumpRevision(collection, item.id);
-      await appendHistory(adapter, collection, item.id, {
-        ts: Date.now(),
-        action: "reorder",
-        data: current.data,
-      });
-    }
+      if (!current || !nextData) throw new Error("Failed to prepare reorder item");
+      return {
+        collection, id: item.id, expectedRevision: current.revision,
+        expectedExists: true, data: nextData,
+        history: historyForEditor({ ts: Date.now(), action: "reorder", data: current.data }),
+      };
+    }));
+    if (!committed.ok) return commitConflict(committed);
+    const revisions = Object.fromEntries(committed.revisions.map(item => [item.id, item.revision]));
 
     return { ok: true, body: { ok: true, revisions } };
   });
@@ -384,7 +401,8 @@ async function applyUpdatePageLayout(
     const revision = await ensureExpectedRevisionMatches(adapter, collection, id, expectedRevision);
     if (!revision.ok) return revision.result;
 
-    const current = (await adapter.getEntry(collection, id))?.data ?? {};
+    const currentEntry = await adapter.getEntry(collection, id);
+    const current = currentEntry?.data ?? {};
     // Snapshot the pre-mutation state for history before we mutate `current`.
     const before = structuredClone(current);
 
@@ -400,13 +418,13 @@ async function applyUpdatePageLayout(
     }));
     current.layout = layout;
 
-    await adapter.writeEntry(collection, id, current);
-    const nextRevision = await adapter.bumpRevision(collection, id);
-    await appendHistory(adapter, collection, id, {
-      ts: Date.now(),
-      action: "put",
-      data: before,
-    });
+    const committed = await commitEntryChanges(adapter, [{
+      collection, id, expectedRevision: revision.currentRevision,
+      expectedExists: Boolean(currentEntry), data: current,
+      history: historyForEditor({ ts: Date.now(), action: "put", data: before }),
+    }]);
+    if (!committed.ok) return commitConflict(committed);
+    const nextRevision = committed.revisions[0].revision;
     return { ok: true, body: { ok: true, revision: nextRevision } };
   });
 }
@@ -448,9 +466,14 @@ async function applyMdBlock(
     }
 
     const clean = sanitizeHtml(html, { allowedClasses: options?.allowedClasses });
+    if (command.sources && !paragraphSourcesMatch(body, command.sources)) {
+      return fail(409, "Paragraph sources changed or cross a structural boundary");
+    }
+    let group: ReturnType<typeof serializeParagraphs> | undefined;
     let md: string;
     try {
-      md = serializeBlock(htmlToSNodes(clean), deriveBlockContext(body, src));
+      if (command.sources && command.paragraphs) group = serializeParagraphs(body, command.sources, command.paragraphs, options?.allowedClasses);
+      md = group ? group.md : serializeBlock(htmlToSNodes(clean), deriveBlockContext(body, src));
     } catch (error) {
       if (error instanceof SerializeError || error instanceof HtmlParseError) {
         return fail(400, error.message);
@@ -486,16 +509,30 @@ async function applyMdBlock(
       ? { ...(current[BODY_OVERLAY_KEY] as Record<string, unknown>) }
       : {};
     // blockPath is /^\d+(\.\d+)*$/ by the parse contract — safe as an own key.
-    drafts[blockPath] = { md, html: clean, src, ts: Date.now() };
+    const target = group?.src ?? src;
+    const members = new Set(command.sources?.map(source => source.blockPath) ?? [blockPath]);
+    for (const [path, value] of Object.entries(drafts)) {
+      if (!isRecord(value) || !isRecord(value.src)) continue;
+      const previous = value.src as unknown as { start: number; end: number };
+      if (previous.start >= target.end || previous.end <= target.start) continue;
+      // A stale tab must not replace only part of an already restructured run.
+      if ((!command.sources && Array.isArray(value.sources)) || !members.has(path) || previous.start < target.start || previous.end > target.end) {
+        return fail(409, "This paragraph group changed. Reload before editing.");
+      }
+      delete drafts[path];
+    }
+    drafts[blockPath] = { md, html: clean, src: target, ts: Date.now(),
+      ...(group ? { paragraphs: group.paragraphs, sources: command.sources } : {}) };
+
     current[BODY_OVERLAY_KEY] = drafts;
 
-    await adapter.writeEntry(collection, id, current);
-    const nextRevision = await adapter.bumpRevision(collection, id);
-    await appendHistory(adapter, collection, id, {
-      ts: Date.now(),
-      action: "save",
-      data: before,
-    });
+    const committed = await commitEntryChanges(adapter, [{
+      collection, id, expectedRevision: revision.currentRevision,
+      expectedExists: true, data: current, writeMode: "body",
+      history: historyForEditor({ ts: Date.now(), action: "save", data: before }),
+    }]);
+    if (!committed.ok) return commitConflict(committed);
+    const nextRevision = committed.revisions[0].revision;
     return { ok: true, body: { ok: true, revision: nextRevision } };
   });
 }
@@ -578,6 +615,11 @@ export async function executeMutation(
   }
 
   const command = parsed.command;
+  if (!(await canMutate(command))) return fail(403, "Permission denied");
+  if (getRequestContext()?.authorize && !getRequestContext()?.overlayActive &&
+      command.type !== "create_collection" && command.type !== "delete_collection") {
+    return fail(503, "Policy-controlled content editing requires private draft storage");
+  }
   const capabilityFailure = await enforceCollectionCapabilities(adapter, command);
   if (capabilityFailure) return capabilityFailure;
   switch (command.type) {

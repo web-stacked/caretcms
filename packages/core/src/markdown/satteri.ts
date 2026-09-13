@@ -144,7 +144,8 @@ export function caretSatteriPlugin(options: CaretSatteriOptions): MdastPluginDef
   };
 
   return {
-    name: "caretcms-stamp",
+    // Changes to stamp shape must invalidate Astro's cached rendered content.
+    name: "caretcms-stamp-paragraphs-v1",
     options: { position: true },
 
     heading(node: Node, ctx: Ctx) {
@@ -168,6 +169,7 @@ export function caretSatteriPlugin(options: CaretSatteriOptions): MdastPluginDef
         blockPath: pathOf(target, ctx),
         ancestorTypes: ancestorTypes(target, ctx),
         nested: plan.action === "parent" ? true : plan.nested,
+        blockType: "paragraph",
       });
     },
   } as unknown as MdastPluginDefinition;

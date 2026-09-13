@@ -109,6 +109,7 @@ describe("static delivery integration setup", () => {
     expect(calls.middleware).toBe(1);
     expect(calls.routes).toContain("/api/cms/mutate");
     expect(calls.routes).toContain("/api/cms/publish");
+    expect(calls.routes).toContain("/api/cms/deployment");
     expect(calls.routes).toContain("/__caret/[...path]");
     expect(calls.info.join("\n")).toContain("static delivery dev authoring enabled");
   });

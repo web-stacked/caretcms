@@ -120,3 +120,23 @@ describe("data-caret-md preview swap", () => {
     );
   });
 });
+
+describe('paragraph group preview', () => {
+  it('renders one safe group, removes consumed stamps and preserves neighboring islands', async () => {
+    const adapter = await adapterWith({ __body: { '1': {
+      html: '', md: 'New', paragraphs: ['New <strong>paragraph</strong>', '<img src=x onerror=alert(1)>Safe'],
+      sources: [
+        { blockPath: '1', src: { start: 0, end: 10, hash: '00000000' }, html: '\"><script>alert(1)</script>' },
+        { blockPath: '2', src: { start: 12, end: 16, hash: '00000000' }, html: 'Second' },
+      ],
+    } } });
+    const input = PAGE + '<p data-caret-md="blog::hello::body::2" data-caret-md-src="12:16:00000000">Second</p><blockquote>Keep me</blockquote>';
+    const output = await rewriteCaretAttributes(input, adapter);
+    expect(output).toContain('<p>New <strong>paragraph</strong></p><p>Safe</p></div>');
+    expect(output).not.toContain('<script>');
+    expect(output).not.toContain('<img');
+    expect(output).not.toContain('>Second</p>');
+    expect(output).toContain('<blockquote>Keep me</blockquote>');
+    expect(output.match(/data-caret-md=/g)).toHaveLength(1);
+  });
+});

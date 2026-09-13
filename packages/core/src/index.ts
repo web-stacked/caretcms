@@ -12,6 +12,7 @@ import type {
   StorageAdapter,
   CollectionStudioConfig,
   CaretIdentityProvider,
+  CaretDeploymentProvider,
 } from "./types.js";
 import { bakeStaticHtmlFiles } from "./runtime/static-bake.js";
 import { caretSatteriPlugin } from "./markdown/satteri.js";
@@ -22,6 +23,8 @@ import {
   type ResolvedStudioDictionary,
 } from "./runtime/i18n.js";
 import { caretRemarkPlugin } from "./markdown/remark.js";
+import { publicationField, resolvePreviewPath } from "./runtime/collection-policy.js";
+import type { GitHubDeploymentOptions } from "./providers/deployment/github.js";
 
 // --- Public type re-exports ---
 export type {
@@ -30,11 +33,22 @@ export type {
   UploadContext,
   EntryData,
   HistoryEntry,
+  RebuildReceipt,
+  EntryCommit,
+  EntryCommitResult,
   CollectionMetadata,
   CollectionSchema,
   CollectionStudioConfig,
   CaretIdentityProvider,
+  CaretDeploymentProvider,
+  DeploymentStatusProvider,
+  DeploymentStatusEvidence,
+  DeploymentState,
+  DeploymentTarget,
   IdentityAdapter,
+  AuthorizationPolicy,
+  AuthorizationAction,
+  AuthorizationRequest,
   EditorIdentity,
   CaretMode,
   CaretStorageProvider,
@@ -42,6 +56,7 @@ export type {
   RuntimeProviderReference,
 } from "./types.js";
 export type { StudioDictionary, StudioLocale, StudioMessageKey } from "./runtime/i18n.js";
+export type { GitHubDeploymentOptions } from "./providers/deployment/github.js";
 export { FilesystemAdapter } from "./runtime/storage/filesystem-adapter.js";
 export { MarkdownAdapter } from "./runtime/storage/markdown-adapter.js";
 export { InMemoryAdapter } from "./runtime/storage/in-memory-adapter.js";
@@ -63,6 +78,8 @@ const RESOLVED_VIRTUAL_SCHEMAS_MODULE_ID = `\0${VIRTUAL_SCHEMAS_MODULE_ID}`;
 const FILESYSTEM_STORAGE_ENTRYPOINT = "@caretcms/core/providers/storage/filesystem";
 const MARKDOWN_STORAGE_ENTRYPOINT = "@caretcms/core/providers/storage/markdown";
 const LOCAL_UPLOADS_ENTRYPOINT = "@caretcms/core/providers/uploads/local";
+const SIMULATED_DEPLOYMENT_ENTRYPOINT = "@caretcms/core/providers/deployment/simulated";
+const GITHUB_DEPLOYMENT_ENTRYPOINT = "@caretcms/core/providers/deployment/github";
 
 type ProviderDefinitionOptions = {
   entrypoint: string;
@@ -170,6 +187,7 @@ type BaseCaretOptions = {
            * The publish remains committed if this webhook fails.
            */
           webhookUrl?: string;
+          timeoutMs?: number;
           method?: "POST" | "PUT";
           headers?: Record<string, string>;
         };
@@ -194,6 +212,7 @@ export type CaretOptions =
       storage?: CaretStorageProvider;
       uploads?: CaretUploadProvider;
       identity?: CaretIdentityProvider;
+      deployment?: CaretDeploymentProvider;
       cloud?: never;
     })
   | (BaseCaretOptions & {
@@ -202,6 +221,7 @@ export type CaretOptions =
       storage?: never;
       uploads?: never;
       identity?: never;
+      deployment?: never;
     });
 
 interface ResolvedThemeConfig {
@@ -220,6 +240,7 @@ interface ResolvedDeliveryConfig {
   bake: boolean;
   publish: {
     webhookUrl: string | null;
+    timeoutMs?: number;
     method: "POST" | "PUT";
     headers: Record<string, string>;
   };
@@ -230,6 +251,7 @@ interface EffectiveDeliveryConfig {
   bake: boolean;
   publish: {
     webhookUrl: string | null;
+    timeoutMs?: number;
     method: "POST" | "PUT";
     headers: Record<string, string>;
   };
@@ -242,6 +264,7 @@ interface ResolvedCaretOptions {
   storage: CaretStorageProvider | null;
   uploads: CaretUploadProvider | null;
   identity: CaretIdentityProvider | null;
+  deployment: CaretDeploymentProvider | null;
   enableAdmin: boolean;
   enableInlineEditor: boolean;
   editorHome: string;
@@ -290,6 +313,38 @@ export function defineIdentityProvider(
   };
 }
 
+export function defineDeploymentProvider(
+  options: ProviderDefinitionOptions,
+): CaretDeploymentProvider {
+  return {
+    kind: "deployment",
+    entrypoint: options.entrypoint,
+    exportName: options.exportName ?? "default",
+    options: options.options ?? null,
+  };
+}
+
+/** Deterministic local deployment status provider for development and tests. */
+export function simulatedDeployment(options?: {
+  durationMs?: number;
+  result?: "live" | "failed";
+}): CaretDeploymentProvider {
+  return defineDeploymentProvider({
+    entrypoint: SIMULATED_DEPLOYMENT_ENTRYPOINT,
+    exportName: "simulatedDeploymentProvider",
+    options,
+  });
+}
+
+/** GitHub Deployments status provider for deployment pipelines that preserve Caret metadata. */
+export function githubDeployment(options: GitHubDeploymentOptions): CaretDeploymentProvider {
+  return defineDeploymentProvider({
+    entrypoint: GITHUB_DEPLOYMENT_ENTRYPOINT,
+    exportName: "githubDeploymentProvider",
+    options,
+  });
+}
+
 export function filesystemStorage(options?: {
   dataRoot?: string;
   metaRoot?: string;
@@ -328,6 +383,46 @@ function normalizeMode(input: CaretMode | undefined): CaretMode {
   return input ?? "embedded";
 }
 
+function validateCollectionOptions(
+  collections: Record<string, CollectionStudioConfig>,
+  schemas: Record<string, JsonSchemaDefinition>,
+): void {
+  for (const [collection, config] of Object.entries(collections)) {
+    if (config.publication) {
+      const field = publicationField(config);
+      if (!field) {
+        throw new Error(`[caretcms] Collection "${collection}" has an invalid publication field.`);
+      }
+
+      const schema = schemas[collection];
+      const properties = schema?.properties;
+      const fieldSchema = properties && typeof properties === "object" && !Array.isArray(properties)
+        ? (properties as Record<string, unknown>)[field]
+        : null;
+      if (!fieldSchema || typeof fieldSchema !== "object" || Array.isArray(fieldSchema)
+        || (fieldSchema as Record<string, unknown>).type !== "boolean") {
+        throw new Error(
+          `[caretcms] Collection "${collection}" manages publication through "${field}", `
+          + `so schemas.${collection}.properties.${field} must be a boolean field.`,
+        );
+      }
+    }
+    if (typeof config.previewPath === "string") {
+      if (!resolvePreviewPath(config, "preview")) {
+        throw new Error(`[caretcms] Collection "${collection}" has an invalid previewPath.`);
+      }
+      continue;
+    }
+    if (config.previewPath) {
+      for (const id of Object.keys(config.previewPath)) {
+        if (!resolvePreviewPath(config, id)) {
+          throw new Error(`[caretcms] Collection "${collection}" has an invalid previewPath for "${id}".`);
+        }
+      }
+    }
+  }
+}
+
 function normalizeCloudOptions(input: CaretCloudOptions): CaretCloudOptions {
   const endpoint = input.endpoint.trim().replace(/\/$/, "");
   const projectId = input.projectId.trim();
@@ -348,7 +443,7 @@ function normalizeCloudOptions(input: CaretCloudOptions): CaretCloudOptions {
   };
 }
 
-function isProviderReference<TKind extends "storage" | "uploads" | "identity">(
+function isProviderReference<TKind extends "storage" | "uploads" | "identity" | "deployment">(
   value: unknown,
   kind: TKind,
 ): value is RuntimeProviderReference<TKind> {
@@ -434,6 +529,7 @@ function resolveDelivery(
     bake: input.bake ?? (mode === "auto" ? true : staticDelivery),
     publish: {
       webhookUrl: input.publish?.webhookUrl?.trim() || null,
+      timeoutMs: input.publish?.timeoutMs,
       method: input.publish?.method ?? "POST",
       headers: input.publish?.headers ?? {},
     },
@@ -474,7 +570,7 @@ function assertDeliveryMatchesAstroOutput(
 /** Every key resolveCaretOptions reads. Anything else in the options object is
  *  a typo (`mountpath`) silently falling back to a default — name it instead. */
 const KNOWN_OPTION_KEYS = new Set([
-  "mode", "cloud", "storage", "uploads", "identity", "mountPath", "apiBasePath",
+  "mode", "cloud", "storage", "uploads", "identity", "deployment", "mountPath", "apiBasePath",
   "enableAdmin", "enableInlineEditor", "editorHome", "schemas", "collections", "locale", "dictionary",
   "allowedClasses", "bodyEditing", "delivery", "theme", "brand",
 ]);
@@ -507,6 +603,10 @@ function resolveCaretOptions(options: CaretOptions): ResolvedCaretOptions {
     );
   }
 
+  const collections = options.collections ?? {};
+  const schemas = options.schemas ?? {};
+  validateCollectionOptions(collections, schemas);
+
   return {
     mountPath: normalizeMountPath(options.mountPath, "/admin"),
     apiBasePath: normalizeMountPath(options.apiBasePath, "/api/cms"),
@@ -520,12 +620,15 @@ function resolveCaretOptions(options: CaretOptions): ResolvedCaretOptions {
     identity: isProviderReference((options as { identity?: unknown }).identity, "identity")
       ? (options as { identity: CaretIdentityProvider }).identity
       : null,
+    deployment: isProviderReference((options as { deployment?: unknown }).deployment, "deployment")
+      ? (options as { deployment: CaretDeploymentProvider }).deployment
+      : null,
     enableAdmin: options.enableAdmin ?? mode !== "cloud",
     enableInlineEditor: options.enableInlineEditor ?? mode !== "cloud",
     editorHome,
     cloud,
-    schemas: options.schemas ?? {},
-    collections: options.collections ?? {},
+    schemas,
+    collections,
     locale: options.locale ?? "en",
     dictionary: resolveStudioDictionary(options.locale ?? "en", options.dictionary),
     allowedClasses: options.allowedClasses ?? {},
@@ -593,6 +696,7 @@ function createRuntimeProvidersPlugin(
     buildProviderLoader("loadConfiguredStorage", resolved.storage),
     buildProviderLoader("loadConfiguredUploadHandler", resolved.uploads),
     buildProviderLoader("loadConfiguredIdentityAdapter", resolved.identity),
+    buildProviderLoader("loadConfiguredDeploymentStatus", resolved.deployment),
     `export const allowedClasses = ${JSON.stringify(resolved.allowedClasses)};`,
     `export const delivery = ${JSON.stringify(delivery)};`,
     // Surfaced for the middleware's authenticated empty-state affordance: it
@@ -740,7 +844,7 @@ function injectMarkdownStamping(args: {
     (processor.options.mdastPlugins ??= []).push(caretSatteriPlugin({ contentRoot }));
     logger.info("[caretcms] Markdown body editing enabled (Sätteri mdast plugin).");
   } else {
-    updateConfig({ markdown: { remarkPlugins: [caretRemarkPlugin({ contentRoot })] } });
+    updateConfig({ markdown: { remarkPlugins: [[caretRemarkPlugin({ contentRoot }), { caretStampVersion: "paragraphs-v1" }]] } });
     logger.info("[caretcms] Markdown body editing enabled (remark plugin).");
   }
 }
@@ -982,6 +1086,10 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           entrypoint: new URL("./runtime/routes/draft.js", import.meta.url),
         });
         injectRoute({
+          pattern: `${resolved.apiBasePath}/deployment`,
+          entrypoint: new URL("./runtime/routes/deployment.js", import.meta.url),
+        });
+        injectRoute({
           pattern: `${resolved.apiBasePath}/collections-metadata`,
           entrypoint: new URL("./runtime/routes/collections-metadata.js", import.meta.url),
         });
@@ -1030,6 +1138,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
       if(!session||session.authenticated!==true)return;
       var l=document.createElement('link');l.rel='stylesheet';l.href='/__caret/editor.css';document.head.appendChild(l);
       window.__CARET__=${jsonForInlineScript(clientConfig)};
+      window.__CARET__.draftMode=session.draftMode===true;
       var s=document.createElement('script');s.type='module';s.src='/__caret/editor.js?v='+Date.now();document.head.appendChild(s);
     })
     .catch(function(){});

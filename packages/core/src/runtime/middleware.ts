@@ -1,4 +1,4 @@
-import type { EditorIdentity, IdentityAdapter, StorageAdapter, UploadHandler } from "../types.js";
+import type { AuthorizationAction, EditorIdentity, IdentityAdapter, StorageAdapter, UploadHandler } from "../types.js";
 import { isEditorAuthenticated, getEditorId } from "./auth/session.js";
 import { isDemoModeEnabled, resolveDemoSession } from "./auth/demo-session.js";
 import { getRuntimeServices } from "./providers.js";
@@ -153,6 +153,8 @@ export async function onRequest(
     editorId = getEditorId(context as Parameters<typeof getEditorId>[0]);
   }
 
+  const policyActive = !demoMode && services.identityAdapter?.authorize !== undefined;
+
   if (demoMode) {
     const resolution = resolveDemoSession(context, request);
     sessionId = resolution.sessionId;
@@ -160,7 +162,7 @@ export async function onRequest(
 
     if (services.adapter.makeSessionOverlay) {
       const overlay = await services.adapter.makeSessionOverlay(sessionId);
-      adapter = new SessionOverlayAdapter(services.adapter, overlay);
+      adapter = new SessionOverlayAdapter(services.adapter, overlay, false);
       overlayActive = true;
     } else {
       warnMissingOverlay();
@@ -169,7 +171,7 @@ export async function onRequest(
     if (services.uploadHandler.makeSessionWrapper) {
       uploadHandler = await services.uploadHandler.makeSessionWrapper(sessionId);
     }
-  } else if (isPreviewRequest(context) && services.adapter.makeEditorOverlay) {
+  } else if ((isPreviewRequest(context) || policyActive) && services.adapter.makeEditorOverlay) {
     // Draft/preview mode: an authenticated editor opting into preview reads and
     // writes through their per-editor overlay (the public site keeps seeing the
     // base). Keyed by the editor id from the session cookie; absent that (an
@@ -185,6 +187,21 @@ export async function onRequest(
     }
   }
 
+  const decisions = new Map<string, Promise<boolean>>();
+  const authorize = async (action: AuthorizationAction, collection?: string, id?: string): Promise<boolean> => {
+    const key = JSON.stringify([action, collection, id]);
+    if (!decisions.has(key)) decisions.set(key, (async () => {
+      if (!identity || typeof services.identityAdapter?.authorize !== "function") return false;
+      try {
+        return (await services.identityAdapter.authorize({ identity: structuredClone(identity), request, action, collection, id })) === true;
+      } catch {
+        console.error("[caretcms] Authorization policy failed; access denied.");
+        return false;
+      }
+    })());
+    return decisions.get(key)!;
+  };
+
   const requestContext = {
     adapter,
     uploadHandler,
@@ -192,6 +209,7 @@ export async function onRequest(
     editorId,
     identity,
     identityAuthoritative: services.identityAdapter !== null,
+    ...(policyActive ? { authorize } : {}),
     demoMode,
     overlayActive,
     runtimeEnv,

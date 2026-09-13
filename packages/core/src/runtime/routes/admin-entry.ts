@@ -1,3 +1,4 @@
+import { canPerform } from "../authorization.js";
 export const prerender = false;
 
 import type { APIContext } from "astro";
@@ -9,6 +10,7 @@ import {
   resolveCollectionStudioConfig,
 } from "../schema-registry.js";
 import { getRequestContext } from "../request-context.js";
+import { resolvePreviewPath } from "../collection-policy.js";
 import {
   escapeHtml,
   htmlResponse,
@@ -46,8 +48,11 @@ export async function GET(context: APIContext): Promise<Response> {
     );
   }
   const label = collectionConfig.label || humanize(collection);
-  const deletable = collectionConfig.deletable !== false && !collectionConfig.singletonId;
+  const editable = await canPerform("edit", collection, id);
+  const deletable = editable && collectionConfig.deletable !== false && !collectionConfig.singletonId && await canPerform("delete", collection, id);
+  const canRestore = editable && await canPerform("publish", collection, id);
   const savingToPreview = getRequestContext()?.overlayActive === true;
+  const previewPath = resolvePreviewPath(collectionConfig, id);
   const messages = runtime.messages;
 
   const config = {
@@ -58,7 +63,9 @@ export async function GET(context: APIContext): Promise<Response> {
     isNew: context.url.searchParams.get("new") === "1",
     initializeIfMissing: collectionConfig.singletonId === id,
     deletable,
+    editable,
     saveTarget: savingToPreview ? "preview" : "live",
+    previewPath,
     messages,
   };
 
@@ -156,7 +163,7 @@ export async function GET(context: APIContext): Promise<Response> {
       background: rgba(239, 68, 68, 0.12);
       border-radius: 50%;
     }
-    .modal-card h3 { font-size: 0.875rem; font-weight: 600; margin: 0 0 0.5rem; color: var(--studio-text); }
+    .modal-card h2 { font-size: 0.875rem; font-weight: 600; margin: 0 0 0.5rem; color: var(--studio-text); }
     .modal-card p { font-size: 0.75rem; color: var(--studio-text-muted); margin: 0 0 1.5rem; }
     .history-panel {
       margin-bottom: 1.5rem;
@@ -211,6 +218,11 @@ export async function GET(context: APIContext): Promise<Response> {
       <div class="studio-spinner" style="width:24px;height:24px;"></div>
     </div>
 
+    <div id="load-error" hidden role="alert" style="text-align:center;padding:5rem 0;">
+      <p id="load-error-message">${escapeHtml(messages["entry.loadFailed"])}</p>
+      <button id="load-error-retry" type="button" class="studio-btn-ghost">${escapeHtml(messages["common.retry"])}</button>
+    </div>
+
     <div id="not-found" hidden style="text-align:center;padding:5rem 0;color:var(--studio-text-dim);">
       <p>${escapeHtml(messages["entry.notFound"])}</p>
       <a href="${escapeHtml(`${runtime.mountPath}/cms/${collection}`)}" style="margin-top:1rem;display:inline-block;font-size:0.75rem;color:var(--studio-accent);text-decoration:underline;">${escapeHtml(messages["entry.goBack"])}</a>
@@ -225,10 +237,10 @@ export async function GET(context: APIContext): Promise<Response> {
         <div class="editor-actions">
           <span id="save-target" style="font-size:0.68rem;color:var(--studio-text-dim);">${escapeHtml(savingToPreview ? messages["entry.savingPreview"] : messages["entry.savingLive"])}</span>
           <span id="status-msg" hidden style="font-size:0.75rem;"></span>
-          <a id="btn-preview" class="studio-btn-ghost" href="${escapeHtml(runtime.editorHome)}" target="_blank" rel="noopener">${escapeHtml(messages["entry.preview"])}</a>
-          <button id="btn-history" type="button" class="studio-btn-ghost">${escapeHtml(messages["entry.history"])}</button>
+          ${previewPath ? `<a id="btn-preview" class="studio-btn-ghost" href="${escapeHtml(previewPath)}" target="_blank" rel="noopener">${escapeHtml(messages["entry.preview"])}</a>` : ""}
+          <button id="btn-history" ${canRestore ? "" : "hidden"} type="button" class="studio-btn-ghost" aria-controls="history-panel" aria-expanded="false">${escapeHtml(messages["entry.history"])}</button>
           ${deletable ? `<button id="btn-delete" type="button" class="studio-btn-danger">${escapeHtml(messages["entry.delete"])}</button>` : ""}
-          <button id="btn-save" type="button" class="studio-save-clean" disabled style="padding:8px 18px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;border:none;border-radius:var(--radius-theme-xs);font-family:var(--studio-font);">${escapeHtml(savingToPreview ? messages["entry.saveDraft"] : messages["entry.saveLive"])}</button>
+          <button id="btn-save" ${editable ? "" : "hidden"} type="button" class="studio-save-clean" disabled style="padding:8px 18px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;border:none;border-radius:var(--radius-theme-xs);font-family:var(--studio-font);">${escapeHtml(savingToPreview ? messages["entry.saveDraft"] : messages["entry.saveLive"])}</button>
         </div>
       </div>
 
@@ -242,9 +254,9 @@ export async function GET(context: APIContext): Promise<Response> {
 
       <div id="validation-warning" role="alert" hidden style="margin-bottom:1.5rem;padding:1rem;border:1px solid var(--studio-red);background:rgba(239,68,68,0.08);color:var(--studio-text);font-size:0.75rem;"></div>
 
-      <div id="history-panel" class="history-panel" hidden>
+      <div id="history-panel" class="history-panel" role="region" aria-labelledby="history-panel-title" hidden>
         <div class="history-panel-header">
-          <span class="studio-label" style="margin:0;">${escapeHtml(messages["entry.versionHistory"])}</span>
+          <span id="history-panel-title" class="studio-label" style="margin:0;">${escapeHtml(messages["entry.versionHistory"])}</span>
           <button id="btn-history-close" type="button" class="studio-btn-ghost">${escapeHtml(messages["common.close"])}</button>
         </div>
         <div id="history-list" class="history-panel-body">
@@ -256,24 +268,24 @@ export async function GET(context: APIContext): Promise<Response> {
     </div>
   </div>
 
-  <div id="delete-dialog" class="modal-backdrop" hidden>
+  <div id="delete-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" aria-describedby="delete-dialog-copy" hidden>
     <div class="modal-card">
       <div class="icon-wrap">
         <svg style="width:24px;height:24px;color:var(--studio-red);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
         </svg>
       </div>
-      <h3>${escapeHtml(messages["entry.deleteTitle"])}</h3>
-      <p>${escapeHtml(messages["entry.deleteCopy"])} <strong id="delete-entry-name" style="color:var(--studio-text);"></strong></p>
+      <h2 id="delete-dialog-title">${escapeHtml(messages["entry.deleteTitle"])}</h2>
+      <p id="delete-dialog-copy">${escapeHtml(messages["entry.deleteCopy"])} <strong id="delete-entry-name" style="color:var(--studio-text);"></strong></p>
       <div style="display:flex;justify-content:center;gap:0.75rem;">
         <button id="btn-delete-cancel" type="button" class="studio-btn-ghost">${escapeHtml(messages["common.cancel"])}</button>
-        <button id="btn-delete-confirm" type="button" class="studio-btn-danger" style="background:var(--studio-red);color:white;">${escapeHtml(messages["entry.delete"])}</button>
+        <button id="btn-delete-confirm" type="button" class="studio-btn-danger studio-btn-danger-confirm">${escapeHtml(messages["entry.delete"])}</button>
       </div>
     </div>
   </div>
 
   <script type="application/json" id="caret-entry-config">${JSON.stringify(config).replace(/</g, "\\u003c")}</script>
-  <script src="/__caret/admin-entry.js?v=studio-upstream-20260819" defer></script>`;
+  <script type="module" src="/__caret/admin-entry.js?v=studio-modules-20260905"></script>`;
 
   return htmlResponse(
     renderStudioPage({

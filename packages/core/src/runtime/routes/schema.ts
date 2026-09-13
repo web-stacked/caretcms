@@ -58,6 +58,8 @@ export async function GET(context: APIContext): Promise<Response> {
         deletable: metadata.deletable,
         singletonId: metadata.singletonId,
         order: metadata.order,
+        previewPath: metadata.previewPath,
+        publication: metadata.publication,
       },
     });
   }
@@ -70,6 +72,7 @@ export async function GET(context: APIContext): Promise<Response> {
 
   const schema = inferJsonSchema(firstEntry);
   const template = buildTemplate(schema);
+  const inferredMetadata = await resolveCollectionStudioConfig(adapter, collectionRaw);
 
   return json({
     schema,
@@ -77,5 +80,6 @@ export async function GET(context: APIContext): Promise<Response> {
     collection: collectionRaw,
     source: "inferred",
     inferredFrom: entries.length > 0 ? entries[0].id : null,
+    metadata: inferredMetadata,
   });
 }

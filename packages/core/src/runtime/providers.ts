@@ -1,4 +1,4 @@
-import type { IdentityAdapter, StorageAdapter, UploadHandler } from "../types.js";
+import type { DeploymentStatusProvider, IdentityAdapter, StorageAdapter, UploadHandler } from "../types.js";
 // virtual.d.ts declares the full export shape the integration generates — keep
 // the two in sync (the vitest stub in tests/unit/stubs mirrors them too). The
 // `Partial` wrapper below keeps runtime null-safety for environments that load
@@ -11,6 +11,7 @@ type RuntimeServices = {
   adapter: StorageAdapter;
   uploadHandler: UploadHandler;
   identityAdapter: IdentityAdapter | null;
+  deploymentStatusProvider: DeploymentStatusProvider | null;
   /** Per-tag class allowlist for rich-text sanitization (from caret() config). */
   allowedClasses: Record<string, string[]>;
   delivery: {
@@ -18,6 +19,7 @@ type RuntimeServices = {
     bake: boolean;
     publish: {
       webhookUrl: string | null;
+      timeoutMs?: number;
       method: "POST" | "PUT";
       headers: Record<string, string>;
     };
@@ -68,13 +70,24 @@ async function createIdentityAdapter(): Promise<IdentityAdapter | null> {
   return await providerModule?.loadConfiguredIdentityAdapter?.() ?? null;
 }
 
+async function createDeploymentStatusProvider(): Promise<DeploymentStatusProvider | null> {
+  if (testServicesOverride?.deploymentStatusProvider) return testServicesOverride.deploymentStatusProvider;
+  return await providerModule?.loadConfiguredDeploymentStatus?.() ?? null;
+}
+
 export async function getRuntimeServices(): Promise<RuntimeServices> {
   if (!runtimeServicesPromise) {
-    const inflight = Promise.all([createAdapter(), createUploadHandler(), createIdentityAdapter()]).then(
-      ([adapter, uploadHandler, identityAdapter]) => ({
+    const inflight = Promise.all([
+      createAdapter(),
+      createUploadHandler(),
+      createIdentityAdapter(),
+      createDeploymentStatusProvider(),
+    ]).then(
+      ([adapter, uploadHandler, identityAdapter, deploymentStatusProvider]) => ({
         adapter,
         uploadHandler,
         identityAdapter,
+        deploymentStatusProvider,
         allowedClasses:
           testServicesOverride?.allowedClasses ?? providerModule?.allowedClasses ?? {},
         delivery:

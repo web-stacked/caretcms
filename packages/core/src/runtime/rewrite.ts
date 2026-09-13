@@ -10,7 +10,7 @@
  */
 
 import type { StorageAdapter, EntryData } from "../types.js";
-import { BODY_OVERLAY_KEY, parseMdBinding } from "../markdown/contracts.js";
+import { BODY_OVERLAY_KEY, parseMdBinding, formatMdSrc, BLOCK_PATH_RE, type MdSrc } from "../markdown/contracts.js";
 import { sanitizeHtml } from "./sanitize-html.js";
 import { getNestedValue } from "./utils.js";
 
@@ -369,8 +369,32 @@ export async function rewriteCaretAttributes(
       if (!entry) continue;
       const drafts = entry.data[BODY_OVERLAY_KEY];
       if (drafts === null || typeof drafts !== "object") continue;
+      // Structural drafts own several original stamps but splice one verified
+      // contiguous range. Only their first stamp renders the editable group.
+      let consumed = false;
+      for (const [path, value] of Object.entries(drafts)) {
+        if (path === binding.mdBlockPath || !value || typeof value !== "object") continue;
+        const sources = (value as Record<string, unknown>).sources;
+        if (Array.isArray(sources) && sources.some(source => source?.blockPath === binding.mdBlockPath)) consumed = true;
+      }
+      if (consumed) {
+        result = result.slice(0, binding.contentStart) + result.slice(binding.contentEnd);
+        continue;
+      }
       const block = (drafts as Record<string, unknown>)[binding.mdBlockPath];
       if (block === null || typeof block !== "object") continue;
+      const group = block as Record<string, unknown>;
+      if (Array.isArray(group.paragraphs) && group.paragraphs.every(p => typeof p === "string") &&
+          Array.isArray(group.sources) && group.sources.length > 0 && group.sources.length <= 128 &&
+          group.sources.every(source => source && typeof source.blockPath === "string" && BLOCK_PATH_RE.test(source.blockPath) && source.src && typeof source.html === "string")) {
+        const sources = group.sources.map(source => ({ blockPath: source.blockPath,
+          src: formatMdSrc(source.src as MdSrc), html: source.html }));
+        const bindingValue = `${binding.collection}::${binding.id}::body::${binding.mdBlockPath}`;
+        const paragraphs = group.paragraphs.map(p => `<p>${sanitizeHtml(p, { allowedClasses: options?.allowedClasses }) || "<br>"}</p>`).join("");
+        const rendered = `<div data-caret-md="${escapeAttr(bindingValue)}" data-caret-md-src="${escapeAttr(sources[0].src)}" data-caret-md-sources="${escapeAttr(JSON.stringify(sources))}" data-caret-md-draft>${paragraphs || "<p><br></p>"}</div>`;
+        result = result.slice(0, binding.contentStart) + rendered + result.slice(binding.contentEnd);
+        continue;
+      }
       const draftHtml = (block as Record<string, unknown>).html;
       if (typeof draftHtml !== "string") continue;
 
@@ -384,7 +408,7 @@ export async function rewriteCaretAttributes(
         const openTag = binding.fullMatch.slice(0, openTagEnd);
         const before = openTag.includes("data-caret-md-draft")
           ? openTag
-          : `${openTag.slice(0, -1)} data-caret-md-draft>`;
+          : `${openTag.slice(0, -1)}${openTag.includes('data-caret-md-paragraph="true"') ? ` data-caret-md-original="${escapeAttr(binding.fullMatch.slice(openTagEnd, closeTagStart))}"` : ""} data-caret-md-draft>`;
         const after = binding.fullMatch.slice(closeTagStart);
         const injected = sanitizeHtml(draftHtml, { allowedClasses: options?.allowedClasses });
         result =

@@ -23,6 +23,8 @@ import {
 import { stegaCombine } from "./runtime/stega.js";
 import { stripBodyOverlay } from "./runtime/utils.js";
 import { getRegisteredSchema } from "./runtime/schema-registry.js";
+import { resolveCollectionStudioConfig } from "./runtime/schema-registry.js";
+import { isPublicEntry } from "./runtime/collection-policy.js";
 import { validateJsonSchema } from "./schema-utils.js";
 
 export class CaretLoaderError extends Error {
@@ -187,6 +189,8 @@ export function caretLoader(
         if (!entry) return undefined;
         const editor = isEditorRequest();
         const clean = stripBodyOverlay(entry.data);
+        const collectionConfig = await resolveCollectionStudioConfig(adapter, collection);
+        if (!editor && !isPublicEntry(clean, collectionConfig)) return undefined;
         const invalid = validationError(collection, entry.id, clean);
         if (invalid) return { error: invalid };
         const data = editor ? encodeEntryData(collection, entry.id, clean) : clean;
@@ -210,9 +214,11 @@ export function caretLoader(
         const adapter = requireAdapter();
         const allEntries: EntryData[] = await adapter.listEntries(collection);
         const editor = isEditorRequest();
+        const collectionConfig = await resolveCollectionStudioConfig(adapter, collection);
         const entries: CaretLiveDataEntry[] = [];
         for (const entry of allEntries) {
           const clean = stripBodyOverlay(entry.data);
+          if (!editor && !isPublicEntry(clean, collectionConfig)) continue;
           const invalid = validationError(collection, entry.id, clean);
           if (invalid) {
             console.error(`[caretcms] ${invalid.message}. Skipping this entry; other valid entries remain available.`);

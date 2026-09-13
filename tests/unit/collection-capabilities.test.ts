@@ -67,4 +67,27 @@ describe("collection capability enforcement", () => {
     });
     expect(result.ok).toBe(true);
   });
+
+  it("requires an explicit boolean status for managed publication", async () => {
+    const adapter = new InMemoryAdapter();
+    registerCollectionStudioConfig("managed-publication", {
+      publication: { field: "published" },
+    });
+
+    const missing = await executeMutation(adapter, {
+      type: "put_entry",
+      collection: "managed-publication",
+      id: "first",
+      data: { title: "First" },
+    });
+    expect(missing).toMatchObject({ ok: false, status: 400 });
+
+    const draft = await executeMutation(adapter, {
+      type: "put_entry",
+      collection: "managed-publication",
+      id: "first",
+      data: { title: "First", published: false },
+    });
+    expect(draft.ok).toBe(true);
+  });
 });

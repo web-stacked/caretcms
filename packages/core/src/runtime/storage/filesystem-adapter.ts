@@ -1,3 +1,5 @@
+import { ContentReadError } from "../content-errors.js";
+import type { DeploymentTarget, RebuildReceipt } from "../../types.js";
 import { mkdir, readFile, readdir, rm, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { CollectionMetadata, EntryData, HistoryEntry, StorageAdapter } from "../../types.js";
@@ -29,6 +31,11 @@ export class FilesystemAdapter implements StorageAdapter {
     // Per-editor draft overlays live as sibling JSON stores under `<.caret>/drafts/`.
     this.draftsRoot = options?.draftsRoot ?? join(dirname(this.dataRoot), "drafts");
   }
+
+  getRebuildReceipt(): Promise<RebuildReceipt | null> { return this.meta.getRebuildReceipt(); }
+  setRebuildReceipt(receipt: RebuildReceipt | null): Promise<void> { return this.meta.setRebuildReceipt(receipt); }
+  getDeploymentTarget(): Promise<DeploymentTarget | null> { return this.meta.getDeploymentTarget(); }
+  setDeploymentTarget(target: DeploymentTarget | null): Promise<void> { return this.meta.setDeploymentTarget(target); }
 
   private collectionDir(collection: string): string {
     return join(this.dataRoot, collection);
@@ -83,10 +90,12 @@ export class FilesystemAdapter implements StorageAdapter {
       const raw = await readFile(filePath, "utf8");
       const parsed = JSON.parse(raw) as unknown;
       const data = asObjectRecord(parsed);
-      if (!data) return null;
+      if (!data) throw new ContentReadError("invalid_content");
       return { id, data };
-    } catch {
-      return null;
+    } catch (error) {
+      if ((error as { code?: string }).code === "ENOENT") return null;
+      if (error instanceof ContentReadError) throw error;
+      throw new ContentReadError(error instanceof SyntaxError ? "invalid_content" : "storage_error");
     }
   }
 

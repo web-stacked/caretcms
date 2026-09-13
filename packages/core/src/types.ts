@@ -1,5 +1,7 @@
 export type EntryData = { id: string; data: Record<string, unknown> };
 export type HistoryEntry = {
+  /** Idempotency key for a recoverable publication. */
+  operationId?: string;
   ts: number;
   data: unknown;
   action: string;
@@ -13,7 +15,7 @@ export type HistoryEntry = {
   editor?: EditorIdentity;
 };
 export type CaretMode = "embedded" | "cloud";
-export type CaretProviderKind = "storage" | "uploads" | "identity";
+export type CaretProviderKind = "storage" | "uploads" | "identity" | "deployment";
 
 export type RuntimeProviderReference<TKind extends CaretProviderKind = CaretProviderKind> = {
   kind: TKind;
@@ -25,6 +27,7 @@ export type RuntimeProviderReference<TKind extends CaretProviderKind = CaretProv
 export type CaretStorageProvider = RuntimeProviderReference<"storage">;
 export type CaretUploadProvider = RuntimeProviderReference<"uploads">;
 export type CaretIdentityProvider = RuntimeProviderReference<"identity">;
+export type CaretDeploymentProvider = RuntimeProviderReference<"deployment">;
 
 export type EditorIdentity = {
   /** Stable, path-safe id matching /^[A-Za-z0-9_-]{1,64}$/. */
@@ -34,12 +37,31 @@ export type EditorIdentity = {
   roles?: string[];
 };
 
+/** Write permissions. Reading content is not restricted by this interface. */
+export type AuthorizationAction = "edit" | "publish" | "delete" | "manageCollections" | "upload";
+export interface AuthorizationRequest {
+  identity: EditorIdentity;
+  request: Request;
+  action: AuthorizationAction;
+  /** Omitted for global actions (uploads, or an empty publish request). */
+  collection?: string;
+  /** Omitted for collection-wide actions. */
+  id?: string;
+}
+export interface AuthorizationPolicy {
+  /** Only literal true grants access. Throws and other values deny access. */
+  authorize(input: AuthorizationRequest): boolean | Promise<boolean>;
+}
+
 /**
  * Optional authoritative authentication adapter. Returning an identity grants
  * editor access; returning null denies it. When configured, password mode is
  * disabled rather than used as a fallback.
  */
 export interface IdentityAdapter {
+  /** Optional write policy. Without one authenticated editors retain full access.
+   * With one, content saves use private drafts even in server delivery. */
+  authorize?: AuthorizationPolicy["authorize"];
   authenticate(request: Request): Promise<EditorIdentity | null>;
   loginUrl(input: { request: Request; redirectTo: string }): string | Promise<string>;
   logoutUrl?(input: { request: Request; redirectTo: string }): string | Promise<string>;
@@ -65,6 +87,21 @@ export type CollectionStudioConfig = {
   deletable?: boolean;
   /** Fixed entry id for a singleton collection. */
   singletonId?: string;
+  /**
+   * Same-origin preview path for entries in this collection. A string may use
+   * `{id}` (for example `/journal/{id}`); an id-to-path map covers fixed pages
+   * such as `{ home: "/", about: "/about" }`.
+   */
+  previewPath?: string | Record<string, string>;
+  /**
+   * Make publication a managed collection capability. Public Caret reads only
+   * return entries whose configured field is exactly `true`; authenticated
+   * editor reads continue to include drafts. The field defaults to `published`
+   * and must be declared as a top-level boolean in this collection's schema.
+   */
+  publication?: {
+    field?: string;
+  };
 };
 
 export type CollectionMetadata = {
@@ -76,13 +113,92 @@ export type CollectionMetadata = {
   orderable?: boolean;
   deletable?: boolean;
   singletonId?: string;
+  previewPath?: string | Record<string, string>;
+  publication?: {
+    field?: string;
+  };
   order?: number;
   schema: CollectionSchema;
   created_at: number;
   updated_at: number;
 };
 
+export interface RebuildReceipt {
+  published: Array<{ collection: string; id: string; revision: number; deleted: boolean }>;
+  commit: string | null;
+}
+
+/** The exact content transition associated with one accepted deployment request. */
+export interface DeploymentTarget extends RebuildReceipt {
+  /** Correlation id also sent to the rebuild webhook. */
+  id: string;
+  requestedAt: number;
+}
+
+export type DeploymentState = "deploying" | "live" | "failed";
+
+/** Provider evidence for the build associated with a deployment target. */
+export interface DeploymentStatusEvidence {
+  state: DeploymentState;
+  /** Stable provider build/deployment identity, once the provider can resolve it. */
+  buildId: string | null;
+  /** Optional provider console or public deployment URL. */
+  buildUrl?: string;
+  /** Short provider-supplied detail suitable for an authenticated editor. */
+  message?: string;
+  /**
+   * Content proven to be included in the live build. Required when state is
+   * `live`; core checks it covers every revision in the target before showing
+   * the deployment as live.
+   */
+  deployed?: RebuildReceipt;
+}
+
+export interface DeploymentStatusProvider {
+  getDeploymentStatus(input: {
+    target: DeploymentTarget;
+    request: Request;
+  }): Promise<DeploymentStatusEvidence>;
+}
+
+/** One validated entry transition submitted to an adapter atomically. */
+export interface EntryCommit {
+  collection: string;
+  id: string;
+  /** Revision observed while the mutation was prepared. */
+  expectedRevision: number;
+  /** Whether an entry was visible while the mutation was prepared. */
+  expectedExists: boolean;
+  /** Replacement data, or null to delete the entry. */
+  data: Record<string, unknown> | null;
+  /** Optional snapshot appended only when the data transition commits. */
+  history?: HistoryEntry;
+  /** Lets an overlay preserve body-only draft merge semantics. */
+  writeMode?: "entry" | "body";
+}
+
+export type EntryCommitResult =
+  | {
+      ok: true;
+      revisions: Array<{ collection: string; id: string; revision: number }>;
+    }
+  | {
+      ok: false;
+      conflict: {
+        collection: string;
+        id: string;
+        currentRevision: number;
+        exists: boolean;
+      };
+    };
+
 export interface StorageAdapter {
+  /** Optional persistent deploy retry receipt, scoped to this editor overlay. */
+  getRebuildReceipt?(): Promise<RebuildReceipt | null>;
+  setRebuildReceipt?(receipt: RebuildReceipt | null): Promise<void>;
+  /** Latest accepted deployment request, scoped to this editor overlay. */
+  getDeploymentTarget?(): Promise<DeploymentTarget | null>;
+  setDeploymentTarget?(target: DeploymentTarget | null): Promise<void>;
   discoverCollections(): Promise<string[]>;
   isKnownCollection(collection: string): Promise<boolean>;
   getEntry(collection: string, id: string): Promise<EntryData | null>;
@@ -94,6 +210,14 @@ export interface StorageAdapter {
   bumpRevision(collection: string, id: string): Promise<number>;
   getHistory(collection: string, id: string): Promise<HistoryEntry[]>;
   appendHistory(collection: string, id: string, entry: HistoryEntry): Promise<void>;
+
+  /**
+   * Optional compare-and-commit primitive for distributed adapters. The adapter
+   * must compare every revision/existence precondition before changing anything,
+   * then atomically apply every entry, revision, history, and index transition.
+   * A conflict leaves the entire batch unchanged.
+   */
+  commitEntries?(changes: readonly EntryCommit[]): Promise<EntryCommitResult>;
 
   // Collection management
   createCollection(metadata: CollectionMetadata): Promise<void>;

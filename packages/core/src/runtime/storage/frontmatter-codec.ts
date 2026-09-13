@@ -1,3 +1,5 @@
+import { sameContent } from "../draft-state.js";
+
 /**
  * Zero-dependency YAML-frontmatter codec for the markdown StorageAdapter.
  *
@@ -5,21 +7,21 @@
  * for the SUBSET of YAML that appears in Astro content-collection frontmatter:
  * block mappings, block sequences (of scalars or mappings), and scalars
  * (quoted/plain strings, integers, floats, booleans, null), plus empty/scalar
- * flow collections (`[]`, `{}`, `[a, b]`, `{a: b}`).
+ * flow collections (`[]`, `{}`, `[a, b]`, `{a: b}`), and literal/folded block strings.
  *
  * Design rules:
  *  - **Fail loud, never lossy.** `parseFrontmatter` returns `{ ok: false }` for
- *    any construct it cannot faithfully represent (anchors, aliases, tags, block
- *    scalars `|`/`>`, tab indentation). The adapter turns that into a thrown
+ *    any construct it cannot faithfully represent (anchors, aliases, tags,
+ *    tab indentation outside scalar content). The adapter turns that into a thrown
  *    error so a later whole-entry `writeEntry` can never silently drop the
  *    frontmatter it failed to read.
  *  - **Round-trip safe by construction.** A value is emitted as a plain scalar
  *    only when re-parsing that exact text yields the identical string; anything
  *    else is double-quoted with JSON escapes (valid YAML double-quote escapes),
  *    so `parse(serialize(x))` deep-equals `x` for every supported value.
- *  - **Comments are not preserved** on write (preserving them needs a full CST).
- *    Documented and accepted for v1; the markdown BODY, by contrast, is never
- *    touched — the adapter splices it back verbatim using `bodyStart`.
+ *  - Serialization is canonical. Source-aware rewriting retains unchanged
+ *    top-level field blocks; comments inside changed fields may be removed.
+ *    Markdown/MDX body bytes are preserved.
  */
 
 const MAX_DEPTH = 32;
@@ -242,7 +244,7 @@ function parseValueToken(text: string, depth: number): unknown {
 // Block parsing (indentation-based)
 // ---------------------------------------------------------------------------
 
-type Token = { indent: number; dash: boolean; text: string };
+type Token = { indent: number; dash: boolean; text: string; line: number };
 
 /** Strip a trailing ` # comment`, respecting single/double quotes. */
 function stripComment(line: string): string {
@@ -263,27 +265,95 @@ function stripComment(line: string): string {
   return line;
 }
 
-/** Turn the raw frontmatter block into indentation tokens, splitting `-` leads. */
+/** Consume raw scalar lines before comment stripping or indentation tokenization. */
+function blockScalar(lines: string[], start: number, parentIndent: number, header: string): { value: string; next: number } {
+  const match = /^([|>])(?:([1-9])([+-]?)|([+-])([1-9]?)|)$/.exec(header);
+  if (!match) throw new CodecError("invalid block scalar header");
+  const explicit = Number(match[2] || match[5] || 0);
+  const chomp = match[3] || match[4] || "";
+  let indent = explicit ? parentIndent + explicit : 0;
+  if (!indent) {
+    for (let i = start; i < lines.length; i++) {
+      if (/^ *$/.test(lines[i])) continue;
+      const spaces = /^ */.exec(lines[i])![0].length;
+      if (spaces > parentIndent) indent = spaces;
+      break;
+    }
+  }
+  const content: string[] = [];
+  let next = start;
+  let seenContent = false;
+  while (next < lines.length) {
+    const line = lines[next];
+    const spaces = /^ */.exec(line)![0].length;
+    if (/^ *$/.test(line)) {
+      if (!explicit && !seenContent && indent && spaces > indent) throw new CodecError("invalid leading block scalar indentation");
+      content.push(indent && spaces > indent ? line.slice(indent) : "");
+    } else {
+      if (!indent || spaces < indent) {
+        if (spaces > parentIndent && !line.slice(spaces).startsWith("#")) throw new CodecError("invalid block scalar indentation");
+        break;
+      }
+      content.push(line.slice(indent));
+      seenContent = true;
+    }
+    next++;
+  }
+  if (!seenContent && !explicit) content.fill("");
+  // Fold only breaks between ordinary text lines. Empty and more-indented
+  // lines retain their paragraph/preformatted boundaries (YAML 1.2.2 §8.1).
+  let value = "";
+  let last = content.length - 1;
+  while (last >= 0 && content[last] === "") last--;
+  for (let i = 0; i <= last; i++) {
+    value += content[i];
+    if (i === last) break;
+    if (match[1] === "|") { value += "\n"; continue; }
+    if (content[i] === "") { value += "\n"; continue; }
+    let following = i + 1;
+    while (following <= last && content[following] === "") following++;
+    const blanks = following - i - 1;
+    const moreIndented = /^[ \t]/.test(content[i]) || /^[ \t]/.test(content[following]);
+    value += moreIndented ? "\n".repeat(blanks + 1) : blanks ? "\n".repeat(blanks) : " ";
+    i = following - 1;
+  }
+  if (chomp === "+") value += "\n".repeat(content.length - last - 1 + (last >= 0 ? 1 : 0));
+  else if (chomp !== "-" && last >= 0) value += "\n";
+  return { value, next };
+}
+
+/** Turn frontmatter into indentation tokens, preserving raw block scalar content. */
 function tokenize(yaml: string): Token[] {
   const tokens: Token[] = [];
-  for (const rawLine of yaml.split(/\r?\n/)) {
+  const lines = yaml.replace(/\r\n?/g, "\n").split("\n");
+  if (lines.at(-1) === "") lines.pop(); // delimiter, not a trailing content line
+  for (let line = 0; line < lines.length; line++) {
+    const rawLine = lines[line];
     const lead = /^[ \t]*/.exec(rawLine)![0];
     if (lead.includes("\t")) throw new CodecError("tab indentation is not supported");
     let indent = lead.length;
     let text = stripComment(rawLine.slice(indent)).replace(/\s+$/, "");
-    if (text === "") continue; // blank or comment-only line
-
-    // Peel leading dash markers: `- - x` → DASH(indent) DASH(indent+2) scalar(indent+4)
+    if (text === "") continue;
+    let dashIndent: number | undefined;
     while (text === "-" || text.startsWith("- ")) {
-      tokens.push({ indent, dash: true, text: "" });
-      if (text === "-") {
-        text = "";
-        break;
-      }
+      dashIndent = indent;
+      tokens.push({ indent, dash: true, text: "", line });
+      if (text === "-") { text = ""; break; }
       text = text.slice(2).replace(/\s+$/, "");
       indent += 2;
     }
-    if (text !== "") tokens.push({ indent, dash: false, text });
+    if (text === "") continue;
+    const colon = findKeyColon(text);
+    const valueStart = colon === -1 ? 0 : colon + 1;
+    const value = text.slice(valueStart).trim();
+    const headerLine = line;
+    if (/^[|>]/.test(value)) {
+      if (colon === -1 && dashIndent === undefined) throw new CodecError("standalone block scalar headers are not supported");
+      const scalar = blockScalar(lines, line + 1, colon === -1 ? dashIndent! : indent, value);
+      text = text.slice(0, valueStart) + " " + JSON.stringify(scalar.value);
+      line = scalar.next - 1;
+    }
+    tokens.push({ indent, dash: false, text, line: headerLine });
   }
   return tokens;
 }
@@ -386,7 +456,7 @@ class BlockParser {
 // ---------------------------------------------------------------------------
 
 /** Locate the frontmatter fence; returns the YAML block and the body offset. */
-function locateFrontmatter(source: string): { yaml: string; bodyStart: number } | null {
+function locateFrontmatter(source: string): { yaml: string; bodyStart: number; yamlStart: number; yamlEnd: number } | null {
   if (!source.startsWith("---")) return null;
   const firstNL = source.indexOf("\n");
   if (firstNL === -1) return null;
@@ -398,6 +468,8 @@ function locateFrontmatter(source: string): { yaml: string; bodyStart: number } 
 
   return {
     yaml: rest.slice(0, close.index),
+    yamlStart: firstNL + 1,
+    yamlEnd: firstNL + 1 + close.index,
     bodyStart: firstNL + 1 + close.index + close[0].length,
   };
 }
@@ -504,5 +576,46 @@ export function serializeFrontmatter(data: Record<string, unknown>): SerializeRe
   } catch (error) {
     const reason = error instanceof CodecError ? error.message : String(error);
     return { ok: false, reason };
+  }
+}
+
+
+/** Replace changed top-level fields; preserve untouched field blocks and body bytes.
+ * Changed fields are serialized canonically, including their nested contents.
+ * This is intentionally not a full YAML concrete-syntax-tree editor.
+ */
+export function rewriteFrontmatter(source: string, data: Record<string, unknown>): SerializeResult {
+  const parsed = parseFrontmatter(source);
+  if (!parsed.ok) return parsed;
+  const serialized = serializeFrontmatter(data);
+  if (!serialized.ok) return serialized;
+  const located = locateFrontmatter(source);
+  if (!located) return { ok: true, content: `---\n${serialized.content}---\n${source}` };
+  if (sameContent(parsed.data, data)) return { ok: true, content: source };
+  try {
+    const tokens = tokenize(located.yaml);
+    const indent = tokens[0]?.indent ?? 0;
+    const fields = tokens.filter(token => token.indent === indent && !token.dash);
+    const lines = located.yaml.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+    const offsets = [0];
+    for (const line of lines) offsets.push(offsets.at(-1)! + line.length);
+    const eol = source.includes("\r\n") ? "\r\n" : "\n";
+    let yaml = located.yaml.slice(0, offsets[fields[0]?.line ?? lines.length]);
+    const seen = new Set<string>();
+    for (let i = 0; i < fields.length; i++) {
+      const field = fields[i];
+      const key = parseKey(field.text.slice(0, findKeyColon(field.text)));
+      seen.add(key);
+      if (!Object.hasOwn(data, key)) continue;
+      if (sameContent(parsed.data[key], data[key])) {
+        yaml += located.yaml.slice(offsets[field.line], offsets[fields[i + 1]?.line ?? lines.length]);
+      } else yaml += emitEntry(key, data[key], indent, 0).join(eol) + eol;
+    }
+    for (const [key, value] of Object.entries(data)) {
+      if (!seen.has(key)) yaml += emitEntry(key, value, indent, 0).join(eol) + eol;
+    }
+    return { ok: true, content: source.slice(0, located.yamlStart) + yaml + source.slice(located.yamlEnd) };
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
   }
 }

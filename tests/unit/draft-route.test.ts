@@ -41,7 +41,7 @@ describe("draft route GET", () => {
 
     const response = await GET({ cookies } as never);
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ hasDrafts: true, count: 2 });
+    await expect(response.json()).resolves.toEqual({ hasDrafts: true, count: 2, retryRebuild: false });
   });
 
   it("returns zero when the editor has no drafts", async () => {
@@ -62,6 +62,6 @@ describe("draft route GET", () => {
 
     const response = await GET({ cookies } as never);
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ hasDrafts: false, count: 0 });
+    await expect(response.json()).resolves.toEqual({ hasDrafts: false, count: 0, retryRebuild: false });
   });
 });

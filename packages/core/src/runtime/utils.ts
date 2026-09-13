@@ -6,7 +6,8 @@
  * `items.0.title` resolved server-side but not in the cloud live-sync path).
  */
 
-import { BODY_OVERLAY_KEY } from "../markdown/contracts.js";
+
+import { PRIVATE_ENTRY_KEYS } from "./draft-state.js";
 
 const FORBIDDEN_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 
@@ -20,9 +21,8 @@ const FORBIDDEN_KEYS = new Set(["__proto__", "prototype", "constructor"]);
  * legitimate consumers and must see it.
  */
 export function stripBodyOverlay(data: Record<string, unknown>): Record<string, unknown> {
-  if (!Object.prototype.hasOwnProperty.call(data, BODY_OVERLAY_KEY)) return data;
-  const { [BODY_OVERLAY_KEY]: _omitted, ...rest } = data;
-  return rest;
+  if (!PRIVATE_ENTRY_KEYS.some(key => Object.hasOwn(data, key))) return data;
+  return Object.fromEntries(Object.entries(data).filter(([key]) => !PRIVATE_ENTRY_KEYS.some(privateKey => privateKey === key)));
 }
 
 function assertSafeKey(key: string): void {

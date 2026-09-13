@@ -38,6 +38,7 @@ describe("caretSatteriPlugin — stamps editable blocks", () => {
     ].join("\n");
     const html = await render(body, fileURL("blog/hello.md"));
     const s = stamps(html);
+    expect(html.match(/data-caret-md-paragraph="true"/g)).toHaveLength(1);
 
     // Every binding is well-formed and points at blog/hello.
     for (const { binding, src } of s) {

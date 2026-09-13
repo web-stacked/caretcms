@@ -22,7 +22,7 @@ describe("makeEditorOverlay — InMemory", () => {
 
     // same editor → same overlay store, so the draft persists across "requests"
     const again = await base.makeEditorOverlay("editor-1");
-    expect((await again.getEntry("pages", "home"))?.data).toEqual({ title: "Draft edit" });
+    expect((await again.getEntry("pages", "home"))?.data).toMatchObject({ title: "Draft edit" });
   });
 
   it("keeps two editors' drafts separate", async () => {

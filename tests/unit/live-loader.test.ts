@@ -4,7 +4,10 @@ import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memo
 import { runWithRequestContext } from "../../packages/core/src/runtime/request-context";
 import type { CaretRequestContext } from "../../packages/core/src/runtime/request-context";
 import type { StorageAdapter, UploadHandler } from "../../packages/core/src/types";
-import { registerCollectionSchema } from "../../packages/core/src/runtime/schema-registry";
+import {
+  registerCollectionSchema,
+  registerCollectionStudioConfig,
+} from "../../packages/core/src/runtime/schema-registry";
 
 /**
  * caretLoader() must honor Astro's LiveLoader contract (stable in Astro 6):
@@ -114,6 +117,34 @@ describe("caretLoader", () => {
         loader.loadCollection({ collection: "pages" }),
       );
       expect(result).toMatchObject({ error: expect.any(CaretLoaderError) });
+    });
+
+    it("hides managed drafts from public reads but includes them for editors", async () => {
+      const adapter = new InMemoryAdapter();
+      adapter.preload("managed-pages", [
+        { id: "live", data: { title: "Live", published: true } },
+        { id: "draft", data: { title: "Draft", published: false } },
+        { id: "unset", data: { title: "Unset" } },
+      ]);
+      registerCollectionStudioConfig("managed-pages", {
+        publication: { field: "published" },
+      });
+      const loader = caretLoader("managed-pages");
+
+      const publicResult = await runWithRequestContext(contextWith(adapter), () =>
+        loader.loadCollection({ collection: "managed-pages" }),
+      );
+      expect(publicResult).toMatchObject({ entries: [{ id: "live" }] });
+      expect(await runWithRequestContext(contextWith(adapter), () =>
+        loader.loadEntry({ filter: { id: "draft" }, collection: "managed-pages" }),
+      )).toBeUndefined();
+
+      const editorResult = await runWithRequestContext(contextWith(adapter, true), () =>
+        loader.loadCollection({ collection: "managed-pages" }),
+      );
+      expect(editorResult).toMatchObject({
+        entries: [{ id: "draft" }, { id: "live" }, { id: "unset" }],
+      });
     });
 
     it("skips only malformed stored entries and reports their id", async () => {

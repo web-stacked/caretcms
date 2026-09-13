@@ -18,7 +18,7 @@
 // `allowedClasses` config, and everything else (incl. on*=, style=) is stripped.
 // Fuzzed in tests/unit/sanitize-html-properties.test.ts.
 export const RICH_ALLOWED_TAGS = new Set([
-  "b", "strong", "i", "em", "u", "s", "a", "br", "sub", "sup", "span",
+  "b", "strong", "i", "em", "u", "s", "a", "br", "sub", "sup", "span", "code",
 ]);
 
 /** Attributes preserved per tag (class is gated separately, by allowedClasses). */

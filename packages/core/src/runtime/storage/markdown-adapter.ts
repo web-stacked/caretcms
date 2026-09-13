@@ -1,3 +1,4 @@
+import { ContentReadError } from "../content-errors.js";
 import { mkdir, readFile, readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { CollectionMetadata, EntryData, HistoryEntry, StorageAdapter } from "../../types.js";
@@ -5,7 +6,7 @@ import { atomicWrite } from "./atomic-write.js";
 import { assertFilesystemRuntime } from "./fs-runtime.js";
 import { SidecarMetaStore, listCollectionDirs } from "./sidecar-meta-store.js";
 import { COLLECTION_NAME_RE, ENTRY_ID_RE, assertSafeEditorId } from "./id-contracts.js";
-import { parseFrontmatter, serializeFrontmatter } from "./frontmatter-codec.js";
+import { parseFrontmatter, rewriteFrontmatter } from "./frontmatter-codec.js";
 import { spliceBodyBlocks as spliceBodyBlocksInSource } from "../../markdown/splice.js";
 import { FilesystemAdapter } from "./filesystem-adapter.js";
 
@@ -73,8 +74,8 @@ export class MarkdownAdapter implements StorageAdapter {
       const path = join(this.collectionDir(collection), `${id}${ext}`);
       try {
         if ((await stat(path)).isFile()) return path;
-      } catch {
-        // not present — try the next extension
+      } catch (error) {
+        if ((error as { code?: string }).code !== "ENOENT") throw new ContentReadError("storage_error");
       }
     }
     return null;
@@ -110,8 +111,9 @@ export class MarkdownAdapter implements StorageAdapter {
     if (!path) return null;
     try {
       return await readFile(path, "utf8");
-    } catch {
-      return null; // disappeared between stat and read, or unreadable encoding
+    } catch (error) {
+      if ((error as { code?: string }).code === "ENOENT") return null;
+      throw new ContentReadError("storage_error");
     }
   }
 
@@ -153,17 +155,16 @@ export class MarkdownAdapter implements StorageAdapter {
     let raw: string;
     try {
       raw = await readFile(path, "utf8");
-    } catch {
-      return null; // disappeared between stat and read, or unreadable encoding
+    } catch (error) {
+      if ((error as { code?: string }).code === "ENOENT") return null;
+      throw new ContentReadError("storage_error");
     }
 
     const parsed = parseFrontmatter(raw);
     if (!parsed.ok) {
       // Fail loud: returning empty data here would let a later whole-entry write
       // silently overwrite frontmatter we couldn't read.
-      throw new Error(
-        `[caretcms] Failed to parse frontmatter in ${collection}/${id}: ${parsed.reason}`,
-      );
+      throw new ContentReadError(parsed.reason.includes("not supported") ? "unsupported_content" : "invalid_content");
     }
     return { id, data: parsed.data };
   }
@@ -209,27 +210,16 @@ export class MarkdownAdapter implements StorageAdapter {
     }
 
     const existing = await this.resolveEntryPath(collection, id);
-    let body = "";
-    if (existing) {
-      const original = await readFile(existing, "utf8");
-      const parsed = parseFrontmatter(original);
-      if (!parsed.ok) {
-        throw new Error(
-          `[caretcms] Refusing to overwrite ${collection}/${id} with unparseable frontmatter: ${parsed.reason}`,
-        );
-      }
-      body = original.slice(parsed.bodyStart);
-    }
-
-    const serialized = serializeFrontmatter(data);
+    const original = existing ? await readFile(existing, "utf8") : "";
+    const serialized = rewriteFrontmatter(original, data);
     if (!serialized.ok) {
-      throw new Error(`[caretcms] Cannot serialize ${collection}/${id}: ${serialized.reason}`);
+      throw new Error(`[caretcms] Refusing to overwrite ${collection}/${id}: ${serialized.reason}`);
     }
 
     const dir = this.collectionDir(collection);
     await mkdir(dir, { recursive: true });
     const writePath = existing ?? join(dir, `${id}.md`);
-    await atomicWrite(writePath, `---\n${serialized.content}---\n${body}`);
+    await atomicWrite(writePath, serialized.content);
   }
 
   async deleteEntry(collection: string, id: string): Promise<void> {

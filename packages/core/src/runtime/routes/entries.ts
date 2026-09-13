@@ -6,6 +6,7 @@ import { parseCollectionName, parseEntryId } from "../mutations/contracts.js";
 import { stripBodyOverlay } from "../utils.js";
 import { getRegisteredSchema } from "../schema-registry.js";
 import { validateJsonSchema, type JsonSchemaValidationIssue } from "../../schema-utils.js";
+import { contentReadFailure } from "../content-errors.js";
 import { json, resolveAdapter } from "./_helpers.js";
 
 type CmsEntryResponse = {
@@ -13,6 +14,7 @@ type CmsEntryResponse = {
   data: Record<string, unknown>;
   revision: number;
   validationIssues?: JsonSchemaValidationIssue[];
+  readError?: { code: string; error: string };
 };
 
 function withValidation(
@@ -98,61 +100,80 @@ export async function GET(context: APIContext): Promise<Response> {
     );
   }
 
-  const adapter = await resolveAdapter();
-  const { collection, id: singleId, page, pageSize, q } = query;
+  try {
+    const adapter = await resolveAdapter();
+    const { collection, id: singleId, page, pageSize, q } = query;
 
-  if (singleId) {
-    const entry = await adapter.getEntry(collection, singleId);
-    const revision = entry ? await adapter.getRevision(collection, singleId) : 0;
-    const entries: CmsEntryResponse[] = entry
-      ? [withValidation(collection, entry, revision)]
-      : [];
+    if (singleId) {
+      const entry = await adapter.getEntry(collection, singleId);
+      const revision = entry ? await adapter.getRevision(collection, singleId) : 0;
+      const entries: CmsEntryResponse[] = entry
+        ? [withValidation(collection, entry, revision)]
+        : [];
+
+      return json({
+        entries,
+        pagination: {
+          page: 1,
+          pageSize: 1,
+          total: entries.length,
+          totalPages: entries.length > 0 ? 1 : 0,
+          hasPrev: false,
+          hasNext: false,
+        } satisfies PaginationResponse,
+      });
+    }
+
+    const allIds = await adapter.listEntryIds(collection);
+    const cache = new Map<string, CmsEntryResponse | null>();
+    async function readEntry(id: string): Promise<CmsEntryResponse | null> {
+      if (cache.has(id)) return cache.get(id)!;
+      let result: CmsEntryResponse | null;
+      try {
+        const entry = await adapter.getEntry(collection, id);
+        result = entry ? withValidation(collection, entry, await adapter.getRevision(collection, id)) : null;
+      } catch (error) {
+        result = { id, data: {}, revision: 0, readError: contentReadFailure(error) };
+      }
+      cache.set(id, result);
+      return result;
+    }
+    const titleKeys = ["name", "title", "question", "company_name", "headline", "label"];
+    const filteredIds: string[] = [];
+    // Bounded batches avoid unbounded simultaneous reads on remote adapters.
+    if (q) {
+      for (let offset = 0; offset < allIds.length; offset += 20) {
+        const batch = await Promise.all(allIds.slice(offset, offset + 20).map(readEntry));
+        for (const entry of batch) {
+          if (!entry) continue;
+          const title = titleKeys.map(key => entry.data[key]).find(value => typeof value === "string" && value);
+          if (entry.id.toLowerCase().includes(q) || (typeof title === "string" && title.toLowerCase().includes(q))) filteredIds.push(entry.id);
+        }
+      }
+    } else filteredIds.push(...allIds);
+    const total = filteredIds.length;
+    const totalPages = total > 0 ? Math.ceil(total / pageSize) : 0;
+    const effectivePage = totalPages === 0 ? 1 : Math.min(page, totalPages);
+    const start = (effectivePage - 1) * pageSize;
+    const pageIds = filteredIds.slice(start, start + pageSize);
+    const entries = (await Promise.all(pageIds.map(readEntry))).filter((entry): entry is CmsEntryResponse => entry !== null);
 
     return json({
       entries,
       pagination: {
-        page: 1,
-        pageSize: 1,
-        total: entries.length,
-        totalPages: entries.length > 0 ? 1 : 0,
-        hasPrev: false,
-        hasNext: false,
+        page: effectivePage,
+        pageSize,
+        total,
+        totalPages,
+        hasPrev: effectivePage > 1,
+        hasNext: effectivePage < totalPages,
+        q,
       } satisfies PaginationResponse,
+      collection,
+      source: "adapter",
     });
+  } catch (error) {
+    const failure = contentReadFailure(error);
+    return json(failure, failure.code === "storage_error" ? 503 : 422);
   }
-
-  const allIds = await adapter.listEntryIds(collection);
-  const filteredIds = q ? allIds.filter((entryId) => entryId.toLowerCase().includes(q)) : allIds;
-
-  const total = filteredIds.length;
-  const totalPages = total > 0 ? Math.ceil(total / pageSize) : 0;
-  const effectivePage = totalPages === 0 ? 1 : Math.min(page, totalPages);
-  const start = (effectivePage - 1) * pageSize;
-  const pageIds = filteredIds.slice(start, start + pageSize);
-
-  const rawEntries = await Promise.all(pageIds.map((entryId) => adapter.getEntry(collection, entryId)));
-  const entries: CmsEntryResponse[] = await Promise.all(
-    rawEntries
-      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-      .map(async (entry) => withValidation(
-        collection,
-        entry,
-        await adapter.getRevision(collection, entry.id),
-      )),
-  );
-
-  return json({
-    entries,
-    pagination: {
-      page: effectivePage,
-      pageSize,
-      total,
-      totalPages,
-      hasPrev: effectivePage > 1,
-      hasNext: effectivePage < totalPages,
-      q,
-    } satisfies PaginationResponse,
-    collection,
-    source: "adapter",
-  });
 }

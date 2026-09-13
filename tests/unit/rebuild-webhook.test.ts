@@ -86,7 +86,20 @@ describe("triggerRebuildWebhook", () => {
     expect(result).toEqual({
       triggered: true,
       ok: false,
-      error: "offline",
+      error: "Could not reach rebuild webhook",
     });
   });
+});
+
+it("aborts a stalled webhook within the configured deadline", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    }));
+    const result = triggerRebuildWebhook({ webhookUrl: "https://deploy.example/hook", timeoutMs: 50 }, { published, commit: null });
+    await vi.advanceTimersByTimeAsync(50);
+    expect(await result).toEqual({ triggered: true, ok: false, error: "Rebuild webhook timed out" });
+    expect(vi.getTimerCount()).toBe(0);
+  } finally { vi.useRealTimers(); }
 });

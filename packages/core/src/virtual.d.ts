@@ -1,9 +1,10 @@
 declare module "virtual:caretcms/providers" {
-  import type { IdentityAdapter, StorageAdapter, UploadHandler } from "./types.js";
+  import type { DeploymentStatusProvider, IdentityAdapter, StorageAdapter, UploadHandler } from "./types.js";
 
   export function loadConfiguredStorage(): Promise<StorageAdapter | null>;
   export function loadConfiguredUploadHandler(): Promise<UploadHandler | null>;
   export function loadConfiguredIdentityAdapter(): Promise<IdentityAdapter | null>;
+  export function loadConfiguredDeploymentStatus(): Promise<DeploymentStatusProvider | null>;
   /** Per-tag class allowlist for rich-text sanitization (from caret() config). */
   export const allowedClasses: Record<string, string[]>;
   export const delivery: {

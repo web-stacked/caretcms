@@ -265,3 +265,52 @@ describe("md_block mutation — guards", () => {
     expect(put.ok).toBe(false);
   });
 });
+
+describe('paragraph group mutations', () => {
+  it('stores one splice for a split and prevents stale single-block overwrites', async () => {
+    const src = await srcFor('First paragraph with some text.');
+    const result = await executeMutation(draft, mdBlock({ src, sources: [{ blockPath: '1', src, html: 'First paragraph with some text.' }], paragraphs: ['First half.', 'Second <strong>half</strong>.'] }));
+    expect(result.ok).toBe(true);
+    const entry = await draft.getEntry('blog', 'hello');
+    expect(entry!.data.__body).toMatchObject({ '1': { md: 'First half.\n\nSecond **half**.', paragraphs: ['First half.', 'Second <strong>half</strong>.'] } });
+    expect((await executeMutation(draft, mdBlock({ src }))).ok).toBe(false);
+    expect(await readFile(join(root, 'content/blog/hello.md'), 'utf8')).toBe(FILE);
+  });
+
+  it('preserves inline code and emphasis through group sanitization', async () => {
+    const src = await srcFor('First paragraph with some text.');
+    const result = await executeMutation(draft, mdBlock({ src, sources: [{ blockPath: '1', src, html: '' }], paragraphs: ['Use <code onclick="bad()">Café 🧪</code> and <strong>bold</strong>.'] }));
+    expect(result.ok).toBe(true);
+    expect((await draft.getEntry('blog', 'hello'))!.data.__body).toMatchObject({ '1': {
+      md: 'Use `Café 🧪` and **bold**.', paragraphs: ['Use <code>Café 🧪</code> and <strong>bold</strong>.'],
+    } });
+  });
+
+  it('validates all paragraph sources before writing, including adjacency and payload limits', async () => {
+    const src = await srcFor('First paragraph with some text.');
+    for (const overrides of [
+      { sources: [] },
+      { sources: [{ blockPath: '1.0', src, html: '' }] },
+      { paragraphs: [42] },
+      { paragraphs: ['a'.repeat(65537)] },
+      { sources: [{ blockPath: '1', src: src.slice(0, -8) + '00000000', html: '' }] },
+    ]) {
+      const result = await executeMutation(draft, mdBlock({ src, sources: [{ blockPath: '1', src, html: '' }], paragraphs: ['New'], ...overrides }));
+      expect(result.ok).toBe(false);
+    }
+    expect(await draft.getOwnEntry('blog', 'hello')).toBeNull();
+  });
+
+  it('replaces member drafts atomically and rejects a stale editor of a consumed paragraph', async () => {
+    const path = join(root, 'content/blog/hello.md');
+    await writeFile(path, FILE.replace('\n\n> quoted line', '\n\nSecond paragraph.\n\n> quoted line'));
+    const src = await srcFor('First paragraph with some text.');
+    const second = await srcFor('Second paragraph.');
+    expect((await executeMutation(draft, mdBlock({ src: second, blockPath: '2', html: 'Old draft' }))).ok).toBe(true);
+    expect((await executeMutation(draft, mdBlock({ src, sources: [{ blockPath: '1', src, html: '' }, { blockPath: '2', src: second, html: '' }], paragraphs: ['Merged.'] }))).ok).toBe(true);
+    expect(Object.keys((await draft.getEntry('blog', 'hello'))!.data.__body as object)).toEqual(['1']);
+    const stale = await executeMutation(draft, mdBlock({ src: second, blockPath: '2' }));
+    expect(stale.ok).toBe(false);
+    if (!stale.ok) expect(stale.status).toBe(409);
+  });
+});

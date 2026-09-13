@@ -1,3 +1,5 @@
+import { getRequestContext } from "../request-context.js";
+import { canPublishOverlay } from "../publish.js";
 export const prerender = false;
 
 import type { APIContext } from "astro";
@@ -20,7 +22,7 @@ export async function GET(context: APIContext): Promise<Response> {
 
   const overlay = await base.makeEditorOverlay(editorId);
   const count = await countOverlayDrafts(overlay);
-  return json({ hasDrafts: count > 0, count });
+  return json({ ...(getRequestContext()?.authorize ? { canPublish: await canPublishOverlay(overlay) } : {}), hasDrafts: count > 0, count, retryRebuild: Boolean(await overlay.getRebuildReceipt?.()) });
 }
 
 /**
@@ -51,6 +53,10 @@ export async function DELETE(context: APIContext): Promise<Response> {
     return json({ error: "Drafts are not supported by the configured storage adapter" }, 400);
   }
   const overlay = await base.makeEditorOverlay(editorId);
-  const cleared = await discardOverlay(overlay, scope);
-  return json({ ok: true, cleared });
+  try {
+    const cleared = await discardOverlay(overlay, scope);
+    return json({ ok: true, cleared });
+  } catch {
+    return json({ error: "Some drafts require publish recovery. Retry Publish before discarding them." }, 409);
+  }
 }

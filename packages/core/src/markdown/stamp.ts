@@ -1,3 +1,4 @@
+import { paragraphSourcesMatch } from "./paragraphs.js";
 /**
  * Shared, pipeline-independent logic for stamping `data-caret-md` bindings.
  *
@@ -158,7 +159,12 @@ export function computeStamp(input: StampInput): Record<string, string> | null {
   const canonicalEnd = end - delta;
   if (canonicalStart < 0) return null;
 
+  const structural = input.blockType === "paragraph" && !nested && blockPath.length === 1 &&
+    paragraphSourcesMatch(source.trim(), [{ blockPath: formatBlockPath(blockPath), html: "", src: {
+      start: canonicalStart, end: canonicalEnd, hash: fnv1a32(slice),
+    } }]);
   return {
+    ...(structural ? { "data-caret-md-paragraph": "true" } : {}),
     [CARET_MD_ATTR]: formatMdBinding({
       collection: entry.collection,
       id: entry.id,

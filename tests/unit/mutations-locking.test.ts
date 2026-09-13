@@ -199,4 +199,24 @@ describe('mutation engine optimistic locking', () => {
     const aRevision = await adapter.getRevision('pages', 'a');
     expect(aRevision).toBe(2);
   });
+
+  it('rejects duplicate entry ids in an atomic reorder batch', async () => {
+    const adapter = freshAdapter();
+    const result = await executeMutation(adapter, {
+      type: 'reorder_entries',
+      collection: 'pages',
+      items: [
+        { id: 'home', order: 0 },
+        { id: 'home', order: 1 },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 400,
+      body: { issues: [{ path: 'items.1.id', code: 'duplicate' }] },
+    });
+    expect((await adapter.getEntry('pages', 'home'))?.data).toEqual({ headline: 'Hello' });
+    expect(await adapter.getRevision('pages', 'home')).toBe(0);
+  });
 });
