@@ -6,7 +6,7 @@ uncommitted work; it is not a claim that every finding applies to the published
 npm release.
 
 **FIX-001 through FIX-012 are implemented and verified locally.** These changes
-are committed on `feat/verified-improvement-cycle`; no release or PR has been created. The confirmed-behavior and
+are committed on `main`; no release has been created. The confirmed-behavior and
 reproduction descriptions below preserve the **before-fix audit evidence**.
 **EXT-001 (paragraph editing), EXT-002 (multiline YAML), EXT-003 (write
 permissions), and MAINT-001 (browser-module maintenance) are also verified
@@ -47,18 +47,18 @@ Medium priority means recovery, diagnostics, or interaction reliability.
 
 | ID | Work item | Priority | Status | Owner / PR |
 | --- | --- | --- | --- | --- |
-| [FIX-001](#fix-001--preserve-newer-content-when-publishing-drafts) | Drafts silently overwrite newer content | High | Verified locally | `feat/verified-improvement-cycle` / PR pending |
-| [FIX-002](#fix-002--recover-from-partial-publish-failures) | Partial publishing leaves inconsistent state | High | Verified locally | `feat/verified-improvement-cycle` / PR pending |
-| [FIX-003](#fix-003--make-all-collection-entries-accessible) | Studio hides entries after the first 24 | High | Verified locally | `feat/verified-improvement-cycle` / PR pending |
-| [FIX-004](#fix-004--bound-rebuild-hook-waits-and-allow-retry) | Rebuild hooks hold publishing open | Medium | Verified locally | `feat/verified-improvement-cycle` / PR pending |
-| [FIX-005](#fix-005--distinguish-unreadable-content-from-missing-content) | Parse errors are shown as missing entries | Medium | Verified locally | `feat/verified-improvement-cycle` / PR pending |
-| [FIX-006](#fix-006--prevent-development-toolbar-overlap) | Astro toolbar blocks Caret controls | Medium | Verified locally | `feat/verified-improvement-cycle` / PR pending |
-| [FIX-007](#fix-007--make-the-studio-delete-confirmation-a-real-modal) | Delete confirmation loses modal and focus context | Medium | Verified locally | `feat/verified-improvement-cycle` / PR pending |
-| [FIX-008](#fix-008--make-studio-history-a-keyboard-managed-disclosure) | History panel has no disclosure or focus context | Medium | Verified locally | `feat/verified-improvement-cycle` / PR pending |
-| [FIX-009](#fix-009--make-the-studio-create-entry-overlay-a-real-modal) | Create Entry overlay lacks modal and keyboard containment | Medium | Verified locally | `feat/verified-improvement-cycle` / PR pending |
-| [FIX-010](#fix-010--make-collection-reordering-keyboard-operable) | Collection ordering is drag-only and loses mode focus | Medium | Verified locally | `feat/verified-improvement-cycle` / PR pending |
-| [FIX-011](#fix-011--show-complete-collection-counts-on-studio-home) | Studio home truncates collection counts at 24 | Medium | Verified locally | `feat/verified-improvement-cycle` / PR pending |
-| [FIX-012](#fix-012--identify-duplicate-entry-ids-across-pages) | Off-page duplicate IDs show a generic creation failure | Medium | Verified locally | `feat/verified-improvement-cycle` / PR pending |
+| [FIX-001](#fix-001--preserve-newer-content-when-publishing-drafts) | Drafts silently overwrite newer content | High | Verified locally | `main` / direct integration |
+| [FIX-002](#fix-002--recover-from-partial-publish-failures) | Partial publishing leaves inconsistent state | High | Verified locally | `main` / direct integration |
+| [FIX-003](#fix-003--make-all-collection-entries-accessible) | Studio hides entries after the first 24 | High | Verified locally | `main` / direct integration |
+| [FIX-004](#fix-004--bound-rebuild-hook-waits-and-allow-retry) | Rebuild hooks hold publishing open | Medium | Verified locally | `main` / direct integration |
+| [FIX-005](#fix-005--distinguish-unreadable-content-from-missing-content) | Parse errors are shown as missing entries | Medium | Verified locally | `main` / direct integration |
+| [FIX-006](#fix-006--prevent-development-toolbar-overlap) | Astro toolbar blocks Caret controls | Medium | Verified locally | `main` / direct integration |
+| [FIX-007](#fix-007--make-the-studio-delete-confirmation-a-real-modal) | Delete confirmation loses modal and focus context | Medium | Verified locally | `main` / direct integration |
+| [FIX-008](#fix-008--make-studio-history-a-keyboard-managed-disclosure) | History panel has no disclosure or focus context | Medium | Verified locally | `main` / direct integration |
+| [FIX-009](#fix-009--make-the-studio-create-entry-overlay-a-real-modal) | Create Entry overlay lacks modal and keyboard containment | Medium | Verified locally | `main` / direct integration |
+| [FIX-010](#fix-010--make-collection-reordering-keyboard-operable) | Collection ordering is drag-only and loses mode focus | Medium | Verified locally | `main` / direct integration |
+| [FIX-011](#fix-011--show-complete-collection-counts-on-studio-home) | Studio home truncates collection counts at 24 | Medium | Verified locally | `main` / direct integration |
+| [FIX-012](#fix-012--identify-duplicate-entry-ids-across-pages) | Off-page duplicate IDs show a generic creation failure | Medium | Verified locally | `main` / direct integration |
 
 Recommended order: **FIX-001 → FIX-002 → FIX-003 → FIX-004 → FIX-005 → FIX-006 → FIX-007 → FIX-008 → FIX-009 → FIX-010 → FIX-011 → FIX-012**.
 FIX-001 and FIX-002 share draft/publish contracts and should be designed together.
@@ -87,7 +87,7 @@ transactions or that deployment-provider behavior has been verified.
 
 ### FIX-001 — Preserve newer content when publishing drafts
 
-**Status:** Verified locally · **Priority:** High · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally · **Priority:** High · **Owner / PR:** `main` / direct integration
 
 **Confirmed behavior:** In static delivery, editor A saved a headline draft,
 editor B published a newer headline, and A then published. The stored headline
@@ -157,7 +157,7 @@ automatic field merging remains future work.
 
 ### FIX-002 — Recover from partial publish failures
 
-**Status:** Verified locally · **Priority:** High · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally · **Priority:** High · **Owner / PR:** `main` / direct integration
 
 **Confirmed behavior:** A history-file write failed after publishing a Markdown
 body edit. The browser displayed `Publish failed` and received HTTP 500, but the
@@ -228,7 +228,7 @@ bulk transaction or distributed KV guarantee. See the recovery guide.
 
 ### FIX-003 — Make all collection entries accessible
 
-**Status:** Verified locally · **Priority:** High · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally · **Priority:** High · **Owner / PR:** `main` / direct integration
 
 **Confirmed behavior:** A collection contained 30 entries. The API reported
 `total: 30`, `pageSize: 24`, `totalPages: 2`, and `hasNext: true`. Studio displayed
@@ -280,7 +280,7 @@ an ID outside the visible page cannot be replaced.
 
 ### FIX-004 — Bound rebuild-hook waits and allow retry
 
-**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `main` / direct integration
 
 **Confirmed behavior:** A local rebuild hook accepted the request but sent no
 response. After 6.9 seconds the browser still showed `Publishing…`; content was
@@ -335,7 +335,7 @@ HTTP acknowledgement is not deployment completion or exactly-once delivery.
 
 ### FIX-005 — Distinguish unreadable content from missing content
 
-**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `main` / direct integration
 
 **Confirmed behavior:** An existing Markdown entry with a YAML multiline caption
 (`caption: |`) returned HTTP 500. Studio displayed `Entry not found.` The file
@@ -384,7 +384,7 @@ affected collection card remains visible.
 
 ### FIX-006 — Prevent development-toolbar overlap
 
-**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `main` / direct integration
 
 **Confirmed behavior:** At 1280×850, tabbing out of the starter's final editable
 heading activated Astro's development toolbar over Caret's bottom toolbar.
@@ -423,7 +423,7 @@ The adjustment reserves 72px above Astro's dock rather than increasing z-index.
 
 ### FIX-007 — Make the Studio delete confirmation a real modal
 
-**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `main` / direct integration
 
 **Confirmed behavior:** Chromium displayed the destructive confirmation, but
 `getByRole("dialog", { name: "Delete Entry" })` could not find it because the
@@ -460,7 +460,7 @@ checking also passes.
 
 ### FIX-008 — Make Studio history a keyboard-managed disclosure
 
-**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `main` / direct integration
 
 **Confirmed behavior:** Chromium found no `aria-controls` relationship on the
 History button, and the revealed panel had no named region semantics. Opening
@@ -489,7 +489,7 @@ strict browser checking, and the open-region axe scan pass.
 
 ### FIX-009 — Make the Studio Create Entry overlay a real modal
 
-**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `main` / direct integration
 
 **Confirmed behavior:** Chromium displayed the Create Entry overlay, but
 `getByRole("dialog", { name: "New Entry" })` could not find it. The backdrop had
@@ -520,7 +520,7 @@ dialog axe scan, and strict browser checking pass.
 
 ### FIX-010 — Make collection reordering keyboard operable
 
-**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `main` / direct integration
 
 **Confirmed behavior:** The collection reorder view exposed only draggable
 `div` rows, so keyboard users could not change entry order. Chromium also found
@@ -558,7 +558,7 @@ opens, focuses, and exits normally.
 
 ### FIX-011 — Show complete collection counts on Studio home
 
-**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `main` / direct integration
 
 **Confirmed behavior:** Studio home fetched the default first page for every
 collection and displayed `entries.length`. Chromium created 31 entries, opened
@@ -583,7 +583,7 @@ change and continues through next-page navigation and cross-page title search.
 
 ### FIX-012 — Identify duplicate entry IDs across pages
 
-**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally · **Priority:** Medium · **Owner / PR:** `main` / direct integration
 
 **Confirmed behavior:** Create Entry checked duplicate IDs only against the
 currently loaded page. With 31 entries, Chromium entered `post-30` while page
@@ -635,7 +635,7 @@ checkboxes track future work; inclusion does not set a release commitment.
 - [x] Preserve or explicitly document link-title and reference-link behavior;
       the current serializer normalizes some link syntax.
 
-**Status:** Verified locally · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally · **Owner / PR:** `main` / direct integration
 
 **Delivered scope:** Consecutive supported top-level paragraphs form one native
 editing region. Enter splits/inserts, Backspace/Delete merge, selections delete,
@@ -675,7 +675,7 @@ See [paragraph editing](../markdown-paragraph-editing.md) for the full behavior.
 - [x] Keep unsupported constructs explicit. Full YAML support is not required to
       resolve FIX-005; use an optional package if a runtime dependency is needed.
 
-**Status:** Verified locally · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally · **Owner / PR:** `main` / direct integration
 
 **Delivered scope:** Literal/folded block strings with strip/clip/keep chomping,
 explicit indentation, mapping/sequence nesting, Unicode, and content whitespace.
@@ -704,7 +704,7 @@ Starting point: [frontmatter codec](../../packages/core/src/runtime/storage/fron
 - [x] Treat reviewer approval, content branches, and PR workflows as follow-on
       features with explicit behavior and audit history.
 
-**Status:** Verified locally · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally · **Owner / PR:** `main` / direct integration
 
 **Delivered scope:** An authoritative identity adapter may define `authorize`
 for edit, publish, delete, collection-management, and upload operations. Missing
@@ -748,7 +748,7 @@ Starting points: [identity contracts](../../packages/core/src/types.ts),
 - [x] Verify against configured Cloudflare resources before advertising production
       multi-editor guarantees; retain single-writer guidance for the KV adapter.
 
-**Status:** Verified locally and on deployed Cloudflare infrastructure · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Verified locally and on deployed Cloudflare infrastructure · **Owner / PR:** `main` / direct integration
 
 **Delivered scope:** Core adapters may implement an atomic `commitEntries`
 compare-and-commit operation. Mutation saves, deletes, layout changes, Markdown
@@ -799,7 +799,7 @@ Starting points: [Cloudflare concurrency guidance](../../packages/cloudflare/REA
 - [x] Keep this independent from the bounded webhook and retry repair in FIX-004.
 
 **Status:** Verified locally and against GitHub Deployments plus a deployed
-Cloudflare Worker · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+Cloudflare Worker · **Owner / PR:** `main` / direct integration
 
 **Delivered:** Added a `DeploymentStatusProvider` contract and runtime provider
 reference, persistent per-editor deployment targets, webhook correlation IDs, an
@@ -847,7 +847,7 @@ records. See [deployment completion status](../deployment-status.md).
 - [x] Keep sanitizer/parser/serializer parity checks and public exports intact.
 - [x] Verify no regression in CSP, editor loading, or production asset paths.
 
-**Status:** Complete browser module graph strictly checked, including Studio, inline editing, and the development toolbar · **Owner / PR:** `feat/verified-improvement-cycle` / PR pending
+**Status:** Complete browser module graph strictly checked, including Studio, inline editing, and the development toolbar · **Owner / PR:** `main` / direct integration
 
 **Delivered:** Studio's schema defaults/presentation helpers and field rendering
 now live in two ES modules under `static/cms/studio/`. The entry orchestrator
@@ -1108,7 +1108,7 @@ Starting points: [Studio entry script](../../packages/core/static/cms/admin-entr
 ## Completion and release checklist
 
 - [x] Every selected FIX item records passing regression tests.
-- [ ] Create/link an implementation PR when requested; the implementation branch is pushed.
+- [x] Land the implementation on `main`; direct integration was requested, so no PR was created.
 - [x] Repeat each original browser reproduction against the fixed code; capture
       UI, API, and stored-state evidence where relevant.
 - [x] `npm run check` passes on the integrated changes.
@@ -1163,3 +1163,4 @@ Starting points: [Studio entry script](../../packages/core/static/cms/admin-entr
 | 2026-09-13 | FIX-012 | Preserved server duplicate-ID conflicts across paginated collection creation with localized recovery focus | `npm run check:all`: 1,007 unit tests, all three example builds, and 65 Chromium tests passed |
 | 2026-09-13 | EXT-004 | Deployed a temporary Astro Worker with the SQLite Durable Object and existing KV/R2 bindings; verified the public site, session isolation, history, and one-winner concurrent revisions; deleted the Worker afterward | Live browser load; API revisions 1 and 2 persisted; simultaneous writes returned 200/409; Worker deletion confirmed while existing KV/R2 resources remained |
 | 2026-09-13 | EXT-005 | Added the GitHub Deployments provider and validated an exact-correlation transient deployment against a live Cloudflare Worker; removed a browser-confirmed 404 fallback link; deleted both temporary external records | Provider observed Deploying then Live with build ID, commit, revisions, and live URL; Chromium loaded the Worker; `npm run check:all` passed with 1,012 unit tests, all three example builds, and 65 Chromium tests |
+| 2026-09-13 | Integration | Organized the completed cycle into logical commits and integrated it directly into `main` as requested | Full gate passed before integration; remote branch cleanup followed the main update |
