@@ -2,7 +2,7 @@
   "name": "@caretcms/cloudflare",
   "version": "0.3.0",
   "type": "module",
-  "description": "Cloudflare-native storage (KV) and uploads (R2) adapters for CaretCMS.",
+  "description": "Cloudflare-native Durable Object/KV storage and R2 upload adapters for CaretCMS.",
   "license": "MIT",
   "keywords": [
     "astro",
@@ -37,6 +37,10 @@
     "./providers/uploads": {
       "types": "./dist/providers/uploads.d.ts",
       "import": "./dist/providers/uploads.js"
+    },
+    "./durable-object": {
+      "types": "./dist/durable-object.d.ts",
+      "import": "./dist/durable-object.js"
     }
   },
   "files": [

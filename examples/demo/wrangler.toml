@@ -1,9 +1,10 @@
 name = "caret-demo"
+main = "./src/worker.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
-# CaretCMS on Cloudflare: content lives in KV, image uploads in R2.
-# Create your own namespace + bucket and fill in the ids below (see README).
+# CaretCMS on Cloudflare: content lives in a Durable Object, image uploads in R2.
+# KV tracks demo upload quotas. Fill in the KV/R2 resources below (see README).
 
 # Public sandbox: every visitor edits in a private, 2h session (no password).
 # Requires the Cloudflare adapters (KV + R2). See docs: Demo / Sandbox Mode.
@@ -13,6 +14,14 @@ CARET_DEMO_MODE = "true"
 [[kv_namespaces]]
 binding = "CMS_KV"
 id = "<your-kv-namespace-id>"
+
+[[durable_objects.bindings]]
+name = "CMS_CONTENT"
+class_name = "CaretCmsContent"
+
+[exports.CaretCmsContent]
+type = "durable-object"
+storage = "sqlite"
 
 [[r2_buckets]]
 binding = "CMS_R2"

@@ -1,0 +1,12 @@
+name = "caretcms-durable-e2e"
+main = "worker.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[durable_objects.bindings]]
+name = "CMS_CONTENT"
+class_name = "CaretCmsContent"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CaretCmsContent"]

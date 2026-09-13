@@ -1,7 +1,9 @@
 import type {
   CollectionMetadata,
+  DeploymentTarget,
   EntryData,
   HistoryEntry,
+  RebuildReceipt,
   StorageAdapter,
 } from "@caretcms/core";
 import { COLLECTION_NAME_RE, assertSafeEditorId } from "@caretcms/core/contracts";
@@ -116,6 +118,28 @@ export class CloudflareKvStorageAdapter implements StorageAdapter {
     this.keyPrefix = options.keyPrefix ?? "";
     this.expirationTtl = options.expirationTtl;
     this.bundledFallback = options.bundledFallback ?? true;
+  }
+
+  async getRebuildReceipt(): Promise<RebuildReceipt | null> {
+    const kv = await this.requireKv();
+    return await kv.get(this.k("rebuild-receipt"), "json") as RebuildReceipt | null;
+  }
+
+  async setRebuildReceipt(receipt: RebuildReceipt | null): Promise<void> {
+    const kv = await this.requireKv();
+    if (receipt === null) await kv.delete(this.k("rebuild-receipt"));
+    else await this.put(kv, this.k("rebuild-receipt"), JSON.stringify(receipt));
+  }
+
+  async getDeploymentTarget(): Promise<DeploymentTarget | null> {
+    const kv = await this.requireKv();
+    return await kv.get(this.k("deployment-target"), "json") as DeploymentTarget | null;
+  }
+
+  async setDeploymentTarget(target: DeploymentTarget | null): Promise<void> {
+    const kv = await this.requireKv();
+    if (target === null) await kv.delete(this.k("deployment-target"));
+    else await this.put(kv, this.k("deployment-target"), JSON.stringify(target));
   }
 
   // --- key helpers -------------------------------------------------------

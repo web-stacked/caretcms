@@ -144,4 +144,15 @@ describe('CloudflareKvStorageAdapter — conformance (MemoryKV)', () => {
     expect((await overlay.getEntry('pages', 'home'))?.data.t).toBe('draft');
     expect((await adapter.getEntry('pages', 'home'))?.data.t).toBe('base');
   });
+
+  it('persists and clears the latest deployment target', async () => {
+    const target = {
+      id: 'deploy-kv', requestedAt: 10, commit: null,
+      published: [{ collection: 'pages', id: 'home', revision: 2, deleted: false }],
+    };
+    await adapter.setDeploymentTarget(target);
+    expect(await adapter.getDeploymentTarget()).toEqual(target);
+    await adapter.setDeploymentTarget(null);
+    expect(await adapter.getDeploymentTarget()).toBeNull();
+  });
 });
