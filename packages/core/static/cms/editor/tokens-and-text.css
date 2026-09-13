@@ -36,7 +36,9 @@
 .cms-content-map,
 .cms-link-follow,
 .cms-rich-toolbar,
-.cms-studio-panel {
+.cms-studio-panel,
+.cms-signout-backdrop,
+.cms-signout-dialog {
   box-sizing: border-box;
   font-family: var(--cms-font);
   line-height: normal;
@@ -81,6 +83,27 @@
   transition: outline-color 0.35s ease, box-shadow 0.35s ease;
 }
 
+body.cms-preview-mode [data-caret].cms-editable,
+body.cms-preview-mode [data-caret-md].cms-editable {
+  cursor: inherit;
+  outline-color: transparent !important;
+  box-shadow: none !important;
+}
+
+body.cms-preview-mode .cms-img-wrapper {
+  z-index: auto;
+  outline-color: transparent !important;
+}
+
+body.cms-preview-mode .cms-img-overlay,
+body.cms-preview-mode .cms-img-badge,
+body.cms-preview-mode .cms-section-controls,
+body.cms-preview-mode .cms-section-chip,
+body.cms-preview-mode .cms-rich-toolbar,
+body.cms-preview-mode .cms-link-follow {
+  display: none !important;
+}
+
 /* ---------------------------------------------------------------------------
    Unpublished body draft
    The server rewrite tags blocks whose prose comes from an unpublished draft
@@ -102,8 +125,7 @@
   top: -0.6em;
   right: 0;
   font: 600 10px / 1 var(--cms-font);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   color: #fff;
   background: var(--cms-yellow);
   padding: 3px 6px;

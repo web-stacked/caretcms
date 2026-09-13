@@ -76,8 +76,8 @@ test("sidebar Studio links fields in both directions and stays on the entry afte
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
   const refreshed = page.waitForNavigation({ waitUntil: "domcontentloaded" });
-  page.once("dialog", (dialog) => dialog.accept());
   await studio.locator("#btn-save").click();
+  await studio.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await saved).ok()).toBe(true);
   await refreshed;
 

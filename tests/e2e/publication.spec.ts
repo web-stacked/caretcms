@@ -34,8 +34,8 @@ test("unpublishing hides an entry publicly without deleting it and allows republ
   const unpublish = page.waitForResponse((response) =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
-  page.once("dialog", (dialog) => dialog.accept());
   await page.locator("#btn-save").click();
+  await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await unpublish).ok()).toBe(true);
   expect(await fetchAnonymousHtml("/publication")).not.toContain("Reversible entry");
 
@@ -54,7 +54,6 @@ test("unpublishing hides an entry publicly without deleting it and allows republ
   const republish = page.waitForResponse((response) =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
-  page.once("dialog", (dialog) => dialog.accept());
   await page.locator("#btn-save").click();
   expect((await republish).ok()).toBe(true);
   expect(await fetchAnonymousHtml("/publication")).toContain("Reversible entry");

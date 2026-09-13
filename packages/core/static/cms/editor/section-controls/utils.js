@@ -26,7 +26,7 @@ export function spacingIndex(value) {
 /** @param {unknown} value @returns {string} */
 export function spacingButtonLabel(value) {
   const token = spacingToken(value);
-  return token === 'default' ? 'Space' : `Space:${token}`;
+  return token === 'default' ? 'Spacing' : `Spacing: ${token}`;
 }
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */

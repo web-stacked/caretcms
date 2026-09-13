@@ -38,6 +38,10 @@ export default defineConfig({
         },
         pages: {
           label: "Pages",
+          entryLabel: "page",
+          titleField: "headline",
+          thumbnailField: "cover",
+          subtitleField: "eyebrow",
           description: "Content for the fixed home and about routes",
           icon: "document",
           order: 20,
@@ -47,6 +51,10 @@ export default defineConfig({
         },
         gallery: {
           label: "Gallery",
+          entryLabel: "project",
+          titleField: "caption",
+          thumbnailField: "src",
+          subtitleField: "year",
           description: "Projects shown on the home page",
           icon: "image",
           order: 30,
@@ -56,6 +64,10 @@ export default defineConfig({
         },
         team: {
           label: "Team",
+          entryLabel: "team member",
+          titleField: "name",
+          thumbnailField: "avatar",
+          subtitleField: "role",
           description: "People shown on the about page",
           icon: "person",
           order: 40,
@@ -65,6 +77,10 @@ export default defineConfig({
         },
         blog: {
           label: "Journal",
+          entryLabel: "post",
+          titleField: "title",
+          thumbnailField: "cover",
+          subtitleField: "author",
           description: "Markdown posts ordered by publication date",
           icon: "document",
           order: 50,

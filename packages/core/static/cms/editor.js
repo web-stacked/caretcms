@@ -54,15 +54,21 @@ function boot() {
 
   const showToast = createToast();
 
-  const { studioButton, mapButton, setStatus } = mountToolbar({
+  const { studioButton, mapButton, editModeButton, previewModeButton, setStatus } = mountToolbar({
     showToast,
     clearDirty: () => {
       state.dirtyEls.clear();
     },
     onLogout: async () => {
-      await fetch(buildCmsUrl('/auth/logout'), { method: 'POST' });
+      const response = await fetch(buildCmsUrl('/auth/logout'), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ redirect: '/' }),
+      });
+      const result = response.ok ? await response.json().catch(() => null) : null;
       clearCloudSessionToken();
-      window.location.href = '/';
+      window.location.href = typeof result?.redirect === 'string' ? result.redirect : '/';
     },
   });
 
@@ -71,18 +77,54 @@ function boot() {
     onUnauthorized: redirectToEditorLogin,
   });
 
-  const { iframe: studioIframe } = mountStudioPanel({ studioButton });
+  const { iframe: studioIframe, placeOpposite } = mountStudioPanel({ studioButton });
 
   mountStudioSync({
     studioIframe,
     state,
     showToast,
     clientLinkify,
+    onInlineSelection: placeOpposite,
   });
 
   mountContentMap({ mapButton });
 
   let richToolbarMounted = false;
+  /** @type {'edit' | 'preview'} */
+  let pageMode = 'edit';
+
+  function applyPageMode() {
+    const previewing = pageMode === 'preview';
+    document.body.classList.toggle('cms-preview-mode', previewing);
+    editModeButton?.setAttribute('aria-pressed', String(!previewing));
+    previewModeButton?.setAttribute('aria-pressed', String(previewing));
+    document.querySelectorAll('[data-caret][contenteditable], [data-caret-md][contenteditable]').forEach((element) => {
+      if (!(element instanceof HTMLElement)) return;
+      if (previewing) {
+        if (!element.dataset.caretEditContenteditable) {
+          element.dataset.caretEditContenteditable = element.getAttribute('contenteditable') || 'true';
+        }
+        element.setAttribute('contenteditable', 'false');
+      } else if (element.dataset.caretEditContenteditable) {
+        element.setAttribute('contenteditable', element.dataset.caretEditContenteditable);
+        delete element.dataset.caretEditContenteditable;
+      }
+    });
+  }
+
+  /** @param {'edit' | 'preview'} mode */
+  function setPageMode(mode) {
+    pageMode = mode;
+    try { sessionStorage.setItem('cms-page-mode', mode); } catch {}
+    applyPageMode();
+  }
+
+  try {
+    if (sessionStorage.getItem('cms-page-mode') === 'preview') pageMode = 'preview';
+  } catch {}
+
+  editModeButton?.addEventListener('click', () => setPageMode('edit'));
+  previewModeButton?.addEventListener('click', () => setPageMode('preview'));
 
   const mountInlineEditors = () => {
     const { showLinkPopup } = mountTextEditors({
@@ -116,6 +158,7 @@ function boot() {
       showToast,
       onUnauthorized: redirectToEditorLogin,
     });
+    applyPageMode();
   };
 
   mountSectionControls({

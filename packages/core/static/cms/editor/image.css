@@ -55,8 +55,7 @@
   font-family: var(--cms-font);
   font-size: 13px;
   font-weight: 500;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.25s ease;
@@ -89,8 +88,8 @@
 }
 
 .cms-img-overlay-text {
-  font-size: 11px;
-  letter-spacing: 0.12em;
+  font-size: 12px;
+  letter-spacing: 0.01em;
 }
 
 /* Upload state — always visible with spinner */

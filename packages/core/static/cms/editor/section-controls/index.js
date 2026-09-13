@@ -22,6 +22,7 @@ import { createSectionSelectionController } from './selection.js';
 import { createSpacingDragController } from './spacing-drag.js';
 import { bindDragSourceHandlers, bindDropTargetHandlers } from './reorder.js';
 import { bindSectionActivation } from './activation.js';
+import { isPolicyDraftMode, isStaticDelivery } from '../config.js';
 
 /** @typedef {import('./model.js').Section} Section */
 /** @typedef {import('./page-context.js').PageContext} PageContext */
@@ -46,6 +47,7 @@ export function mountSectionControls({
   onUnauthorized,
   onCanvasStructureChanged,
 }) {
+  const savesToDraft = isPolicyDraftMode() || isStaticDelivery();
   /** @type {HTMLElement[]} */
   let sectionNodes = Array.from(
     document.querySelectorAll('[data-caret-section][data-caret-section-id]'),
@@ -220,7 +222,7 @@ export function mountSectionControls({
     if (gapHandle instanceof HTMLButtonElement) {
       const label = gapHandle.querySelector('.cms-section-gap-label');
       if (label) {
-        label.textContent = token === 'default' ? 'Y' : `Y:${token}`;
+        label.textContent = token === 'default' ? 'Default spacing' : `${token} spacing`;
       }
     }
   }
@@ -302,6 +304,8 @@ export function mountSectionControls({
 
         event.preventDefault();
         event.stopPropagation();
+        const more = button.closest('.cms-section-more');
+        if (more instanceof HTMLDetailsElement) more.open = false;
 
         if (action === 'spacing') {
           closePickers();
@@ -582,7 +586,7 @@ export function mountSectionControls({
     busy = true;
     setControlsDisabled(true);
     closePickers();
-    setStatus('saving', 'Saving layout...');
+    setStatus('saving', savesToDraft ? 'Saving layout draft…' : 'Saving live layout…');
 
     try {
       const result = await savePageLayout({
@@ -615,14 +619,15 @@ export function mountSectionControls({
       if (!applySectionsToCanvas(sections)) {
         markRefreshRequired({
           statusType: 'idle',
-          statusMessage: 'Layout saved (refresh required)',
+          statusMessage: savesToDraft ? 'Layout draft saved (refresh required)' : 'Live layout saved (refresh required)',
           toastType: 'success',
           toastMessage: `${successMessage}. Refresh page to render structural changes.`,
         });
         return;
       }
 
-      setStatus('idle', 'Layout saved');
+      setStatus('idle', savesToDraft ? 'Layout draft saved' : 'Layout changes are live');
+      if (savesToDraft) window.dispatchEvent(new CustomEvent('cms:draftSaved'));
       showToast(successMessage, 'success');
     } catch {
       setStatus('error', 'Layout save failed');

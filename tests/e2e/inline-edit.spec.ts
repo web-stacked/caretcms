@@ -57,6 +57,29 @@ test.describe("inline editor — click to edit", () => {
     );
   });
 
+  test("Edit and Preview modes switch page interactions without losing editability", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    await expect(page.locator("body")).toHaveClass(/cms-edit-mode/);
+
+    const modes = page.getByRole("group", { name: "Page mode" });
+    const edit = modes.getByRole("button", { name: "Edit", exact: true });
+    const preview = modes.getByRole("button", { name: "Preview", exact: true });
+    await expect(edit).toHaveAttribute("aria-pressed", "true");
+
+    await preview.click();
+    await expect(page.locator("body")).toHaveClass(/cms-preview-mode/);
+    await expect(preview).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(HEADLINE)).toHaveAttribute("contenteditable", "false");
+    await expect(page.locator(".cms-img-overlay")).toBeHidden();
+    await expect(page.locator(".cms-section-controls").first()).toBeHidden();
+
+    await edit.click();
+    await expect(page.locator("body")).not.toHaveClass(/cms-preview-mode/);
+    await expect(edit).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(HEADLINE)).toHaveAttribute("contenteditable", "plaintext-only");
+  });
+
   test("stega hydration promotes only valid bindings and removes hidden metadata", async ({ page }) => {
     const valid = stegaTag("Hydrated headline", "pages::home::hero.headline");
     const invalid = stegaTag("Invalid metadata", "not-a-binding");
@@ -110,14 +133,81 @@ test.describe("inline editor — click to edit", () => {
     const panel = page.getByRole("dialog", { name: "Content Studio" });
     await expect(panel).toHaveAttribute("aria-hidden", "false");
     await expect(studioButton).toHaveAttribute("aria-expanded", "true");
+    await expect(panel.getByRole("button", { name: "Close" })).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Expand" })).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Move Studio panel right" })).toBeVisible();
 
     const studio = page.frameLocator('iframe[title="Content Studio"]');
-    const signOut = studio.getByRole("button", { name: "Sign out" });
-    await signOut.focus();
+    await expect(studio.getByRole("button", { name: "Sign out" })).toBeHidden();
+    await expect(studio.locator(".studio-header")).toBeHidden();
+    await studio.getByRole("link", { name: /Pages/ }).focus();
     await page.keyboard.press("Escape");
     await expect(page.locator(".cms-studio-panel")).toHaveAttribute("aria-hidden", "true");
     await expect(studioButton).toBeFocused();
     expect(pageErrors).toEqual([]);
+
+    await studioButton.click();
+    await panel.getByRole("button", { name: "Expand" }).click();
+    await expect(page).toHaveURL(/\/admin\/cms$/);
+  });
+
+  test("Studio panel controls preserve work and keep selected content beside the drawer", async ({ page }) => {
+    await loginAsEditor(page);
+    const seed = await page.request.post("/api/cms/mutate", {
+      headers: { "x-caret-request": "1" },
+      data: {
+        type: "put_entry",
+        collection: "pages",
+        id: "home",
+        data: {
+          hero: {
+            headline: TEMPLATE_HEADLINE,
+            subtext: "Editable subtext",
+            image: "/initial.png",
+          },
+          our_teaching_philosophy: "Our Teaching Philosophy",
+        },
+      },
+    });
+    expect(seed.ok()).toBe(true);
+    await page.goto("/");
+    await expect(page.locator("body")).toHaveClass(/cms-edit-mode/);
+    await page.evaluate(() => {
+      for (const [id, side] of [["left-binding", "left"], ["right-binding", "right"]]) {
+        const button = document.createElement("button");
+        button.id = id;
+        button.textContent = `${side} binding`;
+        button.setAttribute("data-caret", `pages::home::review.${side}`);
+        Object.assign(button.style, {
+          position: "fixed",
+          top: "80px",
+          [side]: "8px",
+          zIndex: "99998",
+        });
+        document.body.append(button);
+      }
+    });
+
+    const studioButton = page.getByRole("button", { name: "Studio", exact: true });
+    const panel = page.getByRole("dialog", { name: "Content Studio" });
+    await page.locator("#left-binding").click();
+    await studioButton.click();
+    await expect(panel).toHaveClass(/side-right/);
+    await expect(panel.getByRole("button", { name: "Move Studio panel left" })).toBeVisible();
+
+    await panel.getByRole("button", { name: "Close" }).click();
+    await page.locator("#right-binding").click();
+    await studioButton.click();
+    await expect(panel).not.toHaveClass(/side-right/);
+
+    const studio = page.frameLocator('iframe[title="Content Studio"]');
+    const iframe = page.locator('iframe[title="Content Studio"]');
+    await expect(iframe).toHaveAttribute("src", "/admin/cms/pages/home");
+    const headline = studio.getByRole("textbox", { name: "Headline", exact: true });
+    await headline.fill("Unsaved drawer value");
+    await panel.getByRole("button", { name: "Close" }).click();
+    await studioButton.click();
+    await expect(headline).toHaveValue("Unsaved drawer value");
   });
 
   test("content map targets duplicate bindings individually and handles malformed entry data", async ({ page }) => {
@@ -142,7 +232,15 @@ test.describe("inline editor — click to edit", () => {
       body: "null",
     }));
 
+    await page.locator(".cms-tools-summary").click();
+    const highlight = page.getByRole("button", { name: "Show editable areas" });
+    await expect(highlight).toHaveAttribute("aria-pressed", "false");
+    await highlight.click();
+    await expect(page.getByRole("button", { name: "Hide editable areas" }))
+      .toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Hide editable areas" }).click();
     await page.locator(".cms-map-btn").click();
+    await expect(page.locator(".cms-tools-menu")).not.toHaveAttribute("open", "");
     const panel = page.locator(".cms-content-map");
     const map = page.getByRole("region", { name: "Content map" });
     await expect(map).toHaveAttribute("aria-hidden", "false");
@@ -186,6 +284,13 @@ test.describe("inline editor — click to edit", () => {
     const insertDialog = page.getByRole("dialog", { name: "Insert section" });
     await expect(insertDialog).toBeVisible();
     await expect(insertDialog.getByRole("button", { name: "Hero", exact: true })).toBeFocused();
+    const [insertBox, toolbarBox] = await Promise.all([
+      insertDialog.boundingBox(),
+      page.locator(".cms-toolbar").boundingBox(),
+    ]);
+    expect(insertBox).not.toBeNull();
+    expect(toolbarBox).not.toBeNull();
+    expect(insertBox!.y + insertBox!.height).toBeLessThanOrEqual(toolbarBox!.y);
     await page.keyboard.press("Escape");
     await expect(insertDialog).toBeHidden();
     await expect(insert).toBeFocused();
@@ -208,6 +313,9 @@ test.describe("inline editor — click to edit", () => {
     );
 
     await hero.hover();
+    await expect(hero.locator(".cms-section-gap-label")).toHaveText("Default spacing");
+    await hero.getByText("More", { exact: true }).click();
+    await expect(hero.getByRole("button", { name: "Duplicate", exact: true })).toBeVisible();
     const [hideRequest] = await Promise.all([
       page.waitForRequest((request) =>
         request.url().includes("/api/cms/mutate") && request.method() === "POST"),

@@ -37,7 +37,7 @@ describe("inline save queue", () => {
       value: "After",
       expectedRevision: 3,
     });
-    expect(setStatus).toHaveBeenLastCalledWith("idle", "Saved");
+    expect(setStatus).toHaveBeenLastCalledWith("idle", "Changes are live");
   });
 
   it("preserves conflict behavior when the 409 body is malformed", async () => {

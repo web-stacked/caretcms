@@ -40,9 +40,14 @@ export default defineConfig({
         "studio-fixture": {
           type: "object",
           title: "Studio Fixture",
+          required: ["title"],
+          "x-caret-groups": [
+            { title: "Content", fields: ["title", "summary", "website", "published"] },
+            { title: "Repeatable content", fields: ["details", "images"] },
+          ],
           properties: {
             title: { type: "string", title: "Title", default: "Untitled" },
-            summary: { type: "string", title: "Summary", format: "textarea", default: "" },
+            summary: { type: "string", title: "Summary", format: "html", description: "Use bold, italic, or links to add emphasis.", default: "" },
             website: { type: "string", title: "Website", format: "url", default: "" },
             published: { type: "boolean", title: "Published", default: false },
             details: {
@@ -91,6 +96,9 @@ export default defineConfig({
         },
         "studio-fixture": {
           label: "Studio Fixture",
+          titleField: "title",
+          thumbnailField: "images.0.src",
+          subtitleField: "website",
           previewPath: "/",
           publication: { field: "published" },
         },

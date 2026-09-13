@@ -72,7 +72,13 @@ export function getTitle(data) {
 
 /** @param {string} key @returns {string} */
 export function humanizeKey(key) {
-  return key.replace(/_/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  return key
+    .replace(/_/g, " ")
+    .replace(/\bcta\b/gi, "call to action")
+    .replace(/\bseo\b/gi, "SEO")
+    .replace(/\burl\b/gi, "URL")
+    .replace(/\bid\b/gi, "ID")
+    .replace(/^\w/, function (c) { return c.toUpperCase(); });
 }
 
 /** @param {string} path @returns {string} */

@@ -69,6 +69,19 @@ export async function getStudioCollectionNames(
   ])].sort();
 }
 
+export async function getStudioCollections(
+  adapter: StorageAdapter,
+): Promise<Array<{ name: string; config: CollectionStudioConfig }>> {
+  const collections = await Promise.all((await getStudioCollectionNames(adapter)).map(async (name) => ({
+    name,
+    config: await resolveCollectionStudioConfig(adapter, name),
+  })));
+  return collections.sort((a, b) =>
+    (a.config.order ?? 0) - (b.config.order ?? 0)
+    || (a.config.label ?? a.name).localeCompare(b.config.label ?? b.name),
+  );
+}
+
 export async function isKnownStudioCollection(
   adapter: StorageAdapter,
   collection: string,
@@ -86,8 +99,12 @@ export async function resolveCollectionStudioConfig(
   const registered = studioConfigRegistry.get(collection);
   return {
     label: dynamic?.label,
+    entryLabel: dynamic?.entryLabel,
     description: dynamic?.description,
     icon: dynamic?.icon,
+    titleField: dynamic?.titleField,
+    thumbnailField: dynamic?.thumbnailField,
+    subtitleField: dynamic?.subtitleField,
     order: dynamic?.order,
     creatable: dynamic?.creatable,
     orderable: dynamic?.orderable,

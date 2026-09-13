@@ -6,6 +6,8 @@ import { isEditorAuthenticated } from "../auth/session.js";
 import { getRuntimeConfig } from "../config.js";
 import { resolveAdapter } from "./_helpers.js";
 import {
+  getStudioCollections,
+  getRegisteredSchema,
   isKnownStudioCollection,
   resolveCollectionStudioConfig,
 } from "../schema-registry.js";
@@ -47,10 +49,32 @@ export async function GET(context: APIContext): Promise<Response> {
     );
   }
   const label = collectionConfig.label || humanize(collection);
+  const studioCollections = await getStudioCollections(adapter);
+  const collectionSwitcher = studioCollections.map(({ name, config }) => ({
+    label: config.label || humanize(name),
+    href: config.singletonId
+      ? `${runtime.mountPath}/cms/${encodeURIComponent(name)}/${encodeURIComponent(config.singletonId)}`
+      : `${runtime.mountPath}/cms/${encodeURIComponent(name)}`,
+    selected: name === collection,
+  }));
   const messages = runtime.messages;
   const creatable = collectionConfig.creatable !== false && await canPerform("edit", collection);
   const orderable = collectionConfig.orderable !== false && await canPerform("edit", collection);
   const publicationFieldName = publicationField(collectionConfig);
+  const registeredSchema = getRegisteredSchema(collection)?.schema;
+  const schemaProperties = registeredSchema?.properties ?? {};
+  const inferredTitleField = ["title", "name", "headline", "label", "question"].find((key) =>
+    schemaProperties[key]?.type === "string"
+  );
+  const titleField = collectionConfig.titleField || inferredTitleField || null;
+  const titleInputLabel = titleField && typeof schemaProperties[titleField]?.title === "string"
+    ? schemaProperties[titleField].title
+    : messages["collection.entryTitle"];
+  const entryLabel = collectionConfig.entryLabel?.trim() || "";
+  const dialogTitle = entryLabel ? `${messages["collection.newNamed"]} ${entryLabel}` : messages["collection.newEntry"];
+  const createLabel = entryLabel ? `${messages["collection.createNamed"]} ${entryLabel}` : messages["collection.create"];
+  const newLabel = entryLabel ? `${messages["collection.new"]} ${entryLabel}` : messages["collection.new"];
+  const emptyCreateLabel = entryLabel ? `${messages["collection.createFirstNamed"]} ${entryLabel}` : messages["collection.createFirst"];
   const safeCollection = escapeHtml(collection);
 
   const extraStyles = `
@@ -72,6 +96,38 @@ export async function GET(context: APIContext): Promise<Response> {
       height: 100%;
       object-fit: cover;
       display: block;
+    }
+    .entry-card-body { padding: 1rem; }
+    .entry-card-title {
+      margin: 0 0 0.35rem; overflow: hidden; color: var(--studio-text);
+      font-size: 0.9rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .entry-card-subtitle {
+      margin: 0 0 0.45rem; overflow: hidden; color: var(--studio-text-muted);
+      font-size: 0.78rem; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .entry-card-status { display: block; margin-bottom: 0.35rem; font-size: 0.75rem; }
+    .entry-card-id {
+      margin: 0; overflow: hidden; color: var(--studio-text-muted); font: 0.72rem/1.4 var(--studio-font-mono);
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    .collection-heading-bar {
+      display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .collection-actions {
+      display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem; flex: 0 0 auto;
+    }
+    .collection-actions button { flex-shrink: 0; white-space: nowrap; }
+    .collection-actions #search-input { min-width: 10rem; }
+    .collection-search-label {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
+    @media (max-width: 760px) {
+      .collection-heading-bar { align-items: stretch; flex-direction: column; }
+      .collection-actions { justify-content: flex-start; flex-wrap: wrap; }
+      .collection-actions #search-input { flex: 1 1 12rem; max-width: none !important; }
     }
     .reorder-item {
       display: flex;
@@ -115,26 +171,25 @@ export async function GET(context: APIContext): Promise<Response> {
       justify-content: space-between;
       padding: 1rem 1.5rem;
       border-bottom: 1px solid var(--studio-border);
-      font-size: 11px;
+      font-size: 13px;
       font-weight: 600;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
+      letter-spacing: 0;
       color: var(--studio-text);
     }
     .modal-body { padding: 1.5rem; }
   `;
 
   const body = `<div class="studio-fade-in" style="max-width:80rem;margin:0 auto;" id="collection-page" data-collection="${safeCollection}">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem;">
+    <div class="collection-heading-bar">
       <div>
         <h1 style="font-family:var(--studio-font-heading);font-size:1.25rem;margin:0;color:var(--studio-text);">${escapeHtml(label)}</h1>
-        <p id="entry-count" style="font-size:0.7rem;margin:0.25rem 0 0;color:var(--studio-text-dim);">${escapeHtml(messages["common.loading"])}</p>
+        <p id="entry-count" style="font-size:0.8rem;margin:0.25rem 0 0;color:var(--studio-text-dim);">${escapeHtml(messages["common.loading"])}</p>
       </div>
-      <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
-        <label for="search-input" style="font-size:0.7rem;color:var(--studio-text-dim);">${escapeHtml(messages["collection.search"])}</label>
+      <div class="collection-actions">
+        <label for="search-input" class="collection-search-label">${escapeHtml(messages["collection.search"])}</label>
         <input id="search-input" name="search" type="search" placeholder="${escapeHtml(messages["collection.searchPlaceholder"])}" class="studio-input" style="max-width:240px;" />
         ${orderable ? `<button id="btn-reorder" type="button" class="studio-btn-ghost" aria-controls="reorder-container" aria-expanded="false">${escapeHtml(messages["collection.reorder"])}</button>` : ""}
-        ${creatable ? `<button id="btn-new" class="studio-btn-primary">${escapeHtml(messages["collection.new"])}</button>` : ""}
+        ${creatable ? `<button id="btn-new" class="studio-btn-primary">${escapeHtml(newLabel)}</button>` : ""}
       </div>
     </div>
 
@@ -144,7 +199,7 @@ export async function GET(context: APIContext): Promise<Response> {
 
     <div id="empty" hidden style="text-align:center;padding:5rem 0;color:var(--studio-text-dim);">
       <p style="font-size:0.875rem;margin:0 0 0.75rem;">${escapeHtml(messages["collection.noEntries"])}</p>
-      ${creatable ? `<button id="btn-empty-create" class="studio-btn-primary">${escapeHtml(messages["collection.createFirst"])}</button>` : ""}
+      ${creatable ? `<button id="btn-empty-create" class="studio-btn-primary">${escapeHtml(emptyCreateLabel)}</button>` : ""}
     </div>
 
     <div id="error-state" hidden style="text-align:center;padding:5rem 0;">
@@ -173,18 +228,21 @@ export async function GET(context: APIContext): Promise<Response> {
   <div id="create-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="create-dialog-title" aria-describedby="create-hint" hidden>
     <div class="modal-card">
       <div class="modal-header">
-        <h2 id="create-dialog-title" style="font:inherit;letter-spacing:inherit;text-transform:inherit;margin:0;">${escapeHtml(messages["collection.newEntry"])}</h2>
+        <h2 id="create-dialog-title" style="font:inherit;letter-spacing:inherit;text-transform:inherit;margin:0;">${escapeHtml(dialogTitle)}</h2>
         <button id="btn-create-close" type="button" class="studio-btn-ghost" style="padding:4px 10px;">${escapeHtml(messages["common.close"])}</button>
       </div>
       <div class="modal-body">
+        ${titleField ? `<label for="create-title-input" class="studio-label">${escapeHtml(titleInputLabel)}</label>
+        <input id="create-title-input" type="text" class="studio-input" placeholder="${escapeHtml(messages["collection.entryTitlePlaceholder"])}" autocomplete="off" />
+        <div style="height:1rem;"></div>` : ""}
         <label for="create-id-input" class="studio-label">${escapeHtml(messages["collection.entryId"])}</label>
         <input id="create-id-input" type="text" class="studio-input" placeholder="${escapeHtml(messages["collection.entryIdPlaceholder"])}" autocomplete="off" spellcheck="false" />
-        <p id="create-hint" style="font-size:10px;margin:0.5rem 0 0.35rem;color:var(--studio-text-dim);">${escapeHtml(messages["collection.idHint"])}</p>
-        ${publicationFieldName ? `<p style="font-size:10px;margin:0 0 1rem;color:var(--studio-text-dim);">${escapeHtml(messages["collection.publishHint"])}</p>` : ""}
+        <p id="create-hint" style="font-size:12px;margin:0.5rem 0 0.35rem;color:var(--studio-text-dim);">${escapeHtml(messages["collection.idHint"])}</p>
+        ${publicationFieldName ? `<p style="font-size:12px;margin:0 0 1rem;color:var(--studio-text-dim);">${escapeHtml(messages["collection.publishHint"])}</p>` : ""}
         <p id="create-error" class="studio-error-text" hidden></p>
         <div style="display:flex;justify-content:flex-end;gap:0.75rem;">
           <button id="btn-create-cancel" type="button" class="studio-btn-ghost">${escapeHtml(messages["common.cancel"])}</button>
-          <button id="btn-create-confirm" type="button" class="studio-btn-primary" disabled>${escapeHtml(messages["collection.create"])}</button>
+          <button id="btn-create-confirm" type="button" class="studio-btn-primary" disabled>${escapeHtml(createLabel)}</button>
         </div>
       </div>
     </div>
@@ -196,6 +254,10 @@ export async function GET(context: APIContext): Promise<Response> {
     var MOUNT = ${serializeJsonForScript(runtime.mountPath)};
     var MSG = ${serializeJsonForScript(messages)};
     var PUBLICATION_FIELD = ${serializeJsonForScript(publicationFieldName)};
+    var TITLE_FIELD = ${serializeJsonForScript(titleField)};
+    var THUMBNAIL_FIELD = ${serializeJsonForScript(collectionConfig.thumbnailField || null)};
+    var SUBTITLE_FIELD = ${serializeJsonForScript(collectionConfig.subtitleField || null)};
+    var CREATE_LABEL = ${serializeJsonForScript(createLabel)};
     var ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
     var allEntries = [];
     var currentPage = 1;
@@ -223,6 +285,7 @@ export async function GET(context: APIContext): Promise<Response> {
     var reorderSave = document.getElementById('btn-reorder-save');
     var reorderCancel = document.getElementById('btn-reorder-cancel');
     var dialog = document.getElementById('create-dialog');
+    var titleInput = document.getElementById('create-title-input');
     var idInput = document.getElementById('create-id-input');
     var errorEl = document.getElementById('create-error');
     var confirmBtn = document.getElementById('btn-create-confirm');
@@ -230,13 +293,22 @@ export async function GET(context: APIContext): Promise<Response> {
     var createCancelBtn = document.getElementById('btn-create-cancel');
     var dialogTrigger = null;
     var knownDuplicateIds = new Set();
+    var idWasEdited = false;
 
     function htmlEsc(s) { return String(s).replace(/[&<>"']/g, function (c) {
       return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; });
     }
 
+    function fieldValue(data, path) {
+      if (!data || !path) return undefined;
+      return path.split('.').reduce(function (value, key) {
+        return value && typeof value === 'object' ? value[key] : undefined;
+      }, data);
+    }
     function getTitle(d) {
       if (!d) return MSG['collection.untitled'];
+      var configured = fieldValue(d, TITLE_FIELD);
+      if (typeof configured === 'string' && configured.trim()) return configured;
       for (var i = 0; i < ['name','title','question','company_name','headline','label'].length; i++) {
         var k = ['name','title','question','company_name','headline','label'][i];
         if (typeof d[k] === 'string' && d[k]) return d[k];
@@ -245,10 +317,14 @@ export async function GET(context: APIContext): Promise<Response> {
     }
     function getThumb(d) {
       if (!d) return null;
+      var configured = fieldValue(d, THUMBNAIL_FIELD);
+      if (typeof configured === 'string' && configured) return configured;
       if (Array.isArray(d.images) && typeof d.images[0] === 'string') return d.images[0];
       if (Array.isArray(d.images) && d.images[0] && typeof d.images[0].src === 'string') return d.images[0].src;
       if (typeof d.image === 'string' && d.image) return d.image;
       if (typeof d.coverImage === 'string' && d.coverImage) return d.coverImage;
+      if (typeof d.cover === 'string' && d.cover) return d.cover;
+      if (typeof d.avatar === 'string' && d.avatar) return d.avatar;
       if (typeof d.portrait === 'string' && d.portrait) return d.portrait;
       if (typeof d.thumbnail === 'string' && d.thumbnail) return d.thumbnail;
       if (typeof d.bg_image === 'string' && d.bg_image) return d.bg_image;
@@ -256,10 +332,13 @@ export async function GET(context: APIContext): Promise<Response> {
     }
     function getSubtitle(d) {
       if (!d) return '';
+      var configured = fieldValue(d, SUBTITLE_FIELD);
+      if (typeof configured === 'string' || typeof configured === 'number') return String(configured);
       if (typeof d.category === 'string') return d.category;
+      if (typeof d.role === 'string') return d.role;
+      if (typeof d.author === 'string') return d.author;
       if (typeof d.price === 'number') return '$' + d.price.toLocaleString();
       if (typeof d.date === 'string') return d.date;
-      if (typeof d.order === 'number') return 'Order: ' + d.order;
       return '';
     }
 
@@ -279,11 +358,11 @@ export async function GET(context: APIContext): Promise<Response> {
         var subtitle = getSubtitle(entry.data);
         var publication = PUBLICATION_FIELD && entry.data && typeof entry.data[PUBLICATION_FIELD] === 'boolean'
           ? (entry.data[PUBLICATION_FIELD]
-            ? '<span style="font-size:0.62rem;color:var(--studio-green);">' + htmlEsc(MSG['collection.published']) + '</span>'
-            : '<span style="font-size:0.62rem;color:var(--studio-text-dim);">' + htmlEsc(MSG['collection.unpublished']) + '</span>')
+            ? '<span class="entry-card-status" style="color:var(--studio-green);">' + htmlEsc(MSG['collection.published']) + '</span>'
+            : '<span class="entry-card-status" style="color:var(--studio-text-dim);">' + htmlEsc(MSG['collection.unpublished']) + '</span>')
           : '';
         var invalid = Array.isArray(entry.validationIssues) && entry.validationIssues.length
-          ? '<span style="display:block;font-size:0.62rem;color:var(--studio-red);margin-bottom:0.25rem;">' + htmlEsc(MSG['collection.invalid']) + '</span>'
+          ? '<span style="display:block;font-size:0.75rem;color:var(--studio-red);margin-bottom:0.25rem;">' + htmlEsc(MSG['collection.invalid']) + '</span>'
           : '';
         var card = document.createElement('a');
         card.href = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entry.id);
@@ -292,13 +371,13 @@ export async function GET(context: APIContext): Promise<Response> {
         card.style.overflow = 'hidden';
         card.style.textDecoration = 'none';
         card.innerHTML =
-          (thumb ? '<div class="entry-thumb"><img src="' + htmlEsc(thumb) + '" alt="' + htmlEsc(title) + '" loading="lazy" /></div>' : '') +
-          '<div style="padding:1rem;">' +
-            '<h2 style="font-size:0.875rem;font-weight:500;margin:0 0 0.25rem;color:var(--studio-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + htmlEsc(title) + '</h2>' +
-            (subtitle ? '<p style="font-size:0.7rem;margin:0 0 0.25rem;color:var(--studio-text-dim);text-transform:capitalize;">' + htmlEsc(subtitle) + '</p>' : '') +
+          (thumb ? '<div class="entry-thumb"><img src="' + htmlEsc(thumb) + '" alt="" loading="lazy" /></div>' : '') +
+          '<div class="entry-card-body">' +
+            '<h2 class="entry-card-title">' + htmlEsc(title) + '</h2>' +
+            (subtitle ? '<p class="entry-card-subtitle">' + htmlEsc(subtitle) + '</p>' : '') +
             (entry.readError ? '<p role="note">' + htmlEsc(MSG['collection.unreadable']) + '</p>' : invalid) +
             publication +
-            '<p style="font-size:0.65rem;margin:0;color:var(--studio-text-dim);font-family:var(--studio-font-mono);">' + htmlEsc(entry.id) + '</p>' +
+            '<p class="entry-card-id">' + htmlEsc(entry.id) + '</p>' +
           '</div>';
         grid.appendChild(card);
       }
@@ -307,7 +386,7 @@ export async function GET(context: APIContext): Promise<Response> {
     function loadEntries() {
       var version = ++requestVersion;
       pagination.hidden = true;
-      if (reorderBtn) reorderBtn.disabled = true;
+      if (reorderBtn) { reorderBtn.disabled = true; reorderBtn.hidden = true; }
       loading.hidden = false;
       errorState.hidden = true;
       empty.hidden = true;
@@ -331,11 +410,15 @@ export async function GET(context: APIContext): Promise<Response> {
           previousPage.disabled = !paging.hasPrev;
           nextPage.disabled = !paging.hasNext;
           pageRange.textContent = MSG['collection.range'].replace('{start}', paging.total ? (paging.page - 1) * paging.pageSize + 1 : 0).replace('{end}', Math.min(paging.page * paging.pageSize, paging.total)).replace('{total}', paging.total);
-          pagination.hidden = paging.total === 0;
+          pagination.hidden = paging.totalPages <= 1;
           empty.querySelector('p').textContent = query ? MSG['collection.noResults'] : MSG['collection.noEntries'];
           if (emptyCreateBtn) emptyCreateBtn.hidden = Boolean(query);
           var limited = Boolean(query) || paging.totalPages > 1 || allEntries.some(function (entry) { return entry.readError; });
-          if (reorderBtn) { reorderBtn.disabled = limited; reorderScope.hidden = !limited; }
+          if (reorderBtn) {
+            reorderBtn.hidden = limited;
+            reorderBtn.disabled = false;
+            reorderScope.hidden = true;
+          }
 
           renderEntries(allEntries);
         })
@@ -355,7 +438,7 @@ export async function GET(context: APIContext): Promise<Response> {
     searchInput.addEventListener('input', function () {
       clearTimeout(searchTimer);
       ++requestVersion; // ignore older responses immediately, including during debounce
-      if (reorderBtn) reorderBtn.disabled = true;
+      if (reorderBtn) { reorderBtn.disabled = true; reorderBtn.hidden = true; }
       previousPage.disabled = true; nextPage.disabled = true;
       searchTimer = setTimeout(function () {
         query = searchInput.value.trim(); currentPage = 1; loadEntries();
@@ -366,10 +449,12 @@ export async function GET(context: APIContext): Promise<Response> {
     function openDialog() {
       dialogTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       dialog.hidden = false;
+      if (titleInput) titleInput.value = '';
       idInput.value = '';
+      idWasEdited = false;
       errorEl.hidden = true;
       confirmBtn.disabled = true;
-      idInput.focus();
+      (titleInput || idInput).focus();
     }
     function closeDialog() {
       if (dialog.hidden) return;
@@ -380,6 +465,7 @@ export async function GET(context: APIContext): Promise<Response> {
     }
     function validate() {
       var v = idInput.value.trim();
+      if (titleInput && !titleInput.value.trim()) { confirmBtn.disabled = true; errorEl.hidden = true; return; }
       if (!v) { confirmBtn.disabled = true; errorEl.hidden = true; return; }
       if (!ID_RE.test(v)) { errorEl.textContent = MSG['collection.invalidId']; errorEl.hidden = false; confirmBtn.disabled = true; return; }
       if (knownDuplicateIds.has(v) || allEntries.some(function (e) { return e.id === v; })) { errorEl.textContent = MSG['collection.duplicateId']; errorEl.hidden = false; confirmBtn.disabled = true; return; }
@@ -389,13 +475,14 @@ export async function GET(context: APIContext): Promise<Response> {
       var entryId = idInput.value.trim();
       if (!entryId || !ID_RE.test(entryId)) return;
       confirmBtn.disabled = true;
-      confirmBtn.textContent = 'Creating…';
+      confirmBtn.textContent = MSG['collection.creating'];
       fetch(API + '/schema?collection=' + encodeURIComponent(COLLECTION))
         .then(function (res) { return res.ok ? res.json() : { template: {} }; })
         .then(function (info) {
           var template = (info && info.template) || {};
           if ('slug' in template) template.slug = entryId;
           if ('id' in template) template.id = entryId;
+          if (TITLE_FIELD && titleInput) template[TITLE_FIELD] = titleInput.value.trim();
           return fetch(API + '/mutate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-caret-request': '1' },
@@ -411,7 +498,7 @@ export async function GET(context: APIContext): Promise<Response> {
             errorEl.textContent = MSG['collection.duplicateId'];
             errorEl.hidden = false;
             confirmBtn.disabled = true;
-            confirmBtn.textContent = MSG['collection.create'];
+            confirmBtn.textContent = CREATE_LABEL;
             idInput.focus();
             idInput.select();
             return;
@@ -423,7 +510,7 @@ export async function GET(context: APIContext): Promise<Response> {
           errorEl.textContent = MSG['collection.createFailed'];
           errorEl.hidden = false;
           confirmBtn.disabled = false;
-          confirmBtn.textContent = MSG['collection.create'];
+          confirmBtn.textContent = CREATE_LABEL;
         });
     }
     if (newBtn) newBtn.addEventListener('click', openDialog);
@@ -431,7 +518,15 @@ export async function GET(context: APIContext): Promise<Response> {
     createCloseBtn.addEventListener('click', closeDialog);
     createCancelBtn.addEventListener('click', closeDialog);
     confirmBtn.addEventListener('click', createEntry);
-    idInput.addEventListener('input', validate);
+    function suggestedId(value) {
+      return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+        .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+    }
+    if (titleInput) titleInput.addEventListener('input', function () {
+      if (!idWasEdited) idInput.value = suggestedId(titleInput.value);
+      validate();
+    });
+    idInput.addEventListener('input', function () { idWasEdited = true; validate(); });
     idInput.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !confirmBtn.disabled) createEntry(); });
     dialog.addEventListener('click', function (e) { if (e.target === dialog) closeDialog(); });
     document.addEventListener('keydown', function (e) {
@@ -443,7 +538,7 @@ export async function GET(context: APIContext): Promise<Response> {
           return;
         }
         if (e.key !== 'Tab') return;
-        var focusable = [createCloseBtn, idInput, createCancelBtn, confirmBtn].filter(function (element) {
+        var focusable = [createCloseBtn, titleInput, idInput, createCancelBtn, confirmBtn].filter(function (element) {
           return !element.disabled && !element.hidden;
         });
         var first = focusable[0];
@@ -583,7 +678,8 @@ export async function GET(context: APIContext): Promise<Response> {
     renderStudioPage({
       runtime,
       title: label,
-      breadcrumb: [{ label }],
+      breadcrumb: [],
+      collectionSwitcher,
       body,
       extraStyles,
       inlineScript,

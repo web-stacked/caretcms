@@ -1,5 +1,5 @@
 /** @typedef {{ id: string, name?: string, email?: string }} HistoryEditor */
-/** @typedef {{ ts: number, action: string, editor?: HistoryEditor }} HistoryItem */
+/** @typedef {{ ts: number, action: string, data?: Record<string, unknown>, editor?: HistoryEditor }} HistoryItem */
 /**
  * @typedef {{ kind: 'loaded', items: HistoryItem[] }
  * | { kind: 'unauthorized' }
@@ -26,6 +26,7 @@ function historyItems(value) {
       ts: item.ts,
       action: typeof item.action === 'string' && item.action ? item.action : 'save',
     };
+    if (isRecord(item.data)) normalized.data = item.data;
     if (isRecord(item.editor) && typeof item.editor.id === 'string') {
       normalized.editor = { id: item.editor.id };
       if (typeof item.editor.name === 'string') normalized.editor.name = item.editor.name;

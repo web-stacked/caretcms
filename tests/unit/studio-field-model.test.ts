@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getNestedValue, setNestedValue, templateFromSchema } from "../../packages/core/static/cms/studio/field-model.js";
+import { getNestedValue, humanizeKey, setNestedValue, templateFromSchema } from "../../packages/core/static/cms/studio/field-model.js";
 import { validateJsonSchema } from "../../packages/core/src/schema-utils";
 
 describe("Studio templates", () => {
@@ -40,5 +40,13 @@ describe("Studio nested field paths", () => {
     expect(data).toEqual({ hero: { image: { alt: "Portrait" } } });
     expect(getNestedValue(data, "hero.image.width")).toBeUndefined();
     expect(getNestedValue(null, "hero.image")).toBeUndefined();
+  });
+});
+
+describe("Studio fallback labels", () => {
+  it("expands common editing acronyms without overriding schema titles", () => {
+    expect(humanizeKey("cta_label")).toBe("Call to action label");
+    expect(humanizeKey("seo_url")).toBe("SEO URL");
+    expect(humanizeKey("image_id")).toBe("Image ID");
   });
 });

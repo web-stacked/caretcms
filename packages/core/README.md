@@ -237,12 +237,23 @@ caret({
       publication: { field: 'published' },
     },
     posts: {
+      entryLabel: 'post',
+      titleField: 'title',
+      thumbnailField: 'cover',
+      subtitleField: 'author',
       previewPath: '/blog/{id}',
       publication: { field: 'published' },
     },
   },
 })
 ```
+
+`entryLabel` gives creation actions a project-specific noun. The three field
+options control the title, image, and supporting metadata shown on entry cards;
+`titleField` also lets the creation dialog start with the title and suggest a
+slug that the editor can adjust before creating the entry. Without these
+options, Studio uses common field names and falls back to an ID-only creation
+flow when the schema has no suitable title field.
 
 Selecting a Studio field first uses the current page when that binding is
 present. Otherwise Caret navigates the preview to `previewPath`, then scrolls to
@@ -295,6 +306,40 @@ export default defineConfig({
 ```
 
 When provided, Studio uses these for field names, types, and editor widgets instead of guessing from the first entry.
+Use each property's `title` for its visible label and `description` for concise
+help below the control. `format: "html"` enables the formatted-text editor,
+`format: "image"` enables image upload and URL entry, and
+`format: "image-gallery"` enables a reorderable gallery.
+
+Long forms can define Studio-only sections with the `x-caret-groups` extension.
+Fields not named in a group remain available in an **Other fields** section:
+
+```js
+{
+  type: 'object',
+  'x-caret-groups': [
+    { title: 'Page introduction', fields: ['headline', 'intro', 'cover', 'cover_alt'] },
+    { title: 'Call to action', fields: ['link_text', 'link_href'] },
+  ],
+  properties: {
+    headline: { type: 'string', title: 'Headline' },
+    intro: { type: 'string', title: 'Introduction', format: 'html' },
+    cover: { type: 'string', title: 'Cover image', format: 'image' },
+    cover_alt: {
+      type: 'string',
+      title: 'Cover alternative text',
+      description: 'Describe the image for people who cannot see it.',
+    },
+    link_text: { type: 'string', title: 'Link text' },
+    link_href: { type: 'string', title: 'Link destination', format: 'uri' },
+  },
+}
+```
+
+For repeatable object fields, `id`, `width`, and `height` are shown under
+**Technical details**. Set `x-caret-technical: true` on another property to place
+it there as well. Image, alternative text, title, and caption stay in the main
+item editor.
 
 **Already describe your collections with Zod?** If you have a `content.config.ts` Zod schema,
 don't write it twice — `@caretcms/zod` derives the Studio schema from that single source:
@@ -439,6 +484,12 @@ and upload writes. When present, all content saves go to per-editor drafts so a
 writer cannot bypass publish permission in server delivery. See the
 [authorization policy](../../docs/authorization-policy.md) for exact action
 semantics, backward-compatible defaults, and review-workflow boundaries.
+
+The editor distinguishes unsaved browser changes, saved private drafts, live
+shared changes, and configured entry visibility. Markdown body edits always stay
+in a draft until Publish, including under server delivery. See
+[saving, drafts, and visibility](../../docs/saving-and-visibility.md) for the
+complete behavior across delivery modes, permission policies, and sign-out.
 
 ## Rendering & output
 

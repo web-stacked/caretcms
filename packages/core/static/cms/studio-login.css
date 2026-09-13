@@ -158,9 +158,8 @@
 }
 
 .studio-login-tagline {
-  font-size: 11px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.01em;
   color: var(--studio-text-dim);
   margin: 0;
 }
@@ -179,9 +178,8 @@
 }
 
 .studio-login-field label {
-  font-size: 11px;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.01em;
   color: var(--studio-text-muted);
 }
 
@@ -222,10 +220,9 @@
   position: relative;
   width: 100%;
   padding: 16px 20px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   background: var(--studio-accent);
   color: var(--studio-on-accent);
   border: none;
@@ -291,8 +288,8 @@
 }
 
 .studio-login-footer a {
-  font-size: 11px;
-  letter-spacing: 0.05em;
+  font-size: 12px;
+  letter-spacing: 0.01em;
   color: var(--studio-text-dim);
   transition: opacity 0.2s;
 }

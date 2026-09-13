@@ -110,12 +110,37 @@ test("automatically enables preview mode before mounting the static editor", asy
   await expect(page.locator(".cms-toolbar")).toHaveAttribute("data-delivery", "static");
 });
 
+test("explains that password-session drafts cannot be kept after sign out", async ({ page }) => {
+  await page.request.post("/api/cms/auth/login", {
+    data: { password: EDIT_PASSWORD },
+    headers: { Accept: "application/json" },
+  });
+  await page.context().addCookies([{ name: "caret_preview", value: "1", url: ORIGIN }]);
+  await page.goto("/");
+  const save = await page.request.post("/api/cms/mutate", {
+    headers: { "x-caret-request": "1" },
+    data: { type: "put_entry", collection: "pages", id: "home", data: { headline: "Session-only draft" } },
+  });
+  expect(save.ok()).toBe(true);
+
+  await page.locator(".cms-discard-btn").click();
+  await page.getByRole("dialog", { name: "Discard drafts?" }).getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  const dialog = page.getByRole("dialog", { name: "Unpublished changes" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("cannot be reopened after signing out");
+  await expect(page.getByRole("button", { name: "Keep drafts and sign out" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Discard and sign out" })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator(".cms-toolbar")).toBeVisible();
+});
+
 test("rejects an older editor draft and keeps Publish above the Astro toolbar", async ({ browser }) => {
   const contexts = await Promise.all([browser.newContext({ baseURL: ORIGIN, viewport: { width: 1280, height: 850 } }), browser.newContext({ baseURL: ORIGIN })]);
   try {
     const pages = await Promise.all(contexts.map(context => context.newPage()));
     for (const page of pages) {
-      page.on("dialog", dialog => dialog.accept());
       await page.request.post("/api/cms/auth/login", { data: { password: EDIT_PASSWORD }, headers: { Accept: "application/json" } });
       await page.context().addCookies([{ name: "caret_preview", value: "1", url: ORIGIN }]);
       await page.goto("/");
@@ -135,6 +160,7 @@ test("rejects an older editor draft and keeps Publish above the Astro toolbar", 
     // A real click must reach Publish after keyboard focus enters the developer dock.
     const result = pages[0].waitForResponse(response => response.url().includes("/api/cms/publish"));
     await pages[0].locator(".cms-publish-btn").click();
+    await pages[0].getByRole("dialog", { name: "Publish drafts?" }).getByRole("button", { name: "Publish", exact: true }).click();
     expect((await (await result).json()).conflicts).toEqual([{ collection: "pages", id: "home", reason: "stale_entry" }]);
     await expect(pages[0].locator(".cms-status-text")).toHaveText("Draft conflict");
     expect(JSON.parse(readFileSync(resolve(FIXTURE, ".caret/data/pages/home.json"), "utf8")).headline).toBe("Newer published draft");
@@ -149,7 +175,6 @@ test("rejects an older editor draft and keeps Publish above the Astro toolbar", 
 });
 
 test("discards a draft and retries a failed deploy through toolbar requests", async ({ page }) => {
-  page.on("dialog", dialog => dialog.accept());
   try {
     const login = await page.request.post("/api/cms/auth/login", {
       data: { password: EDIT_PASSWORD },
@@ -167,6 +192,7 @@ test("discards a draft and retries a failed deploy through toolbar requests", as
     const discarded = page.waitForResponse(response =>
       response.url().includes("/api/cms/draft") && response.request().method() === "DELETE");
     await page.locator(".cms-discard-btn").click();
+    await page.getByRole("dialog", { name: "Discard drafts?" }).getByRole("button", { name: "Discard drafts" }).click();
     expect((await discarded).ok()).toBe(true);
     await page.waitForLoadState("domcontentloaded");
     expect((await (await page.request.get("/api/cms/draft")).json()).count).toBe(0);
@@ -176,6 +202,7 @@ test("discards a draft and retries a failed deploy through toolbar requests", as
     const failedPublish = page.waitForResponse(response =>
       response.url().includes("/api/cms/publish") && response.request().method() === "POST");
     await page.locator(".cms-publish-btn").click();
+    await page.getByRole("dialog", { name: "Publish drafts?" }).getByRole("button", { name: "Publish", exact: true }).click();
     expect(await (await failedPublish).json()).toMatchObject({
       rebuild: { triggered: true, ok: false, status: 503 },
       retryAvailable: true,

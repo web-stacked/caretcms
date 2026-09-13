@@ -9,7 +9,7 @@
   right: 0;
   z-index: 99999;
   font-family: var(--cms-font);
-  font-size: 12px;
+  font-size: 13px;
   opacity: 0;
   transform: translateY(100%);
   animation: cms-toolbar-enter 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.3s forwards;
@@ -30,11 +30,11 @@
   align-items: center;
   justify-content: space-between;
   background: var(--cms-surface);
-  border-top: 1px solid rgba(59, 130, 246, 0.15);
-  box-shadow: 0 -4px 30px rgba(0, 0, 0, 0.3);
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.22);
   max-width: 100%;
-  padding: 0 24px;
-  height: 48px;
+  padding: 0 18px;
+  height: 52px;
 }
 
 .cms-toolbar-left {
@@ -47,10 +47,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 14px;
-  background: var(--cms-accent-soft);
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  border-radius: 2px;
+  padding: 5px 4px;
 }
 
 .cms-toolbar-badge svg {
@@ -61,10 +58,9 @@
 
 .cms-toolbar-badge-text {
   color: var(--cms-accent);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
+  letter-spacing: 0;
 }
 
 .cms-toolbar-divider {
@@ -77,8 +73,25 @@
 .cms-toolbar-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   min-width: 0;
+}
+
+.cms-mode-switch {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.cms-toolbar .cms-mode-switch button {
+  padding: 5px 8px;
+}
+
+.cms-toolbar .cms-mode-switch button[aria-pressed="true"] {
+  background: rgba(59, 130, 246, 0.16);
+  color: rgba(255, 255, 255, 0.95);
 }
 
 @media (max-width: 768px) {
@@ -113,7 +126,8 @@
     display: none;
   }
 
-  .cms-toolbar button {
+  .cms-toolbar button,
+  .cms-tools-summary {
     padding: 6px 10px;
     flex-shrink: 0;
   }
@@ -121,30 +135,37 @@
 
 /* Shared base for every toolbar button so they can't drift visually. Individual
    button classes below only override colors/borders. */
-.cms-toolbar button {
+.cms-toolbar button,
+.cms-tools-summary {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 14px;
+  padding: 7px 11px;
   font-family: var(--cms-font);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   line-height: 1.2;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0;
   background: transparent;
   color: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
+  border: 1px solid transparent;
+  border-radius: 4px;
   cursor: pointer;
   transition: background 0.2s, border-color 0.2s, color 0.2s;
   white-space: nowrap;
 }
 
-.cms-toolbar button:hover {
+.cms-toolbar button:hover,
+.cms-tools-summary:hover {
   background: rgba(59, 130, 246, 0.08);
   border-color: rgba(59, 130, 246, 0.3);
   color: rgba(255, 255, 255, 0.85);
+}
+
+.cms-toolbar button:focus-visible,
+.cms-tools-summary:focus-visible {
+  outline: 2px solid var(--cms-accent);
+  outline-offset: 2px;
 }
 
 .cms-toolbar button svg {
@@ -190,7 +211,7 @@
 
 .cms-status-text {
   color: rgba(255, 255, 255, 0.72);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
 }
 
@@ -199,6 +220,56 @@
   background: var(--cms-accent-soft);
   color: var(--cms-accent);
   border-color: rgba(59, 130, 246, 0.2);
+}
+
+.cms-tools-menu {
+  position: relative;
+}
+
+.cms-tools-summary {
+  display: inline-flex;
+  align-items: center;
+  list-style: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cms-tools-summary::-webkit-details-marker {
+  display: none;
+}
+
+.cms-tools-summary::after {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-left: 0.45rem;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+
+.cms-tools-menu[open] .cms-tools-summary {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.cms-tools-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.65rem);
+  display: grid;
+  gap: 0.25rem;
+  width: 13.5rem;
+  padding: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: var(--cms-surface);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.35);
+}
+
+.cms-tools-popover button {
+  width: 100%;
+  justify-content: flex-start;
 }
 
 .cms-toolbar button.cms-studio-btn:hover {
@@ -293,47 +364,6 @@
   }
 }
 
-/* ---------------------------------------------------------------------------
-   Toolbar — page navigation links
-   --------------------------------------------------------------------------- */
-
-.cms-toolbar-nav {
-  display: none;
-  align-items: center;
-  gap: 2px;
-}
-
-@media (min-width: 768px) {
-  .cms-toolbar-nav {
-    display: flex;
-  }
-}
-
-.cms-nav-link {
-  padding: 5px 14px;
-  font-family: var(--cms-font);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.2;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  text-decoration: none;
-  color: rgba(255, 255, 255, 0.35);
-  transition: color 0.15s, background 0.15s;
-  border-radius: 2px;
-  white-space: nowrap;
-}
-
-.cms-nav-link:hover {
-  color: rgba(255, 255, 255, 0.7);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.cms-nav-link.active {
-  color: var(--cms-accent);
-  background: var(--cms-accent-soft);
-}
-
 /* Exit — red on hover */
 .cms-toolbar button.cms-exit-btn:hover {
   background: rgba(248, 113, 113, 0.08);
@@ -343,13 +373,74 @@
 
 /* Account for toolbar height */
 body:has(.cms-toolbar) {
-  padding-bottom: 48px;
+  padding-bottom: 52px;
 }
 
 /* Shift back-to-top button above toolbar */
 body:has(.cms-toolbar) #back-to-top {
   bottom: 60px;
 }
+
+.cms-signout-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.58);
+}
+.cms-signout-backdrop[hidden] { display: none; }
+.cms-signout-dialog {
+  width: min(100%, 32rem);
+  padding: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: var(--cms-surface);
+  color: #f3f4f6;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  font-family: var(--cms-font);
+}
+.cms-signout-dialog h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+.cms-signout-dialog p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+.cms-signout-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+.cms-signout-actions button {
+  min-height: 34px;
+  padding: 0 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  background: transparent;
+  color: #f3f4f6;
+  cursor: pointer;
+  font: 500 0.75rem/1 var(--cms-font);
+}
+.cms-signout-actions button:hover,
+.cms-signout-actions button:focus-visible { border-color: var(--cms-blue); }
+.cms-signout-actions .cms-signout-publish {
+  border-color: var(--cms-green);
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--cms-green);
+}
+.cms-signout-actions .cms-signout-publish.is-danger {
+  border-color: rgba(248, 113, 113, 0.42);
+  background: rgba(248, 113, 113, 0.1);
+  color: var(--cms-red);
+}
+.cms-signout-actions .cms-signout-discard { color: var(--cms-red); }
 
 @keyframes cms-toolbar-enter {
   to {

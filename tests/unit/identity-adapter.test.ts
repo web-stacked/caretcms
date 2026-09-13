@@ -47,7 +47,7 @@ describe("identity adapter", () => {
     };
 
     const response = await onRequest(context, () => getSession(context as unknown as APIContext));
-    expect(await response.json()).toEqual({ authenticated: true, identity });
+    expect(await response.json()).toEqual({ authenticated: true, identity, draftsSurviveSignOut: true });
     expect(context.locals.isEditor).toBe(true);
     expect(context.locals.caretIdentity).toEqual(identity);
   });
@@ -96,7 +96,7 @@ describe("identity adapter", () => {
       },
     };
     const response = await onRequest(context, () => getSession(context as unknown as APIContext));
-    expect(await response.json()).toEqual({ authenticated: false, identity: null });
+    expect(await response.json()).toEqual({ authenticated: false, identity: null, draftsSurviveSignOut: false });
     expect(context.locals.isEditor).toBe(false);
   });
 

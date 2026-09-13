@@ -18,5 +18,8 @@ export async function GET(context: APIContext): Promise<Response> {
     } : {}),
     authenticated,
     identity: authenticated ? getEditorIdentity(context) : null,
+    draftsSurviveSignOut: authenticated && Boolean(
+      getRequestContext()?.identityAuthoritative && getRequestContext()?.identity?.id,
+    ),
   });
 }

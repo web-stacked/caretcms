@@ -22,11 +22,13 @@ export function serializeJsonForScript(value: unknown): string {
 }
 
 export type Crumb = { label: string; href?: string };
+export type CollectionSwitchOption = { label: string; href: string; selected?: boolean };
 
 export type StudioLayoutOptions = {
   runtime: CaretRuntimeConfig;
   title: string;
   breadcrumb?: Crumb[];
+  collectionSwitcher?: CollectionSwitchOption[];
   body: string;
   /** Extra inline <style> block for page-specific tweaks. */
   extraStyles?: string;
@@ -59,6 +61,16 @@ function renderBreadcrumb(crumbs: Crumb[], label: string): string {
   return `<nav class="studio-breadcrumb" aria-label="${escapeHtml(label)}">${items}</nav>`;
 }
 
+function renderCollectionSwitcher(options: CollectionSwitchOption[], label: string): string {
+  if (options.length < 2) return "";
+  return `<label class="studio-collection-switch">
+    <span class="studio-sr-only">${escapeHtml(label)}</span>
+    <select id="studio-collection-switch" aria-label="${escapeHtml(label)}">
+      ${options.map((option) => `<option value="${escapeHtml(option.href)}"${option.selected ? " selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+    </select>
+  </label>`;
+}
+
 function renderHeaderNav(runtime: CaretRuntimeConfig, studioActive: boolean): string {
   const activeClass = studioActive ? " active" : "";
   return `<nav class="studio-header-nav" aria-label="${escapeHtml(runtime.messages["nav.studio"])}">
@@ -69,7 +81,7 @@ function renderHeaderNav(runtime: CaretRuntimeConfig, studioActive: boolean): st
 }
 
 export function renderStudioPage(opts: StudioLayoutOptions): string {
-  const { runtime, title, breadcrumb = [], body, extraStyles = "", inlineScript = "" } = opts;
+  const { runtime, title, breadcrumb = [], collectionSwitcher = [], body, extraStyles = "", inlineScript = "" } = opts;
   const brand = runtime.brand;
   const themeCss = `${runtime.apiBasePath}/theme.css`;
   const studioCss = "/__caret/studio.css";
@@ -90,14 +102,18 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
     ${extraStyles ? `<style>${extraStyles}</style>` : ""}
   </head>
   <body>
+    <script>
+      if (window.parent !== window) document.documentElement.classList.add('studio-embedded');
+    </script>
     <div class="studio-shell">
       <header class="studio-header">
         <a href="${escapeHtml(`${runtime.mountPath}/cms`)}" class="studio-brand">
           ${renderBrandMark(brand.logo)}
           <span>${escapeHtml(brand.name)}</span>
         </a>
+        ${renderCollectionSwitcher(collectionSwitcher, runtime.messages["nav.collection"])}
         ${renderBreadcrumb(breadcrumb, runtime.locale === "es" ? "Navegación jerárquica" : "Breadcrumb")}
-        ${renderHeaderNav(runtime, breadcrumb.length === 0)}
+        ${renderHeaderNav(runtime, breadcrumb.length === 0 && collectionSwitcher.length === 0)}
       </header>
       <main class="studio-main studio-scroll">
         ${body}
@@ -107,6 +123,10 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
     <script>
       (function () {
         var btn = document.getElementById('studio-logout-btn');
+        var collectionSwitch = document.getElementById('studio-collection-switch');
+        if (collectionSwitch) collectionSwitch.addEventListener('change', function () {
+          if (collectionSwitch.value) window.location.href = collectionSwitch.value;
+        });
         var identityEl = document.getElementById('studio-editor-identity');
         if (identityEl) {
           fetch(${serializeJsonForScript(`${runtime.apiBasePath}/auth/session`)}, { credentials: 'same-origin' })

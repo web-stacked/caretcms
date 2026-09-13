@@ -76,8 +76,7 @@
   font-family: var(--cms-font);
   font-size: 10px;
   font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   border-radius: 2px;
   cursor: pointer;
   transition: all 0.2s;
@@ -117,8 +116,7 @@
   color: rgba(255, 255, 255, 0.4);
   font-family: var(--cms-font);
   font-size: 9px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   padding: 3px 8px;
   border-radius: 2px;
   pointer-events: none;

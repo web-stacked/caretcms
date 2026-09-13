@@ -8,6 +8,31 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+### Changed
+
+- Studio now uses a compact collection switcher, title-first entry creation,
+  configured titles, thumbnails, and supporting metadata, clearer singleton
+  screens, and explicit collection-arrangement controls.
+- Entry forms now support schema-defined field groups and descriptions,
+  sanitized formatted-text editing, consolidated image replacement, and compact
+  repeatable records with secondary technical metadata.
+- Save and visibility states now distinguish unsaved changes, private drafts,
+  live content, and entry publication. Product dialogs cover live saves,
+  conflicts, restores, deletion, publishing, discarding, and sign-out choices.
+- The inline toolbar now provides explicit Edit and Preview modes plus a
+  movable, expandable Studio drawer that preserves unfinished form state.
+- Section editing keeps movement and insertion controls visible, moves
+  occasional actions into a More menu, uses clear spacing labels, and keeps
+  pickers reachable above the fixed toolbar on desktop and mobile.
+
+### Added
+
+- Collection Studio configuration accepts `entryLabel`, `titleField`,
+  `thumbnailField`, and `subtitleField` for project-specific navigation and
+  entry presentation.
+- Added documentation for Studio saving, drafts, publication, delivery modes,
+  permission behavior, and sign-out retention.
+
 ## [0.4.0] - 2026-09-13
 
 ### Changed

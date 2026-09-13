@@ -39,6 +39,19 @@ test("writer edits a private draft while destructive and publishing actions stay
     await expect(page.locator(".cms-toolbar-badge-text")).toHaveText("Draft");
     await expect(page.locator(".cms-publish-btn")).toBeHidden();
 
+    await page.getByRole("button", { name: "Sign out" }).click();
+    const signOutDialog = page.getByRole("dialog", { name: "Unpublished changes" });
+    await expect(signOutDialog).toBeVisible();
+    await expect(signOutDialog).toContainText("keep the drafts for your next sign-in");
+    await expect(page.getByRole("button", { name: "Publish and sign out" })).toBeHidden();
+    await expect(page.getByRole("button", { name: "Keep drafts and sign out" })).toBeVisible();
+    const logout = page.waitForResponse(response =>
+      response.url().includes("/api/cms/auth/logout") && response.request().method() === "POST");
+    await page.getByRole("button", { name: "Keep drafts and sign out" }).click();
+    expect((await logout).ok()).toBe(true);
+    await page.waitForLoadState("domcontentloaded");
+    expect((await (await page.request.get("/api/cms/draft")).json()).count).toBe(1);
+
     const visitor = await anonymous.newPage();
     await visitor.goto("/");
     await expect(visitor.locator(HEADLINE)).toHaveText(ORIGINAL);
@@ -98,12 +111,11 @@ test("reviewer draft is isolated and can be published with attributed history", 
     await replaceText(reviewerPage, reviewerHeadline, "Reviewed publication");
     expect((await blurToSave(reviewerPage, reviewerHeadline)).ok()).toBe(true);
     await expect(reviewerPage.locator(".cms-publish-btn")).toBeVisible();
-    reviewerPage.once("dialog", dialog => dialog.accept());
-    const [publishing] = await Promise.all([
-      reviewerPage.waitForResponse(response =>
-        response.url().includes("/api/cms/publish") && response.request().method() === "POST"),
-      reviewerPage.locator(".cms-publish-btn").click(),
-    ]);
+    const publishingPromise = reviewerPage.waitForResponse(response =>
+      response.url().includes("/api/cms/publish") && response.request().method() === "POST");
+    await reviewerPage.locator(".cms-publish-btn").click();
+    await reviewerPage.getByRole("dialog", { name: "Publish drafts?" }).getByRole("button", { name: "Publish", exact: true }).click();
+    const publishing = await publishingPromise;
     expect(publishing.ok()).toBe(true);
     await reviewerPage.waitForLoadState("domcontentloaded");
 
