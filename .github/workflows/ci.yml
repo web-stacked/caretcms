@@ -121,8 +121,17 @@ jobs:
       - name: Run CSP end-to-end tests (production build + preview)
         run: npm run test:e2e:csp
 
-      - name: Run Markdown body publish test
+      - name: Run Markdown publish, rebuild, and restore test
         run: npm run test:e2e:markdown
+
+      - name: Run static delivery publish and build test
+        run: npm run test:e2e:static
+
+      - name: Run authorization policy end-to-end tests
+        run: npm run test:e2e:permissions
+
+      - name: Run Cloudflare Durable Object concurrency test
+        run: npm run test:e2e:cloudflare
 
   bun-parity:
     name: Bun parity checks

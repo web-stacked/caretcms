@@ -15,7 +15,7 @@
     "build:cloudflare": "npm run -w @caretcms/cloudflare build",
     "build:caretize": "npm run -w @caretcms/caretize build",
     "build:zod": "npm run -w @caretcms/zod build",
-    "build:examples": "npm run build -w @caretcms/example-starter && npm run build -w @caretcms/example-content-site",
+    "build:examples": "npm run build -w @caretcms/example-starter && npm run build -w @caretcms/example-content-site && npm run build -w @caretcms/example-demo",
     "typecheck:core": "npm run -w @caretcms/core typecheck",
     "typecheck:cloudflare": "npm run -w @caretcms/cloudflare typecheck",
     "typecheck:caretize": "npm run -w @caretcms/caretize typecheck",
@@ -26,8 +26,14 @@
     "test:e2e": "playwright test",
     "test:e2e:csp": "playwright test -c playwright.csp.config.ts",
     "test:e2e:markdown": "playwright test -c playwright.markdown.config.ts",
+    "test:e2e:static": "playwright test -c playwright.static.config.ts",
+    "test:e2e:permissions": "playwright test -c playwright.permissions.config.ts",
+    "test:e2e:cloudflare": "playwright test -c playwright.cloudflare.config.ts",
+    "test:e2e:all": "npm run test:e2e && npm run test:e2e:csp && npm run test:e2e:markdown && npm run test:e2e:static && npm run test:e2e:permissions && npm run test:e2e:cloudflare",
     "validate:versions": "node ./scripts/validate-versions.mjs",
-    "check": "npm run validate:versions && npm run typecheck:core && npm run build:core && npm run typecheck:cloudflare && npm run typecheck:caretize && npm run typecheck:zod && npm run build:cloudflare && npm run build:caretize && npm run build:zod && npm run test:unit"
+    "check": "npm run validate:versions && npm run typecheck:core && npm run build:core && npm run typecheck:cloudflare && npm run typecheck:caretize && npm run typecheck:zod && npm run build:cloudflare && npm run build:caretize && npm run build:zod && npm run test:unit",
+    "check:all": "npm run check && npm run build:examples && npm run test:e2e:all",
+    "typecheck:browser": "npm run -w @caretcms/core typecheck:browser"
   },
   "engines": {
     "node": ">=22.12.0",

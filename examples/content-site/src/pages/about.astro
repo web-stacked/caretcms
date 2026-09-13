@@ -1,6 +1,6 @@
 ---
 import { getLiveEntry, getLiveCollection } from "astro:content";
-import { bindEntry } from "@caretcms/core";
+import { bindEntry, stegaClean } from "@caretcms/core";
 import Site from "../layouts/Site.astro";
 
 const { entry: pageEntry } = await getLiveEntry("pages", "about");
@@ -8,8 +8,12 @@ const page = (pageEntry?.data ?? {}) as Record<string, string>;
 
 const teamResult = await getLiveCollection("team");
 const team = [...(teamResult.entries ?? [])]
-  .map((e) => ({ id: e.id, data: (e.data ?? {}) as Record<string, string> }))
-  .sort((a, b) => a.id.localeCompare(b.id));
+  .map((e) => ({ id: e.id, data: (e.data ?? {}) as Record<string, unknown> }))
+  .sort((a, b) => {
+    const aOrder = typeof a.data.order === "number" ? a.data.order : Number.MAX_SAFE_INTEGER;
+    const bOrder = typeof b.data.order === "number" ? b.data.order : Number.MAX_SAFE_INTEGER;
+    return aOrder - bOrder || a.id.localeCompare(b.id);
+  });
 ---
 
 <Site title="About — Atlas & Co." description={page.headline} active="about">
@@ -35,10 +39,10 @@ const team = [...(teamResult.entries ?? [])]
         const m = bindEntry({ collection: "team", id: member.id });
         return (
           <li class="member">
-            <img class="avatar" {...m("avatar")} src={member.data.avatar} alt={member.data.name} width="160" height="160" loading="lazy" />
-            <h3 class="member-name" {...m("name")}>{member.data.name}</h3>
-            <p class="member-role" {...m("role")}>{member.data.role}</p>
-            <div class="member-bio prose" {...m("bio", { rich: true })} set:html={member.data.bio} />
+            <img class="avatar" {...m("avatar")} src={stegaClean(String(member.data.avatar ?? ""))} alt={stegaClean(String(member.data.name ?? ""))} width="160" height="160" loading="lazy" />
+            <h3 class="member-name" {...m("name")}>{String(member.data.name ?? "")}</h3>
+            <p class="member-role" {...m("role")}>{String(member.data.role ?? "")}</p>
+            <div class="member-bio prose" {...m("bio", { rich: true })} set:html={String(member.data.bio ?? "")} />
           </li>
         );
       })}

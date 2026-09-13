@@ -28,7 +28,9 @@ examples/*/.caretcms/
 # examples/demo/.caret, which is committed).
 examples/starter/.caret/
 examples/content-site/.caret/
+tests/e2e/fixtures/static-site/.caret/
 examples/starter/public/uploads/
+examples/content-site/public/uploads/
 
 # macOS-specific files
 .DS_Store
@@ -41,6 +43,7 @@ examples/starter/public/uploads/
 
 # test results
 test-results/
+.tmp-caret-*/
 
 # browser automation screenshots
 .chrome-shots/

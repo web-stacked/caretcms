@@ -2,12 +2,14 @@
 import { getEntry, render } from "astro:content";
 import Site from "../../layouts/Site.astro";
 
-// SSR (output: server): resolve the post by slug at request time.
+// Resolve the post from Astro's build-time content collection. In a production
+// server build, publishing source changes requires a rebuild before they render.
 const { slug } = Astro.params;
 const post = slug ? await getEntry("blog", slug) : undefined;
 if (!post) return Astro.redirect("/blog");
 
-// Render the markdown BODY (content collections only — not editable in v1).
+// CaretCMS 0.3 stamps supported Markdown blocks during render so the body can be
+// edited as a draft and published back to this entry's source file.
 const { Content } = await render(post);
 
 const data = post.data;

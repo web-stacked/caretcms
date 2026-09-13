@@ -1,6 +1,13 @@
 import { defineConfig } from "astro/config";
 import node from "@astrojs/node";
-import caret from "@caretcms/core";
+import caret, { defineIdentityProvider } from "@caretcms/core";
+
+const policyIdentity = process.env.CARET_E2E_POLICY === "true"
+  ? defineIdentityProvider({
+      entrypoint: new URL("./src/policy-identity.mjs", import.meta.url).pathname,
+      exportName: "policyIdentityProvider",
+    })
+  : undefined;
 
 export default defineConfig({
   output: "server",
@@ -18,6 +25,7 @@ export default defineConfig({
   },
   integrations: [
     caret({
+      ...(policyIdentity ? { identity: policyIdentity } : {}),
       brand: {
         name: "Acme Studio",
       },
@@ -67,8 +75,30 @@ export default defineConfig({
             },
           },
         },
+        "reorder-only-fixture": {
+          type: "object",
+          title: "Reorder Only Fixture",
+          properties: {
+            title: { type: "string", title: "Title", default: "Untitled" },
+            order: { type: "integer", title: "Order", default: 0 },
+          },
+        },
       },
       collections: {
+        pages: {
+          label: "Pages",
+          previewPath: { home: "/", about: "/about" },
+        },
+        "studio-fixture": {
+          label: "Studio Fixture",
+          previewPath: "/",
+          publication: { field: "published" },
+        },
+        "reorder-only-fixture": {
+          label: "Reorder Only Fixture",
+          creatable: false,
+          orderable: true,
+        },
         "site-settings-fixture": {
           label: "Site Settings",
           description: "Global singleton configuration",

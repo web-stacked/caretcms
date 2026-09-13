@@ -1,6 +1,6 @@
 ---
 import { getLiveEntry, getLiveCollection, getCollection } from "astro:content";
-import { bindEntry } from "@caretcms/core";
+import { bindEntry, stegaClean } from "@caretcms/core";
 import Site from "../layouts/Site.astro";
 import PostCard from "../components/PostCard.astro";
 
@@ -9,11 +9,16 @@ import PostCard from "../components/PostCard.astro";
 const { entry: pageEntry } = await getLiveEntry("pages", "home");
 const page = (pageEntry?.data ?? {}) as Record<string, string>;
 
-// Gallery — a live collection, ordered by id.
+// Gallery — Studio reorder writes a numeric `order`; ids are the stable fallback
+// for seed entries that have not been reordered yet.
 const galleryResult = await getLiveCollection("gallery");
 const gallery = [...(galleryResult.entries ?? [])]
-  .map((e) => ({ id: e.id, data: (e.data ?? {}) as Record<string, string> }))
-  .sort((a, b) => a.id.localeCompare(b.id));
+  .map((e) => ({ id: e.id, data: (e.data ?? {}) as Record<string, unknown> }))
+  .sort((a, b) => {
+    const aOrder = typeof a.data.order === "number" ? a.data.order : Number.MAX_SAFE_INTEGER;
+    const bOrder = typeof b.data.order === "number" ? b.data.order : Number.MAX_SAFE_INTEGER;
+    return aOrder - bOrder || a.id.localeCompare(b.id);
+  });
 
 // Latest journal entries — an ASTRO CONTENT collection (markdown bodies render
 // via render() on the post page; here we just need the frontmatter).
@@ -29,7 +34,7 @@ const posts = (await getCollection("blog"))
     <h1 class="hero-headline" data-caret="headline">{page.headline}</h1>
     <div class="hero-intro prose" data-caret="intro" data-caret-rich set:html={page.intro} />
     <figure class="hero-figure">
-      <img data-caret="cover" src={page.cover} alt={page.cover_alt} width="1200" height="800" />
+      <img data-caret="cover" src={stegaClean(page.cover ?? "")} alt={stegaClean(page.cover_alt ?? "")} width="1200" height="800" />
       <figcaption class="hero-cap" data-caret="cover_alt">{page.cover_alt}</figcaption>
     </figure>
   </section>
@@ -47,10 +52,10 @@ const posts = (await getCollection("blog"))
         return (
           <li class="grid-item">
             <figure>
-              <img {...g("src")} src={item.data.src} alt={item.data.alt} loading="lazy" />
+              <img {...g("src")} src={stegaClean(String(item.data.src ?? ""))} alt={stegaClean(String(item.data.alt ?? ""))} loading="lazy" />
               <figcaption class="grid-cap">
-                <span {...g("caption")}>{item.data.caption}</span>
-                <span class="grid-year" {...g("year")}>{item.data.year}</span>
+                <span {...g("caption")}>{String(item.data.caption ?? "")}</span>
+                <span class="grid-year" {...g("year")}>{String(item.data.year ?? "")}</span>
               </figcaption>
             </figure>
           </li>
@@ -77,7 +82,7 @@ const posts = (await getCollection("blog"))
       ))}
     </div>
     <p class="more">
-      <a class="link" href={page.cta_href ?? "/blog"} data-caret-scope="pages::home" data-caret="cta_label">{page.cta_label ?? "Read the journal"}</a>
+      <a class="link" href={stegaClean(page.cta_href ?? "/blog")} data-caret-scope="pages::home" data-caret="cta_label">{page.cta_label ?? "Read the journal"}</a>
     </p>
   </section>
 </Site>

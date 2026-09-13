@@ -14,11 +14,25 @@
   </head>
   <body>
     <main data-caret-scope="pages::home">
-      <span class="badge">CaretCMS</span>
-      <h1 data-caret="hero.headline">Launch an Astro site with live inline editing.</h1>
-      <p data-caret="hero.subtext">Annotate normal HTML with <code>data-caret</code> and edit content in place without rebuilding your page structure.</p>
-      <img data-caret="hero.image" src="/initial.png" width="96" height="96" alt="Editable hero image" />
-      <h2 data-caret="pages::home::our_teaching_philosophy">Our Teaching Philosophy</h2>
+      <section
+        data-caret-section="home.hero"
+        data-caret-section-id="hero"
+        data-caret-collection="pages"
+        data-caret-entry-id="home"
+      >
+        <span class="badge">CaretCMS</span>
+        <h1 data-caret="hero.headline">Launch an Astro site with live inline editing.</h1>
+        <p data-caret="hero.subtext">Annotate normal HTML with <code>data-caret</code> and edit content in place without rebuilding your page structure.</p>
+        <img data-caret="hero.image" src="/initial.png" width="96" height="96" alt="Editable hero image" />
+      </section>
+      <section
+        data-caret-section="home.features"
+        data-caret-section-id="philosophy"
+        data-caret-collection="pages"
+        data-caret-entry-id="home"
+      >
+        <h2 data-caret="pages::home::our_teaching_philosophy">Our Teaching Philosophy</h2>
+      </section>
     </main>
   </body>
 </html>

@@ -11,13 +11,19 @@ import { defineConfig, devices } from "@playwright/test";
  * The core package must be built (`npm run build:core`) before the starter's
  * dev server can resolve `@caretcms/core` from `dist`.
  */
-const PORT = 4399;
+const PORT = process.env.E2E_PORT ?? "4399";
 
 export default defineConfig({
   testDir: "./tests/e2e",
   // The CSP spec runs against a production build via playwright.csp.config.ts
   // (CSP is ignored in `astro dev`, which this dev-based suite uses).
-  testIgnore: ["**/csp.spec.ts", "**/markdown-body.spec.ts"],
+  testIgnore: [
+    "**/csp.spec.ts",
+    "**/markdown-body.spec.ts",
+    "**/permissions.spec.ts",
+    "**/static-delivery.spec.ts",
+    "**/cloudflare-durable.spec.ts",
+  ],
   fullyParallel: false, // tests share one filesystem-backed app; keep writes serial
   workers: 1,
   forbidOnly: !!process.env.CI,

@@ -1,0 +1,25 @@
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Editable links — CaretCMS Starter</title>
+    <style>
+      body { margin: 0; font-family: system-ui, sans-serif; }
+      aside { width: 180px; padding: 16px; }
+      nav { display: grid; gap: 2px; }
+      nav a { display: block; padding: 8px; }
+      .linked-image { display: block; width: 96px; height: 96px; margin-top: 20px; }
+    </style>
+  </head>
+  <body>
+    <aside data-caret-scope="pages::home">
+      <nav aria-label="Editable navigation">
+        <a href="/"><span data-caret="hero.headline">Home</span></a>
+        <a href="/about"><span data-caret="hero.subtext">About</span></a>
+      </nav>
+      <a class="linked-image" href="/about">
+        <img data-caret="hero.image" src="/initial.png" width="96" height="96" alt="Editable linked image" />
+      </a>
+    </aside>
+  </body>
+</html>

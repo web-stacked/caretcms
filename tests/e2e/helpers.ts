@@ -6,6 +6,7 @@ import type { Locator, Page, Response } from "@playwright/test";
 export const EDIT_PASSWORD = "e2e-secret";
 
 const STARTER_DIR = resolve(process.cwd(), "examples/starter");
+const STARTER_ORIGIN = `http://localhost:${process.env.E2E_PORT ?? "4399"}`;
 
 /**
  * Reset the filesystem-backed CMS to a clean slate so every test starts from
@@ -39,7 +40,7 @@ export async function loginAsEditor(page: Page): Promise<void> {
  * independent of the in-browser editor having mutated the live DOM.
  */
 export async function fetchAnonymousHtml(path = "/"): Promise<string> {
-  const res = await fetch(`http://localhost:4399${path}`);
+  const res = await fetch(new URL(path, STARTER_ORIGIN));
   if (!res.ok) throw new Error(`Anonymous fetch failed: ${res.status}`);
   return res.text();
 }

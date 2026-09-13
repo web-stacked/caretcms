@@ -1,0 +1,19 @@
+---
+import { loadCollection } from "@caretcms/core/runtime";
+
+const entries = await loadCollection("studio-fixture");
+---
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Publication — CaretCMS Starter</title>
+  </head>
+  <body>
+    <main>
+      <h1>Published entries</h1>
+      <ul>
+        {entries.map((entry) => <li data-entry-id={entry.id}>{String(entry.data.title ?? entry.id)}</li>)}
+      </ul>
+    </main>
+  </body>
+</html>

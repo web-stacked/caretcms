@@ -20,8 +20,8 @@ const s = bindEntry({ collection: "site", id: "global" });
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>{title}</title>
-    {description && <meta name="description" content={description} />}
+    <title>{stegaClean(title)}</title>
+    {description && <meta name="description" content={stegaClean(description)} />}
     <style is:global>
       :root {
         --ink: #1c1a17;
@@ -80,6 +80,16 @@ const s = bindEntry({ collection: "site", id: "global" });
         font-family: var(--serif); font-style: italic; color: var(--ink);
       }
       .prose img { border-radius: 8px; margin: 1.5em 0; }
+
+      @media (max-width: 720px) {
+        .site-nav { align-items: center; flex-wrap: wrap; gap: 10px 16px; }
+        .site-nav .tagline { order: 3; width: 100%; }
+        .site-nav .spacer { display: none; }
+        .site-nav .links {
+          margin-left: auto; max-width: 100%; overflow-x: auto;
+          padding-bottom: 4px; white-space: nowrap;
+        }
+      }
     </style>
   </head>
   <body>
