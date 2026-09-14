@@ -8,6 +8,8 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-13
+
 ### Changed
 
 - Studio now uses a compact collection switcher, title-first entry creation,
@@ -445,7 +447,8 @@ requirements, and deployment retry limitations.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
-[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.5.0
 [0.4.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.4.0
 [0.3.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.3.0
 [0.2.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.2.0
