@@ -3,7 +3,7 @@ import type { IncomingMessage } from "node:http";
 
 declare const __ASTRO_CARET_DEV__: boolean | undefined;
 
-type DevRequest = Pick<IncomingMessage, "headers" | "url">;
+type DevRequest = Pick<IncomingMessage, "headers">;
 
 // Integration hooks and Vite's runtime can evaluate separate module copies.
 // As with request-context.ts, share the scope, never a current-request variable.
@@ -44,7 +44,7 @@ export function getDevAuthContext(request: Request | undefined, isPrerendered?: 
     catch { cookies.set(name, value); }
   }
   return {
-    request: new Request(new URL(incoming.url ?? request.url, request.url), {
+    request: new Request(request.url, {
       method: request.method,
       headers,
     }),

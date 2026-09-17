@@ -65,15 +65,15 @@ describe("static dev request identity", () => {
     },
   );
 
-  it("uses the complete request for authoritative external identity", async () => {
+  it("restores headers for authoritative identity while keeping Astro's request URL", async () => {
     const cookie = await editorDraft("Password draft must not be used");
     const authenticate = vi.fn(async (request: Request) =>
-      request.headers.get("authorization") === "Bearer test-identity" && new URL(request.url).search === "?preview=1"
+      request.headers.get("authorization") === "Bearer test-identity" && request.url === pageRequest().url
         ? { id: "external-editor" } : null);
     __setRuntimeServicesForTests({ adapter, uploadHandler: { upload: vi.fn() }, identityAdapter: { authenticate } });
     await (await adapter.makeEditorOverlay("external-editor")).writeEntry("pages", "home", { headline: "External draft" });
     const response = await withDevRequest({
-      headers: { cookie, authorization: "Bearer test-identity" }, url: "/articles/home?preview=1",
+      headers: { cookie, authorization: "Bearer test-identity" },
     }, () => onRequest(context(), next));
     expect(await response.text()).toContain("External draft");
     const denied = await withDevRequest({ headers: { cookie } }, () => onRequest(context(), next));
