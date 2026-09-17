@@ -24,6 +24,7 @@ import {
 } from "./runtime/i18n.js";
 import { caretRemarkPlugin } from "./markdown/remark.js";
 import { publicationField, resolvePreviewPath } from "./runtime/collection-policy.js";
+import { withDevRequest } from "./runtime/dev-request-context.js";
 import type { GitHubDeploymentOptions } from "./providers/deployment/github.js";
 
 // --- Public type re-exports ---
@@ -857,6 +858,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
   // variants skip injection). Read by the routes:resolved collision check.
   let ownedRoutePrefixes: string[] | null = null;
   let shouldBakeStaticOutput = false;
+  let staticDevAuthoring = false;
   let effectiveDeliveryForBuild: EffectiveDeliveryConfig | null = null;
 
   return {
@@ -866,6 +868,8 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
         const isStaticOutput = config.output === "static";
         assertDeliveryMatchesAstroOutput(resolved.delivery, config.output);
         const effectiveDelivery = resolveEffectiveDelivery(resolved.delivery, config.output);
+        staticDevAuthoring = command === "dev" && isStaticOutput &&
+          resolved.mode === "embedded" && effectiveDelivery.mode === "static";
         effectiveDeliveryForBuild = effectiveDelivery;
         shouldBakeStaticOutput =
           command === "build" &&
@@ -1163,6 +1167,11 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
               `  This temporary password works in dev only; production stays locked.`,
           );
         }
+      },
+
+      "astro:server:setup": ({ server }) => {
+        if (!staticDevAuthoring) return;
+        server.middlewares.use((request, _response, next) => withDevRequest(request, next));
       },
 
       // Type the middleware's contribution to Astro.locals so user code gets

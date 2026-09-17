@@ -7,6 +7,7 @@ import { rewriteCaretAttributes } from "./rewrite.js";
 import { hasStega, stegaClean } from "./stega.js";
 import { SessionOverlayAdapter } from "./storage/session-overlay-adapter.js";
 import { EDITOR_ID_RE } from "./storage/id-contracts.js";
+import { getDevAuthContext } from "./dev-request-context.js";
 
 // Side-effect import: registers any user-provided schemas into the schema registry
 import "virtual:caretcms/schemas";
@@ -17,6 +18,7 @@ type MiddlewareContext = {
     get: (name: string) => { value: string } | undefined;
   };
   request?: Request;
+  isPrerendered?: boolean;
 };
 
 let _cachedRuntimeEnv: Record<string, unknown> | null | undefined;
@@ -84,7 +86,7 @@ function injectSigninHint(html: string, mountPath: string): string {
 /** Whether this request opted into draft preview (the editor toggles a cookie).
  *  Only meaningful for an authenticated editor — the overlay install also
  *  requires a valid editor id. */
-function isPreviewRequest(context: MiddlewareContext): boolean {
+function isPreviewRequest(context: Pick<MiddlewareContext, "cookies">): boolean {
   return context.cookies?.get(PREVIEW_COOKIE)?.value === "1";
 }
 
@@ -136,7 +138,9 @@ export async function onRequest(
 ): Promise<Response> {
   const services = await getRuntimeServices();
   const runtimeEnv = await resolveRuntimeEnv();
-  const request = context.request ?? new Request("http://localhost/");
+  const devAuth = getDevAuthContext(context.request, context.isPrerendered);
+  const authContext = devAuth ?? context;
+  const request = authContext.request ?? new Request("http://localhost/");
 
   let adapter: StorageAdapter = services.adapter;
   let uploadHandler: UploadHandler = services.uploadHandler;
@@ -150,13 +154,13 @@ export async function onRequest(
     : await authenticateIdentity(services.identityAdapter, request);
   if (identity) editorId = identity.id;
   else if (!demoMode && !services.identityAdapter) {
-    editorId = getEditorId(context as Parameters<typeof getEditorId>[0]);
+    editorId = getEditorId(authContext);
   }
 
   const policyActive = !demoMode && services.identityAdapter?.authorize !== undefined;
 
   if (demoMode) {
-    const resolution = resolveDemoSession(context, request);
+    const resolution = resolveDemoSession(authContext, request);
     sessionId = resolution.sessionId;
     setCookieHeader = resolution.setCookieHeader;
 
@@ -171,14 +175,14 @@ export async function onRequest(
     if (services.uploadHandler.makeSessionWrapper) {
       uploadHandler = await services.uploadHandler.makeSessionWrapper(sessionId);
     }
-  } else if ((isPreviewRequest(context) || policyActive) && services.adapter.makeEditorOverlay) {
+  } else if ((isPreviewRequest(authContext) || policyActive) && services.adapter.makeEditorOverlay) {
     // Draft/preview mode: an authenticated editor opting into preview reads and
     // writes through their per-editor overlay (the public site keeps seeing the
     // base). Keyed by the editor id from the session cookie; absent that (an
     // unauthenticated preview request), there's no editor session so we leave the
     // base adapter in place. Publish later flushes the overlay back to the base.
     const id = identity?.id
-      ?? (services.identityAdapter ? null : getEditorId(context as Parameters<typeof getEditorId>[0]));
+      ?? (services.identityAdapter ? null : getEditorId(authContext));
     if (id) {
       const overlay = await services.adapter.makeEditorOverlay(id);
       adapter = new SessionOverlayAdapter(services.adapter, overlay);
@@ -218,7 +222,7 @@ export async function onRequest(
 
   return runWithRequestContext(requestContext, async () => {
     const isEditor = isEditorAuthenticated(
-      context as Parameters<typeof isEditorAuthenticated>[0],
+      authContext,
     );
     // Demo-overlay editor status depends on the request context (demoMode +
     // overlayActive), so it can only be resolved here, inside the ALS scope.
@@ -262,7 +266,7 @@ export async function onRequest(
         // `adapter`; the public (editor === false) always reads the base.
         let rewriteAdapter = adapter;
         if (!overlayActive && requestContext.editor && services.adapter.makeEditorOverlay) {
-          const id = editorId ?? getEditorId(context as Parameters<typeof getEditorId>[0]);
+          const id = editorId ?? getEditorId(authContext);
           if (id) {
             rewriteAdapter = new SessionOverlayAdapter(
               services.adapter,
@@ -305,6 +309,7 @@ export async function onRequest(
     }
 
     const headers = new Headers(inner.headers);
+    if (devAuth && requestContext.editor) headers.set("Cache-Control", "private, no-store");
     if (rewritten) headers.delete("content-length");
     if (setCookieHeader) headers.append("Set-Cookie", setCookieHeader);
 

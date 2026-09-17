@@ -1,0 +1,14 @@
+---
+export function getStaticPaths() {
+  return [{ params: { id: 'home' }, props: { label: 'Props from getStaticPaths' } }];
+}
+const { label } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Generated static route</title></head>
+  <body>
+    <p>{label}</p>
+    <h1 data-caret="pages::home::headline">Static template headline</h1>
+  </body>
+</html>
