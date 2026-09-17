@@ -110,6 +110,46 @@ test("automatically enables preview mode before mounting the static editor", asy
   await expect(page.locator(".cms-toolbar")).toHaveAttribute("data-delivery", "static");
 });
 
+test("keeps a saved draft on reload without exposing it to other visitors", async ({ page, browser }) => {
+  const headline = "Only this editor sees the reloaded draft";
+  await page.request.post("/api/cms/auth/login", {
+    data: { password: EDIT_PASSWORD },
+    headers: { Accept: "application/json" },
+  });
+  await page.goto("/");
+  await expect(page.locator(".cms-toolbar")).toBeVisible();
+  await page.locator('h1[data-caret]').fill(headline);
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await expect(page.locator(".cms-status-text")).toHaveText("Draft saved");
+
+  const response = await page.reload();
+  expect(await response!.text()).toContain(headline);
+  expect(response!.headers()["cache-control"]).toBe("private, no-store");
+  await expect(page.locator('h1[data-caret]')).toHaveText(headline);
+
+  const generatedPage = await page.request.get("/articles/home");
+  expect(generatedPage.ok()).toBe(true);
+  const generatedHtml = await generatedPage.text();
+  expect(generatedHtml).toContain("Props from getStaticPaths");
+  expect(generatedHtml).toContain(headline);
+
+  const otherEditor = await browser.newContext({ baseURL: ORIGIN });
+  try {
+    await otherEditor.request.post("/api/cms/auth/login", {
+      data: { password: EDIT_PASSWORD },
+      headers: { Accept: "application/json" },
+    });
+    const otherHtml = await (await otherEditor.request.get("/")).text();
+    expect(otherHtml).toContain(PUBLISHED_HEADLINE);
+    expect(otherHtml).not.toContain(headline);
+    const anonymousHtml = await (await fetch(ORIGIN)).text();
+    expect(anonymousHtml).toContain(PUBLISHED_HEADLINE);
+    expect(anonymousHtml).not.toContain(headline);
+  } finally {
+    await otherEditor.close();
+  }
+});
+
 test("explains that password-session drafts cannot be kept after sign out", async ({ page }) => {
   await page.request.post("/api/cms/auth/login", {
     data: { password: EDIT_PASSWORD },
@@ -297,6 +337,10 @@ test("publishes an authored draft into the next static build", async ({ page }) 
   expect(html).toContain(EDITED_HEADLINE);
   expect(html).not.toContain(PUBLISHED_HEADLINE);
   expect(html).not.toContain("Static template headline");
+  const generatedHtml = readFileSync(resolve(FIXTURE, "dist", "articles", "home", "index.html"), "utf8");
+  expect(generatedHtml).toContain("Props from getStaticPaths");
+  expect(generatedHtml).toContain(EDITED_HEADLINE);
+  expect(generatedHtml).not.toContain("Only this editor sees the reloaded draft");
 });
 
 test("shows a provider-confirmed deployment failure", async ({ page }) => {

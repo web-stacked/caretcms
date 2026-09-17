@@ -8,6 +8,13 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+### Fixed
+
+- Static development pages now retain the signed-in editor's draft after a
+  reload, including routes generated with `getStaticPaths`. Other editors and
+  anonymous visitors continue to see their own content; static production
+  builds include only published content.
+
 ## [0.5.0] - 2026-09-13
 
 ### Changed
