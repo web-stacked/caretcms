@@ -113,6 +113,7 @@ test("Studio modules load and save under a script CSP with hashes", async ({ pag
     "/__caret/studio/field-model.js",
     "/__caret/studio/fields.js",
     "/__caret/studio/history-client.js",
+    "/__caret/studio/merge.js",
     "/__caret/studio/mutation-client.js",
     "/__caret/studio/sync-client.js",
     "/__caret/studio/upload-client.js",

@@ -12,7 +12,9 @@
       is derived from a semantic token, so semantic overrides cascade
       automatically.
 
-   Defaults below = the "Studio" preset (neutral dark + product blue).
+   Defaults below = the "Studio" preset's dark variant. The theme endpoint
+   adds the light variant for `prefers-color-scheme: light` and for
+   `<html data-theme="light">`.
    The /api/cms/theme.css endpoint (theme-stylesheet route) re-emits
    the SEMANTIC layer for whichever preset is active, so the aliases
    below never need to change per theme.
@@ -24,6 +26,11 @@
   --color-theme-surface: #14171c;
   --color-theme-surface-elevated: #1c2027;
   --color-theme-surface-muted: rgba(255, 255, 255, 0.03);
+  --color-theme-sidebar: #0e1015;
+  --color-theme-input: rgba(255, 255, 255, 0.04);
+  --color-theme-overlay: rgba(255, 255, 255, 0.06);
+  --color-theme-scrim: rgba(3, 5, 9, 0.62);
+  --shadow-theme-raised: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.32);
 
   /* ─── Semantic: Border ────────────────────────────────────────────── */
   --color-theme-border-subtle: rgba(255, 255, 255, 0.06);
@@ -45,6 +52,9 @@
   --color-theme-danger: #ef4444;
   --color-theme-info: #3b82f6;
   --color-theme-warning: #eab308;
+  --color-theme-success-soft: rgba(34, 197, 94, 0.14);
+  --color-theme-danger-soft: rgba(248, 113, 113, 0.14);
+  --color-theme-warning-soft: rgba(234, 179, 8, 0.14);
 
   /* ─── Semantic: Typography ────────────────────────────────────────── */
   --font-theme-body: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -52,10 +62,10 @@
   --font-theme-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
 
   /* ─── Semantic: Scale ─────────────────────────────────────────────── */
-  --radius-theme-xs: 2px;
-  --radius-theme-sm: 4px;
-  --radius-theme-md: 6px;
-  --radius-theme-lg: 12px;
+  --radius-theme-xs: 5px;
+  --radius-theme-sm: 7px;
+  --radius-theme-md: 10px;
+  --radius-theme-lg: 14px;
   --space-theme-xs: 0.25rem;
   --space-theme-sm: 0.5rem;
   --space-theme-md: 1rem;
@@ -79,6 +89,15 @@
   --studio-green: var(--color-theme-success);
   --studio-red: var(--color-theme-danger);
   --studio-blue: var(--color-theme-info);
+  --studio-yellow: var(--color-theme-warning);
+  --studio-green-soft: var(--color-theme-success-soft);
+  --studio-red-soft: var(--color-theme-danger-soft);
+  --studio-yellow-soft: var(--color-theme-warning-soft);
+  --studio-sidebar: var(--color-theme-sidebar);
+  --studio-input: var(--color-theme-input);
+  --studio-overlay: var(--color-theme-overlay);
+  --studio-scrim: var(--color-theme-scrim);
+  --studio-shadow: var(--shadow-theme-raised);
   --studio-font: var(--font-theme-body);
   --studio-font-heading: var(--font-theme-heading);
   --studio-font-mono: var(--font-theme-mono);

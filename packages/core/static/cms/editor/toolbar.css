@@ -1,17 +1,19 @@
 /* ---------------------------------------------------------------------------
-   Toolbar — fixed bottom bar
+   Toolbar — floating pill, centered above the page
    --------------------------------------------------------------------------- */
 
 .cms-toolbar {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: 14px;
+  left: 50%;
+  /* `translate` centers; `transform` is left free for the entrance animation. */
+  translate: -50% 0;
+  max-width: calc(100vw - 24px);
   z-index: 99999;
   font-family: var(--cms-font);
   font-size: 13px;
   opacity: 0;
-  transform: translateY(100%);
+  transform: translateY(24px);
   animation: cms-toolbar-enter 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.3s forwards;
 }
 
@@ -28,13 +30,18 @@
 .cms-toolbar-inner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  background: var(--cms-surface);
-  border-top: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.22);
+  gap: 10px;
+  width: max-content;
   max-width: 100%;
-  padding: 0 18px;
-  height: 52px;
+  height: 48px;
+  padding: 0 6px 0 14px;
+  background: var(--cms-surface);
+  background: color-mix(in srgb, var(--cms-surface) 90%, transparent);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.32);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
 }
 
 .cms-toolbar-left {
@@ -81,8 +88,8 @@
   display: inline-flex;
   padding: 2px;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.025);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .cms-toolbar .cms-mode-switch button {
@@ -95,8 +102,18 @@
 }
 
 @media (max-width: 768px) {
+  .cms-toolbar {
+    left: 8px;
+    right: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    translate: none;
+    max-width: none;
+  }
+
   .cms-toolbar-inner {
-    padding: 0 12px;
+    width: 100%;
+    justify-content: space-between;
+    padding: 0 6px 0 12px;
     gap: 8px;
   }
 
@@ -131,6 +148,11 @@
     padding: 6px 10px;
     flex-shrink: 0;
   }
+
+  /* Icon-only sign out keeps every control on screen; its name stays in aria-label. */
+  .cms-toolbar .cms-exit-btn .cms-btn-label {
+    display: none;
+  }
 }
 
 /* Shared base for every toolbar button so they can't drift visually. Individual
@@ -149,7 +171,7 @@
   background: transparent;
   color: rgba(255, 255, 255, 0.72);
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: 8px;
   cursor: pointer;
   transition: background 0.2s, border-color 0.2s, color 0.2s;
   white-space: nowrap;
@@ -267,9 +289,9 @@
   width: 13.5rem;
   padding: 0.4rem;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 6px;
+  border-radius: 12px;
   background: var(--cms-surface);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.35);
 }
 
 .cms-tools-popover button {
@@ -376,14 +398,14 @@
   color: var(--cms-red);
 }
 
-/* Account for toolbar height */
+/* Keep the end of the page reachable above the floating toolbar */
 body:has(.cms-toolbar) {
-  padding-bottom: 52px;
+  padding-bottom: 76px;
 }
 
 /* Shift back-to-top button above toolbar */
 body:has(.cms-toolbar) #back-to-top {
-  bottom: 60px;
+  bottom: 80px;
 }
 
 .cms-signout-backdrop {
@@ -400,7 +422,7 @@ body:has(.cms-toolbar) #back-to-top {
   width: min(100%, 32rem);
   padding: 1.25rem;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 8px;
+  border-radius: 14px;
   background: var(--cms-surface);
   color: #f3f4f6;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
@@ -427,7 +449,7 @@ body:has(.cms-toolbar) #back-to-top {
   min-height: 34px;
   padding: 0 0.75rem;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 5px;
+  border-radius: 8px;
   background: transparent;
   color: #f3f4f6;
   cursor: pointer;
@@ -452,6 +474,10 @@ body:has(.cms-toolbar) #back-to-top {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cms-toolbar { animation-duration: 0.01s; animation-delay: 0s; }
 }
 
 /* Leave the Astro development dock usable when it opens or receives focus. */

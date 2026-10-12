@@ -39,7 +39,8 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
 
   await expect(page.locator(".entry-thumb img")).toHaveAttribute("src", "/initial.png");
   await expect(page.getByText("Unpublished")).toBeVisible();
-  await expect(page.getByLabel("Collection", { exact: true })).toHaveValue("/admin/cms/studio-fixture");
+  await expect(page.getByRole("navigation", { name: "Collections" }).getByRole("link", { name: "Studio Fixture" }))
+    .toHaveAttribute("aria-current", "page");
 
   const createButton = page.locator("#btn-new");
   await createButton.click();
@@ -445,7 +446,7 @@ test("Studio routes singleton collections directly and hides impossible actions"
   expect(seed.ok()).toBe(true);
 
   await page.goto("/admin/cms");
-  const card = page.getByRole("link", { name: /Site Settings/ });
+  const card = page.getByRole("main").getByRole("link", { name: /Site Settings/ });
   await expect(card).toHaveAttribute("href", "/admin/cms/site-settings-fixture/global");
   await card.click();
   await expect(page).toHaveURL(/\/admin\/cms\/site-settings-fixture\/global$/);
@@ -458,14 +459,20 @@ test("Studio routes singleton collections directly and hides impossible actions"
 
 test("collection search has a persistent associated label", async ({ page }) => {
   await page.goto("/admin/cms/studio-fixture");
-  await expect(page.getByLabel("Search")).toHaveAttribute("name", "search");
+  await expect(page.getByLabel("Search", { exact: true })).toHaveAttribute("name", "search");
 });
 
 test("collection navigation and title-first creation fit a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/admin/cms/studio-fixture");
 
-  await expect(page.getByLabel("Collection", { exact: true })).toBeVisible();
+  const menu = page.getByRole("button", { name: "Menu" });
+  await menu.click();
+  await expect(menu).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("navigation", { name: "Collections" }).getByRole("link", { name: "Studio Fixture" })).toBeInViewport();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveAttribute("aria-expanded", "false");
+  await expect(menu).toBeFocused();
   for (const control of await page.locator(".collection-actions > input, .collection-actions > button").all()) {
     const bounds = await control.boundingBox();
     expect(bounds).not.toBeNull();
@@ -665,7 +672,7 @@ test("registered collections remain available before their first entry exists", 
   resetCmsStorage();
 
   await page.goto("/admin/cms");
-  const fixtureCard = page.getByRole("link", { name: /Studio Fixture/ });
+  const fixtureCard = page.getByRole("main").getByRole("link", { name: /Studio Fixture/ });
   await expect(fixtureCard).toContainText("0 entries");
   await fixtureCard.click();
   await expect(page).toHaveURL(/\/admin\/cms\/studio-fixture$/);
@@ -673,7 +680,7 @@ test("registered collections remain available before their first entry exists", 
   await expect(page.locator("#btn-new")).toBeVisible();
 
   await page.goto("/admin/cms");
-  const singletonCard = page.getByRole("link", { name: /Site Settings/ });
+  const singletonCard = page.getByRole("main").getByRole("link", { name: /Site Settings/ });
   await expect(singletonCard).toHaveAttribute(
     "href",
     "/admin/cms/site-settings-fixture/global",
@@ -693,7 +700,7 @@ test("collection pagination reaches every entry and title search crosses pages",
     expect(response.ok(), await response.text()).toBe(true);
   }
   await page.goto("/admin/cms");
-  await expect(page.getByRole("link", { name: /Studio Fixture/ }))
+  await expect(page.getByRole("main").getByRole("link", { name: /Studio Fixture/ }))
     .toContainText("31 entries");
 
   await page.goto("/admin/cms/studio-fixture");

@@ -14,7 +14,8 @@ async function expectNoAxeViolations(page: Page): Promise<void> {
   ).toEqual([]);
 }
 
-test("login, collection list, and schema-rendered entry pass axe", async ({ page }) => {
+for (const colorScheme of ["light", "dark"] as const) test(`login, collection list, and schema-rendered entry pass axe in ${colorScheme} mode`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme });
   resetCmsStorage();
 
   await page.goto("/admin");

@@ -201,7 +201,7 @@
 
 .studio-login-input:focus {
   border-color: var(--studio-accent);
-  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 3px var(--studio-accent-soft);
 }
 
 .studio-login-input-icon {
@@ -237,7 +237,9 @@
 }
 
 .studio-login-submit:disabled {
-  opacity: 0.5;
+  background: var(--studio-surface-hover);
+  color: var(--studio-text-dim);
+  box-shadow: none;
   cursor: not-allowed;
 }
 
@@ -265,8 +267,8 @@
   gap: 0.75rem;
   margin-bottom: 2rem;
   padding: 1rem;
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--studio-red-soft);
+  border: 1px solid var(--studio-red);
   color: var(--studio-red);
   font-size: 13px;
 }

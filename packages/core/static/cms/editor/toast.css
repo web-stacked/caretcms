@@ -4,7 +4,7 @@
 
 .cms-toast-stack {
   position: fixed;
-  bottom: 62px;
+  bottom: 76px;
   right: 24px;
   z-index: 100000;
   display: flex;

@@ -42,21 +42,23 @@
   color: var(--studio-accent);
 }
 
-/* Schema-defined field sections */
+/* Forms sit on cards: one card per schema group, or one for an ungrouped form. */
+#fields:not(:has(> .caret-field-section)),
 .caret-field-section {
-  margin: 0.75rem 0 1.5rem;
-  padding: 0 1rem;
+  margin: 0 0 1.25rem;
+  padding: 0.25rem 1.25rem;
   border: 1px solid var(--studio-border);
-  border-radius: var(--radius-theme-sm);
-  background: color-mix(in srgb, var(--studio-surface) 58%, transparent);
+  border-radius: var(--radius-theme-md);
+  background: var(--studio-surface);
 }
 .caret-field-section-title {
-  margin: 0 -1rem;
-  padding: 0.8rem 1rem;
+  margin: -0.25rem -1.25rem 0;
+  padding: 0.95rem 1.25rem;
   border-bottom: 1px solid var(--studio-border);
   color: var(--studio-text);
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   font-weight: 650;
+  letter-spacing: -0.01em;
 }
 .caret-field-section-description {
   margin: 0.75rem 0 0;
@@ -310,7 +312,7 @@
   position: relative;
   border: 1px solid var(--studio-border);
   border-radius: var(--radius-theme-sm);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--studio-surface-hover);
 }
 .caret-object-array-item.caret-object-array-dragging {
   opacity: 0.5;
@@ -361,7 +363,7 @@
   line-height: 1;
   transition: background 0.15s;
 }
-.caret-object-array-remove:hover { background: rgba(239, 68, 68, 0.12); }
+.caret-object-array-remove:hover { background: var(--studio-red-soft); }
 .caret-object-array-move {
   width: 26px;
   height: 26px;
@@ -520,10 +522,10 @@
   letter-spacing: 0;
   border-radius: 2px;
 }
-.caret-history-action[data-action="save"] { background: rgba(34,197,94,0.15); color: var(--studio-green); }
-.caret-history-action[data-action="put"]  { background: rgba(59,130,246,0.15); color: var(--studio-blue); }
-.caret-history-action[data-action="delete"] { background: rgba(239,68,68,0.15); color: var(--studio-red); }
-.caret-history-action[data-action="restore"] { background: rgba(59,130,246,0.15); color: var(--studio-accent); }
+.caret-history-action[data-action="save"] { background: var(--studio-green-soft); color: var(--studio-green); }
+.caret-history-action[data-action="put"]  { background: var(--studio-accent-soft); color: var(--studio-accent); }
+.caret-history-action[data-action="delete"] { background: var(--studio-red-soft); color: var(--studio-red); }
+.caret-history-action[data-action="restore"] { background: var(--studio-accent-soft); color: var(--studio-accent); }
 
 /* Paired live-page/Studio selection. This is deliberately blue and temporary;
    green remains reserved for confirmed save feedback. */
