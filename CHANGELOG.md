@@ -60,8 +60,8 @@ responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
   fields and marks fields both editors changed.
 - The inline toolbar shows **Unsaved changes** while an edit is pending, and
   restores the previous status when the edit is undone.
-- Studio history shows "You" or "Another editor" instead of an opaque session
-  ID for editors without a name or email.
+- Studio history shows "You" or "Earlier session" instead of an opaque session
+  ID for editors signed in without a name or email.
 - Save and link shortcuts work with Caps Lock on. Validation messages use the
   singular for one character or item.
 - Packages include their TypeScript sources, so source maps and declaration

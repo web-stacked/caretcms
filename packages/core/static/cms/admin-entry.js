@@ -1205,7 +1205,9 @@ import { rebaseEdits } from './studio/merge.js';
           var editorSpan = document.createElement("span");
           editorSpan.style.cssText = "font-size:0.7rem;color:var(--studio-text-dim);";
           editorSpan.textContent = item.editor.name || item.editor.email
-            || (item.editor.current ? msg("history.you", "You") : msg("history.anotherEditor", "Another editor"));
+            // Password sessions carry only an id, renewed at each sign-in, so a
+            // different id is an earlier session, not necessarily another person.
+            || (item.editor.current ? msg("history.you", "You") : msg("history.otherSession", "Earlier session"));
           editorSpan.title = item.editor.id;
           info.appendChild(editorSpan);
         }
