@@ -1,0 +1,10 @@
+---
+import { getLiveEntry } from "astro:content";
+const live = import.meta.env.DEV || process.env.CARET_CONSUMER_SSR === "1"
+  ? await getLiveEntry("pages", "home") : null;
+if (live?.error) throw live.error;
+---
+<!doctype html><html lang="en"><head><title>Consumer fixture</title></head><body>
+  <h1 data-caret="pages::home::title">Fallback title</h1>
+  <p id="live-title">{live?.entry?.data.title ?? "Static page"}</p>
+</body></html>
