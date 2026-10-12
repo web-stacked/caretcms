@@ -61,7 +61,8 @@ responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
 - `@caretcms/core/testing/storage` exports a conformance suite for storage
   adapters. See [storage adapters](docs/storage-adapters.md).
 - `CARET_GIT_JOURNAL_RETRY=true` lets an interrupted Git commit finish later
-  without publishing again.
+  without publishing again. The toolbar shows **Retry Git history** while one
+  is pending.
 - Opt-in coordinated Durable Object drafts save a multi-entry batch in one
   transaction.
 - CI tests the packed packages in a separate project on Astro 6.0.0 and 7.2.4
