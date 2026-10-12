@@ -8,12 +8,73 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-11
+
+Fixes 22 bugs found in a review of 0.5.0. Some fixes change stored data or API
+responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
+
+### Security
+
+- The rewrite engine reads bindings only from element tags. Bindings inside
+  comments, attribute values, `<script>` text, and SVG/MathML are ignored.
+- Sanitization decodes HTML entities once. URLs are checked after decoding and
+  reject unsafe schemes, control characters, and backslashes.
+- Editor, Studio, and API responses send `Cache-Control: private, no-store`.
+- Login and upload limit request size while reading the body and cancel
+  oversized requests.
+- KV editor and session overlays use the site's `keyPrefix`. Prefixed sites in
+  one namespace no longer share drafts.
+- Worker session cookies are verified before a private overlay is chosen.
+  Forged cookies get public content.
+
 ### Fixed
 
-- Static development pages now retain the signed-in editor's draft after a
-  reload, including routes generated with `getStaticPaths`. Other editors and
-  anonymous visitors continue to see their own content; static production
-  builds include only published content.
+- Static development pages show the signed-in editor's draft after a reload,
+  including routes from `getStaticPaths`. Static production builds contain only
+  published content.
+- `anyOf` and `oneOf` alternatives are validated separately, with nested
+  references, and `oneOf` requires exactly one match.
+- Layout writes, publish, and history restore validate the entry first. A
+  failing write changes nothing.
+- Pages whose only bindings are Markdown body blocks load the editor.
+- Entry reads take the same locks as writes, so content and revision always
+  match. Collection create and delete wait for in-progress entry writes.
+- Deleting a collection keeps its revision numbers, and recreating it does not
+  bring back removed seed entries (KV and Durable Objects).
+- Quoted YAML strings use one strict escape decoder. Unknown escapes raise an
+  error.
+- Git-on-publish commits the approved bytes through its own index and leaves
+  the working tree and staging alone. It no longer skips the commit on Linux
+  when Git closes an unused input pipe.
+- Caretize writes files atomically and refuses to overwrite a file that changed
+  after the scan, or a symlink.
+- Collection create and delete by real editors write to base storage in
+  preview, static, and policy modes.
+
+### Added
+
+- Merged draft views include `baseRevision`. Send it as `expectedBaseRevision`;
+  a stale value returns 409 with `currentBaseRevision`.
+- Optional `StorageAdapter` methods: `getEntrySnapshot`, `getEntrySnapshots`,
+  `committableEntryPaths`, `preparePublicationSources`, and
+  `makeRecoveryOverlay`. The file adapters implement all of them.
+- `@caretcms/core/testing/storage` exports a conformance suite for storage
+  adapters. See [storage adapters](docs/storage-adapters.md).
+- `CARET_GIT_JOURNAL_RETRY=true` lets an interrupted Git commit finish later
+  without publishing again.
+- Opt-in coordinated Durable Object drafts save a multi-entry batch in one
+  transaction.
+- CI tests the packed packages in a separate project on Astro 6.0.0 and 7.2.4
+  with Node 22.12 and 24, runs native Cloudflare storage tests, and reopens
+  data written by 0.5.0.
+
+### Changed
+
+- Git-on-publish requires `preparePublicationSources`. Adapters without it
+  publish but skip the Git commit.
+- Publish can fail with `invalid_entry`. The draft stays.
+- Single-entry API responses always include a top-level revision.
+- The Cloudflare Durable Object class must be deployed with the new adapter.
 
 ## [0.5.0] - 2026-09-13
 
@@ -454,7 +515,8 @@ requirements, and deployment retry limitations.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
-[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.0
 [0.5.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.5.0
 [0.4.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.4.0
 [0.3.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.3.0
