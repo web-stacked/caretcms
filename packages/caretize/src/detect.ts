@@ -145,7 +145,7 @@ export const RICH_SAFE_ATTRS: Record<string, Set<string>> = {
   a: new Set(["href", "target", "rel"]),
 };
 // `(?!\/)` rejects protocol-relative URLs (`//evil.com`). Mirrors core exactly.
-export const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/(?!\/))/i;
+export const SAFE_HREF_RE = /^(?!.*[\u0000-\u001f\u007f\\])(?:https?:|mailto:|tel:|\/(?!\/))/i;
 
 /** How the inline-markup children of a mixed element classify for rich promotion. */
 type RichShape =

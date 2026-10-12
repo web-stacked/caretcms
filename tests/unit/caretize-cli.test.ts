@@ -117,7 +117,7 @@ describe("commitRun + backups + restore", () => {
     expect(existsSync(join(dir, ".caret"))).toBe(false);
   });
 
-  it("a failed write rolls back only this run — older backups stay untouched", async () => {
+  it("a vanished input fails preflight without restoring older backups", async () => {
     // Run 1 tags a.astro, leaving a backup at an older stamp.
     const srcA = "<main><h1>A</h1></main>";
     write("a.astro", srcA);
@@ -135,8 +135,7 @@ describe("commitRun + backups + restore", () => {
     const handEdited = "<main><h1>USER EDIT</h1></main>";
     write("a.astro", handEdited);
 
-    // Run 2 targets only b.astro and fails mid-write (its target dir vanished —
-    // writeBackup succeeds, writeFileSync throws on the missing parent).
+    // Run 2 targets only b.astro, but its input disappears before commit.
     const srcB = "<main><h1>B</h1></main>";
     write("deep/b.astro", srcB);
     const prepared = [
@@ -146,8 +145,8 @@ describe("commitRun + backups + restore", () => {
     ];
     rmSync(join(dir, "deep"), { recursive: true, force: true });
 
-    expect(() => commitRun(dir, prepared, "2026-01-02T00-00-00-000Z")).toThrow(/rolled back/);
-    // The rollback must NOT have restored run 1's stamp over the user's edit.
+    expect(() => commitRun(dir, prepared, "2026-01-02T00-00-00-000Z")).toThrow(/ENOENT/);
+    // Preflight must NOT restore run 1's stamp over the user's edit.
     expect(readFileSync(join(dir, "a.astro"), "utf8")).toBe(handEdited);
   });
 });
