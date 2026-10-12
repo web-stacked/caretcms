@@ -92,7 +92,7 @@
 .cms-studio-panel-header button {
   padding: 5px 6px;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: 8px;
   background: transparent;
   color: rgba(255, 255, 255, 0.68);
   font: inherit;
