@@ -469,6 +469,27 @@ body:has(.cms-toolbar) #back-to-top {
 }
 .cms-signout-actions .cms-signout-discard { color: var(--cms-red); }
 
+/* Phones: tighten spacing so every control fits without horizontal scrolling.
+   The Live/Draft label stays available to assistive tech and in the tooltip. */
+@media (max-width: 480px) {
+  .cms-toolbar-inner { gap: 4px; padding: 0 4px 0 10px; }
+  .cms-toolbar-left { gap: 6px; }
+  .cms-toolbar-right { gap: 4px; }
+  .cms-toolbar button,
+  .cms-tools-summary { padding: 6px 8px; }
+  .cms-toolbar .cms-mode-switch button { padding: 5px 7px; }
+  .cms-toolbar-badge { padding: 5px 0; }
+  .cms-toolbar-badge-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  .cms-tools-summary::after { margin-left: 0.3rem; }
+}
+
 @keyframes cms-toolbar-enter {
   to {
     opacity: 1;
