@@ -6,6 +6,7 @@ import { runWithRequestContext } from "./request-context.js";
 import { rewriteCaretAttributes } from "./rewrite.js";
 import { hasCaretBindings } from "./html-tokens.js";
 import { hasStega, stegaClean } from "./stega.js";
+import { promoteAttributeStega } from "./stega-attributes.js";
 import { SessionOverlayAdapter } from "./storage/session-overlay-adapter.js";
 import { EDITOR_ID_RE } from "./storage/id-contracts.js";
 import { getDevAuthContext } from "./dev-request-context.js";
@@ -270,6 +271,15 @@ async function prepareRequest(
       // mentions data-caret in prose (docs, a blog post about the CMS) must not
       // run the rewrite engine or suppress the signed-in empty-state hint.
       // Use actual element attributes, including Markdown body stamps.
+      // Keys hidden in attribute values (image src, link href) would otherwise
+      // reach the browser inside the URL. Clean them and bind keyed images.
+      if (requestContext.editor && hasStega(html)) {
+        const promoted = promoteAttributeStega(html);
+        if (promoted !== html) {
+          html = promoted;
+          rewritten = true;
+        }
+      }
       const hasBindings = hasCaretBindings(html);
       if (hasBindings) {
         // An authenticated editor in server delivery reads live base content
