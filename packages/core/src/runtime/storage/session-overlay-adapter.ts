@@ -313,6 +313,10 @@ export class SessionOverlayAdapter implements StorageAdapter {
     return this.base.readBodySource ? this.base.readBodySource(collection, id) : null;
   }
 
+  async isDocumentCollection(collection: string): Promise<boolean> {
+    return this.base.isDocumentCollection ? this.base.isDocumentCollection(collection) : true;
+  }
+
   async createCollection(metadata: CollectionMetadata): Promise<void> {
     await this.overlay.createCollection(metadata);
   }

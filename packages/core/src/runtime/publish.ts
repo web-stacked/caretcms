@@ -177,12 +177,16 @@ export async function publishOverlay(
             conflicts.push({ collection, id, reason: "invalid_entry" });
             return;
           }
-          const source = base.readBodySource ? await base.readBodySource(collection, id) : null;
+          // Data-file collections (one JSON file of entries) publish through the
+          // entry write; only document collections carry a whole source file.
+          const documentSource = Boolean(base.readBodySource && base.writeBodySource) &&
+            (!base.isDocumentCollection || await base.isDocumentCollection(collection));
+          const source = documentSource && base.readBodySource ? await base.readBodySource(collection, id) : null;
           if (blocks?.length && (!source || !base.writeBodySource)) {
             conflicts.push({ collection, id, reason: "invalid_body" });
             return;
           }
-          const afterSource = after !== null && base.readBodySource && base.writeBodySource
+          const afterSource = after !== null && documentSource
             ? prepareSource(source ?? "", before, after, blocks ?? []) : undefined;
           if (afterSource === null) {
             conflicts.push({ collection, id, reason: "stale_body" });

@@ -160,6 +160,23 @@ existing individual reads, which isolate corrupt entries. Older custom adapters
 remain compatible. Cloudflare adapters currently retain their individual read
 path; no remote query/batch API or stronger distributed guarantee is implied.
 
+## Document and data-file collections
+
+An adapter with `readBodySource` and `writeBodySource` stores entries as whole
+source documents, such as Markdown files with a body. Publish then writes the
+document source, frontmatter included. An adapter that also stores data files,
+where one file holds many entries, implements `isDocumentCollection(collection)`
+and returns false for those collections. Publish then saves the entry with
+`writeEntry` and keeps the file's other entries.
+
+The Markdown adapter treats `<contentRoot>/<name>.json` as a data collection
+when no `<contentRoot>/<name>/` directory holds Markdown entries. The file is an
+array of objects with a string `id`, or an object keyed by id, as Astro's
+`file()` loader reads it. Writes to one file are serialized in the process,
+replace a single entry, and keep the entry order, key order, indentation, and
+trailing newline. `preparePublicationSources` returns the whole updated file,
+so Git-on-publish commits it.
+
 ## Collection read baseline
 
 `npm run bench:storage` measures local memory/JSON reference stores at 1k and

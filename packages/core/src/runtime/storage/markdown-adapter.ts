@@ -9,10 +9,21 @@ import { COLLECTION_NAME_RE, ENTRY_ID_RE, assertSafeEditorId } from "./id-contra
 import { parseFrontmatter, rewriteFrontmatter } from "./frontmatter-codec.js";
 import { spliceBodyBlocks as spliceBodyBlocksInSource } from "../../markdown/splice.js";
 import { FilesystemAdapter } from "./filesystem-adapter.js";
+import { dataFileIds, parseDataFile, readDataEntry, writeDataEntry, type DataFile } from "./data-file-codec.js";
 
 // .md is preferred over .mdx when both exist for the same id (simpler format,
 // and an MDX body is more fragile). Order matters: first match wins on read.
 const EXTENSIONS = [".md", ".mdx"] as const;
+
+// Writes to one data file (many entries) are serialized per path, process-wide,
+// so two saves to different entries cannot overwrite each other.
+const dataFileQueues = new Map<string, Promise<unknown>>();
+function queueDataFileWrite<T>(path: string, task: () => Promise<T>): Promise<T> {
+  const previous = dataFileQueues.get(path) ?? Promise.resolve();
+  const run = previous.then(task, task);
+  dataFileQueues.set(path, run.catch(() => undefined));
+  return run;
+}
 
 /**
  * StorageAdapter over Astro file-based content collections.
@@ -22,6 +33,11 @@ const EXTENSIONS = [".md", ".mdx"] as const;
  * body (everything after the closing `---`, including MDX JSX/imports) is
  * spliced through byte-for-byte. Body block drafts publish through prepared,
  * hash-checked source replacements, with sidecar recovery metadata.
+ *
+ * A collection with no Markdown directory may instead be an Astro `file()`
+ * data file, `<contentRoot>/<collection>.json` (an array of objects with `id`,
+ * or an object keyed by id). Its entries are read and written in place inside
+ * that one file; see `data-file-codec.ts`.
  *
  * Revisions, history, and collection metadata live in the `.caretcms/` sidecar
  * (shared `SidecarMetaStore`), so the source `.md` files stay free of CMS state.
@@ -81,6 +97,35 @@ export class MarkdownAdapter implements StorageAdapter {
     return join(this.contentRoot, collection);
   }
 
+  private dataFilePath(collection: string): string {
+    return join(this.contentRoot, `${collection}.json`);
+  }
+
+  private async readDataFile(collection: string): Promise<{ path: string; file: DataFile } | null> {
+    if (!COLLECTION_NAME_RE.test(collection)) return null;
+    const path = this.dataFilePath(collection);
+    let source: string;
+    try {
+      source = await readFile(path, "utf8");
+    } catch (error) {
+      if ((error as { code?: string }).code === "ENOENT") return null;
+      throw new ContentReadError("storage_error");
+    }
+    const file = parseDataFile(source);
+    return file ? { path, file } : null;
+  }
+
+  /** Markdown documents unless the collection exists only as a data file. */
+  async isDocumentCollection(collection: string): Promise<boolean> {
+    if ((await this.listDocumentIds(collection)).length > 0) return true;
+    return (await this.readDataFile(collection)) === null;
+  }
+
+  /** The collection's data file, when it is a data collection. */
+  private async dataCollection(collection: string): Promise<{ path: string; file: DataFile } | null> {
+    return (await this.isDocumentCollection(collection)) ? null : this.readDataFile(collection);
+  }
+
   /** The content root — what git stages for commit-on-publish. */
   committablePath(): string {
     return this.contentRoot;
@@ -88,6 +133,8 @@ export class MarkdownAdapter implements StorageAdapter {
 
   async committableEntryPaths(collection: string, id: string, deleted: boolean): Promise<string[]> {
     if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) throw new Error("Invalid entry path");
+    const data = await this.dataCollection(collection);
+    if (data) return [data.path];
     if (deleted) return EXTENSIONS.map(ext => join(this.collectionDir(collection), `${id}${ext}`));
     return [await this.resolveEntryPath(collection, id) ?? join(this.collectionDir(collection), `${id}.md`)];
   }
@@ -95,6 +142,8 @@ export class MarkdownAdapter implements StorageAdapter {
   async preparePublicationSources(
     collection: string, id: string, data: Record<string, unknown> | null, preparedSource?: string,
   ): Promise<PublicationSourceSnapshot[]> {
+    const dataFile = await this.dataCollection(collection);
+    if (dataFile) return [{ path: dataFile.path, content: writeDataEntry(dataFile.file, id, data) }];
     const paths = await this.committableEntryPaths(collection, id, data === null);
     if (data === null) return paths.map(path => ({ path, content: null }));
     if (preparedSource !== undefined) return [{ path: paths[0], content: preparedSource }];
@@ -125,13 +174,27 @@ export class MarkdownAdapter implements StorageAdapter {
     // Unlike the JSON adapter, createCollection here does NOT create a content
     // directory, so a freshly-created collection is visible only via its sidecar
     // metadata until it has entries — include that as a third discovery source.
-    const [fromContent, fromHistory, metadata] = await Promise.all([
+    const [fromContent, fromDataFiles, fromHistory, metadata] = await Promise.all([
       listCollectionDirs(this.contentRoot),
+      this.listDataFileCollections(),
       this.meta.listHistoryCollections(),
       this.meta.listCollectionMetadata(),
     ]);
-    const merged = new Set([...fromContent, ...fromHistory, ...metadata.map((m) => m.id)]);
+    const merged = new Set([...fromContent, ...fromDataFiles, ...fromHistory, ...metadata.map((m) => m.id)]);
     return [...merged].sort((a, b) => a.localeCompare(b));
+  }
+
+  private async listDataFileCollections(): Promise<string[]> {
+    let files: import("node:fs").Dirent[];
+    try {
+      files = await readdir(this.contentRoot, { withFileTypes: true });
+    } catch {
+      return [];
+    }
+    const names = files.filter((file) => file.isFile() && file.name.endsWith(".json"))
+      .map((file) => file.name.slice(0, -".json".length)).filter((name) => COLLECTION_NAME_RE.test(name));
+    const valid = await Promise.all(names.map(async (name) => (await this.readDataFile(name).catch(() => null)) !== null));
+    return names.filter((_, index) => valid[index]);
   }
 
   async isKnownCollection(collection: string): Promise<boolean> {
@@ -145,6 +208,7 @@ export class MarkdownAdapter implements StorageAdapter {
   /** Raw source file (frontmatter + body) for body-editing hash checks/splices. */
   async readBodySource(collection: string, id: string): Promise<string | null> {
     if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) return null;
+    if (!(await this.isDocumentCollection(collection))) return null;
     const path = await this.resolveEntryPath(collection, id);
     if (!path) return null;
     try {
@@ -165,6 +229,7 @@ export class MarkdownAdapter implements StorageAdapter {
     if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) {
       return { ok: false, reason: "missing" };
     }
+    if (!(await this.isDocumentCollection(collection))) return { ok: false, reason: "missing" };
     const path = await this.resolveEntryPath(collection, id);
     if (!path) return { ok: false, reason: "missing" };
     const source = await readFile(path, "utf8");
@@ -179,6 +244,9 @@ export class MarkdownAdapter implements StorageAdapter {
     if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) {
       throw new Error(`[caretcms] invalid entry path ${collection}/${id}`);
     }
+    if (!(await this.isDocumentCollection(collection))) {
+      throw new Error(`[caretcms] ${collection} is a data file; its entries have no document source`);
+    }
     const dir = this.collectionDir(collection);
     await mkdir(dir, { recursive: true });
     const path = (await this.resolveEntryPath(collection, id)) ?? join(dir, `${id}.md`);
@@ -187,6 +255,11 @@ export class MarkdownAdapter implements StorageAdapter {
 
   async getEntry(collection: string, id: string): Promise<EntryData | null> {
     if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) return null;
+    const dataFile = await this.dataCollection(collection);
+    if (dataFile) {
+      const data = readDataEntry(dataFile.file, id);
+      return data ? { id, data } : null;
+    }
     const path = await this.resolveEntryPath(collection, id);
     if (!path) return null;
 
@@ -208,6 +281,14 @@ export class MarkdownAdapter implements StorageAdapter {
   }
 
   async listEntryIds(collection: string): Promise<string[]> {
+    const documents = await this.listDocumentIds(collection);
+    if (documents.length) return documents;
+    const dataFile = await this.readDataFile(collection);
+    return dataFile ? dataFileIds(dataFile.file) : [];
+  }
+
+  private async listDocumentIds(collection: string): Promise<string[]> {
+    if (!COLLECTION_NAME_RE.test(collection)) return [];
     let files: import("node:fs").Dirent[];
     try {
       files = await readdir(this.collectionDir(collection), { withFileTypes: true });
@@ -247,6 +328,16 @@ export class MarkdownAdapter implements StorageAdapter {
       throw new Error(`[caretcms] invalid entry path ${collection}/${id}`);
     }
 
+    if (!(await this.isDocumentCollection(collection))) {
+      const path = this.dataFilePath(collection);
+      await queueDataFileWrite(path, async () => {
+        const current = await this.readDataFile(collection);
+        if (!current) throw new Error(`[caretcms] Refusing to overwrite ${collection}: its data file changed shape`);
+        await atomicWrite(path, writeDataEntry(current.file, id, data));
+      });
+      return;
+    }
+
     const existing = await this.resolveEntryPath(collection, id);
     const original = existing ? await readFile(existing, "utf8") : "";
     const serialized = rewriteFrontmatter(original, data);
@@ -262,6 +353,14 @@ export class MarkdownAdapter implements StorageAdapter {
 
   async deleteEntry(collection: string, id: string): Promise<void> {
     if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) return;
+    if (!(await this.isDocumentCollection(collection))) {
+      const path = this.dataFilePath(collection);
+      await queueDataFileWrite(path, async () => {
+        const current = await this.readDataFile(collection);
+        if (current && readDataEntry(current.file, id)) await atomicWrite(path, writeDataEntry(current.file, id, null));
+      });
+      return;
+    }
     // Remove every form so a .md delete doesn't merely un-shadow a sibling .mdx.
     for (const ext of EXTENSIONS) {
       const path = join(this.collectionDir(collection), `${id}${ext}`);

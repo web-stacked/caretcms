@@ -384,6 +384,15 @@ export interface StorageAdapter {
   readBodySource?(collection: string, id: string): Promise<string | null>;
 
   /**
+   * Optional: whether entries in this collection are whole source documents
+   * (Markdown with a body). Adapters that also store data files, such as one
+   * JSON file holding many entries, return false for those collections so
+   * publication writes the entry instead of a document source. Absent means
+   * true whenever `readBodySource` and `writeBodySource` exist.
+   */
+  isDocumentCollection?(collection: string): Promise<boolean>;
+
+  /**
    * Optional: apply drafted body-block edits to the entry's source file,
    * all-or-nothing (see `markdown/splice.ts`). Returns the splice outcome;
    * `stale`/`overlap` failures leave the file untouched. The current publisher
