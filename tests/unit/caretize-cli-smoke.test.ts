@@ -68,10 +68,11 @@ describe("caretize CLI · meta flags", () => {
     expect(r.stdout).toContain("Usage: caretize");
   });
 
-  it("--version prints the version and exits 0", () => {
+  it("--version prints the published package version and exits 0", () => {
     const r = run(dir, "--version");
+    const manifest = JSON.parse(readFileSync(join(ROOT, "packages", "caretize", "package.json"), "utf8")) as { version: string };
     expect(r.status).toBe(0);
-    expect(r.stdout.trim()).toBe("0.1.0");
+    expect(r.stdout.trim()).toBe(manifest.version);
   });
 
   it("rejects an unknown flag with exit code 2", () => {

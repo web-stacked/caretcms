@@ -43,7 +43,8 @@ import {
 } from "./escalation.js";
 import type { Confidence } from "./detect.js";
 
-const VERSION = "0.1.0";
+// Read from the manifest beside src/ and dist/ so the CLI never reports a stale version.
+const VERSION = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }).version;
 
 function fail(msg: string): never {
   process.stderr.write(`caretize: ${msg}\n`);
