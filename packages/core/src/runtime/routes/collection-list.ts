@@ -377,6 +377,11 @@ export async function GET(context: APIContext): Promise<Response> {
       return '';
     }
 
+    function humanizeId(id) {
+      var text = String(id || '').replace(/[-_]+/g, ' ').trim();
+      return text ? text.charAt(0).toUpperCase() + text.slice(1) : MSG['collection.untitled'];
+    }
+
     function renderEntries(entries) {
       grid.innerHTML = '';
       if (entries.length === 0) {
@@ -391,6 +396,8 @@ export async function GET(context: APIContext): Promise<Response> {
       for (var i = 0; i < entries.length; i++) {
         var entry = entries[i];
         var title = entry.readError ? entry.id : getTitle(entry.data);
+        // Entries without a title field (fixed pages, settings) read better by id.
+        if (title === MSG['collection.untitled']) title = humanizeId(entry.id);
         var thumb = getThumb(entry.data);
         var subtitle = getSubtitle(entry.data);
         var publication = PUBLICATION_FIELD && entry.data && typeof entry.data[PUBLICATION_FIELD] === 'boolean'

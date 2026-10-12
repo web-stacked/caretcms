@@ -275,16 +275,18 @@ kbd {
 }
 
 .studio-main {
+  /* Sticky page bars use this to cover the top padding while they stick. */
+  --studio-main-pad-top: var(--space-theme-xl);
   flex: 1;
   min-height: 0;
-  padding: var(--space-theme-xl) var(--space-theme-xl) var(--space-theme-2xl);
+  padding: var(--studio-main-pad-top) var(--space-theme-xl) var(--space-theme-2xl);
   overflow-y: auto;
 }
 
 /* Embedded in the on-page Studio drawer: the drawer supplies navigation. */
 .studio-embedded .studio-sidebar,
 .studio-embedded .studio-header { display: none; }
-.studio-embedded .studio-main { padding: var(--space-theme-lg); }
+.studio-embedded .studio-main { --studio-main-pad-top: var(--space-theme-lg); padding: var(--studio-main-pad-top) var(--space-theme-lg) var(--space-theme-lg); }
 
 /* Page header shared by Studio pages */
 .studio-page { max-width: 72rem; margin: 0 auto; }
@@ -462,7 +464,7 @@ kbd {
   .studio-header { padding: 0.5rem var(--space-theme-md); gap: var(--space-theme-sm); }
   .studio-search-btn { width: 2.25rem; padding: 0; justify-content: center; }
   .studio-search-btn span, .studio-search-btn kbd { display: none; }
-  .studio-main { padding: var(--space-theme-lg) var(--space-theme-md) var(--space-theme-2xl); }
+  .studio-main { --studio-main-pad-top: var(--space-theme-lg); padding: var(--studio-main-pad-top) var(--space-theme-md) var(--space-theme-2xl); }
 }
 
 @media (prefers-reduced-motion: reduce) {

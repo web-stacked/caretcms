@@ -153,7 +153,10 @@ import { rebaseEdits } from './studio/merge.js';
       if (typeof configured === "string" && configured.trim()) return configured;
     }
     var inferred = getTitle(data);
-    return inferred === "Untitled" && CFG.fallbackTitle ? CFG.fallbackTitle : inferred;
+    if (inferred !== "Untitled") return inferred;
+    if (CFG.fallbackTitle) return CFG.fallbackTitle;
+    // Entries without a title field (fixed pages, settings) read better by id.
+    return !IS_NEW && ID ? humanizeKey(ID.replace(/-/g, "_")) : inferred;
   }
 
   function updateDisplayedTitle() {

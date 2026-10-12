@@ -92,10 +92,10 @@ export async function GET(context: APIContext): Promise<Response> {
       justify-content: space-between;
       gap: 0.75rem;
       position: sticky;
-      top: 0;
+      top: calc(var(--studio-main-pad-top, 0px) * -1);
       z-index: 8;
-      padding: 0.25rem 0 1rem;
-      margin: 0 0 1.25rem;
+      padding: calc(var(--studio-main-pad-top, 0px) + 0.25rem) 0 1rem;
+      margin: calc(var(--studio-main-pad-top, 0px) * -1) 0 1.25rem;
       border-bottom: 1px solid var(--studio-border);
       background: var(--studio-bg);
       background: color-mix(in srgb, var(--studio-bg) 92%, transparent);
@@ -215,7 +215,7 @@ export async function GET(context: APIContext): Promise<Response> {
     @media (max-width: 640px) {
       .editor-action-bar {
         flex-wrap: wrap;
-        padding: 0.625rem 0;
+        padding: calc(var(--studio-main-pad-top, 0px) + 0.25rem) 0 0.625rem;
       }
       .editor-heading { flex-basis: 100%; }
       .editor-action-bar h1 {
