@@ -89,6 +89,15 @@ responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
 
 ### Changed
 
+- The Studio has a collection sidebar, a Go to search (⌘K / Ctrl K) across
+  collections and entries, light and dark themes that follow the system with a
+  manual switch, collection page headers, a grid and list view with status
+  labels, and card-based entry forms. The sign-in page and dialogs match.
+- The on-page toolbar is a floating bar. It re-centers beside the open Studio
+  drawer and uses an icon-only Sign out on phones.
+- `theme.tokens` overrides apply in both light and dark mode.
+- Editor and Studio assets revalidate on each load (ETag) instead of being
+  cached for an hour, so upgrades take effect immediately.
 - Git-on-publish requires `preparePublicationSources`. Adapters without it
   publish but skip the Git commit.
 - Publish can fail with `invalid_entry`. The draft stays.
