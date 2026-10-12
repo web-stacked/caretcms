@@ -1,4 +1,4 @@
-import { deepClone, templateFromSchema, generatedId, friendlyFileTitle, singularItemLabel, getTitle, humanizeKey, fieldIdFromPath, getNestedValue, setNestedValue } from './studio/field-model.js';
+import { deepClone, fillDefaults, templateFromSchema, generatedId, friendlyFileTitle, singularItemLabel, getTitle, humanizeKey, fieldIdFromPath, getNestedValue, setNestedValue } from './studio/field-model.js';
 import { createFieldGroup, createFieldRenderer } from './studio/fields.js';
 import { createStudioMutationClient } from './studio/mutation-client.js';
 import { createStudioHistoryClient } from './studio/history-client.js';
@@ -390,11 +390,11 @@ import { rebaseEdits } from './studio/merge.js';
           }
           entryRevision = latest.revision;
           entryBaseRevision = latest.baseRevision;
-          var rebase = rebaseEdits(JSON.parse(originalJson || "{}"), entryData || {}, latest.data);
+          var rebase = rebaseEdits(JSON.parse(originalJson || "{}"), entryData || {}, fillDefaults(deepClone(latest.data), entrySchema));
           var choice = await resolveConflict(rebase.theirChanges, rebase.overlapping);
           if (choice === "latest") {
-            entryData = deepClone(latest.data);
-            originalJson = JSON.stringify(latest.data);
+            entryData = fillDefaults(deepClone(latest.data), entrySchema);
+            originalJson = JSON.stringify(entryData);
             fieldsEl.innerHTML = "";
             renderFields(fieldsEl, entryData, entrySchema, "");
             studioSync.queuePreview(entryData);
@@ -402,8 +402,8 @@ import { rebaseEdits } from './studio/merge.js';
           } else if (choice === "keep") {
             // Apply only this form's edits on top of the newer entry, so
             // fields changed elsewhere and untouched here are not reverted.
-            entryData = rebase.merged;
-            originalJson = JSON.stringify(latest.data);
+            entryData = fillDefaults(rebase.merged, entrySchema);
+            originalJson = JSON.stringify(fillDefaults(deepClone(latest.data), entrySchema));
             fieldsEl.innerHTML = "";
             renderFields(fieldsEl, entryData, entrySchema, "");
             studioSync.queuePreview(entryData);
@@ -430,7 +430,12 @@ import { rebaseEdits } from './studio/merge.js';
 
   function deleteEntry() {
     deleteNameEl.textContent = displayTitle(entryData);
-    deleteRestoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : deleteBtn;
+    // Close the More actions menu; focus returns to its button afterwards.
+    var moreMenu = document.getElementById("entry-more");
+    var moreSummary = moreMenu ? moreMenu.querySelector("summary") : null;
+    if (moreMenu && moreMenu.hasAttribute("open")) moreMenu.removeAttribute("open");
+    deleteRestoreFocus = moreSummary instanceof HTMLElement ? moreSummary
+      : document.activeElement instanceof HTMLElement ? document.activeElement : deleteBtn;
     deleteDialog.hidden = false;
     deleteCancelBtn.focus();
   }
@@ -970,7 +975,10 @@ import { rebaseEdits } from './studio/merge.js';
         var idxLabel = document.createElement("button");
         idxLabel.type = "button";
         idxLabel.className = "caret-object-array-index caret-object-array-toggle";
-        idxLabel.textContent = itemSummary(item, idx);
+        var idxText = document.createElement("span");
+        idxText.className = "caret-object-array-title";
+        idxText.textContent = itemSummary(item, idx);
+        idxLabel.appendChild(idxText);
         idxLabel.setAttribute("aria-expanded", expandedIndex === idx ? "true" : "false");
         idxLabel.setAttribute("aria-controls", fieldIdFromPath(path + "." + idx) + "-fields");
         idxLabel.addEventListener("click", function () {
@@ -1273,8 +1281,8 @@ import { rebaseEdits } from './studio/merge.js';
         if (!result.data || typeof result.data !== "object" || Array.isArray(result.data)) {
           throw new Error("invalid restored entry data");
         }
-        entryData = deepClone(/** @type {Record<string, unknown>} */ (result.data));
-        originalJson = JSON.stringify(result.data);
+        entryData = fillDefaults(deepClone(/** @type {Record<string, unknown>} */ (result.data)), entrySchema);
+        originalJson = JSON.stringify(entryData);
         if (typeof result.revision === "number") entryRevision = result.revision;
         fieldsEl.innerHTML = "";
         renderFields(fieldsEl, entryData, entrySchema, "");
@@ -1375,10 +1383,10 @@ import { rebaseEdits } from './studio/merge.js';
           return;
         }
         var initialData = result.data;
-        entryData = deepClone(initialData);
+        entryData = fillDefaults(deepClone(initialData), entrySchema);
         entryRevision = result.revision;
         entryBaseRevision = result.baseRevision;
-        originalJson = JSON.stringify(initialData);
+        originalJson = JSON.stringify(entryData);
         updateDisplayedTitle();
         renderFields(fieldsEl, entryData, entrySchema, "");
         if (validationWarningEl && result.validationIssues.length > 0) {
