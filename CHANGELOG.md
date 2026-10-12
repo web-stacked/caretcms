@@ -55,9 +55,11 @@ responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
 
 - Merged draft views include `baseRevision`. Send it as `expectedBaseRevision`;
   a stale value returns 409 with `currentBaseRevision`.
-- Optional `StorageAdapter` methods: `getEntrySnapshot`, `getEntrySnapshots`,
-  `committableEntryPaths`, `preparePublicationSources`, and
-  `makeRecoveryOverlay`. The file adapters implement all of them.
+- Optional `StorageAdapter` members: `guarantees`, `getEntrySnapshot`,
+  `getEntrySnapshots`, `committableEntryPaths`, `preparePublicationSources`,
+  `makeRecoveryOverlay`, and Git receipt methods on editor overlays. The file
+  adapters implement all except `getEntrySnapshot`, which core replaces with
+  in-process locks.
 - `@caretcms/core/testing/storage` exports a conformance suite for storage
   adapters. See [storage adapters](docs/storage-adapters.md).
 - `CARET_GIT_JOURNAL_RETRY=true` lets an interrupted Git commit finish later
