@@ -1,13 +1,19 @@
 import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, contentWithoutState, readDraftState } from "../draft-state.js";
+import { readAdapterSnapshot, readAdapterSnapshots } from "./read-snapshot.js";
 import type {
   CollectionMetadata,
   EntryCommit,
   EntryCommitResult,
   EntryData,
+  EntrySnapshot,
+  DraftBaseline,
+  DraftGuard,
+  DraftCoordinator,
   HistoryEntry,
   DeploymentTarget,
   RebuildReceipt,
   StorageAdapter,
+  StorageGuarantees,
 } from "../../types.js";
 
 /** Sentinel marking a deleted-in-overlay entry. Exported so the publish flow can
@@ -30,11 +36,20 @@ function isTombstone(entry: EntryData | null): boolean {
  * instead of falling through to the seeded value on the next read.
  */
 export class SessionOverlayAdapter implements StorageAdapter {
+  private readonly coordinator: DraftCoordinator | undefined;
+  /** Separate stores remain weaker unless the adapter supplies a bound coordinator. */
+  get guarantees(): Readonly<StorageGuarantees> | undefined {
+    const base = this.base.guarantees, overlay = this.overlay.guarantees;
+    if (!base || !overlay) return undefined;
+    return Object.freeze({ persistence: overlay.persistence, collectionDeletion: overlay.collectionDeletion,
+      snapshots: this.coordinator ? "transactional" : base.snapshots === "eventual" || overlay.snapshots === "eventual" ? "eventual" : "process",
+      commits: this.coordinator ? "transactional" : base.commits === "single-writer" || overlay.commits === "single-writer" ? "single-writer" : "process" });
+  }
   constructor(
     private readonly base: StorageAdapter,
     private readonly overlay: StorageAdapter,
     private readonly trackDrafts = true,
-  ) {}
+  ) { this.coordinator = trackDrafts ? overlay.coordinateDrafts?.(base) : undefined; }
 
   getRebuildReceipt(): Promise<RebuildReceipt | null> {
     return this.overlay.getRebuildReceipt?.() ?? Promise.resolve(null);
@@ -66,6 +81,7 @@ export class SessionOverlayAdapter implements StorageAdapter {
   }
 
   async getEntry(collection: string, id: string): Promise<EntryData | null> {
+    if (this.coordinator) return (await this.getEntrySnapshot(collection, id)).entry;
     const overlaid = await this.overlay.getEntry(collection, id);
     if (isTombstone(overlaid)) return null;
     if (!overlaid) return this.base.getEntry(collection, id);
@@ -75,6 +91,48 @@ export class SessionOverlayAdapter implements StorageAdapter {
     const state = readDraftState(overlaid.data);
     const content = contentWithoutState(overlaid.data);
     return { ...overlaid, data: state?.structured || !base ? content : { ...base.data, ...content } };
+  }
+
+  async getEntrySnapshot(collection: string, id: string): Promise<EntrySnapshot> {
+    if (this.coordinator) return (await this.getEntrySnapshots(collection, [id]))[0];
+    const snapshot = await readAdapterSnapshot(this.overlay, collection, id);
+    const overlaid = snapshot.entry;
+    if (isTombstone(overlaid)) return { entry: null, revision: snapshot.revision };
+    const state = overlaid ? readDraftState(overlaid.data) : null;
+    if (overlaid && state?.structured) return {
+      entry: { ...overlaid, data: contentWithoutState(overlaid.data) }, revision: snapshot.revision,
+    };
+    const base = await readAdapterSnapshot(this.base, collection, id);
+    return { entry: overlaid ? { ...overlaid, data: { ...(base.entry?.data ?? {}), ...contentWithoutState(overlaid.data) } } : base.entry,
+      revision: snapshot.revision, ...(this.trackDrafts ? { baseRevision: base.revision } : {}) };
+  }
+
+  async getEntrySnapshots(collection: string, ids: readonly string[]): Promise<EntrySnapshot[]> {
+    if (this.coordinator) {
+      const paired = await this.coordinator.getEntrySnapshots(collection, ids);
+      return paired.map(({ overlay: own, base }) => {
+        if (isTombstone(own.entry)) return { entry: null, revision: own.revision };
+        if (own.entry && readDraftState(own.entry.data)?.structured) return {
+          entry: { ...own.entry, data: contentWithoutState(own.entry.data) }, revision: own.revision,
+        };
+        return { entry: own.entry ? { ...own.entry, data: { ...(base.entry?.data ?? {}), ...contentWithoutState(own.entry.data) } } : base.entry,
+          revision: own.revision, baseRevision: base.revision };
+      });
+    }
+    const own = await readAdapterSnapshots(this.overlay, collection, ids);
+    const needsBase = own.map((snapshot, index) => ({ snapshot, index }))
+      .filter(({ snapshot }) => !isTombstone(snapshot.entry) && !(snapshot.entry && readDraftState(snapshot.entry.data)?.structured));
+    const base = await readAdapterSnapshots(this.base, collection, needsBase.map(({ index }) => ids[index]));
+    const bases = new Map(needsBase.map(({ index }, position) => [index, base[position]]));
+    return own.map((snapshot, index) => {
+      if (isTombstone(snapshot.entry)) return { entry: null, revision: snapshot.revision };
+      if (snapshot.entry && readDraftState(snapshot.entry.data)?.structured) return {
+        entry: { ...snapshot.entry, data: contentWithoutState(snapshot.entry.data) }, revision: snapshot.revision,
+      };
+      const published = bases.get(index)!;
+      return { entry: snapshot.entry ? { ...snapshot.entry, data: { ...(published.entry?.data ?? {}), ...contentWithoutState(snapshot.entry.data) } } : published.entry,
+        revision: snapshot.revision, ...(this.trackDrafts ? { baseRevision: published.revision } : {}) };
+    });
   }
 
   /** The overlay's OWN entry (draft deltas only), with no base fallback or
@@ -138,9 +196,10 @@ export class SessionOverlayAdapter implements StorageAdapter {
     if (existing?.data[PUBLISH_RECOVERY_KEY]) throw new Error("Finish pending publication before editing this draft");
     let state = existing ? readDraftState(existing.data) : null;
     // Legacy drafts retain their unknown baseline and are rejected at publish.
-    if (this.trackDrafts && !existing) {
-      state = { version: 1, baseRevision: await this.base.getRevision(collection, id),
-        baseData: (await this.base.getEntry(collection, id))?.data ?? null, structured };
+    if (this.trackDrafts && (!existing || (state && !state.structured && structured))) {
+      const base = await readAdapterSnapshot(this.base, collection, id);
+      state = { version: 1, baseRevision: base.revision,
+        baseData: base.entry?.data ?? null, structured };
     }
     if (state) state = { ...state, structured: state.structured || structured };
     await this.overlay.writeEntry(collection, id, { ...contentWithoutState(data),
@@ -176,20 +235,35 @@ export class SessionOverlayAdapter implements StorageAdapter {
 
   async commitEntries(changes: readonly EntryCommit[]): Promise<EntryCommitResult> {
     const prepared: EntryCommit[] = [];
+    const baselines: DraftBaseline[] = [];
+    const guards: DraftGuard[] = [];
     for (const change of changes) {
-      const existing = await this.overlay.getEntry(change.collection, change.id);
+      const paired = this.coordinator ? (await this.coordinator.getEntrySnapshots(change.collection, [change.id]))[0] : undefined;
+      const existing = paired ? paired.overlay.entry : await this.overlay.getEntry(change.collection, change.id);
+      guards.push({ collection: change.collection, id: change.id, data: existing?.data ?? null });
       if (existing?.data[PUBLISH_RECOVERY_KEY]) {
         throw new Error("Finish pending publication before editing this draft");
       }
       let state = existing ? readDraftState(existing.data) : null;
       const structured = change.writeMode !== "body";
-      if (this.trackDrafts && !existing) {
+      // A body-only view continues to merge current base fields. Its first
+      // structured write therefore needs the baseline observed by that client,
+      // not the older baseline captured when the body draft was created.
+      if (this.trackDrafts && (!existing || (state && !state.structured && structured))) {
+        const base = paired?.base ?? await readAdapterSnapshot(this.base, change.collection, change.id);
+        if (structured && ((change.requireBaseRevision && change.expectedBaseRevision === undefined) ||
+            (change.expectedBaseRevision !== undefined && change.expectedBaseRevision !== base.revision))) {
+          return { ok: false, conflict: { collection: change.collection, id: change.id,
+            currentRevision: await this.overlay.getRevision(change.collection, change.id),
+            currentBaseRevision: base.revision, exists: Boolean(existing) } };
+        }
         state = {
           version: 1,
-          baseRevision: await this.base.getRevision(change.collection, change.id),
-          baseData: (await this.base.getEntry(change.collection, change.id))?.data ?? null,
+          baseRevision: base.revision,
+          baseData: base.entry?.data ?? null,
           structured,
         };
+        baselines.push({ collection: change.collection, id: change.id, revision: base.revision });
       }
       if (state) state = { ...state, structured: state.structured || structured };
       const content = change.data === null ? { [TOMBSTONE_KEY]: true } : change.data;
@@ -203,6 +277,7 @@ export class SessionOverlayAdapter implements StorageAdapter {
       });
     }
 
+    if (this.coordinator) return this.coordinator.commitEntries(prepared, baselines, guards);
     if (this.overlay.commitEntries) return this.overlay.commitEntries(prepared);
 
     for (const change of prepared) {

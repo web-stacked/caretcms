@@ -64,6 +64,8 @@ export function mountSectionControls({
   /** @type {Record<string, unknown>} */
   let entryData = {};
   let revision = 0;
+  /** @type {number | undefined} */
+  let baseRevision;
   let busy = false;
   /** @type {string | null} */
   let dragSourceId = null;
@@ -512,6 +514,7 @@ export function mountSectionControls({
 
     entryData = loaded.data;
     revision = loaded.revision;
+    baseRevision = loaded.baseRevision;
 
     const latestSections = normalizeSectionsFromData(entryData, sectionsFromDom(sectionNodes));
     if (!applySectionsToCanvas(latestSections)) {
@@ -594,6 +597,7 @@ export function mountSectionControls({
         id: pageContext.id,
         sections,
         expectedRevision: revision,
+        expectedBaseRevision: baseRevision,
         onUnauthorized,
       });
 
@@ -668,6 +672,7 @@ export function mountSectionControls({
 
       entryData = loaded.data;
       revision = loaded.revision;
+    baseRevision = loaded.baseRevision;
       sections = normalizeSectionsFromData(entryData, sections);
       mountControls();
       syncEntryDataSections();

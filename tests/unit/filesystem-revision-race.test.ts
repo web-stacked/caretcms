@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FilesystemAdapter } from '../../packages/core/src/runtime/storage/filesystem-adapter';
+import { SidecarMetaStore } from '../../packages/core/src/runtime/storage/sidecar-meta-store';
 
 describe('FilesystemAdapter revision race', () => {
   let workdir: string;
@@ -44,5 +45,15 @@ describe('FilesystemAdapter revision race', () => {
 
     expect(await adapter.getRevision('pages', 'home')).toBe(20);
     expect(await adapter.getRevision('pages', 'about')).toBe(20);
+  });
+
+  it('serializes collection-wide invalidation with individual revision bumps', async () => {
+    const meta = new SidecarMetaStore({ metaRoot: join(workdir, 'meta') });
+    await Promise.all(Array.from({ length: 10 }, () => [
+      meta.bumpRevisions('pages', ['home', 'about', 'home']),
+      adapter.bumpRevision('pages', 'home'),
+    ]).flat());
+    expect(await adapter.getRevision('pages', 'home')).toBe(20);
+    expect(await adapter.getRevision('pages', 'about')).toBe(10);
   });
 });

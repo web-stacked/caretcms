@@ -128,6 +128,9 @@ async function saveMdBlock(binding, src, html, group) {
         ...group,
       }),
     });
+    // Finish the response before signaling a saved draft. Private/no-store
+    // responses must not leave an unread fetch stream alive after this scope.
+    await res.arrayBuffer();
     if (res.status === 401) return { ok: false, reason: 'unauthorized' };
     if (res.status === 409) return { ok: false, reason: 'stale' };
     if (!res.ok) return { ok: false, reason: 'error' };

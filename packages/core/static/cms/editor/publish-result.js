@@ -80,6 +80,14 @@ export function presentPublishResult(input) {
     };
   }
 
+  if (data.journalRetryAvailable === true) {
+    return {
+      completed: true, reload: true, retryAvailable,
+      status: { state: 'error', text: 'Published, Git history pending' },
+      toast: { kind: 'error', message: 'Changes are published, but Git history is pending. Use Retry Git history after checking the repository.' },
+    };
+  }
+
   const rebuildTriggered = rebuild.triggered === true;
   return {
     completed: true,

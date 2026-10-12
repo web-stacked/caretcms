@@ -8,11 +8,13 @@ import { getRegisteredSchema } from "../schema-registry.js";
 import { validateJsonSchema, type JsonSchemaValidationIssue } from "../../schema-utils.js";
 import { contentReadFailure } from "../content-errors.js";
 import { json, resolveAdapter } from "./_helpers.js";
+import { readEntrySnapshot, readEntrySnapshots } from "../storage/read-snapshot.js";
 
 type CmsEntryResponse = {
   id: string;
   data: Record<string, unknown>;
   revision: number;
+  baseRevision?: number;
   validationIssues?: JsonSchemaValidationIssue[];
   readError?: { code: string; error: string };
 };
@@ -21,6 +23,7 @@ function withValidation(
   collection: string,
   entry: { id: string; data: Record<string, unknown> },
   revision: number,
+  baseRevision?: number,
 ): CmsEntryResponse {
   const data = stripBodyOverlay(entry.data);
   const schema = getRegisteredSchema(collection)?.schema;
@@ -29,6 +32,7 @@ function withValidation(
     id: entry.id,
     data,
     revision,
+    ...(baseRevision !== undefined ? { baseRevision } : {}),
     ...(validationIssues.length > 0 ? { validationIssues } : {}),
   };
 }
@@ -105,14 +109,15 @@ export async function GET(context: APIContext): Promise<Response> {
     const { collection, id: singleId, page, pageSize, q } = query;
 
     if (singleId) {
-      const entry = await adapter.getEntry(collection, singleId);
-      const revision = entry ? await adapter.getRevision(collection, singleId) : 0;
+      const { entry, revision, baseRevision } = await readEntrySnapshot(adapter, collection, singleId);
       const entries: CmsEntryResponse[] = entry
-        ? [withValidation(collection, entry, revision)]
+        ? [withValidation(collection, entry, revision, baseRevision)]
         : [];
 
       return json({
         entries,
+        revision,
+        ...(baseRevision !== undefined ? { baseRevision } : {}),
         pagination: {
           page: 1,
           pageSize: 1,
@@ -130,20 +135,36 @@ export async function GET(context: APIContext): Promise<Response> {
       if (cache.has(id)) return cache.get(id)!;
       let result: CmsEntryResponse | null;
       try {
-        const entry = await adapter.getEntry(collection, id);
-        result = entry ? withValidation(collection, entry, await adapter.getRevision(collection, id)) : null;
+        const { entry, revision, baseRevision } = await readEntrySnapshot(adapter, collection, id);
+        result = entry ? withValidation(collection, entry, revision, baseRevision) : null;
       } catch (error) {
         result = { id, data: {}, revision: 0, readError: contentReadFailure(error) };
       }
       cache.set(id, result);
       return result;
     }
+    async function readBatch(ids: string[]): Promise<Array<CmsEntryResponse | null>> {
+      if (adapter.getEntrySnapshots && ids.some(id => !cache.has(id))) {
+        const missing = ids.filter(id => !cache.has(id));
+        try {
+          const snapshots = await readEntrySnapshots(adapter, collection, missing);
+          snapshots.forEach(({ entry, revision, baseRevision }, index) => {
+            cache.set(missing[index], entry ? withValidation(collection, entry, revision, baseRevision) : null);
+          });
+        } catch {
+          // Isolate a corrupt entry or unsupported batch implementation using
+          // existing per-entry errors instead of failing the whole collection.
+          return Promise.all(ids.map(readEntry));
+        }
+      }
+      return Promise.all(ids.map(readEntry));
+    }
     const titleKeys = ["name", "title", "question", "company_name", "headline", "label"];
     const filteredIds: string[] = [];
     // Bounded batches avoid unbounded simultaneous reads on remote adapters.
     if (q) {
       for (let offset = 0; offset < allIds.length; offset += 20) {
-        const batch = await Promise.all(allIds.slice(offset, offset + 20).map(readEntry));
+        const batch = await readBatch(allIds.slice(offset, offset + 20));
         for (const entry of batch) {
           if (!entry) continue;
           const title = titleKeys.map(key => entry.data[key]).find(value => typeof value === "string" && value);
@@ -156,7 +177,7 @@ export async function GET(context: APIContext): Promise<Response> {
     const effectivePage = totalPages === 0 ? 1 : Math.min(page, totalPages);
     const start = (effectivePage - 1) * pageSize;
     const pageIds = filteredIds.slice(start, start + pageSize);
-    const entries = (await Promise.all(pageIds.map(readEntry))).filter((entry): entry is CmsEntryResponse => entry !== null);
+    const entries = (await readBatch(pageIds)).filter((entry): entry is CmsEntryResponse => entry !== null);
 
     return json({
       entries,

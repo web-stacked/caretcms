@@ -392,6 +392,11 @@ export default defineConfig({
 
 ## API
 
+Storage adapters can declare `guarantees` using the exported `StorageGuarantees`
+type. Custom adapter authors can run the framework-independent
+`runStorageConformance` from `@caretcms/core/testing/storage` against fresh private
+fixtures. See [adapter guarantees and conformance](../../docs/storage-adapters.md).
+
 All routes are under `/api/cms` by default (configurable via `apiBasePath`):
 
 | Route | Method | Purpose |
@@ -530,6 +535,13 @@ changed away from static.
 Full guide: [docs/static-delivery.md](../../docs/static-delivery.md).
 Draft migration, conflicts, interrupted publication, and deployment retries:
 [publish recovery](../../docs/publish-recovery.md).
+
+File-backed Git history is opt-in with `CARET_GIT_ON_PUBLISH=true`. Add
+`CARET_GIT_JOURNAL_RETRY=true` to retain private retry records before draft
+cleanup and expose **Retry Git history** when needed. This mode uses per-entry
+commits; retries leave published content and deployment hooks unchanged.
+See [durable Git retry](../../docs/publish-recovery.md#durable-git-history-retry-opt-in)
+for checkout requirements, permissions, and recovery limits.
 
 The webhook's 2xx response means accepted, not deployed. Configure a
 `DeploymentStatusProvider` to show provider-backed Deploying, Live, and failed

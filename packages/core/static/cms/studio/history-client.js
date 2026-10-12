@@ -8,7 +8,7 @@
 /**
  * @typedef {{ kind: 'restored', data: unknown, revision?: number }
  * | { kind: 'unauthorized' }
- * | { kind: 'error' }} RestoreResult
+ * | { kind: 'error', message?: string }} RestoreResult
  */
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
@@ -61,8 +61,10 @@ export function createStudioHistoryClient({ apiBasePath, fetchImpl = fetch }) {
       body: JSON.stringify(input),
     });
     if (response.status === 401) return { kind: 'unauthorized' };
-    if (!response.ok) return { kind: 'error' };
     const body = await response.json().catch(() => null);
+    if (!response.ok) return isRecord(body) && typeof body.error === 'string'
+      ? { kind: 'error', message: body.error }
+      : { kind: 'error' };
     if (!isRecord(body) || !Object.prototype.hasOwnProperty.call(body, 'data')) {
       return { kind: 'error' };
     }

@@ -1,3 +1,4 @@
+import { durableGitJournalEnabled, hasGitJournalQueue, canRetryPublicationJournals } from "../publication-journal.js";
 import { getRequestContext } from "../request-context.js";
 import { canPublishOverlay } from "../publish.js";
 export const prerender = false;
@@ -22,7 +23,10 @@ export async function GET(context: APIContext): Promise<Response> {
 
   const overlay = await base.makeEditorOverlay(editorId);
   const count = await countOverlayDrafts(overlay);
-  return json({ ...(getRequestContext()?.authorize ? { canPublish: await canPublishOverlay(overlay) } : {}), hasDrafts: count > 0, count, retryRebuild: Boolean(await overlay.getRebuildReceipt?.()) });
+  const journalPending = durableGitJournalEnabled() && hasGitJournalQueue(overlay)
+    ? (await overlay.listGitJournalReceipts!()).length : 0;
+  const retryJournal = journalPending > 0 && await canRetryPublicationJournals(overlay);
+  return json({ ...(journalPending > 0 ? { retryJournal, journalPending } : {}), ...(getRequestContext()?.authorize ? { canPublish: await canPublishOverlay(overlay) } : {}), hasDrafts: count > 0, count, retryRebuild: Boolean(await overlay.getRebuildReceipt?.()) });
 }
 
 /**

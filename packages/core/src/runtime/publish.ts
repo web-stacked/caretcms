@@ -1,3 +1,5 @@
+import { validateEntryTransition, EntryValidationError } from "./entry-validation.js";
+import { readAdapterSnapshot } from "./storage/read-snapshot.js";
 import { canPerform, PermissionDenied } from "./authorization.js";
 /**
  * Draft publish / discard — flush a per-editor draft overlay into the base store
@@ -6,12 +8,12 @@ import { canPerform, PermissionDenied } from "./authorization.js";
  * per-entry lock the mutation engine uses, so a publish serializes against any
  * concurrent save on that entry instead of tearing the data/revision pair.
  */
-import type { StorageAdapter } from "../types.js";
+import type { StorageAdapter, PublicationSourceSnapshot, GitJournalTarget } from "../types.js";
 import { BODY_OVERLAY_KEY, parseMdSrc, formatMdSrc, type MdSrc } from "../markdown/contracts.js";
 import { withEntryLock } from "./mutations/engine.js";
 import { TOMBSTONE_KEY } from "./storage/session-overlay-adapter.js";
 import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, readDraftState, sameContent } from "./draft-state.js";
-import { prepareSource, recoveryState, resumePublish, RecoveryConflict, type PublishRecovery } from "./publish-recovery.js";
+import { prepareSource, recoveryState, validPublicationSources, resumePublish, RecoveryConflict, type PublishRecovery } from "./publish-recovery.js";
 import { getRequestContext } from "./request-context.js";
 import { commitEntryChanges } from "./storage/entry-commit.js";
 
@@ -20,6 +22,11 @@ export interface PublishScope {
   collection?: string;
   /** Limit to one entry; only honored together with `collection`. */
   id?: string;
+}
+
+export interface PublishOptions {
+  /** Explicit opt-in; captured in the recovery plan before applying content. */
+  journal?: { target: GitJournalTarget; authorName: string; authorEmail: string };
 }
 
 export interface PublishedEntry {
@@ -35,11 +42,14 @@ export interface PublishConflict {
   id: string;
   /** Body hashes, structured baselines, or legacy drafts failed validation.
    * The entry was not published and its draft is preserved. */
-  reason: "stale_body" | "invalid_body" | "stale_entry" | "legacy_draft";
+  reason: "stale_body" | "invalid_body" | "stale_entry" | "legacy_draft" | "invalid_entry";
 }
 
 export interface PublishOutcome {
   published: PublishedEntry[];
+  /** Internal journal input; never expose source bytes or filesystem paths in API responses. */
+  journalSources: PublicationSourceSnapshot[] | null;
+  journalVersions: Array<{ collection: string; id: string; revision: number }>;
   conflicts: PublishConflict[];
   failed: Array<{ collection: string; id: string; reason: "storage_error" | "recovery_conflict" }>;
 }
@@ -124,10 +134,13 @@ export async function publishOverlay(
   base: StorageAdapter,
   overlay: StorageAdapter,
   scope: PublishScope = {},
+  options: PublishOptions = {},
 ): Promise<PublishOutcome> {
   if (!(await canPublishOverlay(overlay, scope))) throw new PermissionDenied();
   const targets = await overlayEntriesInScope(overlay, scope);
   const published: PublishedEntry[] = [];
+  let journalSources: PublicationSourceSnapshot[] | null = [];
+  const journalVersions: PublishOutcome["journalVersions"] = [];
   const conflicts: PublishConflict[] = [];
   const failed: PublishOutcome["failed"] = [];
   for (const { collection, id } of targets) {
@@ -152,23 +165,41 @@ export async function publishOverlay(
             conflicts.push({ collection, id, reason: "legacy_draft" });
             return;
           }
-          const before = (await base.getEntry(collection, id))?.data ?? null;
-          const beforeRevision = await base.getRevision(collection, id);
+          const baseSnapshot = await readAdapterSnapshot(base, collection, id);
+          const before = baseSnapshot.entry?.data ?? null;
+          const beforeRevision = baseSnapshot.revision;
           if (structured && state && (state.baseRevision !== beforeRevision || !sameContent(state.baseData, before))) {
             conflicts.push({ collection, id, reason: "stale_entry" });
             return;
           }
           const after = deleted ? null : structured ? fields : { ...(before ?? {}), ...fields };
+          if ((await validateEntryTransition(base, collection, after)).length) {
+            conflicts.push({ collection, id, reason: "invalid_entry" });
+            return;
+          }
           const source = base.readBodySource ? await base.readBodySource(collection, id) : null;
           if (blocks?.length && (!source || !base.writeBodySource)) {
             conflicts.push({ collection, id, reason: "invalid_body" });
             return;
           }
-          const afterSource = source !== null && after !== null && base.writeBodySource
-            ? prepareSource(source, before, after, blocks ?? []) : undefined;
+          const afterSource = after !== null && base.readBodySource && base.writeBodySource
+            ? prepareSource(source ?? "", before, after, blocks ?? []) : undefined;
           if (afterSource === null) {
             conflicts.push({ collection, id, reason: "stale_body" });
             return;
+          }
+          let preparedJournal: PublicationSourceSnapshot[] | undefined;
+          if (base.preparePublicationSources) {
+            try {
+              const sources = await base.preparePublicationSources(collection, id, after, afterSource);
+              if (!validPublicationSources(sources)) throw new Error("Invalid adapter publication snapshots");
+              preparedJournal = sources.map(source => ({ ...source }));
+            }
+            catch (error) { console.warn("[caretcms] Publication journal snapshot unavailable:", error); }
+          }
+          if (options.journal && (!preparedJournal?.length || !overlay.saveGitJournalReceipt ||
+              !overlay.listGitJournalReceipts || !overlay.deleteGitJournalReceipt)) {
+            throw new Error("Durable Git journal input is unavailable");
           }
           const context = getRequestContext();
           const editor = context?.identity ?? (context?.editorId ? { id: context.editorId } : null);
@@ -176,9 +207,15 @@ export async function publishOverlay(
             version: 1, beforeRevision, beforeData: before, afterData: after,
             ...(source !== null ? { beforeSource: source } : {}),
             ...(afterSource !== undefined ? { afterSource } : {}),
+            ...(preparedJournal !== undefined ? { journalSources: preparedJournal } : {}),
             history: { operationId: crypto.randomUUID(), ts: Date.now(), action: "publish", data: before,
               ...(source !== null ? { bodySource: source } : {}), ...(editor ? { editor } : {}) },
           };
+          if (options.journal && preparedJournal?.length && overlay.saveGitJournalReceipt &&
+              overlay.listGitJournalReceipts && overlay.deleteGitJournalReceipt) {
+            plan.journalReceipt = { version: 1, operationId: plan.history.operationId, collection, id,
+              revision: beforeRevision + 1, deleted, sources: preparedJournal, ...structuredClone(options.journal) };
+          }
           const persisted = await commitEntryChanges(overlay, [{
             collection,
             id,
@@ -193,13 +230,22 @@ export async function publishOverlay(
         }
         const revision = await resumePublish(base, overlay, collection, id, plan);
         published.push({ collection, id, revision, deleted: plan.afterData === null });
+        if (!options.journal || !plan.journalReceipt) {
+          journalVersions.push({ collection, id, revision: plan.beforeRevision + 1 });
+          if (plan.journalSources === undefined) journalSources = null;
+          else journalSources?.push(...plan.journalSources);
+        }
       });
     } catch (error) {
+      if (error instanceof EntryValidationError) {
+        conflicts.push({ collection, id, reason: "invalid_entry" });
+        continue;
+      }
       console.error("[caretcms] Publish requires recovery:", error);
       failed.push({ collection, id, reason: error instanceof RecoveryConflict ? "recovery_conflict" : "storage_error" });
     }
   }
-  return { published, conflicts, failed };
+  return { published, conflicts, failed, journalSources, journalVersions };
 }
 
 /** Count draft entries currently held in an editor overlay. */

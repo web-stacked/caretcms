@@ -1,7 +1,7 @@
 import { ContentReadError } from "../content-errors.js";
 import { mkdir, readFile, readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import type { CollectionMetadata, EntryData, HistoryEntry, StorageAdapter } from "../../types.js";
+import type { CollectionMetadata, EntryData, EntrySnapshot, HistoryEntry, StorageAdapter, PublicationSourceSnapshot } from "../../types.js";
 import { atomicWrite } from "./atomic-write.js";
 import { assertFilesystemRuntime } from "./fs-runtime.js";
 import { SidecarMetaStore, listCollectionDirs } from "./sidecar-meta-store.js";
@@ -20,7 +20,8 @@ const EXTENSIONS = [".md", ".mdx"] as const;
  * Maps `<contentRoot>/<collection>/<id>.{md,mdx}` to entries: YAML frontmatter
  * becomes the entry `data`, and edits are written back IN-PLACE — the markdown
  * body (everything after the closing `---`, including MDX JSX/imports) is
- * spliced through byte-for-byte. The body is NOT editable in v1.
+ * spliced through byte-for-byte. Body block drafts publish through prepared,
+ * hash-checked source replacements, with sidecar recovery metadata.
  *
  * Revisions, history, and collection metadata live in the `.caretcms/` sidecar
  * (shared `SidecarMetaStore`), so the source `.md` files stay free of CMS state.
@@ -36,6 +37,16 @@ const EXTENSIONS = [".md", ".mdx"] as const;
  *    pristine until an explicit Publish flushes a draft back in.
  */
 export class MarkdownAdapter implements StorageAdapter {
+  readonly guarantees = Object.freeze({ persistence: "durable", snapshots: "process",
+    commits: "process", collectionDeletion: "metadata" } as const);
+
+  async getEntrySnapshots(collection: string, ids: readonly string[]): Promise<EntrySnapshot[]> {
+    if (!ids.length) return [];
+    const [entries, revisions] = await Promise.all([
+      Promise.all(ids.map(id => this.getEntry(collection, id))), this.meta.getRevisions(collection, ids),
+    ]);
+    return entries.map((entry, index) => ({ entry, revision: revisions[index] }));
+  }
   private readonly contentRoot: string;
   private readonly meta: SidecarMetaStore;
   private readonly draftsRoot: string;
@@ -59,6 +70,13 @@ export class MarkdownAdapter implements StorageAdapter {
     });
   }
 
+  async makeRecoveryOverlay(editorId: string, purpose: "source-restore"): Promise<StorageAdapter> {
+    const safe = assertSafeEditorId(editorId);
+    if (purpose !== "source-restore") throw new Error("Invalid recovery purpose");
+    const root = join(this.draftsRoot, safe, "recovery", purpose);
+    return new FilesystemAdapter({ dataRoot: join(root, "data"), metaRoot: join(root, "meta") });
+  }
+
   private collectionDir(collection: string): string {
     return join(this.contentRoot, collection);
   }
@@ -66,6 +84,26 @@ export class MarkdownAdapter implements StorageAdapter {
   /** The content root — what git stages for commit-on-publish. */
   committablePath(): string {
     return this.contentRoot;
+  }
+
+  async committableEntryPaths(collection: string, id: string, deleted: boolean): Promise<string[]> {
+    if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) throw new Error("Invalid entry path");
+    if (deleted) return EXTENSIONS.map(ext => join(this.collectionDir(collection), `${id}${ext}`));
+    return [await this.resolveEntryPath(collection, id) ?? join(this.collectionDir(collection), `${id}.md`)];
+  }
+
+  async preparePublicationSources(
+    collection: string, id: string, data: Record<string, unknown> | null, preparedSource?: string,
+  ): Promise<PublicationSourceSnapshot[]> {
+    const paths = await this.committableEntryPaths(collection, id, data === null);
+    if (data === null) return paths.map(path => ({ path, content: null }));
+    if (preparedSource !== undefined) return [{ path: paths[0], content: preparedSource }];
+    // The publisher supplies the complete prepared source for existing files.
+    // Only a brand-new entry may serialize from an empty source here.
+    if (await this.resolveEntryPath(collection, id)) throw new Error("Prepared source is required for Markdown publication");
+    const result = rewriteFrontmatter("", data);
+    if (!result.ok) throw new Error("Cannot prepare publication source");
+    return [{ path: paths[0], content: result.content }];
   }
 
   /** First existing `<id>.{md,mdx}` path for an entry, honoring .md precedence. */

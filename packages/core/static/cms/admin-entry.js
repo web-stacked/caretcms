@@ -83,6 +83,8 @@ import { createStudioSync } from './studio/sync-client.js';
   var entrySchema = null;
   /** @type {number | undefined} */
   var entryRevision = undefined;
+  /** @type {number | undefined} */
+  var entryBaseRevision = undefined;
   var originalJson = "";
   var saving = false;
   var dirtyTimer = 0;
@@ -350,13 +352,14 @@ import { createStudioSync } from './studio/sync-client.js';
     saving = true;
     updateSaveButton();
     var preserveSaveStatus = false;
-    /** @type {{ collection: string, id: string, data: Record<string, unknown>, expectedRevision?: number }} */
+    /** @type {{ collection: string, id: string, data: Record<string, unknown>, expectedRevision?: number, expectedBaseRevision?: number }} */
     var payload = {
       collection: COLLECTION,
       id: ID,
       data: entryData,
     };
     if (typeof entryRevision === "number") payload.expectedRevision = entryRevision;
+    if (typeof entryBaseRevision === "number") payload.expectedBaseRevision = entryBaseRevision;
 
     mutationClient.save(payload).then(async function (result) {
       if (result.kind === "unauthorized") { loginRedirect(); return; }
@@ -379,6 +382,7 @@ import { createStudioSync } from './studio/sync-client.js';
             return;
           }
           entryRevision = latest.revision;
+          entryBaseRevision = latest.baseRevision;
           var choice = await resolveConflict(latest.data);
           if (choice === "latest") {
             entryData = deepClone(latest.data);
@@ -426,9 +430,10 @@ import { createStudioSync } from './studio/sync-client.js';
   function confirmDelete() {
     deleteConfirmBtn.disabled = true;
     deleteConfirmBtn.textContent = msg("entry.deleting", "Deleting…");
-    /** @type {{ collection: string, id: string, expectedRevision?: number }} */
+    /** @type {{ collection: string, id: string, expectedRevision?: number, expectedBaseRevision?: number }} */
     var payload = { collection: COLLECTION, id: ID };
     if (typeof entryRevision === "number") payload.expectedRevision = entryRevision;
+    if (typeof entryBaseRevision === "number") payload.expectedBaseRevision = entryBaseRevision;
     mutationClient.remove(payload).then(function (result) {
       if (result === "unauthorized") { loginRedirect(); return; }
       if (result !== "deleted") throw new Error("delete failed");
@@ -1241,7 +1246,10 @@ import { createStudioSync } from './studio/sync-client.js';
     }))) return;
     historyClient.restore({ collection: COLLECTION, id: ID, ts: ts }).then(function (result) {
       if (result.kind === "unauthorized") { loginRedirect(); return; }
-      if (result.kind === "error") throw new Error("restore failed");
+      if (result.kind === "error") {
+        showStatus("error", result.message || "Restore failed");
+        return;
+      }
       var prevData = entryData;
       var prevJson = originalJson;
       try {
@@ -1352,6 +1360,7 @@ import { createStudioSync } from './studio/sync-client.js';
         var initialData = result.data;
         entryData = deepClone(initialData);
         entryRevision = result.revision;
+        entryBaseRevision = result.baseRevision;
         originalJson = JSON.stringify(initialData);
         updateDisplayedTitle();
         renderFields(fieldsEl, entryData, entrySchema, "");

@@ -138,6 +138,29 @@ export interface RebuildReceipt {
   commit: string | null;
 }
 
+/** Repository identity captured before an opt-in durable journal publication. */
+export interface GitJournalTarget {
+  root: string;
+  gitDir: string;
+  ref: string;
+  /** Captured HEAD; detached-head retries cannot follow an unrelated checkout. */
+  head: string | null;
+}
+
+/** Private immutable retry input. Never include sources or paths in API responses. */
+export interface GitJournalReceipt {
+  version: 1;
+  operationId: string;
+  collection: string;
+  id: string;
+  revision: number;
+  deleted: boolean;
+  sources: PublicationSourceSnapshot[];
+  target: GitJournalTarget;
+  authorName: string;
+  authorEmail: string;
+}
+
 /** The exact content transition associated with one accepted deployment request. */
 export interface DeploymentTarget extends RebuildReceipt {
   /** Correlation id also sent to the rebuild webhook. */
@@ -171,12 +194,30 @@ export interface DeploymentStatusProvider {
   }): Promise<DeploymentStatusEvidence>;
 }
 
+/** Immutable UTF-8 source bytes approved by publication; null records deletion. */
+export interface PublicationSourceSnapshot {
+  path: string;
+  content: string | null;
+  mode?: "100644" | "100755";
+}
+
+/** A revision for the visible entry, plus the base revision for a merged draft view. */
+export interface EntrySnapshot {
+  entry: EntryData | null;
+  revision: number;
+  baseRevision?: number;
+}
+
 /** One validated entry transition submitted to an adapter atomically. */
 export interface EntryCommit {
   collection: string;
   id: string;
   /** Revision observed while the mutation was prepared. */
   expectedRevision: number;
+  /** Base version observed by a client editing a merged/fallback draft view. */
+  expectedBaseRevision?: number;
+  /** A whole-entry client replacement must not invent its first draft baseline. */
+  requireBaseRevision?: boolean;
   /** Whether an entry was visible while the mutation was prepared. */
   expectedExists: boolean;
   /** Replacement data, or null to delete the entry. */
@@ -198,24 +239,77 @@ export type EntryCommitResult =
         collection: string;
         id: string;
         currentRevision: number;
+        currentBaseRevision?: number;
         exists: boolean;
       };
     };
 
+/** A published version captured while a new draft baseline was prepared. */
+export interface DraftBaseline {
+  collection: string;
+  id: string;
+  revision: number;
+}
+
+/** Raw private draft and published content read in the same transaction. */
+export interface DraftSnapshot {
+  overlay: EntrySnapshot;
+  base: EntrySnapshot;
+}
+
+/** Raw private data captured during preparation, including publication recovery metadata. */
+export interface DraftGuard {
+  collection: string;
+  id: string;
+  data: Record<string, unknown> | null;
+}
+
+/** Capability bound to one base/private-store pair in a shared transaction domain. */
+export interface DraftCoordinator {
+  /** Ordered snapshots, including missing IDs and duplicates, from one transaction. */
+  getEntrySnapshots(collection: string, ids: readonly string[]): Promise<DraftSnapshot[]>;
+  /** Compare all baseline and draft preconditions, then commit the whole batch atomically. */
+  commitEntries(changes: readonly EntryCommit[], baselines: readonly DraftBaseline[], guards: readonly DraftGuard[]): Promise<EntryCommitResult>;
+}
+
+/** Descriptive guarantees, not a substitute for the corresponding methods. */
+export interface StorageGuarantees {
+  /** Expiring stores survive requests/restarts only until their configured TTL. */
+  persistence: "process" | "durable" | "expiring";
+  /** Process snapshots coordinate CMS writes only; eventual stores cannot promise coherence. */
+  snapshots: "process" | "transactional" | "eventual";
+  /** Process commits require runtime locks; single-writer stores cannot arbitrate remote writers. */
+  commits: "process" | "transactional" | "single-writer";
+  /** Source-backed stores may delete only CMS metadata while retaining project files. */
+  collectionDeletion: "content" | "metadata";
+}
+
 export interface StorageAdapter {
+  /** Optional, additive declarations. Omission means guarantees are unspecified. */
+  readonly guarantees?: Readonly<StorageGuarantees>;
   /** Optional persistent deploy retry receipt, scoped to this editor overlay. */
   getRebuildReceipt?(): Promise<RebuildReceipt | null>;
   setRebuildReceipt?(receipt: RebuildReceipt | null): Promise<void>;
   /** Latest accepted deployment request, scoped to this editor overlay. */
   getDeploymentTarget?(): Promise<DeploymentTarget | null>;
   setDeploymentTarget?(target: DeploymentTarget | null): Promise<void>;
+  /** Private durable journal queue, scoped to the raw editor overlay. */
+  listGitJournalReceipts?(): Promise<GitJournalReceipt[]>;
+  /** Idempotent insert: an existing operation's immutable input must not change. */
+  saveGitJournalReceipt?(receipt: GitJournalReceipt): Promise<void>;
+  deleteGitJournalReceipt?(operationId: string): Promise<void>;
   discoverCollections(): Promise<string[]>;
   isKnownCollection(collection: string): Promise<boolean>;
   getEntry(collection: string, id: string): Promise<EntryData | null>;
+  /** Coherent content/revision read. Distributed adapters must read in one transaction. */
+  getEntrySnapshot?(collection: string, id: string): Promise<EntrySnapshot>;
+  /** Ordered one-for-one snapshots for IDs (including missing IDs). Same consistency scope as single snapshots. */
+  getEntrySnapshots?(collection: string, ids: readonly string[]): Promise<EntrySnapshot[]>;
   listEntryIds(collection: string): Promise<string[]>;
   listEntries(collection: string): Promise<EntryData[]>;
   writeEntry(collection: string, id: string, data: Record<string, unknown>): Promise<void>;
   deleteEntry(collection: string, id: string): Promise<void>;
+  /** Content version, retained across entry/collection deletion and recreation. */
   getRevision(collection: string, id: string): Promise<number>;
   bumpRevision(collection: string, id: string): Promise<number>;
   getHistory(collection: string, id: string): Promise<HistoryEntry[]>;
@@ -229,8 +323,16 @@ export interface StorageAdapter {
    */
   commitEntries?(changes: readonly EntryCommit[]): Promise<EntryCommitResult>;
 
+  /**
+   * Optional on raw editor overlays. Return a coordinator only when this exact
+   * base/overlay pair shares transactional reads and commits. Return undefined
+   * for unsupported pairs; separate transactional stores are not sufficient.
+   */
+  coordinateDrafts?(base: StorageAdapter): DraftCoordinator | undefined;
+
   // Collection management
   createCollection(metadata: CollectionMetadata): Promise<void>;
+  /** Content deletion invalidates affected entry versions; metadata-only deletion retains source versions. */
   deleteCollection(collection: string): Promise<void>;
   getCollectionMetadata(collection: string): Promise<CollectionMetadata | null>;
   listCollectionMetadata(): Promise<CollectionMetadata[]>;
@@ -255,11 +357,21 @@ export interface StorageAdapter {
 
   /**
    * Optional: the on-disk directory holding this adapter's content, for the
-   * git-journal commit-on-publish feature. File-backed adapters return the path
-   * git should stage (e.g. the markdown content root); adapters with no
-   * filesystem presence (KV/R2, in-memory) omit it, so git-on-publish no-ops.
+   * legacy filesystem journal integration. This remains a directory, not an
+   * approved publication snapshot. Git-on-publish requires preparePublicationSources.
+   * Adapters with no filesystem presence (KV/R2, in-memory) omit it.
    */
   committablePath?(): string;
+  /** Exact source files affected by publishing one entry; deletion includes all source variants. */
+  committableEntryPaths?(collection: string, id: string, deleted: boolean): Promise<string[]>;
+
+  /** Private durable recovery store, isolated by editor and purpose from normal drafts. */
+  makeRecoveryOverlay?(editorId: string, purpose: "source-restore"): Promise<StorageAdapter>;
+
+  /** Prepare exact source bytes before publication, without reading back mutated files. */
+  preparePublicationSources?(
+    collection: string, id: string, data: Record<string, unknown> | null, preparedSource?: string,
+  ): Promise<PublicationSourceSnapshot[]>;
 
   /**
    * Optional: the raw source text an entry's markdown BODY lives in (the full
@@ -274,8 +386,8 @@ export interface StorageAdapter {
   /**
    * Optional: apply drafted body-block edits to the entry's source file,
    * all-or-nothing (see `markdown/splice.ts`). Returns the splice outcome;
-   * `stale`/`overlap` failures leave the file untouched. Publish calls this
-   * BEFORE the frontmatter write so a failed splice aborts the whole entry.
+   * `stale`/`overlap` failures leave the file untouched. The current publisher
+   * prepares the full source in its recovery plan and uses writeBodySource.
    */
   spliceBodyBlocks?(
     collection: string,

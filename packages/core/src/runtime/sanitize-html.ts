@@ -1,7 +1,7 @@
 /**
  * Server-side HTML sanitizer for rich text fields.
  *
- * Regex-based (no DOM dependency) — works in Node, Deno, edge runtimes.
+ * Token-based (no DOM dependency) — works in Node, Deno, edge runtimes.
  * Allowlist + class matcher live in ./rich-allowlist.ts, shared with the cloud
  * sanitizer; static/cms/editor/sanitize.js mirrors them by hand.
  */
@@ -14,10 +14,10 @@ import {
   type AllowedClasses,
 } from "./rich-allowlist.js";
 
-export type { AllowedClasses } from "./rich-allowlist.js";
+import { decodeHtmlEntities } from "./decode-entities.js";
+import { scanHtmlTags, type HtmlAttribute } from "./html-tokens.js";
 
-const TOKEN_RE = /<\/?([a-zA-Z][\w-]*)\b([^>]*)\/?>|[^<]+/g;
-const ATTR_RE = /([a-zA-Z][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))/g;
+export type { AllowedClasses } from "./rich-allowlist.js";
 
 export interface SanitizeOptions {
   allowedClasses?: AllowedClasses;
@@ -29,37 +29,21 @@ export function sanitizeHtml(html: string, options?: SanitizeOptions): string {
   const allowedClasses = options?.allowedClasses;
 
   let result = "";
-  TOKEN_RE.lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = TOKEN_RE.exec(html)) !== null) {
-    const [full, tagName, rawAttrs] = match;
-
-    // Text node — escape any stray < that the regex didn't capture
-    if (!tagName) {
-      result += escapeText(full);
-      continue;
-    }
-
-    const tag = tagName.toLowerCase();
-    const isClosing = full.startsWith("</");
-    const isSelfClosing = full.endsWith("/>") || tag === "br";
-
+  let cursor = 0;
+  const appendText = (text: string): void => {
+    result += escapeText(decodeHtmlEntities(text.replace(/<!--[\s\S]*?--!?>/g, "")));
+  };
+  for (const token of scanHtmlTags(html)) {
+    appendText(html.slice(cursor, token.start));
+    cursor = token.end;
+    const tag = token.name;
     if (!ALLOWED_TAGS.has(tag)) continue;
-
-    if (isClosing) {
-      result += `</${tag}>`;
-      continue;
-    }
-
-    // Build sanitized opening tag
-    let attrs = sanitizeAttributes(rawAttrs, ALLOWED_ATTRS[tag], allowedClasses?.[tag]);
-
-    // Force security attrs on external <a> links
+    if (token.closing) { result += `</${tag}>`; continue; }
+    let attrs = sanitizeAttributes(token.attributes, ALLOWED_ATTRS[tag], allowedClasses?.[tag]);
     if (tag === "a") attrs = enforceLinkSafety(attrs);
-
-    result += isSelfClosing ? `<${tag}${attrs} />` : `<${tag}${attrs}>`;
+    result += tag === "br" ? `<${tag}${attrs} />` : `<${tag}${attrs}>`;
   }
+  appendText(html.slice(cursor));
 
   return result;
 }
@@ -71,19 +55,15 @@ export function sanitizeHtml(html: string, options?: SanitizeOptions): string {
  * per-tag allowedClasses — never by ALLOWED_ATTRS). Everything else is dropped.
  */
 function sanitizeAttributes(
-  rawAttrs: string,
+  rawAttrs: Map<string, HtmlAttribute>,
   allowedAttrSet: Set<string> | undefined,
   classPatterns: readonly string[] | undefined,
 ): string {
-  if ((!allowedAttrSet && !classPatterns) || !rawAttrs) return "";
+  if ((!allowedAttrSet && !classPatterns) || rawAttrs.size === 0) return "";
 
   let attrs = "";
-  ATTR_RE.lastIndex = 0;
-  let attrMatch: RegExpExecArray | null;
-
-  while ((attrMatch = ATTR_RE.exec(rawAttrs)) !== null) {
-    const attrName = attrMatch[1].toLowerCase();
-    const attrValue = attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? "";
+  for (const [attrName, attribute] of rawAttrs) {
+    const attrValue = decodeHtmlEntities(attribute.value, true);
 
     // class is gated by the per-tag allowlist, not ALLOWED_ATTRS
     if (attrName === "class") {

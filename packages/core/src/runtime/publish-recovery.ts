@@ -1,4 +1,7 @@
-import type { HistoryEntry, StorageAdapter } from "../types.js";
+import { validGitJournalReceipt } from "./git-journal-receipt.js";
+import { validateEntryTransition, EntryValidationError } from "./entry-validation.js";
+import { readAdapterSnapshot } from "./storage/read-snapshot.js";
+import type { HistoryEntry, StorageAdapter, PublicationSourceSnapshot, GitJournalReceipt } from "../types.js";
 import { PUBLISH_RECOVERY_KEY, sameContent } from "./draft-state.js";
 import { rewriteFrontmatter } from "./storage/frontmatter-codec.js";
 import { spliceBodyBlocks } from "../markdown/splice.js";
@@ -11,6 +14,8 @@ export interface PublishRecovery {
   afterData: Record<string, unknown> | null;
   beforeSource?: string;
   afterSource?: string;
+  journalSources?: PublicationSourceSnapshot[];
+  journalReceipt?: GitJournalReceipt;
   history: HistoryEntry & { operationId: string };
 }
 
@@ -29,7 +34,21 @@ export function recoveryState(data: Record<string, unknown>): PublishRecovery | 
       (r.afterSource !== undefined && typeof r.afterSource !== "string")) {
     throw new RecoveryConflict("Invalid publish recovery record");
   }
+  if (r.journalSources !== undefined && !validPublicationSources(r.journalSources)) {
+    throw new RecoveryConflict("Invalid publication source snapshots");
+  }
+  if (r.journalReceipt !== undefined && (!validGitJournalReceipt(r.journalReceipt) ||
+      r.journalReceipt.operationId !== r.history.operationId || r.journalReceipt.revision !== r.beforeRevision + 1 ||
+      r.journalReceipt.deleted !== (r.afterData === null) || !sameContent(r.journalReceipt.sources, r.journalSources))) {
+    throw new RecoveryConflict("Invalid Git journal recovery receipt");
+  }
   return r;
+}
+
+export function validPublicationSources(value: unknown): value is PublicationSourceSnapshot[] {
+  return Array.isArray(value) && value.every(s => s && typeof s.path === "string" && s.path &&
+    !s.path.includes("\0") && (s.content === null || typeof s.content === "string") &&
+    (s.mode === undefined || s.mode === "100644" || s.mode === "100755"));
 }
 
 /** Prepare the entire Markdown file before any source write, preserving untouched YAML. */
@@ -57,9 +76,10 @@ export async function resumePublish(
   base: StorageAdapter, overlay: StorageAdapter, collection: string, id: string,
   plan: PublishRecovery,
 ): Promise<number> {
-  const revision = await base.getRevision(collection, id);
-  const current = (await base.getEntry(collection, id))?.data ?? null;
-  const source = plan.beforeSource !== undefined && base.readBodySource
+  const snapshot = await readAdapterSnapshot(base, collection, id);
+  const revision = snapshot.revision;
+  const current = snapshot.entry?.data ?? null;
+  const source = (plan.beforeSource !== undefined || plan.afterSource !== undefined) && base.readBodySource
     ? await base.readBodySource(collection, id) : undefined;
   const atBefore = sameContent(current, plan.beforeData) &&
     (plan.beforeSource === undefined || source === plan.beforeSource);
@@ -71,6 +91,10 @@ export async function resumePublish(
   }
   let committedTransition = false;
   if (!atAfter) {
+    // An already applied source/data transition must finish its bookkeeping
+    // even if the schema changed after persistence. Pending writes revalidate.
+    const issues = await validateEntryTransition(base, collection, plan.afterData);
+    if (issues.length) throw new EntryValidationError(issues);
     if (plan.afterSource === undefined) {
       const committed = await commitEntryChanges(base, [{
         collection,
@@ -97,6 +121,13 @@ export async function resumePublish(
     if (!history.some(entry => entry.operationId === plan.history.operationId)) {
       await base.appendHistory(collection, id, plan.history);
     }
+  }
+  if (plan.journalReceipt) {
+    if (plan.journalReceipt.collection !== collection || plan.journalReceipt.id !== id || !overlay.saveGitJournalReceipt) {
+      throw new RecoveryConflict("Durable Git journal queue is unavailable");
+    }
+    // Persist retry input before deleting the only remaining publication plan.
+    await overlay.saveGitJournalReceipt(plan.journalReceipt);
   }
   const overlayRevision = await overlay.getRevision(collection, id);
   const overlayEntry = await overlay.getEntry(collection, id);

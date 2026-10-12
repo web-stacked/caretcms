@@ -59,7 +59,7 @@ export async function POST(context: APIContext): Promise<Response> {
     options = { allowedClasses: services.allowedClasses };
   } else {
     const type = (parsed.value as { type?: unknown } | null)?.type;
-    adapter = getRequestContext()?.authorize && (type === "create_collection" || type === "delete_collection")
+    adapter = !getRequestContext()?.demoMode && (type === "create_collection" || type === "delete_collection")
       ? (await getRuntimeServices()).adapter : await resolveAdapter();
   }
 

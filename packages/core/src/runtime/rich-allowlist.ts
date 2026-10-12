@@ -30,7 +30,7 @@ export const RICH_ALLOWED_ATTRS: Record<string, Set<string>> = {
 // `(?!\/)` after the leading slash rejects protocol-relative URLs (`//evil.com`),
 // which would otherwise navigate off-site (phishing/open-redirect) and, since
 // enforceLinkSafety only hardens `^https?:` links, wouldn't even get rel=noopener.
-export const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/(?!\/))/i;
+export const SAFE_HREF_RE = /^(?!.*[\u0000-\u001f\u007f\\])(?:https?:|mailto:|tel:|\/(?!\/))/i;
 
 /**
  * Per-tag class allowlist. Keys are tag names, values are allowed class names.

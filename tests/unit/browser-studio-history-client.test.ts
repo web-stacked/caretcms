@@ -54,3 +54,9 @@ describe("Studio history client", () => {
     await expect(api.restore({ collection: "pages", id: "home", ts: 1 })).resolves.toEqual({ kind: "error" });
   });
 });
+
+it("retains actionable restore retry errors from the curated server response", async () => {
+  const message = "Restore could not finish. Retry the same snapshot to recover.";
+  const api = client(vi.fn<typeof fetch>().mockResolvedValue(Response.json({ error: message }, { status: 500 })));
+  expect(await api.restore({ collection: "posts", id: "one", ts: 123 })).toEqual({ kind: "error", message });
+});

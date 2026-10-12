@@ -1,0 +1,14 @@
+[
+  {
+    "operationId": "frozen-after-history",
+    "ts": 1700000000000,
+    "action": "publish",
+    "data": {
+      "title": "Original",
+      "summary": "Keep me"
+    },
+    "editor": {
+      "id": "alice"
+    }
+  }
+]
