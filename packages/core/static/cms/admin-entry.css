@@ -51,6 +51,8 @@
   border-radius: var(--radius-theme-md);
   background: var(--studio-surface);
 }
+#fields:not(:has(> .caret-field-section)) { padding-top: 0.9rem; }
+
 .caret-field-section-title {
   margin: -0.25rem -1.25rem 0;
   padding: 0.95rem 1.25rem;

@@ -96,8 +96,8 @@
     transparent,
     var(--studio-accent-soft)
   );
-  border-radius: var(--radius-theme-xs);
-  filter: blur(4px);
+  border-radius: var(--radius-theme-lg);
+  filter: blur(6px);
 }
 
 /* Card body */
@@ -105,14 +105,19 @@
   position: relative;
   background: var(--studio-surface);
   border: 1px solid var(--studio-border);
-  padding: 3rem;
+  border-radius: var(--radius-theme-lg);
+  box-shadow: var(--studio-shadow);
+  padding: 2.75rem;
+}
+
+@media (max-width: 480px) {
+  .studio-login-card-body { padding: 2rem 1.5rem; }
 }
 
 /* Corner accent strokes (8 total, 4 corners) */
+/* Retired with the rounded card; kept hidden for custom login markup. */
 .studio-corner {
-  position: absolute;
-  background: var(--studio-accent);
-  opacity: 0.4;
+  display: none;
 }
 
 .studio-corner-h { width: 32px; height: 1px; }
@@ -189,9 +194,10 @@
 
 .studio-login-input {
   width: 100%;
-  padding: 14px 18px;
-  background: var(--color-theme-surface-muted);
-  border: 1px solid var(--studio-border);
+  padding: 13px 44px 13px 14px;
+  background: var(--studio-input);
+  border: 1px solid var(--studio-border-hover);
+  border-radius: var(--radius-theme-sm);
   color: var(--studio-text);
   font-family: var(--studio-font);
   font-size: 14px;
@@ -226,6 +232,7 @@
   background: var(--studio-accent);
   color: var(--studio-on-accent);
   border: none;
+  border-radius: var(--radius-theme-sm);
   cursor: pointer;
   font-family: var(--studio-font);
   transition: box-shadow 0.5s, opacity 0.2s;
