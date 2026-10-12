@@ -31,7 +31,11 @@ export async function GET(context: APIContext): Promise<Response> {
     return json({ error: "Invalid collection or id" }, 400);
   }
 
-  const history = await adapter.getHistory(collectionRaw, id);
+  // Mark the requester's own snapshots so the Studio can say "You" when an
+  // editor has no name or email (password sessions only carry an opaque id).
+  const editorId = getEditorId(context);
+  const history = (await adapter.getHistory(collectionRaw, id)).map((item) =>
+    editorId && item.editor?.id === editorId ? { ...item, editor: { ...item.editor, current: true } } : item);
   return json({ history });
 }
 

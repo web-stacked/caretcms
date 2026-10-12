@@ -199,6 +199,11 @@
   animation: cms-dot-pulse 1s ease-in-out infinite;
 }
 
+.cms-status-dirty {
+  background-color: var(--cms-yellow);
+  box-shadow: 0 0 6px rgba(234, 179, 8, 0.4);
+}
+
 .cms-status-error {
   background-color: var(--cms-red);
   box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);

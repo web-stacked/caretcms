@@ -1,4 +1,4 @@
-/** @typedef {{ id: string, name?: string, email?: string }} HistoryEditor */
+/** @typedef {{ id: string, name?: string, email?: string, current?: boolean }} HistoryEditor */
 /** @typedef {{ ts: number, action: string, data?: Record<string, unknown>, editor?: HistoryEditor }} HistoryItem */
 /**
  * @typedef {{ kind: 'loaded', items: HistoryItem[] }
@@ -31,6 +31,7 @@ function historyItems(value) {
       normalized.editor = { id: item.editor.id };
       if (typeof item.editor.name === 'string') normalized.editor.name = item.editor.name;
       if (typeof item.editor.email === 'string') normalized.editor.email = item.editor.email;
+      if (item.editor.current === true) normalized.editor.current = true;
     }
     return [normalized];
   });

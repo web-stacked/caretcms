@@ -5,6 +5,7 @@ import { createStudioHistoryClient } from './studio/history-client.js';
 import { createStudioUploadClient, isSupportedImage } from './studio/upload-client.js';
 import { createStudioEntryLoader } from './studio/entry-loader.js';
 import { createStudioSync } from './studio/sync-client.js';
+import { rebaseEdits } from './studio/merge.js';
 
 /** @typedef {import('../../src/schema-utils.js').JsonSchemaNode} Schema */
 /** @typedef {{ path: string, message: string }} ValidationIssue */
@@ -259,17 +260,20 @@ import { createStudioSync } from './studio/sync-client.js';
     });
   }
 
-  /** @param {Record<string, unknown>} latest */
-  function resolveConflict(latest) {
+  /** @param {string} path */
+  function humanizePath(path) {
+    return path.split(".").filter(function (part) { return !/^\d+$/.test(part); }).map(humanizeKey).join(" › ");
+  }
+
+  /** @param {string[]} theirChanges @param {string[]} overlapping */
+  function resolveConflict(theirChanges, overlapping) {
     var restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : saveBtn;
-    var local = entryData || {};
-    var changed = Array.from(new Set(Object.keys(local).concat(Object.keys(latest)))).filter(function (key) {
-      return JSON.stringify(local[key]) !== JSON.stringify(latest[key]);
-    });
     conflictFieldsEl.innerHTML = "";
-    (changed.length ? changed : ["entry"]).forEach(function (key) {
+    (theirChanges.length ? theirChanges : [""]).forEach(function (path) {
       var item = document.createElement("li");
-      item.textContent = key === "entry" ? "The entry revision changed" : humanizeKey(key);
+      item.textContent = path === ""
+        ? msg("entry.conflictRevision", "The entry revision changed")
+        : humanizePath(path) + (overlapping.indexOf(path) >= 0 ? " — " + msg("entry.conflictBoth", "you edited this too") : "");
       conflictFieldsEl.appendChild(item);
     });
     conflictDialog.hidden = false;
@@ -383,7 +387,8 @@ import { createStudioSync } from './studio/sync-client.js';
           }
           entryRevision = latest.revision;
           entryBaseRevision = latest.baseRevision;
-          var choice = await resolveConflict(latest.data);
+          var rebase = rebaseEdits(JSON.parse(originalJson || "{}"), entryData || {}, latest.data);
+          var choice = await resolveConflict(rebase.theirChanges, rebase.overlapping);
           if (choice === "latest") {
             entryData = deepClone(latest.data);
             originalJson = JSON.stringify(latest.data);
@@ -392,7 +397,14 @@ import { createStudioSync } from './studio/sync-client.js';
             studioSync.queuePreview(entryData);
             showStatus("saved", msg("entry.loadedLatest", "Loaded latest changes"));
           } else if (choice === "keep") {
-            showStatus("dirty", msg("entry.keptMine", "Your edits are kept — Save again to overwrite"));
+            // Apply only this form's edits on top of the newer entry, so
+            // fields changed elsewhere and untouched here are not reverted.
+            entryData = rebase.merged;
+            originalJson = JSON.stringify(latest.data);
+            fieldsEl.innerHTML = "";
+            renderFields(fieldsEl, entryData, entrySchema, "");
+            studioSync.queuePreview(entryData);
+            showStatus("dirty", msg("entry.keptMine", "Your edits are on the latest version — Save to apply them"));
           } else {
             showStatus("dirty", msg("entry.unsaved", "Unsaved changes"));
           }
@@ -1181,7 +1193,9 @@ import { createStudioSync } from './studio/sync-client.js';
         if (item.editor && typeof item.editor.id === "string") {
           var editorSpan = document.createElement("span");
           editorSpan.style.cssText = "font-size:0.7rem;color:var(--studio-text-dim);";
-          editorSpan.textContent = item.editor.name || item.editor.email || item.editor.id;
+          editorSpan.textContent = item.editor.name || item.editor.email
+            || (item.editor.current ? msg("history.you", "You") : msg("history.anotherEditor", "Another editor"));
+          editorSpan.title = item.editor.id;
           info.appendChild(editorSpan);
         }
         summary.appendChild(info);
@@ -1329,7 +1343,7 @@ import { createStudioSync } from './studio/sync-client.js';
       else closeHistoryPanel();
       return;
     }
-    if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
       e.preventDefault();
       if (isDirty()) save();
     }

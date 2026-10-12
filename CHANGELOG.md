@@ -54,6 +54,18 @@ responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
   being edited. Before, every entry used the first entry's fields, so a page
   with different sections opened as an empty form whose save replaced it.
 - `caretize --version` reports the installed version instead of `0.1.0`.
+- After a save conflict, **Keep my edits** applies only the fields changed in
+  the form on top of the newer version. Before, it saved the whole form and
+  reverted fields the other editor changed. The conflict dialog names nested
+  fields and marks fields both editors changed.
+- The inline toolbar shows **Unsaved changes** while an edit is pending, and
+  restores the previous status when the edit is undone.
+- Studio history shows "You" or "Another editor" instead of an opaque session
+  ID for editors without a name or email.
+- Save and link shortcuts work with Caps Lock on. Validation messages use the
+  singular for one character or item.
+- Packages include their TypeScript sources, so source maps and declaration
+  maps resolve. Vite no longer warns about missing source files.
 
 ### Added
 

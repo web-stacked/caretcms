@@ -134,13 +134,35 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
   const statusDot = toolbar.querySelector('.cms-status-dot');
   const statusText = toolbar.querySelector('.cms-status-text');
 
-  /** @param {ToolbarStatusState} state @param {string} text */
-  function setStatus(state, text) {
+  /** @param {ToolbarStatusState | 'dirty'} state @param {string} text */
+  function showStatus(state, text) {
     if (statusDot) {
       statusDot.className = `cms-status-dot cms-status-${state}`;
     }
     if (statusText && text) {
       statusText.textContent = text;
+    }
+  }
+
+  // The status shown before "Unsaved changes", restored if the edit is undone.
+  /** @type {{ dot: string, text: string } | null} */
+  let beforeUnsaved = null;
+
+  /** @param {ToolbarStatusState} state @param {string} text */
+  function setStatus(state, text) {
+    beforeUnsaved = null;
+    showStatus(state, text);
+  }
+
+  /** @param {boolean} unsaved */
+  function setUnsaved(unsaved) {
+    if (unsaved && !beforeUnsaved) {
+      beforeUnsaved = { dot: statusDot?.className ?? '', text: statusText?.textContent ?? '' };
+      showStatus('dirty', 'Unsaved changes');
+    } else if (!unsaved && beforeUnsaved) {
+      if (statusDot) statusDot.className = beforeUnsaved.dot;
+      if (statusText) statusText.textContent = beforeUnsaved.text;
+      beforeUnsaved = null;
     }
   }
 
@@ -455,5 +477,6 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
     editModeButton,
     previewModeButton,
     setStatus,
+    setUnsaved,
   };
 }

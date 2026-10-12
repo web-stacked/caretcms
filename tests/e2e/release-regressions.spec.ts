@@ -68,7 +68,9 @@ test("Studio rejects a stale first draft and refreshes its base version for an e
     expect(result.status()).toBe(200);
     expect(result.request().postDataJSON()).toMatchObject({ expectedRevision: 0, expectedBaseRevision: 2 });
     const draft = await page.request.get("/api/cms/entries?collection=studio-fixture&id=version-conflict");
-    expect((await draft.json()).entries[0].data).toMatchObject({ title: "Original", website: "https://example.invalid/mine" });
+    // Keep my edits applies only this form's change (website) on top of the
+    // newer base, so the other editor's title is not reverted.
+    expect((await draft.json()).entries[0].data).toMatchObject({ title: "Other editor", website: "https://example.invalid/mine" });
   } finally {
     await remote.close();
   }

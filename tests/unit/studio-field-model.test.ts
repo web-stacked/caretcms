@@ -50,3 +50,22 @@ describe("Studio fallback labels", () => {
     expect(humanizeKey("image_id")).toBe("Image ID");
   });
 });
+
+describe("validation messages", () => {
+  it("uses singular and plural nouns for length and item limits", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        one: { type: "string", minLength: 1 },
+        many: { type: "string", maxLength: 2 },
+        list: { type: "array", items: { type: "string" }, minItems: 1 },
+      },
+    } as const;
+    const messages = validateJsonSchema({ one: "", many: "abc", list: [] }, schema as never).map(issue => issue.message);
+    expect(messages).toEqual([
+      "Must contain at least 1 character",
+      "Must contain at most 2 characters",
+      "Must contain at least 1 item",
+    ]);
+  });
+});

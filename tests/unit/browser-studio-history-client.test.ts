@@ -8,13 +8,13 @@ function client(fetchImpl: typeof fetch) {
 describe("Studio history client", () => {
   it("loads normalized history with an encoded same-origin request", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ history: [
-      { ts: 12, action: "put", editor: { id: "editor-1", name: "Editor", ignored: true } },
+      { ts: 12, action: "put", editor: { id: "editor-1", name: "Editor", current: true, ignored: true } },
       { ts: 11 },
       { ts: "invalid", action: "put" },
     ] }));
     await expect(client(fetchImpl).list({ collection: "pages & posts", id: "home/path" }))
       .resolves.toEqual({ kind: "loaded", items: [
-        { ts: 12, action: "put", editor: { id: "editor-1", name: "Editor" } },
+        { ts: 12, action: "put", editor: { id: "editor-1", name: "Editor", current: true } },
         { ts: 11, action: "save" },
       ] });
     expect(fetchImpl).toHaveBeenCalledWith(

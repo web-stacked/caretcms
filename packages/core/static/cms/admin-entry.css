@@ -505,6 +505,7 @@
 .caret-history-preview dd { margin: 0; overflow-wrap: anywhere; }
 .conflict-fields {
   max-height: 12rem;
+  text-align: left;
   margin: -0.5rem 0 1.25rem;
   padding-left: 1.25rem;
   overflow: auto;

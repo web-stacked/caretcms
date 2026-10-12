@@ -354,7 +354,7 @@ test("embedded Studio Escape closes local overlays before the Studio drawer", as
   await expect(panel).toBeVisible();
 });
 
-test("Studio keeps form edits after a revision conflict and saves on retry", async ({ page }) => {
+test("Studio applies form edits on top of a conflicting save without reverting its other fields", async ({ page }) => {
   const id = "revision-conflict-entry";
   const initial = await page.request.post("/api/cms/mutate", {
     headers: { "x-caret-request": "1" },
@@ -377,7 +377,7 @@ test("Studio keeps form edits after a revision conflict and saves on retry", asy
       collection: "studio-fixture",
       id,
       expectedRevision: initialRevision,
-      data: { title: "External edit", summary: "", website: "", published: false, details: [], images: [] },
+      data: { title: "External edit", summary: "", website: "https://elsewhere.example", published: false, details: [], images: [] },
     },
   });
   expect(external.ok()).toBe(true);
@@ -389,10 +389,12 @@ test("Studio keeps form edits after a revision conflict and saves on retry", asy
   await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await conflict).status()).toBe(409);
   const conflictDialog = page.getByRole("dialog", { name: "Newer changes found" });
-  await expect(conflictDialog).toContainText("Title");
+  await expect(conflictDialog).toContainText("Title — you edited this too");
+  await expect(conflictDialog).toContainText("Website");
   await conflictDialog.getByRole("button", { name: "Keep my edits" }).click();
-  await expect(page.locator("#status-msg")).toHaveText("Your edits are kept — Save again to overwrite");
+  await expect(page.locator("#status-msg")).toHaveText("Your edits are on the latest version — Save to apply them");
   await expect(page.locator('[name="title"]')).toHaveValue("Local form edit");
+  await expect(page.locator('[name="website"]')).toHaveValue("https://elsewhere.example");
 
   const retry = page.waitForResponse(response =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
@@ -403,7 +405,7 @@ test("Studio keeps form edits after a revision conflict and saves on retry", asy
 
   const stored = await page.request.get(`/api/cms/entries?collection=studio-fixture&id=${id}`);
   const current = await stored.json();
-  expect(current.entries[0].data.title).toBe("Local form edit");
+  expect(current.entries[0].data).toMatchObject({ title: "Local form edit", website: "https://elsewhere.example" });
   await page.locator('[name="title"]').fill("Another local edit");
   const latestWrite = await page.request.post("/api/cms/mutate", {
     headers: { "x-caret-request": "1" },

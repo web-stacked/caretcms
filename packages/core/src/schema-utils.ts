@@ -39,6 +39,10 @@ function resolveLocalRef(root: JsonSchemaNode, ref: string): JsonSchemaNode | nu
     : null;
 }
 
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
 /** Dependency-free validator for the JSON Schema subset Caret's Studio renders. */
 export function validateJsonSchema(
   value: unknown,
@@ -106,10 +110,10 @@ export function validateJsonSchema(
 
     if (typeof current === "string") {
       if (typeof node.minLength === "number" && current.length < node.minLength) {
-        local.push({ path, code: "too_small", message: `Must contain at least ${node.minLength} characters` });
+        local.push({ path, code: "too_small", message: `Must contain at least ${count(node.minLength, "character")}` });
       }
       if (typeof node.maxLength === "number" && current.length > node.maxLength) {
-        local.push({ path, code: "too_big", message: `Must contain at most ${node.maxLength} characters` });
+        local.push({ path, code: "too_big", message: `Must contain at most ${count(node.maxLength, "character")}` });
       }
       if (typeof node.pattern === "string") {
         try {
@@ -140,10 +144,10 @@ export function validateJsonSchema(
 
     if (Array.isArray(current)) {
       if (typeof node.minItems === "number" && current.length < node.minItems) {
-        local.push({ path, code: "too_small", message: `Must contain at least ${node.minItems} items` });
+        local.push({ path, code: "too_small", message: `Must contain at least ${count(node.minItems, "item")}` });
       }
       if (typeof node.maxItems === "number" && current.length > node.maxItems) {
-        local.push({ path, code: "too_big", message: `Must contain at most ${node.maxItems} items` });
+        local.push({ path, code: "too_big", message: `Must contain at most ${count(node.maxItems, "item")}` });
       }
       if (node.items && typeof node.items === "object" && !Array.isArray(node.items)) {
         current.forEach((item, index) => local.push(...visit(item, node.items as JsonSchemaNode, path ? `${path}.${index}` : String(index), depth + 1)));

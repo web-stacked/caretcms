@@ -351,6 +351,7 @@ test.describe("inline editor — click to edit", () => {
     await replaceText(page, headline, NEW_HEADLINE);
     // Confirm the typing actually replaced the live text before we rely on blur.
     await expect(headline).toHaveText(NEW_HEADLINE);
+    await expect(page.locator(".cms-status-text")).toHaveText("Unsaved changes");
 
     // Blur fires the save. Assert the write actually hit the mutate endpoint.
     const mutate = await blurToSave(page, headline);
@@ -358,6 +359,7 @@ test.describe("inline editor — click to edit", () => {
 
     // The save-confirmation toast appears.
     await expect(page.getByText("Content saved")).toBeVisible();
+    await expect(page.locator(".cms-status-text")).toHaveText("Changes are live");
 
     // The override is persisted and rendered by the rewrite middleware for an
     // anonymous visitor — independent of this page's live DOM mutation.
@@ -552,9 +554,14 @@ test.describe("inline editor — click to edit", () => {
     const headline = page.locator(HEADLINE);
     await expect(headline).toHaveClass(/cms-editable/);
 
+    const status = page.locator(".cms-status-text");
+    const statusBefore = await status.textContent();
     await replaceText(page, headline, "This should be discarded");
+    await expect(status).toHaveText("Unsaved changes");
     await page.keyboard.press("Escape");
     await page.locator("body").click();
+    // Undoing the edit restores the status shown before it.
+    await expect(status).toHaveText(statusBefore ?? "");
 
     // Live DOM reverts to the template value…
     await expect(headline).toHaveText(TEMPLATE_HEADLINE);
