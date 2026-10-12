@@ -107,7 +107,7 @@ export async function GET(context: APIContext): Promise<Response> {
     renderStudioPage({
       runtime,
       title: runtime.messages["home.title"],
-      breadcrumb: [],
+      breadcrumb: [{ label: runtime.messages["nav.overview"] }],
       navigation,
       body,
       inlineScript,

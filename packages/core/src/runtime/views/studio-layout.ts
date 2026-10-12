@@ -164,7 +164,7 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
   const m = runtime.messages;
   const themeCss = `${runtime.apiBasePath}/theme.css`;
   const studioCss = "/__caret/studio.css";
-  const overviewActive = breadcrumb.length === 0 && !navigation.some((item) => item.selected);
+  const overviewActive = !navigation.some((item) => item.selected);
 
   const favicon = brand.faviconUrl
     ? `<link rel="icon" href="${escapeHtml(brand.faviconUrl)}" />`

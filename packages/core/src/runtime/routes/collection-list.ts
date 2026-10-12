@@ -752,7 +752,7 @@ export async function GET(context: APIContext): Promise<Response> {
     renderStudioPage({
       runtime,
       title: label,
-      breadcrumb: [],
+      breadcrumb: [{ label: messages["nav.collections"], href: `${runtime.mountPath}/cms` }, { label }],
       navigation,
       body,
       extraStyles,
