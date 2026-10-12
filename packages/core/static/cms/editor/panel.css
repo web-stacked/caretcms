@@ -152,15 +152,14 @@
   to { transform: rotate(360deg); }
 }
 
-/* Shift the CMS toolbar (our chrome) so the drawer doesn't cover it. */
+/* Center the floating toolbar in the space the drawer leaves uncovered. */
 body.cms-panel-open .cms-toolbar {
-  left: var(--cms-panel-width);
+  left: calc(50% + var(--cms-panel-width) / 2);
   transition: left 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 body.cms-panel-open.cms-panel-right .cms-toolbar {
-  right: var(--cms-panel-width);
-  left: 0;
+  left: calc(50% - var(--cms-panel-width) / 2);
 }
 
 body.cms-panel-open.no-transition .cms-toolbar {
@@ -193,9 +192,12 @@ body.cms-panel-open.caret-push-content.no-transition {
   }
 
   body.cms-panel-open .cms-toolbar,
+  body.cms-panel-open.cms-panel-right .cms-toolbar {
+    right: 8px;
+    left: 8px;
+  }
+
   body.cms-panel-open.caret-push-content {
-    right: 0;
-    left: 0;
     padding-left: 0;
   }
 
@@ -210,4 +212,33 @@ body.cms-panel-open.caret-push-content.no-transition {
     transition: none;
     animation: none;
   }
+}
+
+/* Light drawer chrome, matching the Studio's light theme: follows the system
+   unless the editor picked a theme in the Studio (data-theme from storage). */
+@media (prefers-color-scheme: light) {
+  .cms-studio-panel:not([data-theme="dark"]) {
+    --cms-panel-bg: #f5f6f8;
+    --cms-panel-text: #0f172a;
+    --cms-panel-text-muted: #3d4757;
+    --cms-panel-border: rgba(15, 23, 42, 0.1);
+  }
+}
+.cms-studio-panel[data-theme="light"] {
+  --cms-panel-bg: #f5f6f8;
+  --cms-panel-text: #0f172a;
+  --cms-panel-text-muted: #3d4757;
+  --cms-panel-border: rgba(15, 23, 42, 0.1);
+}
+.cms-studio-panel { background: var(--cms-panel-bg, #0c0e12); }
+.cms-studio-panel-header {
+  border-bottom-color: var(--cms-panel-border, rgba(255, 255, 255, 0.09));
+  color: var(--cms-panel-text-muted, rgba(255, 255, 255, 0.78));
+}
+.cms-panel-title { color: var(--cms-panel-text, rgba(255, 255, 255, 0.9)); }
+.cms-studio-panel-header button { color: var(--cms-panel-text-muted, rgba(255, 255, 255, 0.68)); }
+.cms-studio-panel-header button:hover { color: var(--cms-panel-text, rgba(255, 255, 255, 0.92)); }
+.cms-studio-panel-loading {
+  background: var(--cms-panel-bg, #0c0e12);
+  color: var(--cms-panel-text-muted, rgba(255, 255, 255, 0.5));
 }

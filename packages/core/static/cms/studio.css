@@ -323,12 +323,27 @@ kbd {
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
 
-.studio-collection-card {
+.studio-card-interactive.studio-collection-card {
   display: flex;
   flex-direction: column;
   gap: var(--space-theme-md);
   min-height: 10rem;
 }
+/* The on-page drawer is narrow: collection cards become compact rows. */
+.studio-embedded .studio-home-grid { grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
+.studio-embedded .studio-card-interactive.studio-collection-card {
+  min-height: 0;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.85rem 1rem;
+}
+.studio-embedded .studio-collection-card .studio-collection-icon { width: 2.25rem; height: 2.25rem; flex-shrink: 0; }
+.studio-embedded .studio-collection-body { flex: 1; min-width: 0; }
+.studio-embedded .studio-collection-description { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-embedded .studio-count-label { margin: 0; flex-shrink: 0; }
+.studio-embedded .studio-page-header { margin-bottom: var(--space-theme-lg); }
+
 .studio-collection-icon {
   width: 2.5rem;
   height: 2.5rem;
