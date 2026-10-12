@@ -3,7 +3,9 @@ import { expect, test, type Page } from "@playwright/test";
 import { loginAsEditor, resetCmsStorage } from "./helpers";
 
 async function expectNoAxeViolations(page: Page): Promise<void> {
-  await page.waitForTimeout(350);
+  // Entrance animations change opacity, so contrast is checked once they settle.
+  await page.waitForFunction(() => document.getAnimations().every((animation) =>
+    animation.playState !== "running" || animation.effect?.getComputedTiming().iterations === Infinity));
   const result = await new AxeBuilder({ page }).analyze();
   expect(
     result.violations.map((violation) => ({

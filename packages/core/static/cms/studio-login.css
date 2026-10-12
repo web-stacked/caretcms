@@ -374,3 +374,11 @@
   display: inline-block;
   margin-top: 0.7rem;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-login-card {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+}
