@@ -50,6 +50,10 @@ responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
   after the scan, or a symlink.
 - Collection create and delete by real editors write to base storage in
   preview, static, and policy modes.
+- Studio forms for collections without a schema are inferred from the entry
+  being edited. Before, every entry used the first entry's fields, so a page
+  with different sections opened as an empty form whose save replaced it.
+- `caretize --version` reports the installed version instead of `0.1.0`.
 
 ### Added
 

@@ -23,7 +23,7 @@ import { createStudioSync } from './studio/sync-client.js';
  *
  * API surface used:
  *   GET  ${api}/entries?collection=&id=
- *   GET  ${api}/schema?collection=
+ *   GET  ${api}/schema?collection=&id=   (id: infer a schemaless entry from itself)
  *   POST ${api}/mutate   { type: "put_entry" | "delete_entry", ... }
  *   POST ${api}/upload   FormData(file)
  *   GET  ${api}/history?collection=&id=

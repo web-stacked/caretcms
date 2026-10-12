@@ -64,13 +64,16 @@ export async function GET(context: APIContext): Promise<Response> {
     });
   }
 
-  // 3. Fall back to schema inference from first entry
-  const entries = await adapter.listEntries(collectionRaw);
+  // 3. Fall back to inference. Entries in a schemaless collection can have
+  // different shapes, so an existing entry's form is inferred from that entry;
+  // a form built from another entry would omit its fields and overwrite them.
+  const id = (context.url.searchParams.get("id") ?? "").trim();
+  const source = id
+    ? await adapter.getEntry(collectionRaw, id)
+    : (await adapter.listEntries(collectionRaw))[0];
   // Strip the reserved body-draft map so a drafted entry can't leak a __body
   // field into the inferred schema (and thus the Studio form).
-  const firstEntry = stripBodyOverlay(entries[0]?.data ?? {});
-
-  const schema = inferJsonSchema(firstEntry);
+  const schema = inferJsonSchema(stripBodyOverlay(source?.data ?? {}));
   const template = buildTemplate(schema);
   const inferredMetadata = await resolveCollectionStudioConfig(adapter, collectionRaw);
 
@@ -79,7 +82,7 @@ export async function GET(context: APIContext): Promise<Response> {
     template,
     collection: collectionRaw,
     source: "inferred",
-    inferredFrom: entries.length > 0 ? entries[0].id : null,
+    inferredFrom: source?.id ?? null,
     metadata: inferredMetadata,
   });
 }

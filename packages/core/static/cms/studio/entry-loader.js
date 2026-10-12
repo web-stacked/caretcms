@@ -40,7 +40,10 @@ export function createStudioEntryLoader({ apiBasePath, fetchImpl = fetch }) {
    */
   async function load(input) {
     const entrySearch = new URLSearchParams({ collection: input.collection, id: input.id });
-    const schemaSearch = new URLSearchParams({ collection: input.collection });
+    // Existing entries pass their id: schemaless collections infer per entry.
+    const schemaSearch = new URLSearchParams(input.isNew
+      ? { collection: input.collection }
+      : { collection: input.collection, id: input.id });
     const [entryResponse, schemaResponse] = await Promise.all([
       fetchImpl(`${apiBasePath}/entries?${entrySearch}`, { credentials: 'same-origin' }),
       fetchImpl(`${apiBasePath}/schema?${schemaSearch}`, { credentials: 'same-origin' }),
