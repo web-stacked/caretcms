@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { parseEnv } from "node:util";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import type { AstroIntegration } from "astro";
@@ -388,6 +389,35 @@ export function localUploads(options?: {
 }
 
 import { normalizePath as normalizeMountPath } from "./runtime/config.js";
+
+/**
+ * `astro dev` and `astro preview` expose `.env` values to `import.meta.env`
+ * only, but CaretCMS reads its server settings (session secret, edit password)
+ * from `process.env`. Load `CARET_*` keys from the project's env files, in
+ * Vite's order (`.env`, `.env.local`, `.env.<mode>`, `.env.<mode>.local`, later
+ * wins), without overriding anything already set in the real environment.
+ */
+export function loadCaretEnvFiles(root: string, mode: string, env: NodeJS.ProcessEnv = process.env): string[] {
+  const values: Record<string, string> = {};
+  for (const name of [".env", ".env.local", `.env.${mode}`, `.env.${mode}.local`]) {
+    let source: string;
+    try {
+      source = readFileSync(join(root, name), "utf8");
+    } catch {
+      continue;
+    }
+    for (const [key, value] of Object.entries(parseEnv(source))) {
+      if (key.startsWith("CARET_") && typeof value === "string") values[key] = value;
+    }
+  }
+  const loaded: string[] = [];
+  for (const [key, value] of Object.entries(values)) {
+    if (env[key] !== undefined && env[key] !== "") continue;
+    env[key] = value;
+    loaded.push(key);
+  }
+  return loaded;
+}
 
 function normalizeMode(input: CaretMode | undefined): CaretMode {
   return input ?? "embedded";
@@ -874,6 +904,9 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
     name: "caretcms",
     hooks: {
       "astro:config:setup": ({ command, config, logger, addMiddleware, injectRoute, injectScript, updateConfig, addDevToolbarApp }) => {
+        if (command === "dev" || command === "preview") {
+          loadCaretEnvFiles(fileURLToPath(config.root), command === "dev" ? "development" : "production");
+        }
         const isStaticOutput = config.output === "static";
         assertDeliveryMatchesAstroOutput(resolved.delivery, config.output);
         const effectiveDelivery = resolveEffectiveDelivery(resolved.delivery, config.output);
