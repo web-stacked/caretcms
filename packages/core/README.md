@@ -572,17 +572,24 @@ The default (embedded) providers write inside your project:
 | `.caret/drafts/` | per-editor draft overlays | `filesystemStorage()` |
 | `.caretcms/` | revisions + history sidecar | both filesystem and markdown storage |
 | `src/content/**.md` | frontmatter and published prose edits | `markdownStorage()` (auto-selected when you have content collections) |
+| `src/content/*.json` | entries of Astro `file()` data collections, edited in place | `markdownStorage()` |
 | `public/uploads/` | uploaded images | `localUploads()` (default) |
 
-Recommended `.gitignore` for the transient state (keep `.caret/data/` or your
-`src/content` edits if git IS your content store — see the commit-on-publish
-workflow in [docs/deployment.md](../../docs/deployment.md)):
+Recommended `.gitignore` for local state. `npx @caretcms/caretize init` adds it
+for you:
 
 ```gitignore
-.caretcms/
+.env
 .caret/drafts/
-public/uploads/
+.caret/.caretize-bak/
+.caretcms/
 ```
+
+Keep published content tracked: `src/content`, `.caret/data/` when Git is your
+content store (see the commit-on-publish workflow in
+[docs/deployment.md](../../docs/deployment.md)), and `public/uploads/` on static
+sites, whose published content links to those files. Ignore `public/uploads/`
+only when uploads live on persistent server storage instead.
 
 Multiline literal/folded strings and source-preserving saves are supported by
 Markdown storage. See [frontmatter compatibility](../../docs/markdown-frontmatter.md)

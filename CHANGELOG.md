@@ -54,6 +54,17 @@ responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
   being edited. Before, every entry used the first entry's fields, so a page
   with different sections opened as an empty form whose save replaced it.
 - `caretize --version` reports the installed version instead of `0.1.0`.
+- Images and links whose URL comes from `editable()` or `caretLoader()` work in
+  edit mode. The hidden binding key used to stay inside the `src` or `href`, so
+  the browser requested a URL that did not exist. Such images now get a normal
+  `data-caret` binding and can be replaced.
+- Replacing an image no longer wraps it in a new element. Images positioned by
+  the page, such as section backgrounds and carousel slides, keep their layout
+  in edit mode.
+- Caretize no longer tags an `<img>` whose `src` comes from props or data. It
+  gave those images invented keys such as `components::Team::hero`, which then
+  replaced the binding the data carried. Literal URLs and imported image files
+  are still tagged.
 - After a save conflict, **Keep my edits** applies only the fields changed in
   the form on top of the newer version. Before, it saved the whole form and
   reverted fields the other editor changed. The conflict dialog names nested
@@ -78,6 +89,17 @@ responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
   in-process locks.
 - `@caretcms/core/testing/storage` exports a conformance suite for storage
   adapters. See [storage adapters](docs/storage-adapters.md).
+- Markdown storage reads and writes Astro `file()` data collections:
+  `src/content/<name>.json` holding an array of entries with `id`, or an object
+  keyed by id. Publish updates the entry inside that file and keeps its
+  formatting. Before, it created a separate Markdown file instead.
+- `astro dev` and `astro preview` load `CARET_*` settings from `.env`,
+  `.env.local`, and the mode files. Before, the session secret and password
+  that `caretize init` writes there were ignored. The real environment wins.
+- `caretize init` adds `.env`, `.caret/drafts/`, `.caret/.caretize-bak/`, and
+  `.caretcms/` to `.gitignore`.
+- Caretize ends with a hint when content comes from props or data, showing how
+  to bind it with `editable()` where the data is loaded.
 - `CARET_GIT_JOURNAL_RETRY=true` lets an interrupted Git commit finish later
   without publishing again. The toolbar shows **Retry Git history** while one
   is pending.
@@ -100,6 +122,8 @@ responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
   cached for an hour, so upgrades take effect immediately.
 - Git-on-publish requires `preparePublicationSources`. Adapters without it
   publish but skip the Git commit.
+- The recommended `.gitignore` no longer lists `public/uploads/`. Static sites
+  must commit uploads, because published content links to them.
 - Publish can fail with `invalid_entry`. The draft stays.
 - Single-entry API responses always include a top-level revision.
 - The Cloudflare Durable Object class must be deployed with the new adapter.
