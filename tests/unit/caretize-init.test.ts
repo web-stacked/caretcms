@@ -4,6 +4,7 @@ import {
   findConfigObjectBrace,
   planConfigWiring,
   renderEnvAdditions,
+  renderGitignoreAdditions,
   type WiringNeeds,
 } from "../../packages/caretize/src/init";
 
@@ -156,3 +157,18 @@ function stripped(out: string, original: string): boolean {
   }
   return i === original.length;
 }
+
+describe("renderGitignoreAdditions", () => {
+  it("adds the env file, drafts, backups, and history once", () => {
+    const first = renderGitignoreAdditions("node_modules/\ndist/");
+    expect(first.added).toEqual([".env", ".caret/drafts/", ".caret/.caretize-bak/", ".caretcms/"]);
+    expect(first.append).toBe("\n\n# CaretCMS\n.env\n.caret/drafts/\n.caret/.caretize-bak/\n.caretcms/\n");
+    expect(renderGitignoreAdditions("node_modules/\ndist/" + first.append)).toEqual({ append: "", added: [] });
+  });
+
+  it("treats equivalent existing patterns as covered", () => {
+    expect(renderGitignoreAdditions(".env*\n/.caret\n.caretcms\n")).toEqual({ append: "", added: [] });
+    expect(renderGitignoreAdditions("").append).toBe("# CaretCMS\n.env\n.caret/drafts/\n.caret/.caretize-bak/\n.caretcms/\n");
+    expect(renderGitignoreAdditions(".env\n.caret/drafts\n").added).toEqual([".caret/.caretize-bak/", ".caretcms/"]);
+  });
+});

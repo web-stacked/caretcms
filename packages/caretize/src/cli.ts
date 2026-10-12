@@ -28,7 +28,7 @@ import { detectPropHoistTargets, type PropHoistTarget } from "./prop-hoist.js";
 import { detectCollectionBindTargets, type CollectionBindTarget } from "./bind-collection.js";
 import { detectRouteBindTargets } from "./bind-route.js";
 import { restoreLatest, writeBackup } from "./backup.js";
-import { freshConfig, planConfigWiring, renderEnvAdditions, type InitMode, type WiringNeeds } from "./init.js";
+import { freshConfig, planConfigWiring, renderEnvAdditions, renderGitignoreAdditions, type InitMode, type WiringNeeds } from "./init.js";
 import { lineDiff, formatHunks } from "./diff.js";
 import { buildReport } from "./report.js";
 import { applyKeyRegistry } from "./keys.js";
@@ -652,6 +652,18 @@ async function runInit(root: string, args: Args): Promise<void> {
       process.stdout.write(`\n✓ .env: added ${env.added.join(", ")}\n`);
     } else {
       process.stdout.write("\n✓ .env already has CaretCMS secrets\n");
+    }
+
+    // 4) .gitignore — keep the secret, local drafts, and history out of Git.
+    const ignorePath = resolve(root, ".gitignore");
+    const existingIgnore = existsSync(ignorePath) ? readFileSync(ignorePath, "utf8") : "";
+    const ignore = renderGitignoreAdditions(existingIgnore);
+    if (ignore.append) {
+      if (existingIgnore) writeBackup(root, ".gitignore", stamp);
+      writeFileSync(ignorePath, existingIgnore + ignore.append, "utf8");
+      process.stdout.write(`✓ .gitignore: added ${ignore.added.join(", ")}\n`);
+    } else {
+      process.stdout.write("✓ .gitignore already covers CaretCMS files\n");
     }
   } finally {
     rl.close();

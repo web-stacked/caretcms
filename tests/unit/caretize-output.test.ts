@@ -133,6 +133,14 @@ describe("formatSummary", () => {
 });
 
 describe("formatHints", () => {
+  it("points data-driven text and images at editable() where the data loads", () => {
+    const plans = [plan({ skipped: [{ reason: "dynamic-src" }, { reason: "dynamic-content" }] as unknown as FilePlan["skipped"] })];
+    const out = formatHints(plans, {});
+    expect(out).toContain("2 spot(s) render text or images from props or data");
+    expect(out).toContain("await editable(`<collection>::${id}`, entry.data)");
+    expect(formatHints([plan()], {})).toBe("");
+  });
+
   it("rolls remaining coverage into one line pointing at --all", () => {
     const plans = [plan({
       skipped: [{ reason: "rich-eligible" }, { reason: "inside-iterator" }] as unknown as FilePlan["skipped"],

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseAstro, walkTags } from "../../packages/caretize/src/parse";
 import { detect, type DetectOptions, type DetectResult } from "../../packages/caretize/src/detect";
-import { imageComponentNames } from "../../packages/caretize/src/frontmatter";
+import { assetImportNames, imageComponentNames } from "../../packages/caretize/src/frontmatter";
 import { planFile } from "../../packages/caretize/src/plan";
 
 async function detectSource(source: string, options?: DetectOptions): Promise<DetectResult> {
@@ -127,6 +127,17 @@ describe("detect — synthetic cases", () => {
 
 const IMG_COMPONENTS = new Set(["Image", "Picture"]);
 
+describe("assetImportNames", () => {
+  it("collects default imports of image files only", () => {
+    const fm = `import hero from "../assets/hero.png";
+import Logo from '~/logo.svg?raw';
+import data from "../data/site.json";
+import type Thumb from "./thumb.webp";
+import Card from "./Card.astro";`;
+    expect([...assetImportNames(fm)].sort()).toEqual(["Logo", "hero"]);
+  });
+});
+
 describe("imageComponentNames", () => {
   it("extracts Image and Picture from an astro:assets import", () => {
     const fm = `import { Image, Picture } from "astro:assets";`;
@@ -173,13 +184,21 @@ describe("detect — astro:assets image components", () => {
     expect(r.candidates.some((c) => c.tag === "Picture" && c.kind === "image")).toBe(true);
   });
 
-  it("emits a candidate with empty text for an expression src (no author-time URL)", async () => {
-    const r = await detectSource("<main><Image src={heroImage} alt=\"x\" /></main>", {
+  it("emits a candidate with empty text for an imported asset src (no author-time URL)", async () => {
+    const r = await detectSource("<main><Image src={heroImage} alt=\"x\" /><img src={logo.src} /></main>", {
       imageComponents: IMG_COMPONENTS,
+      assetImports: new Set(["heroImage", "logo"]),
     });
-    const img = r.candidates.find((c) => c.tag === "Image");
-    expect(img?.kind).toBe("image");
-    expect(img?.text).toBe("");
+    expect(r.candidates.map((c) => [c.tag, c.kind, c.text])).toEqual([["Image", "image", ""], ["img", "image", ""]]);
+  });
+
+  it("skips a src from props or data so the data's own binding is not shadowed", async () => {
+    const r = await detectSource(
+      "<main><img src={team.image} /><Image src={image} alt=\"\" /><img src={`/img/${slug}.png`} /></main>",
+      { imageComponents: IMG_COMPONENTS, assetImports: new Set(["hero"]) },
+    );
+    expect(r.candidates).toHaveLength(0);
+    expect(r.skipped.filter((s) => s.reason === "dynamic-src").map((s) => s.tag)).toEqual(["img", "Image", "img"]);
   });
 
   it("defers an <Image> inside a .map() — skipped inside-iterator, not tagged", async () => {
