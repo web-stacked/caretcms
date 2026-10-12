@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { mkdtemp, readFile, writeFile, cp, rm, realpath, stat, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join, posix, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const run = promisify(execFile);
@@ -27,7 +27,16 @@ try {
     const files = new Set(packed.files.map(file => file.path));
     assert.ok(files.has("LICENSE"), `${name}: MIT license missing`);
     assert.ok(files.has("README.md"), `${name}: README missing`);
-    for (const file of files) assert.ok(!/^(?:src|tests|examples|node_modules|\.caret|\.caretcms)\//.test(file), `${name}: unexpected payload ${file}`);
+    for (const file of files) assert.ok(!/^(?:tests|examples|node_modules|\.caret|\.caretcms)\//.test(file), `${name}: unexpected payload ${file}`);
+    // Source and declaration maps must resolve to sources shipped in the package.
+    for (const file of files) {
+      if (!file.endsWith(".map")) continue;
+      const map = JSON.parse(await readFile(join(repo, "packages", name, file), "utf8"));
+      for (const source of map.sources) {
+        const shipped = posix.normalize(posix.join(posix.dirname(file), source));
+        assert.ok(files.has(shipped), `${name}: ${file} points to unshipped ${shipped}`);
+      }
+    }
     dependencies[`@caretcms/${name}`] = `file:./${packed.filename}`;
     console.log(`Packed ${packed.name}: ${packed.files.length} files, ${packed.size} bytes.`);
   }
