@@ -77,6 +77,7 @@ for (const colorScheme of ["light", "dark"] as const) test(`login, collection li
   await expectNoAxeViolations(page);
   await page.locator("#btn-delete-cancel").press("Escape");
 
+  await page.locator("#entry-more > summary").click();
   await page.locator("#btn-history").click();
   await expect(page.getByRole("region", { name: "Version history" })).toBeVisible();
   await expect(page.locator("#btn-history-close")).toBeFocused();
