@@ -488,8 +488,11 @@ test.describe("inline editor — click to edit", () => {
     const image = page.locator(HERO_IMAGE);
     await expect(image).toHaveAttribute("src", "/initial.png");
 
-    // The image editor wraps each bound <img> and injects a hidden file input.
-    const fileInput = page.locator(".cms-img-wrapper input[type='file']");
+    // Hovering a bound <img> places the shared Replace control over it.
+    await expect(image).toHaveAttribute("data-caret-img-mounted", "true");
+    await image.hover({ force: true });
+    await expect(page.locator(".cms-img-overlay")).toBeVisible();
+    const fileInput = page.locator(".cms-img-input");
     await expect(fileInput).toBeAttached();
 
     // Selecting a file kicks off compress → /upload → save_field(url).
@@ -530,7 +533,9 @@ test.describe("inline editor — click to edit", () => {
     await page.goto("/");
 
     const image = page.locator(HERO_IMAGE);
-    const fileInput = page.locator(".cms-img-wrapper input[type='file']");
+    await expect(image).toHaveAttribute("data-caret-img-mounted", "true");
+    await image.hover({ force: true });
+    const fileInput = page.locator(".cms-img-input");
     await expect(fileInput).toBeAttached();
 
     const [upload, mutate] = await Promise.all([

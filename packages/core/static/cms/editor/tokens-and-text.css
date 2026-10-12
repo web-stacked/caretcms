@@ -90,13 +90,11 @@ body.cms-preview-mode [data-caret-md].cms-editable {
   box-shadow: none !important;
 }
 
-body.cms-preview-mode .cms-img-wrapper {
-  z-index: auto;
-  outline-color: transparent !important;
+body.cms-preview-mode img[data-caret][data-caret-img-mounted] {
+  cursor: inherit;
 }
 
 body.cms-preview-mode .cms-img-overlay,
-body.cms-preview-mode .cms-img-badge,
 body.cms-preview-mode .cms-section-controls,
 body.cms-preview-mode .cms-section-chip,
 body.cms-preview-mode .cms-rich-toolbar,

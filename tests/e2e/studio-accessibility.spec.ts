@@ -85,8 +85,11 @@ for (const colorScheme of ["light", "dark"] as const) test(`login, collection li
   await page.locator("#btn-history-close").press("Escape");
 
   await page.goto("/");
+  const image = page.locator("img[data-caret]").first();
+  await expect(image).toHaveAttribute("data-caret-img-mounted", "true");
+  await image.hover({ force: true });
   await expect(page.locator(".cms-img-overlay")).toBeVisible();
-  await expect(page.locator('.cms-img-wrapper input[type="file"]')).toHaveAttribute(
+  await expect(page.locator(".cms-img-input")).toHaveAttribute(
     "aria-label",
     "Upload replacement image",
   );
