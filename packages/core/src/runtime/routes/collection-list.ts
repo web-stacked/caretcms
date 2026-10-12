@@ -16,6 +16,7 @@ import {
   escapeHtml,
   htmlResponse,
   redirectResponse,
+  renderCollectionIcon,
   renderIcon,
   renderStudioPage,
   serializeJsonForScript,
@@ -131,6 +132,21 @@ export async function GET(context: APIContext): Promise<Response> {
     }
     .collection-actions button { flex-shrink: 0; white-space: nowrap; }
     .collection-actions #search-input { min-width: 10rem; max-width: 240px; height: 2.25rem; padding: 0 0.75rem; }
+    .studio-empty-state {
+      display: flex; flex-direction: column; align-items: center; gap: 0.75rem;
+      margin-top: 1rem; padding: 3.5rem 1.5rem; text-align: center;
+      border: 1px dashed var(--studio-border-hover); border-radius: var(--radius-theme-lg);
+      color: var(--studio-text-muted);
+    }
+    .studio-empty-state[hidden] { display: none; }
+    .studio-empty-state p { margin: 0; font-size: 0.95rem; color: var(--studio-text); }
+    .studio-empty-icon {
+      display: none; place-items: center; width: 3rem; height: 3rem;
+      border-radius: 50%; background: var(--studio-accent-soft); color: var(--studio-accent);
+    }
+    .studio-empty-icon .studio-icon { width: 22px; height: 22px; }
+    .studio-empty-state:not([data-mode="search"]) [data-empty-icon="collection"],
+    .studio-empty-state[data-mode="search"] [data-empty-icon="search"] { display: grid; }
     .view-toggle { display: inline-flex; padding: 2px; border: 1px solid var(--studio-border); border-radius: var(--radius-theme-sm); background: var(--studio-input); }
     .view-toggle button { width: 2rem; height: 1.85rem; }
     .view-toggle button[aria-pressed="true"] { background: var(--studio-accent-soft); color: var(--studio-accent); }
@@ -219,9 +235,12 @@ export async function GET(context: APIContext): Promise<Response> {
       <div class="studio-spinner" style="width:24px;height:24px;"></div>
     </div>
 
-    <div id="empty" hidden style="text-align:center;padding:5rem 0;color:var(--studio-text-dim);">
-      <p style="font-size:0.875rem;margin:0 0 0.75rem;">${escapeHtml(messages["collection.noEntries"])}</p>
+    <div id="empty" class="studio-empty-state" hidden>
+      <span class="studio-empty-icon" data-empty-icon="collection">${renderCollectionIcon(collectionConfig.icon, collection)}</span>
+      <span class="studio-empty-icon" data-empty-icon="search">${renderIcon("search")}</span>
+      <p>${escapeHtml(messages["collection.noEntries"])}</p>
       ${creatable ? `<button id="btn-empty-create" class="studio-btn-primary">${escapeHtml(emptyCreateLabel)}</button>` : ""}
+      <button id="btn-clear-search" type="button" class="studio-btn-ghost" hidden>${escapeHtml(messages["collection.clearSearch"])}</button>
     </div>
 
     <div id="error-state" hidden style="text-align:center;padding:5rem 0;">
@@ -314,6 +333,7 @@ export async function GET(context: APIContext): Promise<Response> {
     var searchInput = document.getElementById('search-input');
     var newBtn = document.getElementById('btn-new');
     var emptyCreateBtn = document.getElementById('btn-empty-create');
+    var clearSearchBtn = document.getElementById('btn-clear-search');
     var reorderBtn = document.getElementById('btn-reorder');
     var reorderContainer = document.getElementById('reorder-container');
     var reorderList = document.getElementById('reorder-list');
@@ -458,7 +478,9 @@ export async function GET(context: APIContext): Promise<Response> {
           pageRange.textContent = MSG['collection.range'].replace('{start}', paging.total ? (paging.page - 1) * paging.pageSize + 1 : 0).replace('{end}', Math.min(paging.page * paging.pageSize, paging.total)).replace('{total}', paging.total);
           pagination.hidden = paging.totalPages <= 1;
           empty.querySelector('p').textContent = query ? MSG['collection.noResults'] : MSG['collection.noEntries'];
+          empty.dataset.mode = query ? 'search' : 'collection';
           if (emptyCreateBtn) emptyCreateBtn.hidden = Boolean(query);
+          if (clearSearchBtn) clearSearchBtn.hidden = !query;
           var limited = Boolean(query) || paging.totalPages > 1 || allEntries.some(function (entry) { return entry.readError; });
           if (reorderBtn) {
             reorderBtn.hidden = limited;
@@ -481,6 +503,12 @@ export async function GET(context: APIContext): Promise<Response> {
 
     previousPage.addEventListener('click', function () { currentPage--; loadEntries(); });
     nextPage.addEventListener('click', function () { currentPage++; loadEntries(); });
+    if (clearSearchBtn) clearSearchBtn.addEventListener('click', function () {
+      searchInput.value = '';
+      query = ''; currentPage = 1; loadEntries();
+      searchInput.focus();
+    });
+
     searchInput.addEventListener('input', function () {
       clearTimeout(searchTimer);
       ++requestVersion; // ignore older responses immediately, including during debounce
