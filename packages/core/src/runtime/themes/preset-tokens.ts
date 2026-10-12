@@ -51,6 +51,8 @@ const STUDIO_DARK: ThemeTokens = {
   "--color-theme-warning": "#eab308",
   "--color-theme-success-soft": "rgba(34, 197, 94, 0.14)",
   "--color-theme-danger-soft": "rgba(248, 113, 113, 0.14)",
+  // Filled destructive buttons: white text keeps 4.5:1 in both modes.
+  "--color-theme-danger-strong": "#b91c1c",
   "--color-theme-warning-soft": "rgba(234, 179, 8, 0.14)",
 };
 
@@ -86,6 +88,7 @@ const STUDIO_LIGHT: ThemeTokens = {
   "--color-theme-warning": "#a16207",
   "--color-theme-success-soft": "rgba(22, 163, 74, 0.1)",
   "--color-theme-danger-soft": "rgba(220, 38, 38, 0.08)",
+  "--color-theme-danger-strong": "#dc2626",
   "--color-theme-warning-soft": "rgba(202, 138, 4, 0.12)",
 };
 

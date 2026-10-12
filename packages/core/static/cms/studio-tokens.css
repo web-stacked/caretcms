@@ -54,6 +54,7 @@
   --color-theme-warning: #eab308;
   --color-theme-success-soft: rgba(34, 197, 94, 0.14);
   --color-theme-danger-soft: rgba(248, 113, 113, 0.14);
+  --color-theme-danger-strong: #b91c1c;
   --color-theme-warning-soft: rgba(234, 179, 8, 0.14);
 
   /* ─── Semantic: Typography ────────────────────────────────────────── */
@@ -92,6 +93,7 @@
   --studio-yellow: var(--color-theme-warning);
   --studio-green-soft: var(--color-theme-success-soft);
   --studio-red-soft: var(--color-theme-danger-soft);
+  --studio-red-strong: var(--color-theme-danger-strong);
   --studio-yellow-soft: var(--color-theme-warning-soft);
   --studio-sidebar: var(--color-theme-sidebar);
   --studio-input: var(--color-theme-input);

@@ -245,7 +245,7 @@ test.describe("inline editor — click to edit", () => {
     const map = page.getByRole("region", { name: "Content map" });
     await expect(map).toHaveAttribute("aria-hidden", "false");
     await expect(map.getByText("pages::home", { exact: true })).toBeVisible();
-    const rows = map.getByRole("button", { name: /hero\.headline/ });
+    const rows = map.getByRole("button", { name: "Hero › Headline" });
     await expect(rows).toHaveCount(2);
     await rows.nth(1).focus();
     await page.keyboard.press("Enter");

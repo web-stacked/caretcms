@@ -251,7 +251,7 @@ export async function GET(context: APIContext): Promise<Response> {
     <div class="modal-card">
       <div class="modal-header">
         <h2 id="create-dialog-title" style="font:inherit;letter-spacing:inherit;text-transform:inherit;margin:0;">${escapeHtml(dialogTitle)}</h2>
-        <button id="btn-create-close" type="button" class="studio-btn-ghost" style="padding:4px 10px;">${escapeHtml(messages["common.close"])}</button>
+        <button id="btn-create-close" type="button" class="studio-icon-btn" aria-label="${escapeHtml(messages["common.close"])}" title="${escapeHtml(messages["common.close"])}"><svg class="studio-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
       <div class="modal-body">
         ${titleField ? `<label for="create-title-input" class="studio-label">${escapeHtml(titleInputLabel)}</label>

@@ -225,8 +225,10 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   await expect(deleteCancel).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(deleteDialog).toBeHidden();
-  await expect(deleteButton).toBeFocused();
+  // Choosing Delete closes the More actions menu, so focus returns to its button.
+  await expect(page.locator("#entry-more > summary")).toBeFocused();
 
+  await page.locator("#entry-more > summary").click();
   await deleteButton.click();
   const deleteResponse = page.waitForResponse((response) =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
@@ -309,12 +311,13 @@ test("embedded Studio Escape closes local overlays before the Studio drawer", as
   await cancel.press("Escape");
 
   await expect(deleteDialog).toBeHidden();
-  await expect(deleteButton).toBeFocused();
+  await expect(studio.locator("#entry-more > summary")).toBeFocused();
   await expect(panel).toBeVisible();
   await expect(page.getByRole("button", { name: "Studio", exact: true }))
     .toHaveAttribute("aria-expanded", "true");
 
   const historyButton = studio.locator("#btn-history");
+  await studio.locator("#entry-more > summary").click();
   await historyButton.click();
   const historyPanel = studio.getByRole("region", { name: "Version history" });
   const historyClose = studio.locator("#btn-history-close");

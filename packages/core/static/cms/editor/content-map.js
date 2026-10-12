@@ -2,6 +2,17 @@ import { buildCmsUrl } from './config.js';
 import { readHeaders } from './security.js';
 import { parseCaretAttr, resolveBinding } from './helpers.js';
 
+/** @param {string} value */
+function readable(value) {
+  const text = String(value || '').replace(/[-_]+/g, ' ').trim();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : value;
+}
+
+/** "hero.cta_label" -> "Hero › Cta label"; list indexes become 1-based. @param {string} field */
+function readableField(field) {
+  return String(field).split('.').map((part) => (/^\d+$/.test(part) ? `#${Number(part) + 1}` : readable(part))).join(' › ');
+}
+
 /**
  * Content Map dev panel.
  * Lists all data-caret bindings on the current page with override status.
@@ -146,25 +157,23 @@ async function refresh() {
   for (const [entryKey, fields] of groups) {
     const entryData = overrides.get(entryKey);
     html += `<div class="cms-content-map-group">`;
-    html += `<div class="cms-content-map-group-title">${escapeHtml(entryKey)}</div>`;
+    const [collection, id] = entryKey.split('::');
+    html += `<div class="cms-content-map-group-title"><span>${escapeHtml(readable(collection))} · ${escapeHtml(readable(id))}</span><code>${escapeHtml(entryKey)}</code></div>`;
 
     for (const f of fields) {
       const hasOverride = entryData
         ? getNestedValue(entryData, f.resolved.field) !== undefined
         : false;
 
-      const statusClass = hasOverride ? 'cms-map-saved' : 'cms-map-default';
-      const statusLabel = hasOverride ? 'saved' : 'default';
-      const scopeTag = f.isScoped ? '<span class="cms-map-scoped">scoped</span>' : '';
-      const typeTag = f.isImg ? '<span class="cms-map-type">img</span>' : '';
+      // Only unusual states get a tag: images, and fields never saved (template default).
+      const typeTag = f.isImg ? '<span class="cms-map-type">Image</span>' : '';
+      const statusTag = hasOverride ? '' : '<span class="cms-map-status cms-map-default">Default</span>';
+      const key = `${entryKey}::${f.resolved.field}${f.isScoped ? ' (scoped)' : ''}`;
 
       html += `
-        <button type="button" class="cms-content-map-item" data-caret-map-index="${f.index}">
-          <span class="cms-content-map-field">${escapeHtml(f.resolved.field)}</span>
-          <span class="cms-content-map-tags">
-            ${typeTag}${scopeTag}
-            <span class="cms-map-status ${statusClass}">${statusLabel}</span>
-          </span>
+        <button type="button" class="cms-content-map-item" data-caret-map-index="${f.index}" title="${escapeHtml(key)}">
+          <span class="cms-content-map-field">${escapeHtml(readableField(f.resolved.field))}</span>
+          <span class="cms-content-map-tags">${typeTag}${statusTag}</span>
         </button>
       `;
     }
