@@ -24,6 +24,9 @@ it.each([
   '<iframe><p data-caret="pages::home::title">Original</p></iframe>',
   '<plaintext><p data-caret="pages::home::title">Original</p>',
   '<svg><p data-caret="pages::home::title">Original</p></svg>',
+  '</3 <p data-caret="pages::home::title">Original</p>',
+  '</ <p data-caret="pages::home::title">Original</p>',
+  '<!--!> <p data-caret="pages::home::title">Original</p> -->',
 ])("never rewrites bindings in a non-HTML editing context: %s", async html => {
   const adapter = new InMemoryAdapter();
   await adapter.writeEntry("pages", "home", { title: "';globalThis.reviewMarker=1;//" });
@@ -40,6 +43,13 @@ it("uses actual attributes and the real opening-tag boundary", async () => {
   expect(hasCaretBindings(fake)).toBe(false);
   expect(await rewriteCaretAttributes('<img title=\'src="fake"\' data-caret="pages::home::image" src="/old.png">', adapter))
     .toBe('<img title=\'src="fake"\' data-caret="pages::home::image" src="/new.png">');
+});
+
+it.each(["<!-->", "<!--->", "</>"])("still rewrites bindings after the empty markup %s", async prefix => {
+  const adapter = new InMemoryAdapter();
+  await adapter.writeEntry("pages", "home", { title: "Stored" });
+  expect(await rewriteCaretAttributes(`${prefix}<p data-caret="pages::home::title">Old</p>`, adapter))
+    .toBe(`${prefix}<p data-caret="pages::home::title">Stored</p>`);
 });
 
 function authedContext() {

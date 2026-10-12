@@ -26,6 +26,9 @@ export function* scanHtmlTags(html: string): Generator<HtmlTag> {
       continue;
     }
     if (html.startsWith("<!--", start)) {
+      // `<!-->` and `<!--->` are complete (abruptly closed) empty comments.
+      const abrupt = /^<!---?>/.exec(html.slice(start, start + 6));
+      if (abrupt) { cursor = start + abrupt[0].length; continue; }
       const close = /--!?>/g;
       close.lastIndex = start + 4;
       const match = close.exec(html);
@@ -42,7 +45,14 @@ export function* scanHtmlTags(html: string): Generator<HtmlTag> {
     let pos = start + 1;
     const closing = html[pos] === "/";
     if (closing) pos++;
-    if (!/[a-zA-Z]/.test(html[pos] ?? "")) { cursor = pos; continue; }
+    if (!/[a-zA-Z]/.test(html[pos] ?? "")) {
+      if (!closing) { cursor = pos; continue; }
+      // `</` before a non-letter opens a bogus comment that runs to the next `>`.
+      const end = html.indexOf(">", pos);
+      if (end < 0) return;
+      cursor = end + 1;
+      continue;
+    }
     const nameStart = pos;
     while (pos < html.length && !SPACE.test(html[pos]) && html[pos] !== "/" && html[pos] !== ">") pos++;
     const name = html.slice(nameStart, pos).toLowerCase();
