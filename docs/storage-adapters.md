@@ -170,12 +170,13 @@ and returns false for those collections. Publish then saves the entry with
 `writeEntry` and keeps the file's other entries.
 
 The Markdown adapter treats `<contentRoot>/<name>.json` as a data collection
-when no `<contentRoot>/<name>/` directory holds Markdown entries. The file is an
-array of objects with a string `id`, or an object keyed by id, as Astro's
-`file()` loader reads it. Writes to one file are serialized in the process,
-replace a single entry, and keep the entry order, key order, indentation, and
-trailing newline. `preparePublicationSources` returns the whole updated file,
-so Git-on-publish commits it.
+when no `<contentRoot>/<name>/` directory holds Markdown entries. An array of
+objects with a string `id`, or an object whose values are all objects, holds
+one entry per item, as Astro's `file()` loader reads it. Any other object is a
+single entry whose id is the file name. Writes to one file are serialized in
+the process and change only the text of the values that differ, so the file's
+formatting, entry order, and key order survive. `preparePublicationSources`
+returns the whole updated file, so Git-on-publish commits it.
 
 ## Collection read baseline
 

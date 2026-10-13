@@ -3,10 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MarkdownAdapter } from "../../packages/core/src/runtime/storage/markdown-adapter";
+import { spliceJson } from "../../packages/core/src/runtime/storage/json-splice";
 import { SessionOverlayAdapter } from "../../packages/core/src/runtime/storage/session-overlay-adapter";
 import { executeMutation } from "../../packages/core/src/runtime/mutations/engine";
 import { publishOverlay } from "../../packages/core/src/runtime/publish";
-import { parseDataFile, writeDataEntry } from "../../packages/core/src/runtime/storage/data-file-codec";
+import { dataFileBinding, dataFileIds, dataFileShape, parseDataFile, readDataEntry, writeDataEntry } from "../../packages/core/src/runtime/storage/data-file-codec";
 
 const SITE = `[
   {
@@ -24,7 +25,7 @@ const SITE = `[
 
 describe("data-file codec", () => {
   it("keeps entry order, key order, indentation, and the trailing newline", () => {
-    const file = parseDataFile(SITE)!;
+    const file = parseDataFile(SITE, "site")!;
     const out = writeDataEntry(file, "faq", { image: "/new.webp", title: "Questions" });
     expect(JSON.parse(out)[1]).toEqual({ id: "faq", title: "Questions", image: "/new.webp" });
     expect(Object.keys(JSON.parse(out)[1])).toEqual(["id", "title", "image"]);
@@ -33,12 +34,76 @@ describe("data-file codec", () => {
   });
 
   it("supports objects keyed by id and rejects other shapes", () => {
-    const file = parseDataFile('{\n\t"home": { "title": "Hi" }\n}')!;
+    const file = parseDataFile('{\n\t"home": { "title": "Hi" }\n}', "pages")!;
     expect(JSON.parse(writeDataEntry(file, "about", { title: "About" }))).toEqual({ home: { title: "Hi" }, about: { title: "About" } });
     expect(writeDataEntry(file, "home", null)).toBe("{}");
-    expect(parseDataFile('["a", "b"]')).toBeNull();
-    expect(parseDataFile('{"version": 2}')).toBeNull();
-    expect(parseDataFile("not json")).toBeNull();
+    expect(parseDataFile('["a", "b"]', "x")).toBeNull();
+    expect(parseDataFile("not json", "x")).toBeNull();
+    expect(parseDataFile("42", "x")).toBeNull();
+  });
+
+  it("treats any other object as one entry named after the file", () => {
+    const file = parseDataFile('{\n  "name": "Elias",\n  "nav": [{ "label": "Home" }]\n}\n', "site")!;
+    expect(file.shape).toBe("single");
+    expect(dataFileIds(file)).toEqual(["site"]);
+    expect(readDataEntry(file, "site")).toEqual({ name: "Elias", nav: [{ label: "Home" }] });
+    expect(readDataEntry(file, "other")).toBeNull();
+    expect(writeDataEntry(file, "site", { nav: [{ label: "Start" }], name: "Elias Vent" }))
+      .toBe('{\n  "name": "Elias Vent",\n  "nav": [{ "label": "Start" }]\n}\n');
+    expect(() => writeDataEntry(file, "site", null)).toThrow();
+    expect(() => writeDataEntry(file, "other", { name: "x" })).toThrow();
+  });
+
+  it("maps a path inside the file to its entry and field", () => {
+    const value = JSON.parse(SITE);
+    expect(dataFileBinding("array", "site", value, ["1", "title"])).toEqual({ id: "faq", field: "title" });
+    expect(dataFileBinding("array", "site", value, ["0", "menu", "0", "label"])).toEqual({ id: "settings", field: "menu.0.label" });
+    expect(dataFileBinding("array", "site", value, ["1", "id"])).toBeNull();
+    expect(dataFileBinding("array", "site", value, ["1"])).toBeNull();
+    expect(dataFileBinding("object", "pages", {}, ["home", "hero", "title"])).toEqual({ id: "home", field: "hero.title" });
+    expect(dataFileBinding("single", "site", {}, ["nav", "0", "label"])).toEqual({ id: "site", field: "nav.0.label" });
+    expect(dataFileShape([])).toBe("array");
+    expect(dataFileShape({})).toBe("object");
+    expect(dataFileShape({ name: "x" })).toBe("single");
+    expect(dataFileShape("x")).toBeNull();
+  });
+});
+
+describe("spliceJson", () => {
+  const HAND = `{
+  "name": "Elias",
+  "nav": [
+    { "label": "Home", "href": "/" },
+    { "label": "About", "href": "/#about" }
+  ],
+  "ring": ["/a.webp", "/b.webp"],
+  "about": { "statement": "I shape \\"products\\"", "year": 2026 }
+}
+`;
+
+  it("changes only the text of values that differ", () => {
+    const before = JSON.parse(HAND);
+    const after = structuredClone(before);
+    after.nav[1].label = "About me";
+    after.about.statement = "New words";
+    expect(spliceJson(HAND, before, after, 2)).toBe(HAND
+      .replace('"label": "About"', '"label": "About me"')
+      .replace('"I shape \\"products\\""', '"New words"'));
+  });
+
+  it("re-serializes only a value whose structure changed, aligned to its line", () => {
+    const before = JSON.parse(HAND);
+    const after = structuredClone(before);
+    after.ring.push("/c.webp");
+    after.about.extra = true;
+    const out = spliceJson(HAND, before, after, 2);
+    expect(JSON.parse(out)).toEqual(after);
+    expect(out).toContain('{ "label": "Home", "href": "/" }');
+    expect(out).toContain('"ring": [\n    "/a.webp",\n    "/b.webp",\n    "/c.webp"\n  ]');
+  });
+
+  it("returns the source unchanged when nothing differs", () => {
+    expect(spliceJson(HAND, JSON.parse(HAND), JSON.parse(HAND), 2)).toBe(HAND);
   });
 });
 

@@ -111,7 +111,7 @@ export class MarkdownAdapter implements StorageAdapter {
       if ((error as { code?: string }).code === "ENOENT") return null;
       throw new ContentReadError("storage_error");
     }
-    const file = parseDataFile(source);
+    const file = parseDataFile(source, collection);
     return file ? { path, file } : null;
   }
 
