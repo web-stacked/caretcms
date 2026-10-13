@@ -11,6 +11,7 @@
 
 import { scanHtmlTags } from "./html-tokens.js";
 import { hasStega, stegaClean, stegaDecode } from "./stega.js";
+import { payloadKey } from "./stega-policy.js";
 
 const BINDING_KEY = /^[a-z0-9][a-z0-9_-]*::[^:\s]+::[^\s]+$/i;
 
@@ -29,8 +30,8 @@ export function promoteAttributeStega(html: string): string {
       const raw = html.slice(attribute.start, attribute.end);
       if (!hasStega(raw)) continue;
       if (tag.name === "img" && name === "src") {
-        const key = stegaDecode<unknown>(attribute.value);
-        if (typeof key === "string" && BINDING_KEY.test(key)) imageKey = key;
+        const key = payloadKey(stegaDecode<unknown>(attribute.value), stegaClean(attribute.value));
+        if (key && BINDING_KEY.test(key)) imageKey = key;
       }
       edits.push({ start: attribute.start, end: attribute.end, text: stegaClean(raw) });
     }
@@ -47,4 +48,16 @@ export function promoteAttributeStega(html: string): string {
   let out = html;
   for (const edit of edits) out = out.slice(0, edit.start) + edit.text + out.slice(edit.end);
   return out;
+}
+
+/**
+ * Remove stega from places that are not page content: the document head (the
+ * tab title, meta tags, structured data) and script and style text anywhere.
+ * Nothing there can be clicked, and in the title it shows as stray symbols.
+ */
+export function cleanNonContentStega(html: string): string {
+  if (!hasStega(html)) return html;
+  return html
+    .replace(/<head[\s>][\s\S]*?<\/head\s*>/i, (head) => stegaClean(head))
+    .replace(/<(script|style)\b[\s\S]*?<\/\1\s*>/gi, (block) => stegaClean(block));
 }

@@ -6,6 +6,7 @@
 
 // Binding — ADR-004 explicit inline binding (power-user API)
 export { bindEntry } from "./bind.js";
+export { bindCollectionEntries, bindCollectionEntry, bindDataFile } from "./content-bindings.js";
 
 // Content loading — read stored data in .astro frontmatter (power-user API)
 export { loadEntry, loadCollection, listCollections } from "./content.js";

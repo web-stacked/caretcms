@@ -39,6 +39,12 @@ export interface CaretRequestContext {
    * just `process.env`. Null/absent on Node hosts, where `process.env` is used.
    */
   runtimeEnv?: Record<string, unknown> | null;
+  /**
+   * Editor requests only: the stored (draft-aware) entries of every data-file
+   * collection, by collection then id. Imported data files read it
+   * synchronously during render; see `content-bindings.ts`.
+   */
+  dataFiles?: Map<string, Map<string, Record<string, unknown>>>;
 }
 
 // Vite may evaluate more than one copy of @caretcms/core during Astro dev

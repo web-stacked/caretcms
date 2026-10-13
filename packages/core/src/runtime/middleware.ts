@@ -2,11 +2,12 @@ import type { AuthorizationAction, EditorIdentity, IdentityAdapter, StorageAdapt
 import { isEditorAuthenticated, getEditorId } from "./auth/session.js";
 import { isDemoModeEnabled, resolveDemoSession } from "./auth/demo-session.js";
 import { getRuntimeServices } from "./providers.js";
-import { runWithRequestContext } from "./request-context.js";
+import { runWithRequestContext, type CaretRequestContext } from "./request-context.js";
+import { loadDataFileEntries } from "./content-bindings.js";
 import { rewriteCaretAttributes } from "./rewrite.js";
 import { hasCaretBindings } from "./html-tokens.js";
 import { hasStega, stegaClean } from "./stega.js";
-import { promoteAttributeStega } from "./stega-attributes.js";
+import { cleanNonContentStega, promoteAttributeStega } from "./stega-attributes.js";
 import { SessionOverlayAdapter } from "./storage/session-overlay-adapter.js";
 import { EDITOR_ID_RE } from "./storage/id-contracts.js";
 import { getDevAuthContext } from "./dev-request-context.js";
@@ -239,6 +240,13 @@ async function prepareRequest(
     // overlayActive), so it can only be resolved here, inside the ALS scope.
     // Mutate the live context object so the loaders see the gate during render.
     requestContext.editor = isEditor;
+    if (isEditor) {
+      try {
+        (requestContext as CaretRequestContext).dataFiles = await loadDataFileEntries(adapter);
+      } catch (error) {
+        console.warn("[caretcms] Data-file drafts unavailable:", error);
+      }
+    }
     context.locals.isEditor = isEditor;
     context.locals.caretIdentity = identity;
     // A downstream 304 has no body to rewrite and may validate a public source
@@ -274,13 +282,16 @@ async function prepareRequest(
       // Keys hidden in attribute values (image src, link href) would otherwise
       // reach the browser inside the URL. Clean them and bind keyed images.
       if (requestContext.editor && hasStega(html)) {
-        const promoted = promoteAttributeStega(html);
+        const promoted = promoteAttributeStega(cleanNonContentStega(html));
         if (promoted !== html) {
           html = promoted;
           rewritten = true;
         }
       }
       const hasBindings = hasCaretBindings(html);
+      // Stega in the page becomes bindings in the browser (stega-hydrate), so
+      // it counts as editable content for the empty-state hint below.
+      const hasHiddenBindings = requestContext.editor && hasStega(html);
       if (hasBindings) {
         // An authenticated editor in server delivery reads live base content
         // (field edits save straight through), but their inline BODY-block
@@ -323,6 +334,7 @@ async function prepareRequest(
         services.enableInlineEditor &&
         requestContext.editor &&
         !hasBindings &&
+        !hasHiddenBindings &&
         !isCmsOwnedPath(context, services.mountPath, services.apiBasePath)
       ) {
         html = injectSigninHint(html, services.mountPath);

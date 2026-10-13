@@ -15,6 +15,17 @@ const TEMPLATE_HEADLINE = "Launch an Astro site with live inline editing.";
 const HERO_IMAGE = 'img[data-caret="hero.image"]';
 const SAMPLE_PNG = fileURLToPath(new URL("./fixtures/sample.png", import.meta.url));
 
+/** Mirrors contentHash in runtime/stega-policy.ts. */
+function contentHash(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < normalized.length; i++) {
+    hash ^= normalized.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 function stegaTag(value: string, payload: unknown): string {
   const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
   const start = String.fromCodePoint(0xe0000);
@@ -83,6 +94,12 @@ test.describe("inline editor — click to edit", () => {
   test("stega hydration promotes only valid bindings and removes hidden metadata", async ({ page }) => {
     const valid = stegaTag("Hydrated headline", "pages::home::hero.headline");
     const invalid = stegaTag("Invalid metadata", "not-a-binding");
+    // Automatic bindings carry a content hash: they bind the element holding the
+    // whole value (the heading around per-word spans), and never a fragment.
+    const statement = "Motion with meaning";
+    const hashed = { k: "pages::home::hero.subtext", h: contentHash(statement) };
+    const splitWords = `<span>Motion</span> <span>with</span> <span>${stegaTag("meaning", hashed)}</span>`;
+    const fragment = stegaTag("meaning", hashed);
     await page.route("**/*", async (route) => {
       const request = route.request();
       const url = new URL(request.url());
@@ -93,7 +110,8 @@ test.describe("inline editor — click to edit", () => {
       const response = await route.fetch();
       const body = (await response.text()).replace(
         /(<main\b[^>]*data-caret-scope="pages::home"[^>]*>)/,
-        `$1<p id="stega-valid">${valid}</p><p id="stega-invalid">${invalid}</p>`,
+        `$1<p id="stega-valid">${valid}</p><p id="stega-invalid">${invalid}</p>` +
+          `<h2 id="stega-split">${splitWords}</h2><p id="stega-fragment">Only ${fragment}</p>`,
       );
       await route.fulfill({ response, body });
     });
@@ -107,6 +125,10 @@ test.describe("inline editor — click to edit", () => {
     const invalidElement = page.locator("#stega-invalid");
     await expect(invalidElement).toHaveText("Invalid metadata");
     await expect(invalidElement).not.toHaveAttribute("data-caret", /.*/);
+    await expect(page.locator("#stega-split")).toHaveAttribute("data-caret", "pages::home::hero.subtext");
+    await expect(page.locator("#stega-split span").first()).not.toHaveAttribute("data-caret", /.*/);
+    await expect(page.locator("#stega-fragment")).toHaveText("Only meaning");
+    await expect(page.locator("#stega-fragment")).not.toHaveAttribute("data-caret", /.*/);
   });
 
   test("Studio panel survives blocked session storage and closes from iframe Escape", async ({ page }) => {

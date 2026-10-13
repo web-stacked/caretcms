@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { fileURLToPath } from "node:url";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { AstroIntegration } from "astro";
 import { COLLECTION_NAME_RE } from "./runtime/storage/id-contracts.js";
 import type {
@@ -126,6 +126,14 @@ type BaseCaretOptions = {
   apiBasePath?: string;
   enableAdmin?: boolean;
   enableInlineEditor?: boolean;
+  /**
+   * Make content read as data editable on the page: `getCollection()` /
+   * `getEntry()` results and JSON files imported from the content root carry
+   * their storage address during an editor's request. Visitors are unaffected.
+   * Default true; set false if a theme compares content strings in ways the
+   * built-in rules do not anticipate.
+   */
+  bindContent?: boolean;
   /**
    * The page the editor lands on after a successful login. Must be an
    * absolute, same-origin path (starts with a single `/`). An explicit
@@ -278,6 +286,7 @@ interface ResolvedCaretOptions {
   deployment: CaretDeploymentProvider | null;
   enableAdmin: boolean;
   enableInlineEditor: boolean;
+  bindContent: boolean;
   editorHome: string;
   cloud: CaretCloudOptions | null;
   schemas: Record<string, JsonSchemaDefinition>;
@@ -611,7 +620,7 @@ function assertDeliveryMatchesAstroOutput(
  *  a typo (`mountpath`) silently falling back to a default — name it instead. */
 const KNOWN_OPTION_KEYS = new Set([
   "mode", "cloud", "storage", "uploads", "identity", "deployment", "mountPath", "apiBasePath",
-  "enableAdmin", "enableInlineEditor", "editorHome", "schemas", "collections", "locale", "dictionary",
+  "enableAdmin", "enableInlineEditor", "bindContent", "editorHome", "schemas", "collections", "locale", "dictionary",
   "allowedClasses", "bodyEditing", "delivery", "theme", "brand",
 ]);
 
@@ -665,6 +674,7 @@ function resolveCaretOptions(options: CaretOptions): ResolvedCaretOptions {
       : null,
     enableAdmin: options.enableAdmin ?? mode !== "cloud",
     enableInlineEditor: options.enableInlineEditor ?? mode !== "cloud",
+    bindContent: options.bindContent ?? true,
     editorHome,
     cloud,
     schemas,
@@ -764,28 +774,71 @@ function createRuntimeProvidersPlugin(
   };
 }
 
+/** The content root Markdown storage manages, or null for other storage. */
+function markdownContentRoot(storage: RuntimeProviderReference | null | undefined, projectRoot: string): string | null {
+  if (!storage || storage.entrypoint !== MARKDOWN_STORAGE_ENTRYPOINT) return null;
+  const configured = storage.options?.contentRoot;
+  return typeof configured === "string" ? resolve(projectRoot, configured) : join(projectRoot, "src", "content");
+}
+
+/**
+ * JSON Schemas Astro generates for each content collection
+ * (`.astro/collections/<name>.schema.json`, written by `astro sync`). They give
+ * the Studio real field types, enums, and defaults without a `schemas` option.
+ * Collections without object properties (`z.any()`) are skipped.
+ */
+export function readAstroCollectionSchemas(dir: string): Record<string, JsonSchemaDefinition> {
+  const out: Record<string, JsonSchemaDefinition> = {};
+  let files: string[];
+  try {
+    files = readdirSync(dir);
+  } catch {
+    return out;
+  }
+  for (const file of files) {
+    const match = /^(.+)\.schema\.json$/.exec(file);
+    if (!match || !COLLECTION_NAME_RE.test(match[1])) continue;
+    try {
+      const schema = JSON.parse(readFileSync(join(dir, file), "utf8")) as Record<string, unknown>;
+      const properties = schema.properties as Record<string, unknown> | undefined;
+      if (schema.type !== "object" || !properties || Object.keys(properties).length === 0) continue;
+      const { $schema: _draft, ...rest } = schema;
+      const { $schema: _field, ...fields } = properties;
+      if (Object.keys(fields).length === 0) continue;
+      out[match[1]] = { ...rest, properties: fields } as JsonSchemaDefinition;
+    } catch {
+      // A partial write during `astro sync` is retried on the next load.
+    }
+  }
+  return out;
+}
+
 function createSchemasPlugin(
   schemas: Record<string, JsonSchemaDefinition>,
   collections: Record<string, CollectionStudioConfig>,
+  astroSchemasDir: string | null,
 ) {
-  const hasSchemas = Object.keys(schemas).length > 0;
-  const hasCollections = Object.keys(collections).length > 0;
-
-  const source = hasSchemas || hasCollections
-    ? [
-        `import { registerCollectionSchema, registerCollectionStudioConfig } from "@caretcms/core/schema-registry";`,
-        `import { buildTemplate } from "@caretcms/core/schema-utils";`,
-        `const schemas = ${JSON.stringify(schemas)};`,
-        `const collections = ${JSON.stringify(collections)};`,
-        `for (const [collection, schema] of Object.entries(schemas)) {`,
-        `  registerCollectionSchema(collection, schema, buildTemplate(schema), collections[collection]);`,
-        `}`,
-        `for (const [collection, metadata] of Object.entries(collections)) {`,
-        `  registerCollectionStudioConfig(collection, metadata);`,
-        `}`,
-        `export const registered = true;`,
-      ].join("\n")
-    : `export const registered = false;`;
+  // Read when the module first loads, after Astro has synced its collections.
+  const render = (): string => {
+    const merged = { ...(astroSchemasDir ? readAstroCollectionSchemas(astroSchemasDir) : {}), ...schemas };
+    const hasSchemas = Object.keys(merged).length > 0;
+    const hasCollections = Object.keys(collections).length > 0;
+    return hasSchemas || hasCollections
+      ? [
+          `import { registerCollectionSchema, registerCollectionStudioConfig } from "@caretcms/core/schema-registry";`,
+          `import { buildTemplate } from "@caretcms/core/schema-utils";`,
+          `const schemas = ${JSON.stringify(merged)};`,
+          `const collections = ${JSON.stringify(collections)};`,
+          `for (const [collection, schema] of Object.entries(schemas)) {`,
+          `  registerCollectionSchema(collection, schema, buildTemplate(schema), collections[collection]);`,
+          `}`,
+          `for (const [collection, metadata] of Object.entries(collections)) {`,
+          `  registerCollectionStudioConfig(collection, metadata);`,
+          `}`,
+          `export const registered = true;`,
+        ].join("\n")
+      : `export const registered = false;`;
+  };
 
   return {
     name: "caretcms:schemas",
@@ -797,9 +850,85 @@ function createSchemasPlugin(
     },
     load(id: string) {
       if (id === RESOLVED_VIRTUAL_SCHEMAS_MODULE_ID) {
-        return source;
+        return render();
       }
       return null;
+    },
+  };
+}
+
+const RESERVED_WORDS = new Set(("await break case catch class const continue debugger default delete do else enum export extends " +
+  "false finally for function if implements import in instanceof interface let new null package private protected public " +
+  "return static super switch this throw true try typeof var void while with yield arguments eval").split(" "));
+
+const ASTRO_CONTENT_BINDINGS_ID = "\0caretcms:astro-content";
+const DATA_FILE_PREFIX = "\0caretcms:data-file:";
+
+/** The `astro:content` a theme imports, with reads bound for editors. */
+const ASTRO_CONTENT_BINDINGS_SOURCE = [
+  `export * from "astro:content";`,
+  `import * as content from "astro:content";`,
+  `import { bindCollectionEntries, bindCollectionEntry } from "@caretcms/core/runtime";`,
+  `export const getCollection = (...args) => content.getCollection(...args).then(bindCollectionEntries);`,
+  `export const getEntry = (...args) => Promise.resolve(content.getEntry(...args)).then(bindCollectionEntry);`,
+  `export const getEntries = (...args) => content.getEntries(...args).then(bindCollectionEntries);`,
+].join("\n");
+
+type PluginContextLike = {
+  environment?: { config?: { consumer?: string } };
+  resolve(source: string, importer?: string, options?: { skipSelf?: boolean }): Promise<{ id: string; external?: boolean | string } | null>;
+  addWatchFile(file: string): void;
+};
+
+/**
+ * Server-side only: theme imports of `astro:content` go through a module that
+ * binds collection reads, and JSON files imported from the content root are
+ * wrapped with `bindDataFile`. Astro's own modules, `content.config`,
+ * `live.config`, and browser code keep the originals.
+ */
+function createContentBindingsPlugin(contentRoot: string | null) {
+  return {
+    name: "caretcms:content-bindings",
+    enforce: "pre" as const,
+    // Ordered first: Astro's own plugin also resolves `astro:content`.
+    resolveId: {
+      order: "pre" as const,
+      async handler(this: PluginContextLike, source: string, importer: string | undefined, options?: { ssr?: boolean }) {
+        if (!importer || importer.startsWith("\0") || importer.includes("/node_modules/")) return null;
+        if (this.environment?.config?.consumer === "client" || options?.ssr === false) return null;
+        if (source === "astro:content") {
+          // Collection config files define collections; Astro checks where
+          // `defineLiveCollection` is called from, so they get the original.
+          return /(?:content|live)\.config\.[cm]?[jt]s$/.test(importer) ? null : ASTRO_CONTENT_BINDINGS_ID;
+        }
+        if (!contentRoot || !/\.json(\?|$)/.test(source)) return null;
+        const target = await this.resolve(source, importer, { skipSelf: true });
+        if (!target || target.external) return null;
+        const file = target.id.split("?")[0];
+        const name = basename(file, ".json");
+        if (target.id.includes("?") || dirname(file) !== contentRoot || !COLLECTION_NAME_RE.test(name)) return null;
+        // A `.js` suffix keeps Vite's JSON plugin from parsing the generated module.
+        return `${DATA_FILE_PREFIX}${file}.js`;
+      },
+    },
+    load(this: PluginContextLike, id: string) {
+      if (id === ASTRO_CONTENT_BINDINGS_ID) return ASTRO_CONTENT_BINDINGS_SOURCE;
+      if (!id.startsWith(DATA_FILE_PREFIX)) return null;
+      const file = id.slice(DATA_FILE_PREFIX.length, -".js".length);
+      this.addWatchFile(file);
+      const value: unknown = JSON.parse(readFileSync(file, "utf8"));
+      const lines = [
+        `import { bindDataFile } from "@caretcms/core/runtime";`,
+        `const data = bindDataFile(${JSON.stringify(value)}, ${JSON.stringify(basename(file, ".json"))});`,
+        `export default data;`,
+      ];
+      // Keep Vite's named exports for top-level keys (`import { nav } from …`).
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        for (const key of Object.keys(value)) {
+          if (/^[A-Za-z_$][\w$]*$/.test(key) && !RESERVED_WORDS.has(key)) lines.push(`export const ${key} = data[${JSON.stringify(key)}];`);
+        }
+      }
+      return lines.join("\n");
     },
   };
 }
@@ -995,6 +1124,11 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
             ? randomBytes(4).toString("hex")
             : null;
 
+        // Markdown storage owns src/content: its JSON files are data
+        // collections, and Astro's generated schemas describe its collections.
+        const contentRoot = markdownContentRoot(resolved.storage, fileURLToPath(config.root));
+        const astroSchemasDir = contentRoot ? fileURLToPath(new URL(".astro/collections/", config.root)) : null;
+
         updateConfig({
           vite: {
             define: {
@@ -1015,7 +1149,10 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
             },
             plugins: [
               createRuntimeProvidersPlugin(resolved, effectiveDelivery),
-              createSchemasPlugin(resolved.schemas, resolved.collections),
+              createSchemasPlugin(resolved.schemas, resolved.collections, astroSchemasDir),
+              ...(resolved.bindContent && resolved.enableInlineEditor
+                ? [createContentBindingsPlugin(contentRoot)]
+                : []),
             ],
           },
         });
