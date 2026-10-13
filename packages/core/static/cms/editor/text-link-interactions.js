@@ -161,7 +161,7 @@ export function createTextLinkInteractions({
       : null;
 
     // Ctrl+S / Cmd+S — save focused element by triggering blur save
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
       e.preventDefault();
       if (focused && focused.matches('[data-caret]')) {
         focused.blur();
@@ -170,7 +170,7 @@ export function createTextLinkInteractions({
     }
 
     // Ctrl+K / Cmd+K — insert link in a rich or linkable field
-    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
       if (focused && focused.matches('[data-caret]') && focused.hasAttribute('data-caret-rich')) {
         // Rich text mode — use execCommand('createLink')
         e.preventDefault();

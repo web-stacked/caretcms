@@ -71,6 +71,36 @@ Cloudflare setup requires a custom Worker entrypoint that re-exports
 `CaretCmsContent`, a Durable Object binding, and a SQLite class lifecycle
 declaration. See [coordinated Cloudflare storage](../../docs/cloudflare-durable-storage.md).
 
+### Atomic editor draft baseline checks
+
+For a new deployment, enable coordinated private drafts:
+
+```js
+cloudflareDurableStorage({
+  binding: "CMS_CONTENT",
+  instanceName: "production",
+  editorDrafts: "coordinated",
+})
+```
+
+Base content and each editor's private records remain distinct, but share one
+object's transactions. A base edit racing a new draft save or body-to-structured
+conversion rejects the entire batch. Paired preview snapshots are transactional.
+Private data, revisions, history, metadata, indexes, and receipts are scoped by
+editor. Session overlays retain separate expiring objects and cannot schedule
+expiry on the shared base object. Publication and subsequent cleanup remain
+separate operations with the existing recovery journal.
+
+The default `editorDrafts: "separate"` preserves existing object names and drafts.
+Before changing modes, back up existing private drafts and finish pending
+publication recovery, then publish/discard drafts or explicitly migrate each
+owner's raw records and associated revision/history/receipt metadata. Reload
+clients after switching. There is no automatic copy or dual read; switching
+modes with pending drafts leaves them in the previous object layout.
+Deploy the updated adapter and `CaretCmsContent` together. Scoped operations use
+new command envelopes so an older class rejects them rather than treating a
+private write as a base write. There is no fallback after rejection.
+
 ## KV concurrency: single-writer only
 
 > **Important.** The KV adapter provides best-effort optimistic concurrency, but
@@ -83,6 +113,52 @@ editors saving the same entry — or two saves to different entries in the same
 collection — can read the same revision/index, both pass the check, and the
 later write silently wins (a lost update). The separate Durable Object adapter
 addresses this; the KV adapter deliberately retains its existing behavior.
+
+KV now records entry and collection deletions separately from content. These
+markers prevent bundled `.caret/data` content from reappearing after a delete.
+Recreating a deleted collection starts empty, including after later builds add
+bundled entries. Old raw entry keys remain readable. A missing key from an older
+release cannot reveal whether it was intentionally deleted; replay those
+deletions after upgrading if necessary.
+
+The Durable Object adapter also implements a transactional content/revision
+snapshot read. Deploy the updated `CaretCmsContent` class together with the
+adapter so the snapshot command and persistent bundled-fallback markers are
+available. Deleted Durable Object collections stay empty after explicit or
+implicit recreation, including when a later build adds bundled entries. Deletion
+also invalidates revisions for bundled entries that never had stored records.
+Existing deletion markers are retained during recreation; an older release that
+already discarded its marker cannot reveal the original deletion intent, so
+replay those intended deletions after upgrading.
+
+Both adapters declare their guarantees: KV remains eventual/single-writer,
+while Durable Object entry snapshots and batch commits are transactional.
+Session stores declare configured expiry; editor drafts are durable. Combined
+base/draft wrappers do not claim atomic comparison across separate objects.
+Opt-in `editorDrafts: "coordinated"` places private editor keyspaces in the
+base object and supplies an atomic paired-snapshot/draft-commit capability.
+Collection deletion retains and advances affected entry revisions so recreation
+cannot make an old conditional save valid again. Historical discarded versions
+cannot be reconstructed; reload open clients when upgrading. See
+[adapter guarantees and the public conformance runner](../../docs/storage-adapters.md).
+
+KV overlays now retain their parent `keyPrefix`, isolating the same editor or
+session identity between prefixed sites sharing one binding. Unprefixed stores
+keep their existing `draft/<editor>/` and `session/<session>/` keys. Older
+prefixed deployments wrote overlays into those global paths. Back them up and
+assign each intended draft to its owning site's new prefixed editor overlay
+explicitly; ownership cannot be inferred safely, so there is no automatic copy.
+Ephemeral sessions can start fresh.
+
+Repository `npm run test:platform` runs conformance, restart, rollback,
+lost-acknowledgement, isolation, and alarm-expiry checks in local Miniflare/workerd
+without an account or deployment. See [platform tests](../../tests/platform/README.md)
+for the remaining remote-platform limits.
+
+For existing deployments, see [Cloudflare upgrades](../../docs/cloudflare-upgrades.md)
+for historical format checks, ambiguous old KV overlay ownership, retained
+deletion intent, and the separate/coordinated draft transition. The native suite
+now upgrades persisted state written by the exact released v0.5.0 storage code.
 
 **Guidance:** treat KV-backed deployments as **single-writer** (one editor at a
 time, or the demo/preview overlay which is per-session and isolated). Don't run

@@ -251,6 +251,7 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
   let richClassPromotable = 0; // rich-class-promotable (would tag with --rich-class)
   let inIterator = 0; // inside-iterator (would bind with --bind-collections)
   let belowConfidence = 0; // dropped by the --min-confidence floor
+  let fromData = 0; // dynamic-content / dynamic-src (bound where the data loads)
   const styledClasses = new Map<string, Set<string>>(); // tag → classes to bless
   const richClassToBless = new Map<string, Set<string>>(); // classes on rich-class blocks
   for (const p of plans) {
@@ -264,6 +265,7 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
         richClassPromotable++;
         collectStyledClasses(s.node, richClassToBless);
       } else if (s.reason === "inside-iterator") inIterator++;
+      else if (s.reason === "dynamic-content" || s.reason === "dynamic-src") fromData++;
     }
     // Once --rich-class is on, the styled-span blocks are TAGGED (not skipped),
     // so harvest their classes from the promoted rich candidates for the
@@ -288,6 +290,12 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
     out += `\n↪ More can be made editable: ${parts.join(", ")}.\n` +
       `  Re-run with --all to include them (or the individual flags: ` +
       `--bind-collections --bind-routes --rich --min-confidence low).\n`;
+  }
+  if (fromData) {
+    out += `↪ ${fromData} spot(s) render text or images from props or data. CaretCMS makes content\n` +
+      `  from getCollection()/getEntry() and JSON files in src/content editable in the browser\n` +
+      `  on its own. Other data can be bound where it is loaded:\n` +
+      `    const data = await editable("<collection>::<id>", value);  // from "@caretcms/core"\n`;
   }
   if (styled) {
     const snippet = styledClasses.size

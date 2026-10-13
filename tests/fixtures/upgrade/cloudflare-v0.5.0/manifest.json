@@ -1,0 +1,12 @@
+{
+  "release": "0.5.0",
+  "commit": "1191d9f19f96d3aec856412b1a0799ff3d9ff357",
+  "sha256": {
+    "packages/cloudflare/src/adapters/kv-storage.ts": "d106413955c7310f8918339f511033588d9b4933fcb5a716f35a40c014a494c3",
+    "packages/cloudflare/src/adapters/durable-storage.ts": "98bfe6e4d3add54ef4a6e8d78cc649fcc1faea5d371b4a88b48080cae7fe8f5d",
+    "packages/cloudflare/src/durable-storage-protocol.ts": "cab6680683e4ee4c4d2fa979b590458768972119fddf265258a6e95d7dac5905",
+    "packages/cloudflare/src/durable-object.ts": "7f6be8650e2c583162bce332377b3082ca6bba3ef7e1408a50bb1652b30749ab",
+    "packages/cloudflare/src/runtime/env.ts": "e7c05c84f428f9cf38a5fbb79c8bdd04f3537ad8172e1413d77cb93b801f9b4d",
+    "packages/core/src/runtime/storage/id-contracts.ts": "4e6b27caf6ca341a571fb646ec59a2de0349db99dcbc9c9402de6786228bf9f7"
+  }
+}

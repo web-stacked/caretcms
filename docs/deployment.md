@@ -49,8 +49,9 @@ caret({
   CARET_GIT_ON_PUBLISH=true
   ```
   Best-effort and scoped to the content dir; a git failure never blocks the publish.
-- **Drafts** land under `.caret/drafts/<editorId>/` — add `.caret/` to `.gitignore`
-  so unpublished drafts never get committed; only a Publish writes to tracked files.
+- **Drafts** land under `.caret/drafts/<editorId>/` — add `.caret/drafts/` to
+  `.gitignore` (`caretize init` does) so unpublished drafts never get committed;
+  only a Publish writes to tracked files.
 
 ## Cloudflare Durable Objects/R2 (coordinated edge path)
 

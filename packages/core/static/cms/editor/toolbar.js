@@ -73,6 +73,7 @@ function renderToolbar(staticDelivery) {
       <div class="cms-toolbar-right">
         ${renderDraftControls(staticDelivery)}
         <button type="button" class="cms-retry-rebuild-btn" hidden>Retry deploy</button>
+        <button type="button" class="cms-retry-journal-btn" hidden>Retry Git history</button>
         <div class="cms-mode-switch" role="group" aria-label="Page mode">
           <button type="button" class="cms-mode-edit" aria-pressed="true">Edit</button>
           <button type="button" class="cms-mode-preview" aria-pressed="false">Preview</button>
@@ -94,9 +95,9 @@ function renderToolbar(staticDelivery) {
             </button>
           </div>
         </details>
-        <button class="cms-exit-btn" type="button" title="Sign out">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          Sign out
+        <button class="cms-exit-btn" type="button" title="Sign out" aria-label="Sign out">
+          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          <span class="cms-btn-label">Sign out</span>
         </button>
       </div>
     </div>
@@ -133,13 +134,35 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
   const statusDot = toolbar.querySelector('.cms-status-dot');
   const statusText = toolbar.querySelector('.cms-status-text');
 
-  /** @param {ToolbarStatusState} state @param {string} text */
-  function setStatus(state, text) {
+  /** @param {ToolbarStatusState | 'dirty'} state @param {string} text */
+  function showStatus(state, text) {
     if (statusDot) {
       statusDot.className = `cms-status-dot cms-status-${state}`;
     }
     if (statusText && text) {
       statusText.textContent = text;
+    }
+  }
+
+  // The status shown before "Unsaved changes", restored if the edit is undone.
+  /** @type {{ dot: string, text: string } | null} */
+  let beforeUnsaved = null;
+
+  /** @param {ToolbarStatusState} state @param {string} text */
+  function setStatus(state, text) {
+    beforeUnsaved = null;
+    showStatus(state, text);
+  }
+
+  /** @param {boolean} unsaved */
+  function setUnsaved(unsaved) {
+    if (unsaved && !beforeUnsaved) {
+      beforeUnsaved = { dot: statusDot?.className ?? '', text: statusText?.textContent ?? '' };
+      showStatus('dirty', 'Unsaved changes');
+    } else if (!unsaved && beforeUnsaved) {
+      if (statusDot) statusDot.className = beforeUnsaved.dot;
+      if (statusText) statusText.textContent = beforeUnsaved.text;
+      beforeUnsaved = null;
     }
   }
 
@@ -291,11 +314,15 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
   });
 
   let canPublishDrafts = true;
+  let pendingGitHistory = false;
+  const retryJournalButton = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-retry-journal-btn'));
   const retryRebuildButton = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-retry-rebuild-btn'));
   async function fetchDraftCount() {
     try {
       const data = await draftClient.getState();
       canPublishDrafts = data.canPublish;
+      pendingGitHistory = data.journalPending > 0;
+      if (retryJournalButton) retryJournalButton.hidden = !data.retryJournal;
       const publishButton = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-publish-btn'));
       if (publishButton) publishButton.hidden = !data.canPublish;
       if (retryRebuildButton) retryRebuildButton.hidden = !data.retryRebuild || !data.canPublish;
@@ -310,6 +337,7 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
     setStatus('saving', 'Publishing…');
     try {
       const presentation = presentPublishResult(await draftClient.publish());
+      await fetchDraftCount();
       if (retryRebuildButton) retryRebuildButton.hidden = !presentation.retryAvailable;
       if (presentation.status) {
         setStatus(presentation.status.state, presentation.status.text);
@@ -345,6 +373,14 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
       }
     }
 
+    // A password session receives a new editor ID on its next login. Private
+    // journal receipts remain on disk, but that new session cannot reopen them.
+    await fetchDraftCount();
+    if (pendingGitHistory && !(await draftsSurviveSignOut()) && !(await confirmToolbarAction({
+      title: 'Git history is pending',
+      copy: 'Your content is published. Pending Git records from this password session cannot be reopened after signing out. Cancel to retry Git history, or sign out and leave the records for an operator to review.',
+      confirmLabel: 'Sign out',
+    }))) return;
     clearDirty();
     await onLogout();
   });
@@ -406,6 +442,28 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
     } finally { retryRebuildButton.disabled = false; }
   });
 
+  retryJournalButton?.addEventListener('click', async () => {
+    retryJournalButton.disabled = true;
+    setStatus('saving', 'Recording Git history…');
+    try {
+      const data = await draftClient.retryJournal();
+      pendingGitHistory = data.pending > 0;
+      retryJournalButton.hidden = data.pending === 0;
+      if (data.pending > 0) {
+        setStatus('error', 'Git history pending');
+        showToast(data.blocked > 0
+          ? 'Some history records need review because published content has advanced. Your content is unchanged.'
+          : 'Git history could not finish. Check the repository and retry. Your content is unchanged.', 'error');
+      } else {
+        setStatus('idle', 'Git history recorded');
+        showToast('Git history recorded. Your published content is unchanged.', 'success');
+      }
+    } catch {
+      setStatus('error', 'Git history pending');
+      showToast('Git history could not finish. Check the repository and retry. Your content is unchanged.', 'error');
+    } finally { retryJournalButton.disabled = false; }
+  });
+
   void deploymentStatus.refresh();
 
   const studioButton = toolbar.querySelector('.cms-studio-btn');
@@ -419,5 +477,6 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
     editModeButton,
     previewModeButton,
     setStatus,
+    setUnsaved,
   };
 }

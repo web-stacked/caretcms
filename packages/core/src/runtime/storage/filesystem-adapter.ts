@@ -1,8 +1,8 @@
 import { ContentReadError } from "../content-errors.js";
-import type { DeploymentTarget, RebuildReceipt } from "../../types.js";
+import type { DeploymentTarget, RebuildReceipt, GitJournalReceipt } from "../../types.js";
 import { mkdir, readFile, readdir, rm, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { CollectionMetadata, EntryData, HistoryEntry, StorageAdapter } from "../../types.js";
+import type { CollectionMetadata, EntryData, EntrySnapshot, HistoryEntry, StorageAdapter, PublicationSourceSnapshot } from "../../types.js";
 import { atomicWrite } from "./atomic-write.js";
 import { assertFilesystemRuntime } from "./fs-runtime.js";
 import { SidecarMetaStore, listCollectionDirs } from "./sidecar-meta-store.js";
@@ -19,6 +19,8 @@ function asObjectRecord(value: unknown): Record<string, unknown> | null {
  * collection-metadata concerns to a shared `SidecarMetaStore` (`.caretcms/`).
  */
 export class FilesystemAdapter implements StorageAdapter {
+  readonly guarantees = Object.freeze({ persistence: "durable", snapshots: "process",
+    commits: "process", collectionDeletion: "content" } as const);
   private readonly dataRoot: string;
   private readonly meta: SidecarMetaStore;
   private readonly draftsRoot: string;
@@ -37,6 +39,10 @@ export class FilesystemAdapter implements StorageAdapter {
   getDeploymentTarget(): Promise<DeploymentTarget | null> { return this.meta.getDeploymentTarget(); }
   setDeploymentTarget(target: DeploymentTarget | null): Promise<void> { return this.meta.setDeploymentTarget(target); }
 
+  listGitJournalReceipts(): Promise<GitJournalReceipt[]> { return this.meta.listGitJournalReceipts(); }
+  saveGitJournalReceipt(receipt: GitJournalReceipt): Promise<void> { return this.meta.saveGitJournalReceipt(receipt); }
+  deleteGitJournalReceipt(operationId: string): Promise<void> { return this.meta.deleteGitJournalReceipt(operationId); }
+
   private collectionDir(collection: string): string {
     return join(this.dataRoot, collection);
   }
@@ -45,6 +51,16 @@ export class FilesystemAdapter implements StorageAdapter {
    *  gitignored, e.g. the default `.caret/data`). */
   committablePath(): string {
     return this.dataRoot;
+  }
+
+  async committableEntryPaths(collection: string, id: string): Promise<string[]> {
+    if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) throw new Error("Invalid entry path");
+    return [join(this.collectionDir(collection), `${id}.json`)];
+  }
+
+  async preparePublicationSources(collection: string, id: string, data: Record<string, unknown> | null): Promise<PublicationSourceSnapshot[]> {
+    const [path] = await this.committableEntryPaths(collection, id);
+    return [{ path, content: data === null ? null : `${JSON.stringify(data, null, 2)}\n` }];
   }
 
   /** A persistent draft overlay for one editor, as a sibling JSON store under
@@ -56,6 +72,13 @@ export class FilesystemAdapter implements StorageAdapter {
       metaRoot: join(this.draftsRoot, safe, "meta"),
       draftsRoot: join(this.draftsRoot, safe, "nested-drafts"),
     });
+  }
+
+  async makeRecoveryOverlay(editorId: string, purpose: "source-restore"): Promise<StorageAdapter> {
+    const safe = assertSafeEditorId(editorId);
+    if (purpose !== "source-restore") throw new Error("Invalid recovery purpose");
+    const root = join(this.draftsRoot, safe, "recovery", purpose);
+    return new FilesystemAdapter({ dataRoot: join(root, "data"), metaRoot: join(root, "meta") });
   }
 
   // --- Collections ---
@@ -119,6 +142,15 @@ export class FilesystemAdapter implements StorageAdapter {
     return entries.filter((entry): entry is EntryData => Boolean(entry));
   }
 
+  /** Called under the runtime's entry locks; arbitrary file editors remain outside that scope. */
+  async getEntrySnapshots(collection: string, ids: readonly string[]): Promise<EntrySnapshot[]> {
+    if (!ids.length) return [];
+    const [entries, revisions] = await Promise.all([
+      Promise.all(ids.map(id => this.getEntry(collection, id))), this.meta.getRevisions(collection, ids),
+    ]);
+    return entries.map((entry, index) => ({ entry, revision: revisions[index] }));
+  }
+
   async writeEntry(collection: string, id: string, data: Record<string, unknown>): Promise<void> {
     if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) {
       throw new Error(`[caretcms] invalid entry path ${collection}/${id}`);
@@ -170,6 +202,7 @@ export class FilesystemAdapter implements StorageAdapter {
   }
 
   async deleteCollection(collection: string): Promise<void> {
+    await this.meta.bumpRevisions(collection, await this.listEntryIds(collection));
     await this.meta.deleteCollection(collection);
     // The JSON adapter owns its entry files, so removing the collection removes
     // its data directory too.

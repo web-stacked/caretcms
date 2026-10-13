@@ -41,6 +41,11 @@ test("open affordance avoids adjacent editable links and works for linked images
     && openBox!.y + openBox!.height > homeBox!.y;
   expect(overlapsHome).toBe(false);
 
+  // The Replace control floats over the linked image; hovering it still
+  // counts as hovering the image for the Open affordance.
+  const linkedImage = page.locator('img[data-caret="hero.image"]');
+  await expect(linkedImage).toHaveAttribute("data-caret-img-mounted", "true");
+  await linkedImage.hover({ force: true }); // the Replace control covers it once shown
   await page.locator(".cms-img-overlay").hover();
   await expect(open).toBeVisible();
   await expect(open).toHaveAttribute("href", "/about");

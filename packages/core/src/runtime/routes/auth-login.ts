@@ -14,11 +14,11 @@ import {
   recordLoginFailure,
 } from "../auth/rate-limiter.js";
 import { getRuntimeConfig } from "../config.js";
-import { enforceContentLength, MAX_JSON_BODY_BYTES } from "./_helpers.js";
+import { readJsonBody, readFormBody, MAX_JSON_BODY_BYTES } from "./_helpers.js";
 import { getRuntimeServices } from "../providers.js";
 
 function redirect(pathname: string, setCookie?: string): Response {
-  const headers: Record<string, string> = { Location: pathname };
+  const headers: Record<string, string> = { Location: pathname, "Cache-Control": "private, no-store" };
   if (setCookie) headers["Set-Cookie"] = setCookie;
   return new Response(null, { status: 302, headers });
 }
@@ -30,6 +30,7 @@ function json(
 ): Response {
   const headers: Record<string, string> = {
     "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "private, no-store",
     ...extraHeaders,
   };
   return new Response(JSON.stringify(body), { status, headers });
@@ -45,9 +46,6 @@ export async function POST(context: APIContext): Promise<Response> {
   if (!hasConfiguredEditorPassword()) {
     return json({ error: "Editor password is not configured." }, 500);
   }
-
-  const tooLarge = enforceContentLength(context.request, MAX_JSON_BODY_BYTES);
-  if (tooLarge) return tooLarge;
 
   const rateLimitKey = extractRateLimitKey(context.request);
   const rateLimit = checkLoginRateLimit(rateLimitKey);
@@ -68,14 +66,18 @@ export async function POST(context: APIContext): Promise<Response> {
   let redirectTo: string | null = context.url.searchParams.get("redirect");
 
   if (isJsonBody) {
-    const body = (await context.request.json().catch(() => null)) as
+    const parsed = await readJsonBody(context.request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.value as
       | Record<string, unknown>
       | null;
     password = typeof body?.password === "string" ? body.password : "";
     redirectTo =
       typeof body?.redirect === "string" ? body.redirect : redirectTo;
   } else {
-    const formData = await context.request.formData().catch(() => null);
+    const parsed = await readFormBody(context.request, MAX_JSON_BODY_BYTES);
+    if (!parsed.ok) return parsed.response;
+    const formData = parsed.value;
     password =
       typeof formData?.get("password") === "string"
         ? (formData?.get("password") as string)

@@ -9,7 +9,7 @@ import {
   getUploadHandler,
   getSessionId,
   enforceCsrfHeader,
-  enforceContentLength,
+  readFormBody,
   MAX_UPLOAD_BODY_BYTES,
 } from "./_helpers.js";
 
@@ -28,16 +28,9 @@ export async function POST(context: APIContext): Promise<Response> {
     return json({ error: "Expected multipart/form-data" }, 400);
   }
 
-  // Reject oversized uploads before formData() buffers the whole body. Demo
-  // sessions get a tighter per-file/per-session cap from QuotaUploadHandler;
-  // this is the embedded-mode backstop that would otherwise be unbounded.
-  const tooLarge = enforceContentLength(context.request, MAX_UPLOAD_BODY_BYTES);
-  if (tooLarge) return tooLarge;
-
-  const formData = await context.request.formData().catch(() => null);
-  if (!formData) {
-    return json({ error: "Invalid form data" }, 400);
-  }
+  const parsed = await readFormBody(context.request, MAX_UPLOAD_BODY_BYTES);
+  if (!parsed.ok) return parsed.response;
+  const formData = parsed.value;
 
   const file = formData.get("file");
   if (!(file instanceof File)) {

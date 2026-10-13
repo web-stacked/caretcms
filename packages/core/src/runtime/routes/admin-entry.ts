@@ -50,7 +50,9 @@ export async function GET(context: APIContext): Promise<Response> {
   }
   const label = collectionConfig.label || humanize(collection);
   const studioCollections = await getStudioCollections(adapter);
-  const collectionSwitcher = studioCollections.map(({ name, config }) => ({
+  const navigation = studioCollections.map(({ name, config }) => ({
+    name,
+    icon: config.icon,
     label: config.label || humanize(name),
     href: config.singletonId
       ? `${runtime.mountPath}/cms/${encodeURIComponent(name)}/${encodeURIComponent(config.singletonId)}`
@@ -83,27 +85,26 @@ export async function GET(context: APIContext): Promise<Response> {
     messages,
   };
 
-  const extraStyles = `@import "/__caret/admin-entry.css?v=studio-ux-20260913";
+  const extraStyles = `@import "/__caret/admin-entry.css";
     .editor-action-bar {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 0.75rem;
       position: sticky;
-      top: 0;
+      top: calc(var(--studio-main-pad-top, 0px) * -1);
       z-index: 8;
-      padding: 0.75rem 0;
-      margin: -0.75rem 0 0.75rem;
+      padding: calc(var(--studio-main-pad-top, 0px) + 0.25rem) 0 1rem;
+      margin: calc(var(--studio-main-pad-top, 0px) * -1) 0 1.25rem;
       border-bottom: 1px solid var(--studio-border);
       background: var(--studio-bg);
-      background: color-mix(in srgb, var(--studio-bg) 92%, transparent);
-      backdrop-filter: blur(14px);
     }
     .editor-heading { min-width: 0; }
     .editor-action-bar h1 {
       font-family: var(--studio-font-heading);
-      font-size: 1.125rem;
-      font-weight: 600;
+      font-size: clamp(1.25rem, 2.4vw, 1.5rem);
+      font-weight: 650;
+      letter-spacing: -0.02em;
       margin: 0;
       color: var(--studio-text);
       overflow: hidden;
@@ -177,17 +178,38 @@ export async function GET(context: APIContext): Promise<Response> {
       right: 0;
       display: grid;
       gap: 0.25rem;
-      width: min(17rem, calc(100vw - 2rem));
-      padding: 0.5rem;
+      width: min(16rem, calc(100vw - 2rem));
+      padding: 0.35rem;
       border: 1px solid var(--studio-border-hover);
       border-radius: var(--radius-theme-sm);
       background: var(--studio-surface);
-      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.35);
+      box-shadow: var(--studio-shadow);
     }
     .editor-more-menu > a,
     .editor-more-menu > button {
       width: 100%;
+      justify-content: flex-start;
+      border-color: transparent;
+      background: transparent;
+      color: var(--studio-text);
       text-align: left;
+    }
+    .editor-more-menu > a:hover,
+    .editor-more-menu > button:hover {
+      border-color: transparent;
+      background: var(--studio-overlay);
+      color: var(--studio-text);
+    }
+    .editor-more-menu > .studio-btn-danger {
+      margin-top: 0.25rem;
+      border-top: 1px solid var(--studio-border);
+      border-radius: 0 0 var(--radius-theme-xs) var(--radius-theme-xs);
+      color: var(--studio-red);
+    }
+    .editor-more-menu > .studio-btn-danger:hover {
+      border-top-color: var(--studio-border);
+      background: var(--studio-red-soft);
+      color: var(--studio-red);
     }
     .editor-help {
       margin-bottom: 0.75rem;
@@ -212,7 +234,7 @@ export async function GET(context: APIContext): Promise<Response> {
     @media (max-width: 640px) {
       .editor-action-bar {
         flex-wrap: wrap;
-        padding: 0.625rem 0;
+        padding: calc(var(--studio-main-pad-top, 0px) + 0.25rem) 0 0.625rem;
       }
       .editor-heading { flex-basis: 100%; }
       .editor-action-bar h1 {
@@ -236,7 +258,7 @@ export async function GET(context: APIContext): Promise<Response> {
     .modal-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.6);
+      background: var(--studio-scrim);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -246,9 +268,11 @@ export async function GET(context: APIContext): Promise<Response> {
     .modal-backdrop[hidden] { display: none; }
     .modal-card {
       width: 100%;
-      max-width: 24rem;
-      background: var(--studio-bg);
-      border: 1px solid var(--studio-border);
+      max-width: 26rem;
+      background: var(--studio-surface);
+      border: 1px solid var(--studio-border-hover);
+      border-radius: var(--radius-theme-lg);
+      box-shadow: var(--studio-shadow);
       padding: 1.5rem;
       text-align: center;
     }
@@ -259,14 +283,17 @@ export async function GET(context: APIContext): Promise<Response> {
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(239, 68, 68, 0.12);
+      background: var(--studio-red-soft);
       border-radius: 50%;
     }
-    .modal-card h2 { font-size: 0.875rem; font-weight: 600; margin: 0 0 0.5rem; color: var(--studio-text); }
-    .modal-card p { font-size: 0.75rem; color: var(--studio-text-muted); margin: 0 0 1.5rem; }
+    .modal-card h2 { font-size: 1rem; font-weight: 650; margin: 0 0 0.5rem; color: var(--studio-text); }
+    .modal-card p.delete-entry-name { margin: -0.25rem 0 0.75rem; color: var(--studio-text); font-size: 0.9rem; overflow-wrap: anywhere; }
+    .modal-card p { font-size: 0.85rem; line-height: 1.5; color: var(--studio-text-muted); margin: 0 0 1.5rem; }
     .history-panel {
-      margin-bottom: 1.5rem;
+      margin-bottom: 1.25rem;
+      overflow: hidden;
       border: 1px solid var(--studio-border);
+      border-radius: var(--radius-theme-md);
       background: var(--studio-surface);
     }
     .history-panel-header {
@@ -279,7 +306,7 @@ export async function GET(context: APIContext): Promise<Response> {
     .history-panel-body { padding: 1rem; }
   `;
 
-  const body = `<div class="studio-fade-in" style="max-width:48rem;margin:0 auto;" id="cms-entry-page" data-collection="${escapeHtml(collection)}" data-id="${escapeHtml(id)}">
+  const body = `<div class="studio-fade-in" style="max-width:52rem;margin:0 auto;" id="cms-entry-page" data-collection="${escapeHtml(collection)}" data-id="${escapeHtml(id)}">
     <div id="loading" style="display:flex;justify-content:center;padding:5rem 0;">
       <div class="studio-spinner" style="width:24px;height:24px;"></div>
     </div>
@@ -323,7 +350,7 @@ export async function GET(context: APIContext): Promise<Response> {
         <p id="editor-guide-copy">${escapeHtml(messages["entry.guideCopy"])}</p>
       </details>
 
-      <div id="validation-warning" role="alert" hidden style="margin-bottom:1.5rem;padding:1rem;border:1px solid var(--studio-red);background:rgba(239,68,68,0.08);color:var(--studio-text);font-size:0.75rem;"></div>
+      <div id="validation-warning" role="alert" hidden style="margin-bottom:1.25rem;padding:1rem;border:1px solid var(--studio-red);border-radius:var(--radius-theme-md);background:var(--studio-red-soft);color:var(--studio-text);font-size:0.85rem;"></div>
 
       <div id="history-panel" class="history-panel" role="region" aria-labelledby="history-panel-title" hidden>
         <div class="history-panel-header">
@@ -339,7 +366,7 @@ export async function GET(context: APIContext): Promise<Response> {
     </div>
   </div>
 
-  <div id="delete-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" aria-describedby="delete-dialog-copy" hidden>
+  <div id="delete-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" aria-describedby="delete-entry-name delete-dialog-copy" hidden>
     <div class="modal-card">
       <div class="icon-wrap">
         <svg style="width:24px;height:24px;color:var(--studio-red);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -347,7 +374,8 @@ export async function GET(context: APIContext): Promise<Response> {
         </svg>
       </div>
       <h2 id="delete-dialog-title">${escapeHtml(messages["entry.deleteTitle"])}</h2>
-      <p id="delete-dialog-copy">${escapeHtml(messages["entry.deleteCopy"])} <strong id="delete-entry-name" style="color:var(--studio-text);"></strong></p>
+      <p class="delete-entry-name"><strong id="delete-entry-name"></strong></p>
+      <p id="delete-dialog-copy">${escapeHtml(messages["entry.deleteCopy"])}</p>
       <div style="display:flex;justify-content:center;gap:0.75rem;">
         <button id="btn-delete-cancel" type="button" class="studio-btn-ghost">${escapeHtml(messages["common.cancel"])}</button>
         <button id="btn-delete-confirm" type="button" class="studio-btn-danger studio-btn-danger-confirm">${escapeHtml(messages["entry.delete"])}</button>
@@ -380,17 +408,17 @@ export async function GET(context: APIContext): Promise<Response> {
   </div>
 
   <script type="application/json" id="caret-entry-config">${JSON.stringify(config).replace(/</g, "\\u003c")}</script>
-  <script type="module" src="/__caret/admin-entry.js?v=studio-ux-20260913"></script>`;
+  <script type="module" src="/__caret/admin-entry.js"></script>`;
 
   return htmlResponse(
     renderStudioPage({
       runtime,
       title: `Edit ${id}`,
       breadcrumb: [
-        { label: messages["nav.entries"], href: `${runtime.mountPath}/cms/${encodeURIComponent(collection)}` },
+        { label, href: `${runtime.mountPath}/cms/${encodeURIComponent(collection)}` },
         { label: id },
       ],
-      collectionSwitcher,
+      navigation,
       body,
       extraStyles,
     }),

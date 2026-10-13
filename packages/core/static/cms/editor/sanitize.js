@@ -19,7 +19,7 @@ export const ALLOWED_ATTRS = {
 };
 
 // `(?!\/)` rejects protocol-relative URLs (`//evil.com`). Mirrors core exactly.
-export const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/(?!\/))/i;
+export const SAFE_HREF_RE = /^(?!.*[\u0000-\u001f\u007f\\])(?:https?:|mailto:|tel:|\/(?!\/))/i;
 
 /**
  * Does `cls` match any pattern? (exact, `prefix-*`, or lone `*`)

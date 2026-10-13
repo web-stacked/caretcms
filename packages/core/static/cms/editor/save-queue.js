@@ -1,14 +1,14 @@
 import { buildCmsUrl, isPolicyDraftMode, isStaticDelivery } from './config.js';
 import { mutateHeaders, readHeaders } from './security.js';
 
-/** @typedef {{ revision: number, data: Record<string, unknown> }} EntrySnapshot */
+/** @typedef {{ revision: number, baseRevision?: number, data: Record<string, unknown> }} EntrySnapshot */
 /**
  * @typedef {{ ok: true, revision?: number }
  *   | { ok: false, reason: 'conflict', currentRevision?: number, latestValue?: string }
  *   | { ok: false, reason: 'unauthorized' | 'error' }} SaveResult
  */
 /** @typedef {'saving' | 'idle' | 'error'} SaveStatus */
-/** @typedef {{ type: 'save_field', collection: string, id: string, field: string, value: string, expectedRevision?: number }} SaveFieldPayload */
+/** @typedef {{ type: 'save_field', collection: string, id: string, field: string, value: string, expectedRevision?: number, expectedBaseRevision?: number }} SaveFieldPayload */
 
 /** @param {string} collection @param {string} id @returns {string} */
 function entryKey(collection, id) {
@@ -66,7 +66,7 @@ async function fetchEntrySnapshot(collection, id, onUnauthorized) {
   }
   const entry = json.entries[0];
   if (entry === undefined) {
-    return { revision: 0, data: {} };
+    return { revision: isRevision(json.revision) ? json.revision : 0, data: {}, ...(isRevision(json.baseRevision) ? { baseRevision: json.baseRevision } : {}) };
   }
   if (!isRecord(entry) || !isRecord(entry.data) || !isRevision(entry.revision)) {
     throw new Error('Invalid entry response');
@@ -75,6 +75,7 @@ async function fetchEntrySnapshot(collection, id, onUnauthorized) {
   return {
     revision: entry.revision,
     data: entry.data,
+    ...(isRevision(entry.baseRevision) ? { baseRevision: entry.baseRevision } : {}),
   };
 }
 
@@ -90,6 +91,8 @@ export function createSaveField({ setStatus, onUnauthorized }) {
   let saveQueue = Promise.resolve();
   /** @type {Map<string, number>} */
   const revisionByEntry = new Map();
+  /** @type {Map<string, number>} */
+  const baseRevisionByEntry = new Map();
   /** @type {Map<string, Promise<number | null>>} */
   const revisionLoadByEntry = new Map();
 
@@ -106,6 +109,8 @@ export function createSaveField({ setStatus, onUnauthorized }) {
       const snapshot = await fetchEntrySnapshot(collection, id, onUnauthorized);
       if (!snapshot) return null;
       revisionByEntry.set(key, snapshot.revision);
+      if (snapshot.baseRevision !== undefined) baseRevisionByEntry.set(key, snapshot.baseRevision);
+      else baseRevisionByEntry.delete(key);
       return snapshot.revision;
     })().finally(() => {
       revisionLoadByEntry.delete(key);
@@ -124,6 +129,8 @@ export function createSaveField({ setStatus, onUnauthorized }) {
     if (!snapshot) return { currentRevision: undefined, latestValue: undefined };
 
     revisionByEntry.set(entryKey(collection, id), snapshot.revision);
+    if (snapshot.baseRevision !== undefined) baseRevisionByEntry.set(entryKey(collection, id), snapshot.baseRevision);
+    else baseRevisionByEntry.delete(entryKey(collection, id));
     return {
       currentRevision: snapshot.revision,
       latestValue: getNestedStringValue(snapshot.data, field),
@@ -149,6 +156,9 @@ export function createSaveField({ setStatus, onUnauthorized }) {
       if (typeof expectedRevision === 'number') {
         body.expectedRevision = expectedRevision;
       }
+
+      const expectedBaseRevision = baseRevisionByEntry.get(key);
+      if (expectedBaseRevision !== undefined) body.expectedBaseRevision = expectedBaseRevision;
 
       const res = await fetch(buildCmsUrl('/mutate'), {
         method: 'POST',

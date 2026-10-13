@@ -39,7 +39,8 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
 
   await expect(page.locator(".entry-thumb img")).toHaveAttribute("src", "/initial.png");
   await expect(page.getByText("Unpublished")).toBeVisible();
-  await expect(page.getByLabel("Collection", { exact: true })).toHaveValue("/admin/cms/studio-fixture");
+  await expect(page.getByRole("navigation", { name: "Collections" }).getByRole("link", { name: "Studio Fixture" }))
+    .toHaveAttribute("aria-current", "page");
 
   const createButton = page.locator("#btn-new");
   await createButton.click();
@@ -224,8 +225,10 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   await expect(deleteCancel).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(deleteDialog).toBeHidden();
-  await expect(deleteButton).toBeFocused();
+  // Choosing Delete closes the More actions menu, so focus returns to its button.
+  await expect(page.locator("#entry-more > summary")).toBeFocused();
 
+  await page.locator("#entry-more > summary").click();
   await deleteButton.click();
   const deleteResponse = page.waitForResponse((response) =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
@@ -308,12 +311,13 @@ test("embedded Studio Escape closes local overlays before the Studio drawer", as
   await cancel.press("Escape");
 
   await expect(deleteDialog).toBeHidden();
-  await expect(deleteButton).toBeFocused();
+  await expect(studio.locator("#entry-more > summary")).toBeFocused();
   await expect(panel).toBeVisible();
   await expect(page.getByRole("button", { name: "Studio", exact: true }))
     .toHaveAttribute("aria-expanded", "true");
 
   const historyButton = studio.locator("#btn-history");
+  await studio.locator("#entry-more > summary").click();
   await historyButton.click();
   const historyPanel = studio.getByRole("region", { name: "Version history" });
   const historyClose = studio.locator("#btn-history-close");
@@ -354,7 +358,7 @@ test("embedded Studio Escape closes local overlays before the Studio drawer", as
   await expect(panel).toBeVisible();
 });
 
-test("Studio keeps form edits after a revision conflict and saves on retry", async ({ page }) => {
+test("Studio applies form edits on top of a conflicting save without reverting its other fields", async ({ page }) => {
   const id = "revision-conflict-entry";
   const initial = await page.request.post("/api/cms/mutate", {
     headers: { "x-caret-request": "1" },
@@ -377,7 +381,7 @@ test("Studio keeps form edits after a revision conflict and saves on retry", asy
       collection: "studio-fixture",
       id,
       expectedRevision: initialRevision,
-      data: { title: "External edit", summary: "", website: "", published: false, details: [], images: [] },
+      data: { title: "External edit", summary: "", website: "https://elsewhere.example", published: false, details: [], images: [] },
     },
   });
   expect(external.ok()).toBe(true);
@@ -389,10 +393,12 @@ test("Studio keeps form edits after a revision conflict and saves on retry", asy
   await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await conflict).status()).toBe(409);
   const conflictDialog = page.getByRole("dialog", { name: "Newer changes found" });
-  await expect(conflictDialog).toContainText("Title");
+  await expect(conflictDialog).toContainText("Title — you edited this too");
+  await expect(conflictDialog).toContainText("Website");
   await conflictDialog.getByRole("button", { name: "Keep my edits" }).click();
-  await expect(page.locator("#status-msg")).toHaveText("Your edits are kept — Save again to overwrite");
+  await expect(page.locator("#status-msg")).toHaveText("Your edits are on the latest version — Save to apply them");
   await expect(page.locator('[name="title"]')).toHaveValue("Local form edit");
+  await expect(page.locator('[name="website"]')).toHaveValue("https://elsewhere.example");
 
   const retry = page.waitForResponse(response =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
@@ -403,7 +409,7 @@ test("Studio keeps form edits after a revision conflict and saves on retry", asy
 
   const stored = await page.request.get(`/api/cms/entries?collection=studio-fixture&id=${id}`);
   const current = await stored.json();
-  expect(current.entries[0].data.title).toBe("Local form edit");
+  expect(current.entries[0].data).toMatchObject({ title: "Local form edit", website: "https://elsewhere.example" });
   await page.locator('[name="title"]').fill("Another local edit");
   const latestWrite = await page.request.post("/api/cms/mutate", {
     headers: { "x-caret-request": "1" },
@@ -443,7 +449,7 @@ test("Studio routes singleton collections directly and hides impossible actions"
   expect(seed.ok()).toBe(true);
 
   await page.goto("/admin/cms");
-  const card = page.getByRole("link", { name: /Site Settings/ });
+  const card = page.getByRole("main").getByRole("link", { name: /Site Settings/ });
   await expect(card).toHaveAttribute("href", "/admin/cms/site-settings-fixture/global");
   await card.click();
   await expect(page).toHaveURL(/\/admin\/cms\/site-settings-fixture\/global$/);
@@ -456,14 +462,20 @@ test("Studio routes singleton collections directly and hides impossible actions"
 
 test("collection search has a persistent associated label", async ({ page }) => {
   await page.goto("/admin/cms/studio-fixture");
-  await expect(page.getByLabel("Search")).toHaveAttribute("name", "search");
+  await expect(page.getByLabel("Search", { exact: true })).toHaveAttribute("name", "search");
 });
 
 test("collection navigation and title-first creation fit a narrow viewport", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/admin/cms/studio-fixture");
 
-  await expect(page.getByLabel("Collection", { exact: true })).toBeVisible();
+  const menu = page.getByRole("button", { name: "Menu" });
+  await menu.click();
+  await expect(menu).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("navigation", { name: "Collections" }).getByRole("link", { name: "Studio Fixture" })).toBeInViewport();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveAttribute("aria-expanded", "false");
+  await expect(menu).toBeFocused();
   for (const control of await page.locator(".collection-actions > input, .collection-actions > button").all()) {
     const bounds = await control.boundingBox();
     expect(bounds).not.toBeNull();
@@ -663,7 +675,7 @@ test("registered collections remain available before their first entry exists", 
   resetCmsStorage();
 
   await page.goto("/admin/cms");
-  const fixtureCard = page.getByRole("link", { name: /Studio Fixture/ });
+  const fixtureCard = page.getByRole("main").getByRole("link", { name: /Studio Fixture/ });
   await expect(fixtureCard).toContainText("0 entries");
   await fixtureCard.click();
   await expect(page).toHaveURL(/\/admin\/cms\/studio-fixture$/);
@@ -671,7 +683,7 @@ test("registered collections remain available before their first entry exists", 
   await expect(page.locator("#btn-new")).toBeVisible();
 
   await page.goto("/admin/cms");
-  const singletonCard = page.getByRole("link", { name: /Site Settings/ });
+  const singletonCard = page.getByRole("main").getByRole("link", { name: /Site Settings/ });
   await expect(singletonCard).toHaveAttribute(
     "href",
     "/admin/cms/site-settings-fixture/global",
@@ -691,7 +703,7 @@ test("collection pagination reaches every entry and title search crosses pages",
     expect(response.ok(), await response.text()).toBe(true);
   }
   await page.goto("/admin/cms");
-  await expect(page.getByRole("link", { name: /Studio Fixture/ }))
+  await expect(page.getByRole("main").getByRole("link", { name: /Studio Fixture/ }))
     .toContainText("31 entries");
 
   await page.goto("/admin/cms/studio-fixture");

@@ -18,7 +18,7 @@ import {
   type Skipped,
 } from "./detect.js";
 import { assignFields, deriveScope, type Scope, type ScopeReason } from "./name.js";
-import { frontmatterRange, imageComponentNames } from "./frontmatter.js";
+import { assetImportNames, frontmatterRange, imageComponentNames } from "./frontmatter.js";
 
 export interface PlannedTag {
   candidate: Candidate;
@@ -90,11 +90,12 @@ export async function planFile(
   // Resolve astro:assets <Image>/<Picture> local names so detect can recognize
   // them as image candidates (forwarded data-caret → rendered <img> src).
   const fm = frontmatterRange(source);
-  const imageComponents = imageComponentNames(fm ? source.slice(fm.start, fm.end) : "");
+  const fmText = fm ? source.slice(fm.start, fm.end) : "";
   const { candidates, skipped, flags } = detect(ast, walkTags, {
     rich: options.rich,
     richClass: options.richClass,
-    imageComponents,
+    imageComponents: imageComponentNames(fmText),
+    assetImports: assetImportNames(fmText),
   });
 
   // Resolve scope (explicit override wins; otherwise derive from path).

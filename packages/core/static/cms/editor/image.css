@@ -2,76 +2,74 @@
    Image editing overlay
    --------------------------------------------------------------------------- */
 
-.cms-img-wrapper {
-  position: relative;
-  z-index: 10;
-  outline: 2px solid transparent;
-  outline-offset: 2px;
-  transition: outline-color 0.2s;
-}
-
-.cms-img-wrapper:hover {
-  outline-color: var(--cms-blue);
-}
-
-/* Corner edit badge — persistent editability indicator */
-.cms-img-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
-  color: white;
-  border-radius: 4px;
-  opacity: 0.6;
-  transition: opacity 0.2s, transform 0.2s;
-  z-index: 12;
-  pointer-events: none;
-}
-
-.cms-img-wrapper:hover .cms-img-badge {
-  opacity: 0;
-  transform: scale(0.8);
-}
-
-.cms-img-badge-hidden {
-  opacity: 0 !important;
-}
-
-/* Full overlay */
-.cms-img-overlay {
-  position: absolute;
+/* One floating control, positioned over the hovered or focused image by
+   image-edit.js. The page's own DOM and layout are never changed. */
+.cms-img-layer {
+  position: fixed;
   inset: 0;
+  pointer-events: none;
+  z-index: 99990; /* above page content, below every other editor surface */
+}
+
+img[data-caret][data-caret-img-mounted] {
+  cursor: pointer;
+}
+
+img[data-caret][data-caret-img-mounted]:focus-visible {
+  outline: 2px solid var(--cms-blue);
+  outline-offset: 2px;
+}
+
+.cms-img-overlay {
+  position: fixed;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(10, 12, 18, 0.48);
   color: white;
   font-family: var(--cms-font);
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.01em;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.25s ease;
   border: none;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 2px var(--cms-blue);
   padding: 0;
-  z-index: 11;
+  pointer-events: auto;
+  animation: cms-img-in 0.18s ease-out;
 }
 
-.cms-img-wrapper:hover .cms-img-overlay,
-.cms-img-wrapper:focus-within .cms-img-overlay {
-  opacity: 1;
+.cms-img-overlay[hidden] {
+  display: none;
+}
+
+@keyframes cms-img-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cms-img-overlay { animation: none; }
 }
 
 .cms-img-overlay:focus-visible {
-  outline: 2px solid var(--cms-accent, #3b82f6);
+  outline: 2px solid var(--cms-blue);
   outline-offset: -2px;
+}
+
+.cms-img-overlay-content > *,
+.cms-img-overlay .cms-img-state-idle {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+}
+
+.cms-img-compact .cms-img-overlay-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.cms-img-compact .cms-img-overlay-text {
+  display: none;
 }
 
 .cms-img-overlay-content {

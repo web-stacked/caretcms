@@ -29,6 +29,7 @@ export type SaveFieldCommand = {
   field: string;
   value: string;
   expectedRevision?: number;
+  expectedBaseRevision?: number;
 };
 
 export type PutEntryCommand = {
@@ -37,6 +38,7 @@ export type PutEntryCommand = {
   id: string;
   data: Record<string, unknown>;
   expectedRevision?: number;
+  expectedBaseRevision?: number;
   /** Reject an existing ID under the mutation lock, including revision-zero seeds. */
   createOnly?: boolean;
 };
@@ -46,6 +48,7 @@ export type DeleteEntryCommand = {
   collection: string;
   id: string;
   expectedRevision?: number;
+  expectedBaseRevision?: number;
 };
 
 export type ReorderEntriesCommand = {
@@ -55,6 +58,7 @@ export type ReorderEntriesCommand = {
     id: string;
     order: number;
     expectedRevision?: number;
+    expectedBaseRevision?: number;
   }>;
 };
 
@@ -69,6 +73,7 @@ export type UpdatePageLayoutCommand = {
     spacing_y?: string;
   }>;
   expectedRevision?: number;
+  expectedBaseRevision?: number;
 };
 
 export type CreateCollectionCommand = {
@@ -114,6 +119,7 @@ export type MdBlockCommand = {
   sources?: Array<{ blockPath: string; src: MdSrc; html: string }>;
   paragraphs?: string[];
   expectedRevision?: number;
+  expectedBaseRevision?: number;
 };
 
 export type CmsMutationCommand =
@@ -476,7 +482,7 @@ async function parseMdBlockCommand(
   };
 }
 
-export async function parseMutationCommand(
+async function parseMutationPayload(
   adapter: StorageAdapter,
   input: unknown,
 ): Promise<{ ok: true; command: CmsMutationCommand } | { ok: false; issues: MutationIssue[] }> {
@@ -597,4 +603,24 @@ async function parseDeleteCollectionCommand(
       id,
     },
   };
+}
+
+/** Parse the optional second version without changing the legacy revision grammar. */
+export async function parseMutationCommand(adapter: StorageAdapter, input: unknown): Promise<
+  { ok: true; command: CmsMutationCommand } | { ok: false; issues: MutationIssue[] }
+> {
+  const parsed = await parseMutationPayload(adapter, input);
+  if (!parsed.ok || !isRecord(input)) return parsed;
+  const targets = parsed.command.type === "reorder_entries"
+    ? parsed.command.items.map((item, index) => ({ command: item, input: (input.items as Record<string, unknown>[])[index], path: `items.${index}.expectedBaseRevision` }))
+    : "collection" in parsed.command ? [{ command: parsed.command, input, path: "expectedBaseRevision" }] : [];
+  for (const target of targets) {
+    const value = target.input.expectedBaseRevision;
+    if (value === undefined) continue;
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+      return { ok: false, issues: [issue(target.path, "invalid_type", "expectedBaseRevision must be a non-negative safe integer")] };
+    }
+    target.command.expectedBaseRevision = value;
+  }
+  return parsed;
 }

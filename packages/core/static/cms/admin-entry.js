@@ -1,10 +1,11 @@
-import { deepClone, templateFromSchema, generatedId, friendlyFileTitle, singularItemLabel, getTitle, humanizeKey, fieldIdFromPath, getNestedValue, setNestedValue } from './studio/field-model.js';
+import { deepClone, fillDefaults, templateFromSchema, generatedId, friendlyFileTitle, singularItemLabel, getTitle, humanizeKey, fieldIdFromPath, getNestedValue, setNestedValue } from './studio/field-model.js';
 import { createFieldGroup, createFieldRenderer } from './studio/fields.js';
 import { createStudioMutationClient } from './studio/mutation-client.js';
 import { createStudioHistoryClient } from './studio/history-client.js';
 import { createStudioUploadClient, isSupportedImage } from './studio/upload-client.js';
 import { createStudioEntryLoader } from './studio/entry-loader.js';
 import { createStudioSync } from './studio/sync-client.js';
+import { rebaseEdits } from './studio/merge.js';
 
 /** @typedef {import('../../src/schema-utils.js').JsonSchemaNode} Schema */
 /** @typedef {{ path: string, message: string }} ValidationIssue */
@@ -23,7 +24,7 @@ import { createStudioSync } from './studio/sync-client.js';
  *
  * API surface used:
  *   GET  ${api}/entries?collection=&id=
- *   GET  ${api}/schema?collection=
+ *   GET  ${api}/schema?collection=&id=   (id: infer a schemaless entry from itself)
  *   POST ${api}/mutate   { type: "put_entry" | "delete_entry", ... }
  *   POST ${api}/upload   FormData(file)
  *   GET  ${api}/history?collection=&id=
@@ -83,6 +84,8 @@ import { createStudioSync } from './studio/sync-client.js';
   var entrySchema = null;
   /** @type {number | undefined} */
   var entryRevision = undefined;
+  /** @type {number | undefined} */
+  var entryBaseRevision = undefined;
   var originalJson = "";
   var saving = false;
   var dirtyTimer = 0;
@@ -150,7 +153,10 @@ import { createStudioSync } from './studio/sync-client.js';
       if (typeof configured === "string" && configured.trim()) return configured;
     }
     var inferred = getTitle(data);
-    return inferred === "Untitled" && CFG.fallbackTitle ? CFG.fallbackTitle : inferred;
+    if (inferred !== "Untitled") return inferred;
+    if (CFG.fallbackTitle) return CFG.fallbackTitle;
+    // Entries without a title field (fixed pages, settings) read better by id.
+    return !IS_NEW && ID ? humanizeKey(ID.replace(/-/g, "_")) : inferred;
   }
 
   function updateDisplayedTitle() {
@@ -257,17 +263,20 @@ import { createStudioSync } from './studio/sync-client.js';
     });
   }
 
-  /** @param {Record<string, unknown>} latest */
-  function resolveConflict(latest) {
+  /** @param {string} path */
+  function humanizePath(path) {
+    return path.split(".").filter(function (part) { return !/^\d+$/.test(part); }).map(humanizeKey).join(" › ");
+  }
+
+  /** @param {string[]} theirChanges @param {string[]} overlapping */
+  function resolveConflict(theirChanges, overlapping) {
     var restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : saveBtn;
-    var local = entryData || {};
-    var changed = Array.from(new Set(Object.keys(local).concat(Object.keys(latest)))).filter(function (key) {
-      return JSON.stringify(local[key]) !== JSON.stringify(latest[key]);
-    });
     conflictFieldsEl.innerHTML = "";
-    (changed.length ? changed : ["entry"]).forEach(function (key) {
+    (theirChanges.length ? theirChanges : [""]).forEach(function (path) {
       var item = document.createElement("li");
-      item.textContent = key === "entry" ? "The entry revision changed" : humanizeKey(key);
+      item.textContent = path === ""
+        ? msg("entry.conflictRevision", "The entry revision changed")
+        : humanizePath(path) + (overlapping.indexOf(path) >= 0 ? " — " + msg("entry.conflictBoth", "you edited this too") : "");
       conflictFieldsEl.appendChild(item);
     });
     conflictDialog.hidden = false;
@@ -350,13 +359,14 @@ import { createStudioSync } from './studio/sync-client.js';
     saving = true;
     updateSaveButton();
     var preserveSaveStatus = false;
-    /** @type {{ collection: string, id: string, data: Record<string, unknown>, expectedRevision?: number }} */
+    /** @type {{ collection: string, id: string, data: Record<string, unknown>, expectedRevision?: number, expectedBaseRevision?: number }} */
     var payload = {
       collection: COLLECTION,
       id: ID,
       data: entryData,
     };
     if (typeof entryRevision === "number") payload.expectedRevision = entryRevision;
+    if (typeof entryBaseRevision === "number") payload.expectedBaseRevision = entryBaseRevision;
 
     mutationClient.save(payload).then(async function (result) {
       if (result.kind === "unauthorized") { loginRedirect(); return; }
@@ -379,16 +389,25 @@ import { createStudioSync } from './studio/sync-client.js';
             return;
           }
           entryRevision = latest.revision;
-          var choice = await resolveConflict(latest.data);
+          entryBaseRevision = latest.baseRevision;
+          var rebase = rebaseEdits(JSON.parse(originalJson || "{}"), entryData || {}, fillDefaults(deepClone(latest.data), entrySchema));
+          var choice = await resolveConflict(rebase.theirChanges, rebase.overlapping);
           if (choice === "latest") {
-            entryData = deepClone(latest.data);
-            originalJson = JSON.stringify(latest.data);
+            entryData = fillDefaults(deepClone(latest.data), entrySchema);
+            originalJson = JSON.stringify(entryData);
             fieldsEl.innerHTML = "";
             renderFields(fieldsEl, entryData, entrySchema, "");
             studioSync.queuePreview(entryData);
             showStatus("saved", msg("entry.loadedLatest", "Loaded latest changes"));
           } else if (choice === "keep") {
-            showStatus("dirty", msg("entry.keptMine", "Your edits are kept — Save again to overwrite"));
+            // Apply only this form's edits on top of the newer entry, so
+            // fields changed elsewhere and untouched here are not reverted.
+            entryData = fillDefaults(rebase.merged, entrySchema);
+            originalJson = JSON.stringify(fillDefaults(deepClone(latest.data), entrySchema));
+            fieldsEl.innerHTML = "";
+            renderFields(fieldsEl, entryData, entrySchema, "");
+            studioSync.queuePreview(entryData);
+            showStatus("dirty", msg("entry.keptMine", "Your edits are on the latest version — Save to apply them"));
           } else {
             showStatus("dirty", msg("entry.unsaved", "Unsaved changes"));
           }
@@ -411,7 +430,12 @@ import { createStudioSync } from './studio/sync-client.js';
 
   function deleteEntry() {
     deleteNameEl.textContent = displayTitle(entryData);
-    deleteRestoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : deleteBtn;
+    // Close the More actions menu; focus returns to its button afterwards.
+    var moreMenu = document.getElementById("entry-more");
+    var moreSummary = moreMenu ? moreMenu.querySelector("summary") : null;
+    if (moreMenu && moreMenu.hasAttribute("open")) moreMenu.removeAttribute("open");
+    deleteRestoreFocus = moreSummary instanceof HTMLElement ? moreSummary
+      : document.activeElement instanceof HTMLElement ? document.activeElement : deleteBtn;
     deleteDialog.hidden = false;
     deleteCancelBtn.focus();
   }
@@ -426,9 +450,10 @@ import { createStudioSync } from './studio/sync-client.js';
   function confirmDelete() {
     deleteConfirmBtn.disabled = true;
     deleteConfirmBtn.textContent = msg("entry.deleting", "Deleting…");
-    /** @type {{ collection: string, id: string, expectedRevision?: number }} */
+    /** @type {{ collection: string, id: string, expectedRevision?: number, expectedBaseRevision?: number }} */
     var payload = { collection: COLLECTION, id: ID };
     if (typeof entryRevision === "number") payload.expectedRevision = entryRevision;
+    if (typeof entryBaseRevision === "number") payload.expectedBaseRevision = entryBaseRevision;
     mutationClient.remove(payload).then(function (result) {
       if (result === "unauthorized") { loginRedirect(); return; }
       if (result !== "deleted") throw new Error("delete failed");
@@ -950,7 +975,10 @@ import { createStudioSync } from './studio/sync-client.js';
         var idxLabel = document.createElement("button");
         idxLabel.type = "button";
         idxLabel.className = "caret-object-array-index caret-object-array-toggle";
-        idxLabel.textContent = itemSummary(item, idx);
+        var idxText = document.createElement("span");
+        idxText.className = "caret-object-array-title";
+        idxText.textContent = itemSummary(item, idx);
+        idxLabel.appendChild(idxText);
         idxLabel.setAttribute("aria-expanded", expandedIndex === idx ? "true" : "false");
         idxLabel.setAttribute("aria-controls", fieldIdFromPath(path + "." + idx) + "-fields");
         idxLabel.addEventListener("click", function () {
@@ -1176,7 +1204,11 @@ import { createStudioSync } from './studio/sync-client.js';
         if (item.editor && typeof item.editor.id === "string") {
           var editorSpan = document.createElement("span");
           editorSpan.style.cssText = "font-size:0.7rem;color:var(--studio-text-dim);";
-          editorSpan.textContent = item.editor.name || item.editor.email || item.editor.id;
+          editorSpan.textContent = item.editor.name || item.editor.email
+            // Password sessions carry only an id, renewed at each sign-in, so a
+            // different id is an earlier session, not necessarily another person.
+            || (item.editor.current ? msg("history.you", "You") : msg("history.otherSession", "Earlier session"));
+          editorSpan.title = item.editor.id;
           info.appendChild(editorSpan);
         }
         summary.appendChild(info);
@@ -1241,15 +1273,18 @@ import { createStudioSync } from './studio/sync-client.js';
     }))) return;
     historyClient.restore({ collection: COLLECTION, id: ID, ts: ts }).then(function (result) {
       if (result.kind === "unauthorized") { loginRedirect(); return; }
-      if (result.kind === "error") throw new Error("restore failed");
+      if (result.kind === "error") {
+        showStatus("error", result.message || "Restore failed");
+        return;
+      }
       var prevData = entryData;
       var prevJson = originalJson;
       try {
         if (!result.data || typeof result.data !== "object" || Array.isArray(result.data)) {
           throw new Error("invalid restored entry data");
         }
-        entryData = deepClone(/** @type {Record<string, unknown>} */ (result.data));
-        originalJson = JSON.stringify(result.data);
+        entryData = fillDefaults(deepClone(/** @type {Record<string, unknown>} */ (result.data)), entrySchema);
+        originalJson = JSON.stringify(entryData);
         if (typeof result.revision === "number") entryRevision = result.revision;
         fieldsEl.innerHTML = "";
         renderFields(fieldsEl, entryData, entrySchema, "");
@@ -1321,7 +1356,7 @@ import { createStudioSync } from './studio/sync-client.js';
       else closeHistoryPanel();
       return;
     }
-    if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
       e.preventDefault();
       if (isDirty()) save();
     }
@@ -1350,9 +1385,10 @@ import { createStudioSync } from './studio/sync-client.js';
           return;
         }
         var initialData = result.data;
-        entryData = deepClone(initialData);
+        entryData = fillDefaults(deepClone(initialData), entrySchema);
         entryRevision = result.revision;
-        originalJson = JSON.stringify(initialData);
+        entryBaseRevision = result.baseRevision;
+        originalJson = JSON.stringify(entryData);
         updateDisplayedTitle();
         renderFields(fieldsEl, entryData, entrySchema, "");
         if (validationWarningEl && result.validationIssues.length > 0) {

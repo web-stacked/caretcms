@@ -51,6 +51,27 @@ function getMimeType(path: string): string {
   return MIME_TYPES[ext] ?? "application/octet-stream";
 }
 
+// Content hashes for ETags. The assets @import one another by unversioned URLs,
+// so a long max-age would let an upgraded page pair new markup with stale CSS.
+export function contentEtag(body: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < body.length; i++) {
+    hash ^= body.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `"${(hash >>> 0).toString(36)}-${body.length.toString(36)}"`;
+}
+
+const etags = new Map<string, string>();
+function etagFor(path: string, body: string): string {
+  let tag = etags.get(path);
+  if (!tag) {
+    tag = contentEtag(body);
+    etags.set(path, tag);
+  }
+  return tag;
+}
+
 function sanitizePath(raw: string): string | null {
   const normalized = raw.replace(/\\/g, "/");
   if (normalized.includes("..") || normalized.includes("\0")) return null;
@@ -71,18 +92,21 @@ export async function GET(context: APIContext): Promise<Response> {
   }
 
   // In dev, never cache — editor source files change frequently and a cached
-  // copy hides edits. In prod, cache for an hour (these are static package
-  // files that only change on a package update).
-  const cacheControl =
-    process.env.NODE_ENV === "development"
-      ? "no-cache, no-store, must-revalidate"
-      : "public, max-age=3600";
+  // copy hides edits. In prod, revalidate every use: an unchanged file costs a
+  // 304, and a package upgrade is picked up immediately.
+  const development = process.env.NODE_ENV === "development";
+  const cacheControl = development ? "no-cache, no-store, must-revalidate" : "public, no-cache";
+  const etag = etagFor(safePath, body);
+  if (!development && context.request.headers.get("if-none-match") === etag) {
+    return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": cacheControl } });
+  }
 
   return new Response(body, {
     status: 200,
     headers: {
       "Content-Type": getMimeType(safePath),
       "Cache-Control": cacheControl,
+      ETag: etag,
     },
   });
 }

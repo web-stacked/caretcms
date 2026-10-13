@@ -39,43 +39,55 @@ function resolveLocalRef(root: JsonSchemaNode, ref: string): JsonSchemaNode | nu
     : null;
 }
 
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
 /** Dependency-free validator for the JSON Schema subset Caret's Studio renders. */
 export function validateJsonSchema(
   value: unknown,
   schema: JsonSchemaNode,
 ): JsonSchemaValidationIssue[] {
-  const issues: JsonSchemaValidationIssue[] = [];
-
-  const visit = (current: unknown, node: JsonSchemaNode, path: string): void => {
-    const ref = typeof node.$ref === "string" ? resolveLocalRef(schema, node.$ref) : null;
-    if (ref) node = ref;
-
-    const allOf = Array.isArray(node.allOf) ? node.allOf : [];
-    for (const child of allOf) {
-      if (child && typeof child === "object" && !Array.isArray(child)) {
-        visit(current, child as JsonSchemaNode, path);
+  const active = new WeakMap<JsonSchemaNode, Set<string>>();
+  let visits = 0;
+  const visit = (current: unknown, node: JsonSchemaNode, path: string, depth = 0): JsonSchemaValidationIssue[] => {
+    if (++visits > 100_000) return [{ path, code: "invalid_schema", message: "Validation complexity limit exceeded" }];
+    if (active.get(node)?.has(path)) return [{ path, code: "invalid_schema", message: "Cyclic schema reference" }];
+    if (depth > 128) return [{ path, code: "invalid_schema", message: "Schema recursion limit exceeded" }];
+    const paths = active.get(node) ?? new Set<string>();
+    active.set(node, paths);
+    paths.add(path);
+    try {
+      const issues: JsonSchemaValidationIssue[] = [];
+      if (typeof node.$ref === "string") {
+        const ref = resolveLocalRef(schema, node.$ref);
+        if (!ref) return [{ path, code: "invalid_schema", message: "Unresolved schema reference" }];
+        issues.push(...visit(current, ref, path, depth + 1));
       }
-    }
-
-    const alternatives = Array.isArray(node.anyOf)
-      ? node.anyOf
-      : Array.isArray(node.oneOf) ? node.oneOf : null;
-    if (alternatives) {
-      const valid = alternatives.some((candidate) =>
-        candidate && typeof candidate === "object" && !Array.isArray(candidate)
-          && validateAgainst(current, candidate as JsonSchemaNode, path).length === 0,
-      );
-      if (!valid) issues.push({ path, code: "invalid_union", message: "Value does not match an allowed schema" });
-      return;
-    }
-
-    issues.push(...validateAgainst(current, node, path));
+      if (Array.isArray(node.allOf)) {
+        for (const child of node.allOf) {
+          if (child && typeof child === "object" && !Array.isArray(child)) issues.push(...visit(current, child as JsonSchemaNode, path, depth + 1));
+        }
+      }
+      for (const keyword of ["anyOf", "oneOf"] as const) {
+        const alternatives = node[keyword];
+        if (!Array.isArray(alternatives)) continue;
+        const matches = alternatives.filter(candidate => candidate && typeof candidate === "object" && !Array.isArray(candidate)
+          && visit(current, candidate as JsonSchemaNode, path, depth + 1).length === 0).length;
+        if (matches === 0 || (keyword === "oneOf" && matches !== 1)) {
+          issues.push({ path, code: "invalid_union", message: keyword === "oneOf" ? "Value must match exactly one allowed schema" : "Value does not match an allowed schema" });
+        }
+      }
+      issues.push(...validateAgainst(current, node, path, depth));
+      return issues;
+    } finally { paths.delete(path); }
   };
 
   const validateAgainst = (
     current: unknown,
     node: JsonSchemaNode,
     path: string,
+    depth: number,
   ): JsonSchemaValidationIssue[] => {
     const local: JsonSchemaValidationIssue[] = [];
     const allowedTypes = Array.isArray(node.type)
@@ -98,10 +110,10 @@ export function validateJsonSchema(
 
     if (typeof current === "string") {
       if (typeof node.minLength === "number" && current.length < node.minLength) {
-        local.push({ path, code: "too_small", message: `Must contain at least ${node.minLength} characters` });
+        local.push({ path, code: "too_small", message: `Must contain at least ${count(node.minLength, "character")}` });
       }
       if (typeof node.maxLength === "number" && current.length > node.maxLength) {
-        local.push({ path, code: "too_big", message: `Must contain at most ${node.maxLength} characters` });
+        local.push({ path, code: "too_big", message: `Must contain at most ${count(node.maxLength, "character")}` });
       }
       if (typeof node.pattern === "string") {
         try {
@@ -132,13 +144,13 @@ export function validateJsonSchema(
 
     if (Array.isArray(current)) {
       if (typeof node.minItems === "number" && current.length < node.minItems) {
-        local.push({ path, code: "too_small", message: `Must contain at least ${node.minItems} items` });
+        local.push({ path, code: "too_small", message: `Must contain at least ${count(node.minItems, "item")}` });
       }
       if (typeof node.maxItems === "number" && current.length > node.maxItems) {
-        local.push({ path, code: "too_big", message: `Must contain at most ${node.maxItems} items` });
+        local.push({ path, code: "too_big", message: `Must contain at most ${count(node.maxItems, "item")}` });
       }
       if (node.items && typeof node.items === "object" && !Array.isArray(node.items)) {
-        current.forEach((item, index) => visit(item, node.items as JsonSchemaNode, path ? `${path}.${index}` : String(index)));
+        current.forEach((item, index) => local.push(...visit(item, node.items as JsonSchemaNode, path ? `${path}.${index}` : String(index), depth + 1)));
       }
     }
 
@@ -155,7 +167,7 @@ export function validateJsonSchema(
       }
       for (const [key, child] of Object.entries(node.properties ?? {})) {
         if (Object.prototype.hasOwnProperty.call(record, key)) {
-          visit(record[key], child, path ? `${path}.${key}` : key);
+          local.push(...visit(record[key], child, path ? `${path}.${key}` : key, depth + 1));
         }
       }
       if (node.additionalProperties === false) {
@@ -173,8 +185,7 @@ export function validateJsonSchema(
     return local;
   };
 
-  visit(value, schema, "");
-  return issues;
+  return visit(value, schema, "");
 }
 
 export function inferJsonSchema(value: unknown): JsonSchemaNode {

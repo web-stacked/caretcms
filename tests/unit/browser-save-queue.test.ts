@@ -73,3 +73,17 @@ describe("inline save queue", () => {
     expect(setStatus).toHaveBeenLastCalledWith("error", "Save failed");
   });
 });
+
+it("carries and refreshes the base version alongside the draft revision", async () => {
+  const fetchImpl = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(Response.json({ entries: [{ revision: 0, baseRevision: 3, data: { title: "Old" } }] }))
+    .mockResolvedValueOnce(Response.json({ currentRevision: 0, currentBaseRevision: 4 }, { status: 409 }))
+    .mockResolvedValueOnce(Response.json({ entries: [{ revision: 0, baseRevision: 4, data: { title: "Remote" } }] }))
+    .mockResolvedValueOnce(Response.json({ revision: 1 }));
+  vi.stubGlobal("fetch", fetchImpl);
+  const save = createSaveField({ setStatus: vi.fn(), onUnauthorized: vi.fn() });
+  expect(await save("pages", "home", "title", "Mine")).toMatchObject({ ok: false, reason: "conflict", latestValue: "Remote" });
+  expect(JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body))).toMatchObject({ expectedRevision: 0, expectedBaseRevision: 3 });
+  expect(await save("pages", "home", "title", "Mine")).toMatchObject({ ok: true, revision: 1 });
+  expect(JSON.parse(String(fetchImpl.mock.calls[3]?.[1]?.body))).toMatchObject({ expectedRevision: 0, expectedBaseRevision: 4 });
+});

@@ -3,7 +3,9 @@ import { expect, test, type Page } from "@playwright/test";
 import { loginAsEditor, resetCmsStorage } from "./helpers";
 
 async function expectNoAxeViolations(page: Page): Promise<void> {
-  await page.waitForTimeout(350);
+  // Entrance animations change opacity, so contrast is checked once they settle.
+  await page.waitForFunction(() => document.getAnimations().every((animation) =>
+    animation.playState !== "running" || animation.effect?.getComputedTiming().iterations === Infinity));
   const result = await new AxeBuilder({ page }).analyze();
   expect(
     result.violations.map((violation) => ({
@@ -14,7 +16,8 @@ async function expectNoAxeViolations(page: Page): Promise<void> {
   ).toEqual([]);
 }
 
-test("login, collection list, and schema-rendered entry pass axe", async ({ page }) => {
+for (const colorScheme of ["light", "dark"] as const) test(`login, collection list, and schema-rendered entry pass axe in ${colorScheme} mode`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme });
   resetCmsStorage();
 
   await page.goto("/admin");
@@ -74,6 +77,7 @@ test("login, collection list, and schema-rendered entry pass axe", async ({ page
   await expectNoAxeViolations(page);
   await page.locator("#btn-delete-cancel").press("Escape");
 
+  await page.locator("#entry-more > summary").click();
   await page.locator("#btn-history").click();
   await expect(page.getByRole("region", { name: "Version history" })).toBeVisible();
   await expect(page.locator("#btn-history-close")).toBeFocused();
@@ -81,8 +85,11 @@ test("login, collection list, and schema-rendered entry pass axe", async ({ page
   await page.locator("#btn-history-close").press("Escape");
 
   await page.goto("/");
+  const image = page.locator("img[data-caret]").first();
+  await expect(image).toHaveAttribute("data-caret-img-mounted", "true");
+  await image.hover({ force: true });
   await expect(page.locator(".cms-img-overlay")).toBeVisible();
-  await expect(page.locator('.cms-img-wrapper input[type="file"]')).toHaveAttribute(
+  await expect(page.locator(".cms-img-input")).toHaveAttribute(
     "aria-label",
     "Upload replacement image",
   );

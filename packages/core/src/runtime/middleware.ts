@@ -2,9 +2,12 @@ import type { AuthorizationAction, EditorIdentity, IdentityAdapter, StorageAdapt
 import { isEditorAuthenticated, getEditorId } from "./auth/session.js";
 import { isDemoModeEnabled, resolveDemoSession } from "./auth/demo-session.js";
 import { getRuntimeServices } from "./providers.js";
-import { runWithRequestContext } from "./request-context.js";
+import { runWithRequestContext, type CaretRequestContext } from "./request-context.js";
+import { loadDataFileEntries } from "./content-bindings.js";
 import { rewriteCaretAttributes } from "./rewrite.js";
+import { hasCaretBindings } from "./html-tokens.js";
 import { hasStega, stegaClean } from "./stega.js";
+import { cleanNonContentStega, promoteAttributeStega } from "./stega-attributes.js";
 import { SessionOverlayAdapter } from "./storage/session-overlay-adapter.js";
 import { EDITOR_ID_RE } from "./storage/id-contracts.js";
 import { getDevAuthContext } from "./dev-request-context.js";
@@ -37,11 +40,6 @@ function warnMissingOverlay(): void {
 
 const PREVIEW_COOKIE = "caret_preview";
 
-/** Rendered binding attributes: `data-caret="…"` / `data-caret-scope="…"`.
- *  Matches the attribute grammar the rewrite engine consumes (whitespace
- *  around `=` tolerated), so prose mentions of "data-caret" don't count. */
-const BINDING_PROBE_RE = /\bdata-caret(?:-scope)?\s*=\s*"/;
-
 /** Is this request for a CMS-owned route (Studio, API, or editor assets)? Those
  *  pages are infrastructure, so the authed empty-state hint must never show on
  *  them — only on the live site. Conservative: if the path can't be read, treat
@@ -50,6 +48,7 @@ function isCmsOwnedPath(
   context: MiddlewareContext,
   mountPath: string,
   apiBasePath: string,
+  includeAssets = true,
 ): boolean {
   const url = context.request?.url;
   if (!url) return true;
@@ -63,7 +62,7 @@ function isCmsOwnedPath(
     pathname === mountPath ||
     pathname.startsWith(`${mountPath}/`) ||
     pathname.startsWith(apiBasePath) ||
-    pathname.startsWith("/__caret")
+    (includeAssets && pathname.startsWith("/__caret"))
   );
 }
 
@@ -138,6 +137,19 @@ export async function onRequest(
 ): Promise<Response> {
   const services = await getRuntimeServices();
   const runtimeEnv = await resolveRuntimeEnv();
+  // Worker secrets are bindings, not process.env. Cookie verification happens
+  // while choosing overlays, before the final request context is assembled.
+  // Give that preparation its own scope so it can read this request's secret.
+  return runWithRequestContext({ adapter: services.adapter, uploadHandler: services.uploadHandler,
+    sessionId: null, demoMode: false, runtimeEnv }, () => prepareRequest(context, next, services, runtimeEnv));
+}
+
+async function prepareRequest(
+  context: MiddlewareContext,
+  next: MiddlewareNext,
+  services: Awaited<ReturnType<typeof getRuntimeServices>>,
+  runtimeEnv: Record<string, unknown> | null,
+): Promise<Response> {
   const devAuth = getDevAuthContext(context.request, context.isPrerendered);
   const authContext = devAuth ?? context;
   const request = authContext.request ?? new Request("http://localhost/");
@@ -228,8 +240,23 @@ export async function onRequest(
     // overlayActive), so it can only be resolved here, inside the ALS scope.
     // Mutate the live context object so the loaders see the gate during render.
     requestContext.editor = isEditor;
+    if (isEditor) {
+      try {
+        (requestContext as CaretRequestContext).dataFiles = await loadDataFileEntries(adapter);
+      } catch (error) {
+        console.warn("[caretcms] Data-file drafts unavailable:", error);
+      }
+    }
     context.locals.isEditor = isEditor;
     context.locals.caretIdentity = identity;
+    // A downstream 304 has no body to rewrite and may validate a public source
+    // representation against a private draft. Render afresh for editors.
+    if (isEditor && context.request && (context.request.headers.has("if-none-match") || context.request.headers.has("if-modified-since"))) {
+      const headers = new Headers(context.request.headers);
+      headers.delete("if-none-match");
+      headers.delete("if-modified-since");
+      context.request = new Request(context.request, { headers });
+    }
     const inner = await next();
 
     const contentType = inner.headers.get("content-type") ?? "";
@@ -251,9 +278,20 @@ export async function onRequest(
       // Probe for ATTRIBUTE syntax, not the bare substring: a page that merely
       // mentions data-caret in prose (docs, a blog post about the CMS) must not
       // run the rewrite engine or suppress the signed-in empty-state hint.
-      // data-caret-rich is a bare attribute but always accompanies data-caret,
-      // so the two valued forms cover every binding the engine can act on.
-      const hasBindings = BINDING_PROBE_RE.test(html);
+      // Use actual element attributes, including Markdown body stamps.
+      // Keys hidden in attribute values (image src, link href) would otherwise
+      // reach the browser inside the URL. Clean them and bind keyed images.
+      if (requestContext.editor && hasStega(html)) {
+        const promoted = promoteAttributeStega(cleanNonContentStega(html));
+        if (promoted !== html) {
+          html = promoted;
+          rewritten = true;
+        }
+      }
+      const hasBindings = hasCaretBindings(html);
+      // Stega in the page becomes bindings in the browser (stega-hydrate), so
+      // it counts as editable content for the empty-state hint below.
+      const hasHiddenBindings = requestContext.editor && hasStega(html);
       if (hasBindings) {
         // An authenticated editor in server delivery reads live base content
         // (field edits save straight through), but their inline BODY-block
@@ -296,6 +334,7 @@ export async function onRequest(
         services.enableInlineEditor &&
         requestContext.editor &&
         !hasBindings &&
+        !hasHiddenBindings &&
         !isCmsOwnedPath(context, services.mountPath, services.apiBasePath)
       ) {
         html = injectSigninHint(html, services.mountPath);
@@ -304,12 +343,22 @@ export async function onRequest(
       body = html;
     }
 
-    if (!bodyConsumed && !setCookieHeader) {
+    const privateResponse = isEditor || overlayActive || Boolean(setCookieHeader)
+      || Boolean(context.request && isCmsOwnedPath(context, services.mountPath, services.apiBasePath, false));
+    if (!bodyConsumed && !setCookieHeader && !privateResponse) {
       return inner;
     }
 
     const headers = new Headers(inner.headers);
-    if (devAuth && requestContext.editor) headers.set("Cache-Control", "private, no-store");
+    if (privateResponse) {
+      headers.set("Cache-Control", "private, no-store");
+      headers.delete("cdn-cache-control");
+      headers.delete("surrogate-control");
+    }
+    if (rewritten || privateResponse) {
+      headers.delete("etag");
+      headers.delete("last-modified");
+    }
     if (rewritten) headers.delete("content-length");
     if (setCookieHeader) headers.append("Set-Cookie", setCookieHeader);
 

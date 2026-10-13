@@ -1,0 +1,12 @@
+{
+  "id": "orphan",
+  "label": "Legacy private collection",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string"
+      }
+    }
+  }
+}

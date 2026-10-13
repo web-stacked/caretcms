@@ -13,6 +13,7 @@ import type { StorageAdapter, EntryData } from "../types.js";
 import { BODY_OVERLAY_KEY, parseMdBinding, formatMdSrc, BLOCK_PATH_RE, type MdSrc } from "../markdown/contracts.js";
 import { sanitizeHtml } from "./sanitize-html.js";
 import { getNestedValue } from "./utils.js";
+import { scanHtmlTags, type HtmlTag } from "./html-tokens.js";
 
 // --- Types ---
 
@@ -21,6 +22,9 @@ type Binding = {
   id: string;
   field: string;
   fullMatch: string;
+  openingLength: number;
+  closingStart: number;
+  srcAttribute?: { start: number; end: number };
   contentStart: number;
   contentEnd: number;
   isImg: boolean;
@@ -33,11 +37,6 @@ type Binding = {
 type ScopeMatch = {
   collection: string;
   id: string;
-};
-
-type ScopeFrame = {
-  tagName: string;
-  scope: ScopeMatch | null;
 };
 
 // --- Patterns ---
@@ -56,144 +55,7 @@ export const REWRITABLE_TEXT_TAGS = [
   "legend",
 ] as const;
 
-// Matches any element with data-caret attribute.
-// Captures: tag name, full opening tag, data-caret value, content between tags, closing tag
-//
-// Stateful (g flag) regexes are constructed per-call inside rewriteCaretAttributes
-// to avoid cross-request lastIndex contamination if the loop ever yields.
-// Text-content elements: always emitted with an explicit closing tag, so we
-// capture the inner content. <img> is handled separately by IMG_ELEMENT_PATTERN
-// because it is a void element with no closing tag and (in standard HTML5
-// output) no self-closing slash — it would never match this pattern.
-const CARET_ELEMENT_PATTERN = new RegExp(
-  `<(${REWRITABLE_TEXT_TAGS.join("|")})\\b([^>]*?\\bdata-caret\\s*=\\s*"([^"]*)"[^>]*?)(?:\\/>|>([\\s\\S]*?)<\\/\\1>)`,
-);
-
-// Void <img> with a data-caret binding. Closes on a bare `>` or a self-closing
-// `/>` — never on a closing tag. Captures: 1 = attribute string, 2 = data-caret value.
-const IMG_ELEMENT_PATTERN =
-  /<img\b([^>]*?\bdata-caret\s*=\s*"([^"]*)"[^>]*?)\/?>/;
-
-// Markdown body blocks stamped by the mdast plugins (`data-caret-md`). Only
-// the block tags the stamping rules can emit; their content is inline-only by
-// construction (the closed editing set), so a lazy match to the first closing
-// tag can't be fooled by a nested same-tag element.
-// Captures: 1 = tag, 2 = attrs, 3 = binding value, 4 = content.
-const CARET_MD_ELEMENT_PATTERN = new RegExp(
-  `<(h[1-6]|p|li)\\b([^>]*?\\bdata-caret-md\\s*=\\s*"([^"]*)"[^>]*?)>([\\s\\S]*?)<\\/\\1>`,
-);
-
-// Scans the document to maintain the scope-frame stack. Matches EITHER a whole
-// HTML comment OR a start/end tag. Handling both keeps tag-like text the browser
-// never treats as a tag from corrupting the stack:
-//   - `<!-- <div> -->` — the comment is consumed whole, so the inner `<div>`
-//     never pushes a frame.
-//   - a `>` inside a quoted attribute (`<a title="a>b">`) — the attribute body
-//     matches quoted runs, so the tag closes on the real `>`, not the one in the
-//     value. Branches are mutually exclusive on their first char ("/'/other), so
-//     there is no ambiguous backtracking (ReDoS-safe).
-// Rawtext bodies (<script>/<style>/…) are skipped in advanceScopeStack itself.
-// Group 1 = tag name (undefined for the comment branch).
-const TAG_PATTERN = /<!--[\s\S]*?-->|<\/?([a-zA-Z][\w:-]*)(?:"[^"]*"|'[^']*'|[^>"'])*>/;
-
-// Elements whose content is raw text (CDATA-like), so `<div>`-looking substrings
-// inside them are NOT tags and must not touch the scope stack.
-const RAWTEXT_TAGS = new Set(["script", "style", "textarea", "title"]);
-
-const SCOPE_ATTR_RE = /\bdata-caret-scope\s*=\s*"([^"]+)"/i;
-const RICH_ATTR_RE = /\bdata-caret-rich\b/i;
-
-// Matches <img ... data-caret="..." ... src="..." ...> (self-closing or not)
-// We need to find and replace the src attribute within the img tag
-const IMG_SRC_RE = /\bsrc\s*=\s*"([^"]*)"/;
-
-const VOID_TAGS = new Set([
-  "area",
-  "base",
-  "br",
-  "col",
-  "embed",
-  "hr",
-  "img",
-  "input",
-  "link",
-  "meta",
-  "param",
-  "source",
-  "track",
-  "wbr",
-]);
-
-function parseScope(tagHtml: string): ScopeMatch | null {
-  const match = SCOPE_ATTR_RE.exec(tagHtml);
-  if (!match) return null;
-  const parts = match[1].split("::");
-  if (parts.length !== 2) return null;
-  return { collection: parts[0], id: parts[1] };
-}
-
-function popFrame(stack: ScopeFrame[], tagName: string): void {
-  for (let i = stack.length - 1; i >= 0; i -= 1) {
-    if (stack[i].tagName === tagName) {
-      stack.splice(i, 1);
-      return;
-    }
-  }
-}
-
-function advanceScopeStack(
-  html: string,
-  untilIndex: number,
-  state: { stack: ScopeFrame[]; cursor: number },
-  tagRe: RegExp,
-): void {
-  tagRe.lastIndex = state.cursor;
-  let match: RegExpExecArray | null;
-
-  while ((match = tagRe.exec(html)) !== null) {
-    if (match.index >= untilIndex) break;
-
-    const tagHtml = match[0];
-    // Comment branch (no tag-name capture): consumed whole, nothing to track.
-    if (match[1] === undefined) {
-      state.cursor = tagRe.lastIndex;
-      continue;
-    }
-
-    const tagName = match[1].toLowerCase();
-    const isClosing = tagHtml.startsWith("</");
-    const isSelfClosing = !isClosing && (tagHtml.endsWith("/>") || VOID_TAGS.has(tagName));
-
-    if (isClosing) {
-      popFrame(state.stack, tagName);
-      state.cursor = tagRe.lastIndex;
-      continue;
-    }
-
-    // Rawtext element: skip its entire body so tag-like text inside (e.g.
-    // `if (a < b)` in a <script>, or `</div>` in a <textarea> template) can't
-    // push/pop frames. Rawtext can't nest, so the first matching close wins.
-    if (!isSelfClosing && RAWTEXT_TAGS.has(tagName)) {
-      const closeRe = new RegExp(`</${tagName}\\b`, "gi");
-      closeRe.lastIndex = tagRe.lastIndex;
-      const close = closeRe.exec(html);
-      tagRe.lastIndex = close ? close.index + close[0].length : html.length;
-      state.cursor = tagRe.lastIndex;
-      continue;
-    }
-
-    if (!isSelfClosing) {
-      state.stack.push({
-        tagName,
-        scope: parseScope(tagHtml),
-      });
-    }
-
-    state.cursor = tagRe.lastIndex;
-  }
-}
-
-function findNearestScope(stack: ScopeFrame[]): ScopeMatch | null {
+function findNearestScope(stack: { scope: ScopeMatch | null }[]): ScopeMatch | null {
   for (let i = stack.length - 1; i >= 0; i -= 1) {
     if (stack[i].scope) return stack[i].scope;
   }
@@ -275,78 +137,52 @@ export async function rewriteCaretAttributes(
   const bindings: Binding[] = [];
   const entryKeys = new Set<string>();
 
-  const addBinding = (
-    caretValue: string,
-    attrs: string,
-    content: string,
-    isImg: boolean,
-    scope: ScopeMatch | null,
-    fullMatch: string,
-    index: number,
-  ): void => {
-    const resolved = resolveBinding(caretValue, scope);
-    if (!resolved) return;
-
-    entryKeys.add(`${resolved.collection}::${resolved.id}`);
-    bindings.push({
-      ...resolved,
-      fullMatch,
-      contentStart: index,
-      contentEnd: index + fullMatch.length,
-      isImg,
-      isRich: !isImg && RICH_ATTR_RE.test(attrs),
-      hasChildMarkup: !isImg && hasChildMarkup(content),
-    });
-  };
-
-  // Each pass walks the document independently with its own scope stack, since
-  // void <img> and text elements are matched by separate patterns. Discovery
-  // order does not matter: replacements are applied in reverse index order below.
-  const discover = (
-    pattern: RegExp,
-    onMatch: (match: RegExpExecArray, scope: ScopeMatch | null) => void,
-  ): void => {
-    const re = new RegExp(pattern.source, "gi");
-    const tagRe = new RegExp(TAG_PATTERN.source, "g");
-    const scopeState = { stack: [] as ScopeFrame[], cursor: 0 };
-    let match: RegExpExecArray | null;
-    while ((match = re.exec(html)) !== null) {
-      advanceScopeStack(html, match.index, scopeState, tagRe);
-      onMatch(match, findNearestScope(scopeState.stack));
+  const textTags = new Set<string>(REWRITABLE_TEXT_TAGS);
+  const stack: { tag: HtmlTag; scope: ScopeMatch | null; binding?: Binding; foreign: boolean }[] = [];
+  for (const tag of scanHtmlTags(html)) {
+    if (tag.closing) {
+      let frameIndex = stack.length - 1;
+      while (frameIndex >= 0 && stack[frameIndex].tag.name !== tag.name) frameIndex--;
+      if (frameIndex < 0) continue;
+      const frame = stack[frameIndex];
+      stack.splice(frameIndex);
+      if (frame.binding) {
+        frame.binding.fullMatch = html.slice(frame.tag.start, tag.end);
+        frame.binding.contentEnd = tag.end;
+        frame.binding.closingStart = tag.start - frame.tag.start;
+        frame.binding.hasChildMarkup = frame.binding.mdBlockPath === undefined && hasChildMarkup(html.slice(frame.tag.end, tag.start));
+        bindings.push(frame.binding);
+      }
+      continue;
     }
-  };
-
-  // Text-content elements: 1 = tag, 2 = attrs, 3 = data-caret value, 4 = content.
-  discover(CARET_ELEMENT_PATTERN, (match, scope) => {
-    addBinding(match[3], match[2], match[4] ?? "", false, scope, match[0], match.index);
-  });
-
-  // Void <img>: 1 = attrs, 2 = data-caret value (no content).
-  discover(IMG_ELEMENT_PATTERN, (match, scope) => {
-    addBinding(match[2], match[1], "", true, scope, match[0], match.index);
-  });
-
-  // Markdown body blocks: preview-only swap. Base markdown entries never carry
-  // the body-draft map (their data IS the frontmatter), so this can only ever
-  // replace content when the adapter is a previewing editor's draft overlay —
-  // public requests and the static bake read the base and are untouched.
-  discover(CARET_MD_ELEMENT_PATTERN, (match) => {
-    const parsed = parseMdBinding(match[3]);
-    if (!parsed) return;
-    entryKeys.add(`${parsed.collection}::${parsed.id}`);
-    bindings.push({
-      collection: parsed.collection,
-      id: parsed.id,
-      field: "",
-      fullMatch: match[0],
-      contentStart: match.index,
-      contentEnd: match.index + match[0].length,
-      isImg: false,
-      isRich: false,
-      hasChildMarkup: false,
-      mdBlockPath: parsed.blockPath,
-    });
-  });
+    const foreign = tag.name === "svg" || tag.name === "math" || stack.some(frame => frame.foreign);
+    const scopeParts = tag.attributes.get("data-caret-scope")?.value.split("::");
+    const ownScope = scopeParts?.length === 2 ? { collection: scopeParts[0], id: scopeParts[1] } : null;
+    let binding: Binding | undefined;
+    if (!foreign) {
+      const mdValue = tag.attributes.get("data-caret-md")?.value;
+      const md = mdValue !== undefined && /^(h[1-6]|p|li)$/.test(tag.name) ? parseMdBinding(mdValue) : null;
+      const caretValue = tag.attributes.get("data-caret")?.value;
+      const resolved = caretValue !== undefined && (tag.name === "img" || textTags.has(tag.name))
+        ? resolveBinding(caretValue, findNearestScope(stack)) : null;
+      if (md || resolved) {
+        const key = md ?? resolved!;
+        entryKeys.add(`${key.collection}::${key.id}`);
+        const src = tag.attributes.get("src");
+        binding = {
+          collection: key.collection, id: key.id, field: resolved?.field ?? "",
+          fullMatch: html.slice(tag.start, tag.end), openingLength: tag.end - tag.start, closingStart: tag.end - tag.start,
+          contentStart: tag.start, contentEnd: tag.end,
+          isImg: tag.name === "img", isRich: !md && tag.attributes.has("data-caret-rich"),
+          hasChildMarkup: false,
+          ...(md ? { mdBlockPath: md.blockPath } : {}),
+          ...(src ? { srcAttribute: { start: src.start - tag.start, end: src.end - tag.start } } : {}),
+        };
+        if (tag.void) bindings.push(binding);
+      }
+    }
+    if (!tag.void) stack.push({ tag, scope: ownScope, binding, foreign });
+  }
 
   if (bindings.length === 0) return html;
 
@@ -355,7 +191,8 @@ export async function rewriteCaretAttributes(
   if (entries.size === 0) return html;
 
   // 3. Apply replacements (reverse order to preserve indices)
-  let result = html;
+  const replacements: { binding: Binding; value: string }[] = [];
+  const replace = (binding: Binding, value: string): void => { replacements.push({ binding, value }); };
   const sorted = [...bindings].sort((a, b) => b.contentStart - a.contentStart);
 
   for (const binding of sorted) {
@@ -378,7 +215,7 @@ export async function rewriteCaretAttributes(
         if (Array.isArray(sources) && sources.some(source => source?.blockPath === binding.mdBlockPath)) consumed = true;
       }
       if (consumed) {
-        result = result.slice(0, binding.contentStart) + result.slice(binding.contentEnd);
+        replace(binding, "");
         continue;
       }
       const block = (drafts as Record<string, unknown>)[binding.mdBlockPath];
@@ -392,14 +229,14 @@ export async function rewriteCaretAttributes(
         const bindingValue = `${binding.collection}::${binding.id}::body::${binding.mdBlockPath}`;
         const paragraphs = group.paragraphs.map(p => `<p>${sanitizeHtml(p, { allowedClasses: options?.allowedClasses }) || "<br>"}</p>`).join("");
         const rendered = `<div data-caret-md="${escapeAttr(bindingValue)}" data-caret-md-src="${escapeAttr(sources[0].src)}" data-caret-md-sources="${escapeAttr(JSON.stringify(sources))}" data-caret-md-draft>${paragraphs || "<p><br></p>"}</div>`;
-        result = result.slice(0, binding.contentStart) + rendered + result.slice(binding.contentEnd);
+        replace(binding, rendered);
         continue;
       }
       const draftHtml = (block as Record<string, unknown>).html;
       if (typeof draftHtml !== "string") continue;
 
-      const openTagEnd = binding.fullMatch.indexOf(">") + 1;
-      const closeTagStart = binding.fullMatch.lastIndexOf("</");
+      const openTagEnd = binding.openingLength;
+      const closeTagStart = binding.closingStart;
       if (openTagEnd > 0 && closeTagStart >= openTagEnd) {
         // Mark the block as showing an unpublished draft so the editor UI can
         // flag it (a reloaded preview otherwise looks identical to live prose).
@@ -411,12 +248,7 @@ export async function rewriteCaretAttributes(
           : `${openTag.slice(0, -1)}${openTag.includes('data-caret-md-paragraph="true"') ? ` data-caret-md-original="${escapeAttr(binding.fullMatch.slice(openTagEnd, closeTagStart))}"` : ""} data-caret-md-draft>`;
         const after = binding.fullMatch.slice(closeTagStart);
         const injected = sanitizeHtml(draftHtml, { allowedClasses: options?.allowedClasses });
-        result =
-          result.slice(0, binding.contentStart) +
-          before +
-          injected +
-          after +
-          result.slice(binding.contentEnd);
+        replace(binding, before + injected + after);
       }
       continue;
     }
@@ -433,25 +265,16 @@ export async function rewriteCaretAttributes(
     if (binding.isImg) {
       // Replace src attribute value in the img tag
       const imgTag = binding.fullMatch;
-      const srcMatch = IMG_SRC_RE.exec(imgTag);
-      if (srcMatch) {
-        // Function replacement (not a string) so `$`-sequences in the stored
-        // value — `$&`, `$1`, `` $` `` — are inserted literally instead of being
-        // interpreted as String.prototype.replace substitution patterns.
-        const newImgTag = imgTag.replace(
-          srcMatch[0],
-          () => `src="${escapeAttr(storedValue)}"`,
-        );
-        result =
-          result.slice(0, binding.contentStart) +
-          newImgTag +
-          result.slice(binding.contentEnd);
+      const src = binding.srcAttribute;
+      if (src) {
+        const newImgTag = imgTag.slice(0, src.start) + `src="${escapeAttr(storedValue)}"` + imgTag.slice(src.end);
+        replace(binding, newImgTag);
       }
     } else {
       // Replace text content between tags
       // Find the opening tag end and closing tag start within the full match
-      const openTagEnd = binding.fullMatch.indexOf(">") + 1;
-      const closeTagStart = binding.fullMatch.lastIndexOf("</");
+      const openTagEnd = binding.openingLength;
+      const closeTagStart = binding.closingStart;
 
       // `>=` so an empty bound element (`<h1 data-caret="x"></h1>`) — a valid
       // placeholder awaiting its first override — is filled too. When content
@@ -465,15 +288,22 @@ export async function rewriteCaretAttributes(
           : escapeHtml(storedValue);
         const newMatch = before + injected + after;
 
-        result =
-          result.slice(0, binding.contentStart) +
-          newMatch +
-          result.slice(binding.contentEnd);
+        replace(binding, newMatch);
       }
     }
   }
 
-  return result;
+  // Resolve nested edits against ORIGINAL spans. A replaced rich parent owns
+  // its subtree; applying children first would invalidate the parent's offsets.
+  replacements.sort((a, b) => a.binding.contentStart - b.binding.contentStart || b.binding.contentEnd - a.binding.contentEnd);
+  let result = "";
+  let cursor = 0;
+  for (const { binding, value } of replacements) {
+    if (binding.contentStart < cursor) continue;
+    result += html.slice(cursor, binding.contentStart) + value;
+    cursor = binding.contentEnd;
+  }
+  return result + html.slice(cursor);
 }
 
 // --- Escaping ---

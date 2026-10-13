@@ -61,36 +61,27 @@ function parsePlainScalar(s: string): unknown {
   return s;
 }
 
-function unescapeChar(c: string): string {
-  switch (c) {
-    case "n": return "\n";
-    case "t": return "\t";
-    case "r": return "\r";
-    case "b": return "\b";
-    case "f": return "\f";
-    case "0": return "\0";
-    default: return c; // covers \" \\ \/ and any other escaped char
-  }
-}
-
-/** Parse a double-quoted scalar — JSON-compatible first, tolerant fallback. */
+/** Decode YAML double quotes with a shared, strict escape implementation. */
 function parseDoubleQuoted(text: string): string {
-  try {
-    const v = JSON.parse(text);
-    if (typeof v === "string") return v;
-  } catch {
-    // fall through to tolerant unescape
-  }
   if (!text.endsWith('"') || text.length < 2) throw new CodecError(`unterminated string: ${text}`);
   const inner = text.slice(1, -1);
+  const escapes: Record<string, string> = {
+    '0': '\0', a: '\x07', b: '\b', t: '\t', n: '\n', v: '\v', f: '\f', r: '\r',
+    e: '\x1b', ' ': ' ', '"': '"', '/': '/', '\\': '\\', N: '\u0085', _: '\u00a0', L: '\u2028', P: '\u2029',
+  };
   let out = "";
   for (let i = 0; i < inner.length; i++) {
-    if (inner[i] === "\\") {
-      out += unescapeChar(inner[i + 1] ?? "");
-      i++;
-    } else {
-      out += inner[i];
-    }
+    if (inner[i] === '"') throw new CodecError("unexpected quote in string");
+    if (inner[i] !== "\\") { out += inner[i]; continue; }
+    const escape = inner[++i];
+    if (Object.prototype.hasOwnProperty.call(escapes, escape)) { out += escapes[escape]; continue; }
+    const digits = escape === "x" ? 2 : escape === "u" ? 4 : escape === "U" ? 8 : 0;
+    const hex = inner.slice(i + 1, i + 1 + digits);
+    if (!digits || hex.length !== digits || !/^[0-9a-f]+$/i.test(hex)) throw new CodecError("unsupported or invalid string escape");
+    const code = Number.parseInt(hex, 16);
+    if (code > 0x10ffff) throw new CodecError("invalid Unicode code point");
+    out += String.fromCodePoint(code);
+    i += digits;
   }
   return out;
 }
@@ -118,17 +109,14 @@ function parseFlow(src: string, depth: number): unknown {
     let out = "";
     i++;
     if (q === '"') {
+      const start = i - 1;
       while (i < src.length && src[i] !== '"') {
-        if (src[i] === "\\") {
-          out += unescapeChar(src[i + 1] ?? "");
-          i += 2;
-        } else {
-          out += src[i++];
-        }
+        if (src[i] === "\\") i += 2;
+        else i++;
       }
       if (src[i] !== '"') throw new CodecError("unterminated flow string");
       i++;
-      return out;
+      return parseDoubleQuoted(src.slice(start, i));
     }
     while (i < src.length) {
       if (src[i] === "'") {
@@ -584,6 +572,18 @@ export function serializeFrontmatter(data: Record<string, unknown>): SerializeRe
  * Changed fields are serialized canonically, including their nested contents.
  * This is intentionally not a full YAML concrete-syntax-tree editor.
  */
+/**
+ * A changed one-line string keeps the quotes its line used (`title: "A"` stays
+ * double-quoted), so an edit's diff shows only the words that changed.
+ */
+function sameQuoteStyle(fieldText: string, value: unknown): string | null {
+  if (typeof value !== "string" || /[\r\n]/.test(value)) return null;
+  const original = stripComment(fieldText.slice(findKeyColon(fieldText) + 1)).trim();
+  if (original.startsWith('"') && original.endsWith('"') && original.length > 1) return JSON.stringify(value);
+  if (original.startsWith("'") && original.endsWith("'") && original.length > 1) return `'${value.replace(/'/g, "''")}'`;
+  return null;
+}
+
 export function rewriteFrontmatter(source: string, data: Record<string, unknown>): SerializeResult {
   const parsed = parseFrontmatter(source);
   if (!parsed.ok) return parsed;
@@ -609,7 +609,12 @@ export function rewriteFrontmatter(source: string, data: Record<string, unknown>
       if (!Object.hasOwn(data, key)) continue;
       if (sameContent(parsed.data[key], data[key])) {
         yaml += located.yaml.slice(offsets[field.line], offsets[fields[i + 1]?.line ?? lines.length]);
-      } else yaml += emitEntry(key, data[key], indent, 0).join(eol) + eol;
+      } else {
+        const quoted = sameQuoteStyle(field.text, data[key]);
+        yaml += quoted !== null
+          ? " ".repeat(indent) + field.text.slice(0, findKeyColon(field.text) + 1) + " " + quoted + eol
+          : emitEntry(key, data[key], indent, 0).join(eol) + eol;
+      }
     }
     for (const [key, value] of Object.entries(data)) {
       if (!seen.has(key)) yaml += emitEntry(key, value, indent, 0).join(eol) + eol;

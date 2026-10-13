@@ -16,6 +16,8 @@ import {
   escapeHtml,
   htmlResponse,
   redirectResponse,
+  renderCollectionIcon,
+  renderIcon,
   renderStudioPage,
   serializeJsonForScript,
 } from "../views/studio-layout.js";
@@ -50,7 +52,9 @@ export async function GET(context: APIContext): Promise<Response> {
   }
   const label = collectionConfig.label || humanize(collection);
   const studioCollections = await getStudioCollections(adapter);
-  const collectionSwitcher = studioCollections.map(({ name, config }) => ({
+  const navigation = studioCollections.map(({ name, config }) => ({
+    name,
+    icon: config.icon,
     label: config.label || humanize(name),
     href: config.singletonId
       ? `${runtime.mountPath}/cms/${encodeURIComponent(name)}/${encodeURIComponent(config.singletonId)}`
@@ -78,48 +82,74 @@ export async function GET(context: APIContext): Promise<Response> {
   const safeCollection = escapeHtml(collection);
 
   const extraStyles = `
+    .entries-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
     .entry-card {
-      transition: transform 0.2s, border-color 0.2s, background 0.2s;
+      display: flex; flex-direction: column; overflow: hidden;
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
     }
-    .entry-card:hover {
-      transform: translateY(-2px);
-      border-color: var(--studio-accent-strong, rgba(59, 130, 246, 0.3));
-    }
+    .entry-card:hover { transform: translateY(-2px); border-color: var(--studio-accent-strong); box-shadow: var(--studio-shadow); }
     .entry-thumb {
-      aspect-ratio: 1;
-      background: rgba(0, 0, 0, 0.2);
-      overflow: hidden;
-      display: block;
+      aspect-ratio: 4 / 3; overflow: hidden; display: grid; place-items: center;
+      background: var(--studio-surface-hover); border-bottom: 1px solid var(--studio-border);
+      color: var(--studio-text-dim); font-size: 1.5rem; font-weight: 600;
     }
-    .entry-thumb img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-    .entry-card-body { padding: 1rem; }
+    .entry-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .entry-card-body { padding: 0.9rem 1rem 1rem; display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; flex: 1; }
     .entry-card-title {
-      margin: 0 0 0.35rem; overflow: hidden; color: var(--studio-text);
+      margin: 0; overflow: hidden; color: var(--studio-text);
       font-size: 0.9rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap;
     }
     .entry-card-subtitle {
-      margin: 0 0 0.45rem; overflow: hidden; color: var(--studio-text-muted);
-      font-size: 0.78rem; text-overflow: ellipsis; white-space: nowrap;
+      margin: 0; overflow: hidden; color: var(--studio-text-muted);
+      font-size: 0.8rem; text-overflow: ellipsis; white-space: nowrap;
     }
-    .entry-card-status { display: block; margin-bottom: 0.35rem; font-size: 0.75rem; }
+    .entry-card-meta { display: flex; align-items: center; gap: 0.5rem; margin-top: auto; padding-top: 0.35rem; min-width: 0; }
     .entry-card-id {
-      margin: 0; overflow: hidden; color: var(--studio-text-muted); font: 0.72rem/1.4 var(--studio-font-mono);
+      margin: 0; overflow: hidden; color: var(--studio-text-dim); font: 0.72rem/1.4 var(--studio-font-mono);
       text-overflow: ellipsis; white-space: nowrap;
     }
-    .collection-heading-bar {
-      display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem;
-      margin-bottom: 1.5rem;
+    .studio-chip {
+      display: inline-flex; align-items: center; gap: 0.35rem; flex-shrink: 0;
+      padding: 0.12rem 0.5rem; border-radius: 999px;
+      background: var(--studio-overlay); color: var(--studio-text-muted);
+      font-size: 0.7rem; font-weight: 600; line-height: 1.4;
     }
+    .studio-chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .studio-chip.success { background: var(--studio-green-soft); color: var(--studio-green); }
+    .studio-chip.danger { background: var(--studio-red-soft); color: var(--studio-red); }
+    .entries-grid[data-view="list"] { grid-template-columns: 1fr; gap: 0; border: 1px solid var(--studio-border); border-radius: var(--radius-theme-md); overflow: hidden; background: var(--studio-surface); }
+    .entries-grid[data-view="list"] .entry-card { flex-direction: row; align-items: center; border: none; border-radius: 0; border-bottom: 1px solid var(--studio-border); }
+    .entries-grid[data-view="list"] .entry-card:last-child { border-bottom: none; }
+    .entries-grid[data-view="list"] .entry-card:hover { transform: none; box-shadow: none; background: var(--studio-overlay); }
+    .entries-grid[data-view="list"] .entry-thumb { width: 44px; height: 44px; aspect-ratio: auto; margin-left: 0.85rem; border: none; border-radius: var(--radius-theme-sm); font-size: 0.95rem; flex-shrink: 0; }
+    .entries-grid[data-view="list"] .entry-card-body { flex-direction: row; align-items: center; gap: 1rem; padding: 0.75rem 1rem; }
+    .entries-grid[data-view="list"] .entry-card-text { flex: 1; min-width: 0; }
+    .entries-grid[data-view="list"] .entry-card-meta { margin: 0; padding: 0; flex-shrink: 0; }
+    .entries-grid[data-view="list"] .entry-card-id { max-width: 14rem; }
+    .collection-heading-bar { margin-bottom: 1.5rem; }
     .collection-actions {
-      display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem; flex: 0 0 auto;
+      display: flex; align-items: center; justify-content: flex-end; gap: 0.6rem; flex: 0 0 auto;
     }
     .collection-actions button { flex-shrink: 0; white-space: nowrap; }
-    .collection-actions #search-input { min-width: 10rem; }
+    .collection-actions #search-input { min-width: 10rem; max-width: 240px; height: 2.25rem; padding: 0 0.75rem; }
+    .studio-empty-state {
+      display: flex; flex-direction: column; align-items: center; gap: 0.75rem;
+      margin-top: 1rem; padding: 3.5rem 1.5rem; text-align: center;
+      border: 1px dashed var(--studio-border-hover); border-radius: var(--radius-theme-lg);
+      color: var(--studio-text-muted);
+    }
+    .studio-empty-state[hidden] { display: none; }
+    .studio-empty-state p { margin: 0; font-size: 0.95rem; color: var(--studio-text); }
+    .studio-empty-icon {
+      display: none; place-items: center; width: 3rem; height: 3rem;
+      border-radius: 50%; background: var(--studio-accent-soft); color: var(--studio-accent);
+    }
+    .studio-empty-icon .studio-icon { width: 22px; height: 22px; }
+    .studio-empty-state:not([data-mode="search"]) [data-empty-icon="collection"],
+    .studio-empty-state[data-mode="search"] [data-empty-icon="search"] { display: grid; }
+    .view-toggle { display: inline-flex; padding: 2px; border: 1px solid var(--studio-border); border-radius: var(--radius-theme-sm); background: var(--studio-input); }
+    .view-toggle button { width: 2rem; height: 1.85rem; }
+    .view-toggle button[aria-pressed="true"] { background: var(--studio-accent-soft); color: var(--studio-accent); }
     .collection-search-label {
       position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
       overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
@@ -136,6 +166,7 @@ export async function GET(context: APIContext): Promise<Response> {
       padding: 12px 16px;
       border: 1px solid var(--studio-border);
       background: var(--studio-surface);
+      border-radius: var(--radius-theme-sm);
       cursor: grab;
       transition: border-color 0.15s, opacity 0.15s, transform 0.15s;
       user-select: none;
@@ -151,7 +182,7 @@ export async function GET(context: APIContext): Promise<Response> {
     .modal-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.6);
+      background: var(--studio-scrim);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -162,8 +193,11 @@ export async function GET(context: APIContext): Promise<Response> {
     .modal-card {
       width: 100%;
       max-width: 28rem;
-      background: var(--studio-bg);
-      border: 1px solid var(--studio-border);
+      overflow: hidden;
+      background: var(--studio-surface);
+      border: 1px solid var(--studio-border-hover);
+      border-radius: var(--radius-theme-lg);
+      box-shadow: var(--studio-shadow);
     }
     .modal-header {
       display: flex;
@@ -171,7 +205,7 @@ export async function GET(context: APIContext): Promise<Response> {
       justify-content: space-between;
       padding: 1rem 1.5rem;
       border-bottom: 1px solid var(--studio-border);
-      font-size: 13px;
+      font-size: 0.95rem;
       font-weight: 600;
       letter-spacing: 0;
       color: var(--studio-text);
@@ -179,27 +213,34 @@ export async function GET(context: APIContext): Promise<Response> {
     .modal-body { padding: 1.5rem; }
   `;
 
-  const body = `<div class="studio-fade-in" style="max-width:80rem;margin:0 auto;" id="collection-page" data-collection="${safeCollection}">
-    <div class="collection-heading-bar">
+  const body = `<div class="studio-fade-in studio-page" id="collection-page" data-collection="${safeCollection}">
+    <header class="studio-page-header collection-heading-bar">
       <div>
-        <h1 style="font-family:var(--studio-font-heading);font-size:1.25rem;margin:0;color:var(--studio-text);">${escapeHtml(label)}</h1>
-        <p id="entry-count" style="font-size:0.8rem;margin:0.25rem 0 0;color:var(--studio-text-dim);">${escapeHtml(messages["common.loading"])}</p>
+        <h1 class="studio-page-title">${escapeHtml(label)}</h1>
+        <p class="studio-page-intro">${collectionConfig.description ? `${escapeHtml(collectionConfig.description)} · ` : ""}<span id="entry-count">${escapeHtml(messages["common.loading"])}</span></p>
       </div>
       <div class="collection-actions">
         <label for="search-input" class="collection-search-label">${escapeHtml(messages["collection.search"])}</label>
-        <input id="search-input" name="search" type="search" placeholder="${escapeHtml(messages["collection.searchPlaceholder"])}" class="studio-input" style="max-width:240px;" />
+        <input id="search-input" name="search" type="search" placeholder="${escapeHtml(messages["collection.searchPlaceholder"])}" class="studio-input" />
+        <div class="view-toggle" role="group" aria-label="${escapeHtml(messages["collection.view"])}">
+          <button type="button" class="studio-icon-btn" id="view-grid" aria-pressed="true" aria-label="${escapeHtml(messages["collection.viewGrid"])}" title="${escapeHtml(messages["collection.viewGrid"])}">${renderIcon("overview")}</button>
+          <button type="button" class="studio-icon-btn" id="view-list" aria-pressed="false" aria-label="${escapeHtml(messages["collection.viewList"])}" title="${escapeHtml(messages["collection.viewList"])}">${renderIcon("menu")}</button>
+        </div>
         ${orderable ? `<button id="btn-reorder" type="button" class="studio-btn-ghost" aria-controls="reorder-container" aria-expanded="false">${escapeHtml(messages["collection.reorder"])}</button>` : ""}
         ${creatable ? `<button id="btn-new" class="studio-btn-primary">${escapeHtml(newLabel)}</button>` : ""}
       </div>
-    </div>
+    </header>
 
     <div id="loading" style="display:flex;justify-content:center;padding:5rem 0;">
       <div class="studio-spinner" style="width:24px;height:24px;"></div>
     </div>
 
-    <div id="empty" hidden style="text-align:center;padding:5rem 0;color:var(--studio-text-dim);">
-      <p style="font-size:0.875rem;margin:0 0 0.75rem;">${escapeHtml(messages["collection.noEntries"])}</p>
+    <div id="empty" class="studio-empty-state" hidden>
+      <span class="studio-empty-icon" data-empty-icon="collection">${renderCollectionIcon(collectionConfig.icon, collection)}</span>
+      <span class="studio-empty-icon" data-empty-icon="search">${renderIcon("search")}</span>
+      <p>${escapeHtml(messages["collection.noEntries"])}</p>
       ${creatable ? `<button id="btn-empty-create" class="studio-btn-primary">${escapeHtml(emptyCreateLabel)}</button>` : ""}
+      <button id="btn-clear-search" type="button" class="studio-btn-ghost" hidden>${escapeHtml(messages["collection.clearSearch"])}</button>
     </div>
 
     <div id="error-state" hidden style="text-align:center;padding:5rem 0;">
@@ -207,7 +248,7 @@ export async function GET(context: APIContext): Promise<Response> {
       <button id="retry-btn" class="studio-btn-ghost">${escapeHtml(messages["common.retry"])}</button>
     </div>
 
-    <div id="entries-grid" hidden style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));"></div>
+    <div id="entries-grid" class="entries-grid" data-view="grid" hidden></div>
 
     <nav id="pagination" aria-label="${escapeHtml(messages["collection.pagination"])}" hidden style="display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-top:1rem;">
       <button id="page-prev" type="button" class="studio-btn-ghost">${escapeHtml(messages["collection.previous"])}</button>
@@ -229,7 +270,7 @@ export async function GET(context: APIContext): Promise<Response> {
     <div class="modal-card">
       <div class="modal-header">
         <h2 id="create-dialog-title" style="font:inherit;letter-spacing:inherit;text-transform:inherit;margin:0;">${escapeHtml(dialogTitle)}</h2>
-        <button id="btn-create-close" type="button" class="studio-btn-ghost" style="padding:4px 10px;">${escapeHtml(messages["common.close"])}</button>
+        <button id="btn-create-close" type="button" class="studio-icon-btn" aria-label="${escapeHtml(messages["common.close"])}" title="${escapeHtml(messages["common.close"])}"><svg class="studio-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
       <div class="modal-body">
         ${titleField ? `<label for="create-title-input" class="studio-label">${escapeHtml(titleInputLabel)}</label>
@@ -271,6 +312,19 @@ export async function GET(context: APIContext): Promise<Response> {
     var reorderScope = document.getElementById('reorder-scope');
 
     var grid = document.getElementById('entries-grid');
+    var viewButtons = { grid: document.getElementById('view-grid'), list: document.getElementById('view-list') };
+    function setView(view, rerender) {
+      grid.dataset.view = view;
+      Object.keys(viewButtons).forEach(function (key) {
+        if (viewButtons[key]) viewButtons[key].setAttribute('aria-pressed', String(key === view));
+      });
+      try { localStorage.setItem('caret-studio-view', view); } catch (e) { /* storage may be blocked */ }
+      if (rerender && Array.isArray(allEntries) && allEntries.length) renderEntries(allEntries);
+    }
+    Object.keys(viewButtons).forEach(function (key) {
+      if (viewButtons[key]) viewButtons[key].addEventListener('click', function () { setView(key, true); });
+    });
+    try { if (localStorage.getItem('caret-studio-view') === 'list') setView('list', false); } catch (e) { /* default grid */ }
     var loading = document.getElementById('loading');
     var empty = document.getElementById('empty');
     var errorState = document.getElementById('error-state');
@@ -279,6 +333,7 @@ export async function GET(context: APIContext): Promise<Response> {
     var searchInput = document.getElementById('search-input');
     var newBtn = document.getElementById('btn-new');
     var emptyCreateBtn = document.getElementById('btn-empty-create');
+    var clearSearchBtn = document.getElementById('btn-clear-search');
     var reorderBtn = document.getElementById('btn-reorder');
     var reorderContainer = document.getElementById('reorder-container');
     var reorderList = document.getElementById('reorder-list');
@@ -342,6 +397,11 @@ export async function GET(context: APIContext): Promise<Response> {
       return '';
     }
 
+    function humanizeId(id) {
+      var text = String(id || '').replace(/[-_]+/g, ' ').trim();
+      return text ? text.charAt(0).toUpperCase() + text.slice(1) : MSG['collection.untitled'];
+    }
+
     function renderEntries(entries) {
       grid.innerHTML = '';
       if (entries.length === 0) {
@@ -351,33 +411,39 @@ export async function GET(context: APIContext): Promise<Response> {
       }
       empty.hidden = true;
       grid.hidden = false;
+      // Placeholders keep cards aligned when only some entries have images.
+      var anyThumb = entries.some(function (entry) { return !entry.readError && getThumb(entry.data); });
       for (var i = 0; i < entries.length; i++) {
         var entry = entries[i];
         var title = entry.readError ? entry.id : getTitle(entry.data);
+        // Entries without a title field (fixed pages, settings) read better by id.
+        if (title === MSG['collection.untitled']) title = humanizeId(entry.id);
         var thumb = getThumb(entry.data);
         var subtitle = getSubtitle(entry.data);
         var publication = PUBLICATION_FIELD && entry.data && typeof entry.data[PUBLICATION_FIELD] === 'boolean'
           ? (entry.data[PUBLICATION_FIELD]
-            ? '<span class="entry-card-status" style="color:var(--studio-green);">' + htmlEsc(MSG['collection.published']) + '</span>'
-            : '<span class="entry-card-status" style="color:var(--studio-text-dim);">' + htmlEsc(MSG['collection.unpublished']) + '</span>')
+            ? '<span class="entry-card-status studio-chip success">' + htmlEsc(MSG['collection.published']) + '</span>'
+            : '<span class="entry-card-status studio-chip">' + htmlEsc(MSG['collection.unpublished']) + '</span>')
           : '';
         var invalid = Array.isArray(entry.validationIssues) && entry.validationIssues.length
-          ? '<span style="display:block;font-size:0.75rem;color:var(--studio-red);margin-bottom:0.25rem;">' + htmlEsc(MSG['collection.invalid']) + '</span>'
+          ? '<span class="studio-chip danger">' + htmlEsc(MSG['collection.invalid']) + '</span>'
           : '';
+        var initial = String(title || entry.id || '?').trim().charAt(0).toUpperCase();
         var card = document.createElement('a');
         card.href = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entry.id);
         card.className = 'entry-card studio-card';
-        card.style.display = 'block';
-        card.style.overflow = 'hidden';
-        card.style.textDecoration = 'none';
         card.innerHTML =
-          (thumb ? '<div class="entry-thumb"><img src="' + htmlEsc(thumb) + '" alt="" loading="lazy" /></div>' : '') +
+          (thumb ? '<div class="entry-thumb"><img src="' + htmlEsc(thumb) + '" alt="" loading="lazy" /></div>'
+            : anyThumb || grid.dataset.view === 'list' ? '<div class="entry-thumb" aria-hidden="true">' + htmlEsc(initial) + '</div>' : '') +
           '<div class="entry-card-body">' +
-            '<h2 class="entry-card-title">' + htmlEsc(title) + '</h2>' +
-            (subtitle ? '<p class="entry-card-subtitle">' + htmlEsc(subtitle) + '</p>' : '') +
-            (entry.readError ? '<p role="note">' + htmlEsc(MSG['collection.unreadable']) + '</p>' : invalid) +
-            publication +
-            '<p class="entry-card-id">' + htmlEsc(entry.id) + '</p>' +
+            '<div class="entry-card-text">' +
+              '<h2 class="entry-card-title">' + htmlEsc(title) + '</h2>' +
+              (subtitle ? '<p class="entry-card-subtitle">' + htmlEsc(subtitle) + '</p>' : '') +
+              (entry.readError ? '<p role="note" class="entry-card-subtitle">' + htmlEsc(MSG['collection.unreadable']) + '</p>' : '') +
+            '</div>' +
+            '<div class="entry-card-meta">' + invalid + publication +
+              '<p class="entry-card-id">' + htmlEsc(entry.id) + '</p>' +
+            '</div>' +
           '</div>';
         grid.appendChild(card);
       }
@@ -412,7 +478,9 @@ export async function GET(context: APIContext): Promise<Response> {
           pageRange.textContent = MSG['collection.range'].replace('{start}', paging.total ? (paging.page - 1) * paging.pageSize + 1 : 0).replace('{end}', Math.min(paging.page * paging.pageSize, paging.total)).replace('{total}', paging.total);
           pagination.hidden = paging.totalPages <= 1;
           empty.querySelector('p').textContent = query ? MSG['collection.noResults'] : MSG['collection.noEntries'];
+          empty.dataset.mode = query ? 'search' : 'collection';
           if (emptyCreateBtn) emptyCreateBtn.hidden = Boolean(query);
+          if (clearSearchBtn) clearSearchBtn.hidden = !query;
           var limited = Boolean(query) || paging.totalPages > 1 || allEntries.some(function (entry) { return entry.readError; });
           if (reorderBtn) {
             reorderBtn.hidden = limited;
@@ -435,6 +503,12 @@ export async function GET(context: APIContext): Promise<Response> {
 
     previousPage.addEventListener('click', function () { currentPage--; loadEntries(); });
     nextPage.addEventListener('click', function () { currentPage++; loadEntries(); });
+    if (clearSearchBtn) clearSearchBtn.addEventListener('click', function () {
+      searchInput.value = '';
+      query = ''; currentPage = 1; loadEntries();
+      searchInput.focus();
+    });
+
     searchInput.addEventListener('input', function () {
       clearTimeout(searchTimer);
       ++requestVersion; // ignore older responses immediately, including during debounce
@@ -678,8 +752,8 @@ export async function GET(context: APIContext): Promise<Response> {
     renderStudioPage({
       runtime,
       title: label,
-      breadcrumb: [],
-      collectionSwitcher,
+      breadcrumb: [{ label: messages["nav.collections"], href: `${runtime.mountPath}/cms` }, { label }],
+      navigation,
       body,
       extraStyles,
       inlineScript,

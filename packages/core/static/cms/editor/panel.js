@@ -122,6 +122,18 @@ export function mountStudioPanel({ studioButton }) {
 
   setPanelSide(panelSide);
 
+  // Match the drawer chrome to the theme chosen inside the Studio (same origin).
+  function syncPanelTheme() {
+    let theme = null;
+    try { theme = window.localStorage.getItem('caret-studio-theme'); } catch { /* storage blocked */ }
+    if (theme === 'light' || theme === 'dark') panel.dataset.theme = theme;
+    else delete panel.dataset.theme;
+  }
+  syncPanelTheme();
+  window.addEventListener('storage', (event) => {
+    if (event.key === 'caret-studio-theme' || event.key === null) syncPanelTheme();
+  });
+
   /** @param {boolean} [animate] */
   function openPanel(animate = true) {
     lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;

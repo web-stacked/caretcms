@@ -96,8 +96,8 @@
     transparent,
     var(--studio-accent-soft)
   );
-  border-radius: var(--radius-theme-xs);
-  filter: blur(4px);
+  border-radius: var(--radius-theme-lg);
+  filter: blur(6px);
 }
 
 /* Card body */
@@ -105,14 +105,19 @@
   position: relative;
   background: var(--studio-surface);
   border: 1px solid var(--studio-border);
-  padding: 3rem;
+  border-radius: var(--radius-theme-lg);
+  box-shadow: var(--studio-shadow);
+  padding: 2.75rem;
+}
+
+@media (max-width: 480px) {
+  .studio-login-card-body { padding: 2rem 1.5rem; }
 }
 
 /* Corner accent strokes (8 total, 4 corners) */
+/* Retired with the rounded card; kept hidden for custom login markup. */
 .studio-corner {
-  position: absolute;
-  background: var(--studio-accent);
-  opacity: 0.4;
+  display: none;
 }
 
 .studio-corner-h { width: 32px; height: 1px; }
@@ -189,9 +194,10 @@
 
 .studio-login-input {
   width: 100%;
-  padding: 14px 18px;
-  background: var(--color-theme-surface-muted);
-  border: 1px solid var(--studio-border);
+  padding: 13px 44px 13px 14px;
+  background: var(--studio-input);
+  border: 1px solid var(--studio-border-hover);
+  border-radius: var(--radius-theme-sm);
   color: var(--studio-text);
   font-family: var(--studio-font);
   font-size: 14px;
@@ -201,7 +207,7 @@
 
 .studio-login-input:focus {
   border-color: var(--studio-accent);
-  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 3px var(--studio-accent-soft);
 }
 
 .studio-login-input-icon {
@@ -226,6 +232,7 @@
   background: var(--studio-accent);
   color: var(--studio-on-accent);
   border: none;
+  border-radius: var(--radius-theme-sm);
   cursor: pointer;
   font-family: var(--studio-font);
   transition: box-shadow 0.5s, opacity 0.2s;
@@ -237,7 +244,9 @@
 }
 
 .studio-login-submit:disabled {
-  opacity: 0.5;
+  background: var(--studio-surface-hover);
+  color: var(--studio-text-dim);
+  box-shadow: none;
   cursor: not-allowed;
 }
 
@@ -265,8 +274,8 @@
   gap: 0.75rem;
   margin-bottom: 2rem;
   padding: 1rem;
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--studio-red-soft);
+  border: 1px solid var(--studio-red);
   color: var(--studio-red);
   font-size: 13px;
 }
@@ -364,4 +373,12 @@
 .studio-login-setup-link {
   display: inline-block;
   margin-top: 0.7rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-login-card {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
 }

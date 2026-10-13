@@ -20,6 +20,13 @@ deployment finish. A webhook acceptance alone does not mean the deployment is
 live. Markdown body blocks always require Publish because publication validates
 and writes their source ranges.
 
+Collection creation and deletion are immediate management operations for real
+editors, including preview and static delivery. They change the base adapter's
+collection state without waiting for Publish; demo sessions remain isolated.
+Deletion follows the adapter's contract: the Markdown adapter removes collection
+metadata rather than deleting its source directory. In static delivery, already
+built pages remain until the next deployment.
+
 Collection `publication.field` configuration describes entry visibility. Studio
 shows **Public** or **Hidden** separately from the save state. In a draft workflow,
 a saved change to that field remains private until publication. In direct server

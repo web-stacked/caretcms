@@ -5,7 +5,10 @@ import type {
   EntryCommitResult,
   HistoryEntry,
   RebuildReceipt,
+  DraftBaseline,
+  DraftGuard,
 } from "@caretcms/core";
+import { ENTRY_ID_RE, assertSafeEditorId } from "@caretcms/core/contracts";
 
 const HISTORY_LIMIT = 50;
 const COLLECTION_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
@@ -34,6 +37,10 @@ type DurableCommand =
   | { type: "get_deployment_target" }
   | { type: "set_deployment_target"; target: DeploymentTarget | null }
   | { type: "collections" }
+  | { type: "editor_command"; editorId: string; command: DurableCommand }
+  | { type: "get_draft_snapshots"; editorId: string; collection: string; ids: string[] }
+  | { type: "commit_draft_entries"; editorId: string; changes: CommitWireChange[]; baselines: DraftBaseline[]; guards: DraftGuard[] }
+  | { type: "get_entry_snapshot"; collection: string; id: string }
   | { type: "get_entry"; collection: string; id: string }
   | { type: "list_entry_ids"; collection: string }
   | { type: "write_entry"; collection: string; id: string; data: Record<string, unknown> }
@@ -44,7 +51,7 @@ type DurableCommand =
   | { type: "append_history"; collection: string; id: string; entry: HistoryEntry }
   | { type: "commit_entries"; changes: CommitWireChange[] }
   | { type: "create_collection"; metadata: CollectionMetadata }
-  | { type: "delete_collection"; collection: string }
+  | { type: "delete_collection"; collection: string; seedIds?: string[] }
   | { type: "get_collection_metadata"; collection: string }
   | { type: "list_collection_metadata" };
 
@@ -56,8 +63,32 @@ const deletedIndexKey = (c: string) => `deleted-index::${c}`;
 const metadataKey = (c: string) => `metadata::${c}`;
 const COLLECTIONS_KEY = "collections";
 const DELETED_COLLECTIONS_KEY = "deleted-collections";
+const BUNDLED_DISABLED_COLLECTIONS_KEY = "bundled-disabled-collections";
 const REBUILD_RECEIPT_KEY = "rebuild-receipt";
 const DEPLOYMENT_TARGET_KEY = "deployment-target";
+
+function editorPrefix(editorId: string): string {
+  assertSafeEditorId(editorId);
+  return `~draft::${editorId}::`;
+}
+
+function scopedTxn(txn: DurableStorageTxn, prefix: string): DurableStorageTxn {
+  return { get: key => txn.get(`${prefix}${key}`), put: (key, value) => txn.put(`${prefix}${key}`, value),
+    delete: key => txn.delete(`${prefix}${key}`) };
+}
+
+function scopedStorage(storage: DurableStorageLike, prefix: string): DurableStorageLike {
+  return { ...scopedTxn(storage, prefix),
+    transaction: task => storage.transaction(txn => task(scopedTxn(txn, prefix))),
+    deleteAll: async () => { throw new Error("Cannot clear a shared object through an editor scope"); } };
+}
+
+async function snapshot(txn: DurableStorageTxn, collection: string, id: string) {
+  return { value: await txn.get<StoredEntry>(entryKey(collection, id)) ?? null,
+    collectionDeleted: strings(await txn.get(DELETED_COLLECTIONS_KEY)).includes(collection),
+    fallbackDisabled: strings(await txn.get(BUNDLED_DISABLED_COLLECTIONS_KEY)).includes(collection),
+    revision: revision(await txn.get(revisionKey(collection, id))) };
+}
 
 function strings(value: unknown): string[] {
   return Array.isArray(value)
@@ -101,6 +132,10 @@ async function writeEntryState(
   await addSorted(txn, indexKey(collection), id);
   await removeValue(txn, deletedIndexKey(collection), id);
   await addSorted(txn, COLLECTIONS_KEY, collection);
+  // Retain deletion intent when an old-format collection is implicitly recreated.
+  if (strings(await txn.get(DELETED_COLLECTIONS_KEY)).includes(collection)) {
+    await addSorted(txn, BUNDLED_DISABLED_COLLECTIONS_KEY, collection);
+  }
   await removeValue(txn, DELETED_COLLECTIONS_KEY, collection);
 }
 
@@ -108,37 +143,40 @@ async function commitEntries(
   storage: DurableStorageLike,
   changes: CommitWireChange[],
 ): Promise<EntryCommitResult> {
-  return storage.transaction(async txn => {
-    const deletedCollections = strings(await txn.get(DELETED_COLLECTIONS_KEY));
-    for (const change of changes) {
-      const stored = await txn.get<StoredEntry>(entryKey(change.collection, change.id));
-      const collectionDeleted = deletedCollections.includes(change.collection);
-      const exists = !collectionDeleted &&
-        (stored?.state === "entry" || (!stored && change.seedData !== undefined));
-      const currentRevision = revision(await txn.get(revisionKey(change.collection, change.id)));
-      if (currentRevision !== change.expectedRevision || exists !== change.expectedExists) {
-        return { ok: false, conflict: {
-          collection: change.collection,
-          id: change.id,
-          currentRevision,
-          exists,
-        } };
-      }
-    }
+  return storage.transaction(txn => commitEntriesTxn(txn, changes));
+}
 
-    const revisions: Array<{ collection: string; id: string; revision: number }> = [];
-    for (const change of changes) {
-      await writeEntryState(txn, change.collection, change.id, change.data);
-      const next = change.expectedRevision + 1;
-      await txn.put(revisionKey(change.collection, change.id), next);
-      if (change.history) {
-        const current = history(await txn.get(historyKey(change.collection, change.id)));
-        await txn.put(historyKey(change.collection, change.id), [change.history, ...current].slice(0, HISTORY_LIMIT));
-      }
-      revisions.push({ collection: change.collection, id: change.id, revision: next });
+async function commitEntriesTxn(txn: DurableStorageTxn, changes: CommitWireChange[]): Promise<EntryCommitResult> {
+  const deletedCollections = strings(await txn.get(DELETED_COLLECTIONS_KEY));
+  const bundledDisabled = strings(await txn.get(BUNDLED_DISABLED_COLLECTIONS_KEY));
+  for (const change of changes) {
+    const stored = await txn.get<StoredEntry>(entryKey(change.collection, change.id));
+    const collectionDeleted = deletedCollections.includes(change.collection);
+    const exists = !collectionDeleted &&
+      (stored?.state === "entry" || (!stored && change.seedData !== undefined && !bundledDisabled.includes(change.collection)));
+    const currentRevision = revision(await txn.get(revisionKey(change.collection, change.id)));
+    if (currentRevision !== change.expectedRevision || exists !== change.expectedExists) {
+      return { ok: false, conflict: {
+        collection: change.collection,
+        id: change.id,
+        currentRevision,
+        exists,
+      } };
     }
-    return { ok: true, revisions };
-  });
+  }
+
+  const revisions: Array<{ collection: string; id: string; revision: number }> = [];
+  for (const change of changes) {
+    await writeEntryState(txn, change.collection, change.id, change.data);
+    const next = change.expectedRevision + 1;
+    await txn.put(revisionKey(change.collection, change.id), next);
+    if (change.history) {
+      const current = history(await txn.get(historyKey(change.collection, change.id)));
+      await txn.put(historyKey(change.collection, change.id), [change.history, ...current].slice(0, HISTORY_LIMIT));
+    }
+    revisions.push({ collection: change.collection, id: change.id, revision: next });
+  }
+  return { ok: true, revisions };
 }
 
 function validCommand(value: unknown): value is DurableCommand {
@@ -155,11 +193,68 @@ export async function handleDurableStorageRequest(
     if (!validCommand(command)) return Response.json({ error: "Invalid storage command" }, { status: 400 });
 
     const ttl = Number(request.headers.get("x-caret-ttl-seconds"));
+    if (["editor_command", "get_draft_snapshots", "commit_draft_entries"].includes(command.type) && ttl > 0) {
+      return Response.json({ error: "Editor scopes cannot expire a shared object" }, { status: 400 });
+    }
     if (Number.isSafeInteger(ttl) && ttl > 0 && storage.setAlarm) {
       await storage.setAlarm(Date.now() + ttl * 1000);
     }
 
     switch (command.type) {
+      case "editor_command": {
+        const prefix = editorPrefix(command.editorId);
+        if (!validCommand(command.command) || ["editor_command", "get_draft_snapshots", "commit_draft_entries"].includes(command.command.type)) {
+          return Response.json({ error: "Invalid editor command" }, { status: 400 });
+        }
+        return handleDurableStorageRequest(scopedStorage(storage, prefix), new Request("https://caretcms.internal/storage", {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(command.command),
+        }));
+      }
+      case "get_draft_snapshots": {
+        const prefix = editorPrefix(command.editorId);
+        if (!Array.isArray(command.ids) || command.ids.some(id => typeof id !== "string")) throw new Error("Invalid snapshot IDs");
+        return Response.json(await storage.transaction(async txn => {
+          const own = scopedTxn(txn, prefix);
+          return Promise.all(command.ids.map(async id => ({
+            base: await snapshot(txn, command.collection, id), overlay: await snapshot(own, command.collection, id),
+          })));
+        }));
+      }
+      case "commit_draft_entries": {
+        const prefix = editorPrefix(command.editorId);
+        if (!Array.isArray(command.baselines) || !Array.isArray(command.changes) || !Array.isArray(command.guards)) throw new Error("Invalid draft batch");
+        return Response.json(await storage.transaction(async txn => {
+          const own = scopedTxn(txn, prefix);
+          for (const baseline of command.baselines) {
+            if (!baseline || typeof baseline.collection !== "string" || typeof baseline.id !== "string" ||
+                !Number.isSafeInteger(baseline.revision) || baseline.revision < 0 ||
+                !command.changes.some(change => change.collection === baseline.collection && change.id === baseline.id)) {
+              throw new Error("Invalid draft baseline");
+            }
+            const currentBaseRevision = revision(await txn.get(revisionKey(baseline.collection, baseline.id)));
+            if (currentBaseRevision !== baseline.revision) {
+              const current = await snapshot(own, baseline.collection, baseline.id);
+              return { ok: false, conflict: { collection: baseline.collection, id: baseline.id,
+                currentRevision: current.revision, currentBaseRevision,
+                exists: !current.collectionDeleted && current.value?.state === "entry" } };
+            }
+          }
+          if (command.guards.length !== command.changes.length) throw new Error("Missing draft guards");
+          for (let index = 0; index < command.changes.length; index++) {
+            const change = command.changes[index];
+            const guard = command.guards[index];
+            if (!guard || guard.collection !== change.collection || guard.id !== change.id) throw new Error("Invalid draft guard");
+            const current = await snapshot(own, change.collection, change.id);
+            const data = !current.collectionDeleted && current.value?.state === "entry" ? current.value.data : null;
+            // Internal wire snapshots use JSON data; differing serialization is
+            // conservatively a conflict, including same-version recovery writes.
+            if (JSON.stringify(data) !== JSON.stringify(guard.data)) return { ok: false, conflict: {
+              collection: change.collection, id: change.id, currentRevision: current.revision, exists: data !== null,
+            } };
+          }
+          return commitEntriesTxn(own, command.changes);
+        }));
+      }
       case "get_rebuild_receipt":
         return Response.json({ value: await storage.get(REBUILD_RECEIPT_KEY) ?? null });
       case "set_rebuild_receipt":
@@ -176,11 +271,16 @@ export async function handleDurableStorageRequest(
         return Response.json({
           known: strings(await storage.get(COLLECTIONS_KEY)),
           deleted: strings(await storage.get(DELETED_COLLECTIONS_KEY)),
+          bundledDisabled: strings(await storage.get(BUNDLED_DISABLED_COLLECTIONS_KEY)),
         });
+      case "get_entry_snapshot": {
+        return Response.json(await storage.transaction(txn => snapshot(txn, command.collection, command.id)));
+      }
       case "get_entry":
         return Response.json({
           value: await storage.get<StoredEntry>(entryKey(command.collection, command.id)) ?? null,
           collectionDeleted: strings(await storage.get(DELETED_COLLECTIONS_KEY)).includes(command.collection),
+          fallbackDisabled: strings(await storage.get(BUNDLED_DISABLED_COLLECTIONS_KEY)).includes(command.collection),
         });
       case "list_entry_ids": {
         const collectionDeleted = strings(await storage.get(DELETED_COLLECTIONS_KEY)).includes(command.collection);
@@ -188,6 +288,7 @@ export async function handleDurableStorageRequest(
           ids: strings(await storage.get(indexKey(command.collection))),
           deleted: strings(await storage.get(deletedIndexKey(command.collection))),
           collectionDeleted,
+          fallbackDisabled: strings(await storage.get(BUNDLED_DISABLED_COLLECTIONS_KEY)).includes(command.collection),
         });
       }
       case "write_entry":
@@ -225,6 +326,9 @@ export async function handleDurableStorageRequest(
           if (existing || known.includes(command.metadata.id)) return false;
           await txn.put(metadataKey(command.metadata.id), command.metadata);
           await addSorted(txn, COLLECTIONS_KEY, command.metadata.id);
+          if (strings(await txn.get(DELETED_COLLECTIONS_KEY)).includes(command.metadata.id)) {
+            await addSorted(txn, BUNDLED_DISABLED_COLLECTIONS_KEY, command.metadata.id);
+          }
           await removeValue(txn, DELETED_COLLECTIONS_KEY, command.metadata.id);
           if (!Array.isArray(await txn.get(indexKey(command.metadata.id)))) {
             await txn.put(indexKey(command.metadata.id), []);
@@ -239,10 +343,12 @@ export async function handleDurableStorageRequest(
           const ids = [...new Set([
             ...strings(await txn.get(indexKey(command.collection))),
             ...strings(await txn.get(deletedIndexKey(command.collection))),
+            ...strings(command.seedIds).filter(id => ENTRY_ID_RE.test(id)),
           ])];
           for (const id of ids) {
             await txn.delete(entryKey(command.collection, id));
-            await txn.delete(revisionKey(command.collection, id));
+            const key = revisionKey(command.collection, id);
+            await txn.put(key, revision(await txn.get(key)) + 1);
             await txn.delete(historyKey(command.collection, id));
           }
           await txn.delete(indexKey(command.collection));
@@ -250,6 +356,7 @@ export async function handleDurableStorageRequest(
           await txn.delete(metadataKey(command.collection));
           await removeValue(txn, COLLECTIONS_KEY, command.collection);
           await addSorted(txn, DELETED_COLLECTIONS_KEY, command.collection);
+          await addSorted(txn, BUNDLED_DISABLED_COLLECTIONS_KEY, command.collection);
         });
         return Response.json({ ok: true });
       case "get_collection_metadata":
@@ -260,6 +367,8 @@ export async function handleDurableStorageRequest(
           .filter((value): value is CollectionMetadata => Boolean(value));
         return Response.json({ value: values });
       }
+      default:
+        return Response.json({ error: "Unknown storage command" }, { status: 400 });
     }
   } catch (error) {
     console.error("[caretcms] Durable storage request failed:", error);

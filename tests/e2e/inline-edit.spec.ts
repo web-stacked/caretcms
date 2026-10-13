@@ -15,6 +15,17 @@ const TEMPLATE_HEADLINE = "Launch an Astro site with live inline editing.";
 const HERO_IMAGE = 'img[data-caret="hero.image"]';
 const SAMPLE_PNG = fileURLToPath(new URL("./fixtures/sample.png", import.meta.url));
 
+/** Mirrors contentHash in runtime/stega-policy.ts. */
+function contentHash(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < normalized.length; i++) {
+    hash ^= normalized.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 function stegaTag(value: string, payload: unknown): string {
   const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
   const start = String.fromCodePoint(0xe0000);
@@ -83,6 +94,12 @@ test.describe("inline editor — click to edit", () => {
   test("stega hydration promotes only valid bindings and removes hidden metadata", async ({ page }) => {
     const valid = stegaTag("Hydrated headline", "pages::home::hero.headline");
     const invalid = stegaTag("Invalid metadata", "not-a-binding");
+    // Automatic bindings carry a content hash: they bind the element holding the
+    // whole value (the heading around per-word spans), and never a fragment.
+    const statement = "Motion with meaning";
+    const hashed = { k: "pages::home::hero.subtext", h: contentHash(statement) };
+    const splitWords = `<span>Motion</span> <span>with</span> <span>${stegaTag("meaning", hashed)}</span>`;
+    const fragment = stegaTag("meaning", hashed);
     await page.route("**/*", async (route) => {
       const request = route.request();
       const url = new URL(request.url());
@@ -93,7 +110,8 @@ test.describe("inline editor — click to edit", () => {
       const response = await route.fetch();
       const body = (await response.text()).replace(
         /(<main\b[^>]*data-caret-scope="pages::home"[^>]*>)/,
-        `$1<p id="stega-valid">${valid}</p><p id="stega-invalid">${invalid}</p>`,
+        `$1<p id="stega-valid">${valid}</p><p id="stega-invalid">${invalid}</p>` +
+          `<h2 id="stega-split">${splitWords}</h2><p id="stega-fragment">Only ${fragment}</p>`,
       );
       await route.fulfill({ response, body });
     });
@@ -107,6 +125,10 @@ test.describe("inline editor — click to edit", () => {
     const invalidElement = page.locator("#stega-invalid");
     await expect(invalidElement).toHaveText("Invalid metadata");
     await expect(invalidElement).not.toHaveAttribute("data-caret", /.*/);
+    await expect(page.locator("#stega-split")).toHaveAttribute("data-caret", "pages::home::hero.subtext");
+    await expect(page.locator("#stega-split span").first()).not.toHaveAttribute("data-caret", /.*/);
+    await expect(page.locator("#stega-fragment")).toHaveText("Only meaning");
+    await expect(page.locator("#stega-fragment")).not.toHaveAttribute("data-caret", /.*/);
   });
 
   test("Studio panel survives blocked session storage and closes from iframe Escape", async ({ page }) => {
@@ -245,7 +267,7 @@ test.describe("inline editor — click to edit", () => {
     const map = page.getByRole("region", { name: "Content map" });
     await expect(map).toHaveAttribute("aria-hidden", "false");
     await expect(map.getByText("pages::home", { exact: true })).toBeVisible();
-    const rows = map.getByRole("button", { name: /hero\.headline/ });
+    const rows = map.getByRole("button", { name: "Hero › Headline" });
     await expect(rows).toHaveCount(2);
     await rows.nth(1).focus();
     await page.keyboard.press("Enter");
@@ -351,6 +373,7 @@ test.describe("inline editor — click to edit", () => {
     await replaceText(page, headline, NEW_HEADLINE);
     // Confirm the typing actually replaced the live text before we rely on blur.
     await expect(headline).toHaveText(NEW_HEADLINE);
+    await expect(page.locator(".cms-status-text")).toHaveText("Unsaved changes");
 
     // Blur fires the save. Assert the write actually hit the mutate endpoint.
     const mutate = await blurToSave(page, headline);
@@ -358,6 +381,7 @@ test.describe("inline editor — click to edit", () => {
 
     // The save-confirmation toast appears.
     await expect(page.getByText("Content saved")).toBeVisible();
+    await expect(page.locator(".cms-status-text")).toHaveText("Changes are live");
 
     // The override is persisted and rendered by the rewrite middleware for an
     // anonymous visitor — independent of this page's live DOM mutation.
@@ -486,8 +510,11 @@ test.describe("inline editor — click to edit", () => {
     const image = page.locator(HERO_IMAGE);
     await expect(image).toHaveAttribute("src", "/initial.png");
 
-    // The image editor wraps each bound <img> and injects a hidden file input.
-    const fileInput = page.locator(".cms-img-wrapper input[type='file']");
+    // Hovering a bound <img> places the shared Replace control over it.
+    await expect(image).toHaveAttribute("data-caret-img-mounted", "true");
+    await image.hover({ force: true });
+    await expect(page.locator(".cms-img-overlay")).toBeVisible();
+    const fileInput = page.locator(".cms-img-input");
     await expect(fileInput).toBeAttached();
 
     // Selecting a file kicks off compress → /upload → save_field(url).
@@ -528,7 +555,9 @@ test.describe("inline editor — click to edit", () => {
     await page.goto("/");
 
     const image = page.locator(HERO_IMAGE);
-    const fileInput = page.locator(".cms-img-wrapper input[type='file']");
+    await expect(image).toHaveAttribute("data-caret-img-mounted", "true");
+    await image.hover({ force: true });
+    const fileInput = page.locator(".cms-img-input");
     await expect(fileInput).toBeAttached();
 
     const [upload, mutate] = await Promise.all([
@@ -552,9 +581,14 @@ test.describe("inline editor — click to edit", () => {
     const headline = page.locator(HEADLINE);
     await expect(headline).toHaveClass(/cms-editable/);
 
+    const status = page.locator(".cms-status-text");
+    const statusBefore = await status.textContent();
     await replaceText(page, headline, "This should be discarded");
+    await expect(status).toHaveText("Unsaved changes");
     await page.keyboard.press("Escape");
     await page.locator("body").click();
+    // Undoing the edit restores the status shown before it.
+    await expect(status).toHaveText(statusBefore ?? "");
 
     // Live DOM reverts to the template value…
     await expect(headline).toHaveText(TEMPLATE_HEADLINE);

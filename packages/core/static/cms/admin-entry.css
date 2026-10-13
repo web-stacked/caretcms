@@ -42,21 +42,25 @@
   color: var(--studio-accent);
 }
 
-/* Schema-defined field sections */
+/* Forms sit on cards: one card per schema group, or one for an ungrouped form. */
+#fields:not(:has(> .caret-field-section)),
 .caret-field-section {
-  margin: 0.75rem 0 1.5rem;
-  padding: 0 1rem;
+  margin: 0 0 1.25rem;
+  padding: 0.25rem 1.25rem;
   border: 1px solid var(--studio-border);
-  border-radius: var(--radius-theme-sm);
-  background: color-mix(in srgb, var(--studio-surface) 58%, transparent);
+  border-radius: var(--radius-theme-md);
+  background: var(--studio-surface);
 }
+#fields:not(:has(> .caret-field-section)) { padding-top: 0.9rem; }
+
 .caret-field-section-title {
-  margin: 0 -1rem;
-  padding: 0.8rem 1rem;
+  margin: -0.25rem -1.25rem 0;
+  padding: 0.95rem 1.25rem;
   border-bottom: 1px solid var(--studio-border);
   color: var(--studio-text);
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   font-weight: 650;
+  letter-spacing: -0.01em;
 }
 .caret-field-section-description {
   margin: 0.75rem 0 0;
@@ -128,13 +132,16 @@
   font-size: 0.75rem;
 }
 
-.studio-btn-danger-confirm,
-.studio-btn-danger-confirm:hover {
-  background: #991b1b;
-  background: color-mix(in srgb, var(--studio-red) 35%, #000);
-  border-color: #991b1b;
-  border-color: color-mix(in srgb, var(--studio-red) 35%, #000);
+.studio-btn-danger-confirm {
+  background: var(--studio-red-strong);
+  border-color: var(--studio-red-strong);
   color: #fff;
+}
+.studio-btn-danger-confirm:hover {
+  background: var(--studio-red-strong);
+  border-color: var(--studio-red-strong);
+  color: #fff;
+  filter: brightness(1.08);
 }
 
 .caret-nested {
@@ -310,7 +317,7 @@
   position: relative;
   border: 1px solid var(--studio-border);
   border-radius: var(--radius-theme-sm);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--studio-surface-hover);
 }
 .caret-object-array-item.caret-object-array-dragging {
   opacity: 0.5;
@@ -323,9 +330,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.65rem 0.75rem;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-theme-sm);
+  transition: background 0.15s;
 }
+.caret-object-array-header:hover { background: var(--studio-overlay); }
 .caret-object-array-actions {
   display: flex;
   align-items: center;
@@ -351,20 +361,21 @@
   outline-offset: 2px;
 }
 .caret-object-array-remove {
-  width: 22px;
-  height: 22px;
-  border: none;
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-theme-xs);
   background: transparent;
   color: var(--studio-red);
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
-.caret-object-array-remove:hover { background: rgba(239, 68, 68, 0.12); }
+.caret-object-array-remove:hover { background: var(--studio-red-soft); border-color: var(--studio-red); }
 .caret-object-array-move {
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 1px solid var(--studio-border);
   border-radius: var(--radius-theme-xs);
@@ -378,28 +389,44 @@
 }
 .caret-object-array-move:disabled { opacity: 0.3; cursor: default; }
 .caret-object-array-index {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 2rem;
+  padding: 0.25rem 0.4rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--studio-text-muted);
+  font: 600 0.86rem/1.3 var(--studio-font);
+  color: var(--studio-text);
   text-align: left;
   border: 0;
+  border-radius: var(--radius-theme-xs);
   background: transparent;
   cursor: pointer;
 }
+.caret-object-array-index:focus-visible {
+  outline: 2px solid var(--studio-accent);
+  outline-offset: 2px;
+}
+.caret-object-array-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Drawn chevron: points down when collapsed, up when expanded. */
 .caret-object-array-index::after {
-  content: "⌄";
-  float: right;
-  color: var(--studio-text-dim);
+  content: "";
+  flex-shrink: 0;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin: 0 0.3rem 0.2rem auto;
+  border-right: 1.5px solid var(--studio-text-dim);
+  border-bottom: 1.5px solid var(--studio-text-dim);
+  transform: rotate(45deg);
   transition: transform 0.15s;
 }
 .caret-object-array-item.is-expanded .caret-object-array-index::after {
-  transform: rotate(180deg);
+  margin-bottom: -0.15rem;
+  transform: rotate(225deg);
 }
 .caret-object-array-thumbnail {
   width: 36px;
@@ -505,6 +532,7 @@
 .caret-history-preview dd { margin: 0; overflow-wrap: anywhere; }
 .conflict-fields {
   max-height: 12rem;
+  text-align: left;
   margin: -0.5rem 0 1.25rem;
   padding-left: 1.25rem;
   overflow: auto;
@@ -519,14 +547,18 @@
   letter-spacing: 0;
   border-radius: 2px;
 }
-.caret-history-action[data-action="save"] { background: rgba(34,197,94,0.15); color: var(--studio-green); }
-.caret-history-action[data-action="put"]  { background: rgba(59,130,246,0.15); color: var(--studio-blue); }
-.caret-history-action[data-action="delete"] { background: rgba(239,68,68,0.15); color: var(--studio-red); }
-.caret-history-action[data-action="restore"] { background: rgba(59,130,246,0.15); color: var(--studio-accent); }
+.caret-history-action[data-action="save"] { background: var(--studio-green-soft); color: var(--studio-green); }
+.caret-history-action[data-action="put"]  { background: var(--studio-accent-soft); color: var(--studio-accent); }
+.caret-history-action[data-action="delete"] { background: var(--studio-red-soft); color: var(--studio-red); }
+.caret-history-action[data-action="restore"] { background: var(--studio-accent-soft); color: var(--studio-accent); }
 
 /* Paired live-page/Studio selection. This is deliberately blue and temporary;
    green remains reserved for confirmed save feedback. */
 .caret-field-group.caret-field-selected {
-  background: color-mix(in srgb, var(--studio-accent) 8%, transparent);
+  /* Bleed into the card padding so the highlight never clips the label. */
+  margin-inline: -0.75rem;
+  padding-inline: 0.75rem;
+  border-radius: var(--radius-theme-sm);
+  background: var(--studio-accent-soft);
   box-shadow: inset 3px 0 0 var(--studio-accent);
 }

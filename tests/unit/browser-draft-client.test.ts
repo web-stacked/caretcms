@@ -19,7 +19,7 @@ describe("browser draft client", () => {
       retryRebuild: true,
     }));
     const result = await client(fetchImpl).getState();
-    expect(result).toEqual({ count: 2, canPublish: false, retryRebuild: true });
+    expect(result).toEqual({ count: 2, canPublish: false, retryRebuild: true, retryJournal: false, journalPending: 0 });
     expect(fetchImpl).toHaveBeenCalledWith(
       "https://site.test/api/cms/draft",
       expect.objectContaining({
@@ -77,6 +77,23 @@ describe("browser draft client", () => {
       count: 0,
       canPublish: true,
       retryRebuild: false,
+      retryJournal: false,
+      journalPending: 0,
     });
   });
 });
+
+it("normalizes private Git retry state and retries only the journal", async () => {
+  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ count: 0, retryJournal: true }))
+    .mockResolvedValueOnce(Response.json({ ok: true, journal: { pending: 1, blocked: 1 } }));
+  const api = client(fetchImpl);
+  expect(await api.getState()).toMatchObject({ count: 0, retryJournal: true });
+  expect(await api.retryJournal()).toEqual({ pending: 1, blocked: 1 });
+  expect(JSON.parse(String(fetchImpl.mock.calls[1][1]?.body))).toEqual({ retryJournal: true });
+});
+
+it.each([{ pending: "one", blocked: 0 }, { pending: 0, blocked: 1 }, { pending: -1, blocked: 0 }])(
+  "rejects invalid journal retry counts %j", async journal => {
+    await expect(client(vi.fn<typeof fetch>().mockResolvedValue(Response.json({ ok: true, journal }))).retryJournal())
+      .rejects.toBeInstanceOf(CmsDraftRequestError);
+  });

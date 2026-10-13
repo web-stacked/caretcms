@@ -25,6 +25,33 @@ export function templateFromSchema(schema) {
   return "";
 }
 
+/**
+ * Fills keys the schema defines but the data lacks, exactly as rendering the
+ * form does. Applying it before taking the clean snapshot keeps an untouched
+ * form from counting as changed.
+ * @template T
+ * @param {T} data
+ * @param {Schema | null | undefined} schema
+ * @returns {T}
+ */
+export function fillDefaults(data, schema) {
+  if (!data || typeof data !== "object" || Array.isArray(data) || !schema || !schema.properties) return data;
+  var record = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (data));
+  Object.keys(schema.properties).forEach(function (key) {
+    var prop = schema.properties?.[key];
+    if (!prop) return;
+    if (record[key] === undefined) record[key] = templateFromSchema(prop);
+    var value = record[key];
+    if (prop.type === "object" && prop.properties) {
+      fillDefaults(value, prop);
+    } else if (prop.type === "array" && prop.format !== "image-gallery" && prop.items && prop.items.type === "object" && Array.isArray(value)) {
+      var itemSchema = prop.items;
+      value.forEach(function (item) { fillDefaults(item, itemSchema); });
+    }
+  });
+  return data;
+}
+
 /** @param {string} path @param {number} index @returns {string} */
 export function generatedId(path, index) {
   var parts = path.split(".").filter(Boolean);

@@ -158,3 +158,17 @@ export function imageComponentNames(fmText: string): Set<string> {
   while ((m = def.exec(fmText))) out.add(m[1]);
   return out;
 }
+
+/**
+ * Local names of image files imported in a component's frontmatter
+ * (`import hero from "../assets/hero.png"`). An `<img src={hero}>` or
+ * `src={hero.src}` is author-owned, so caretize can bind it; any other dynamic
+ * src comes from props or data and is bound at its source instead.
+ */
+export function assetImportNames(fmText: string): Set<string> {
+  const out = new Set<string>();
+  const re = /\bimport\s+(?!type\b)([A-Za-z_$][\w$]*)\s+from\s*['"][^'"]+\.(?:png|jpe?g|webp|avif|gif|svg)(?:\?[^'"]*)?['"]/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(fmText))) out.add(m[1]);
+  return out;
+}

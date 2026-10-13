@@ -1,3 +1,5 @@
+import { imageUnderControl } from './image-edit.js';
+
 /**
  * Floating "Open page" affordance for editable elements that are or sit inside
  * an <a> with a real href. The editor's click guard blocks navigation on
@@ -168,7 +170,7 @@ export function mountLinkFollowAffordances() {
   function editableFromTarget(target) {
     const direct = target.closest('[data-caret]');
     if (direct) return direct;
-    return target.closest('.cms-img-wrapper')?.querySelector('img[data-caret]') || null;
+    return imageUnderControl(target);
   }
 
   /** @param {Element} editable @returns {HTMLAnchorElement | null} */

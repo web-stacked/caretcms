@@ -21,7 +21,8 @@ npx @caretcms/caretize --review
 
 `init` is optional but is the fastest path on a project that hasn't wired
 CaretCMS yet: it installs `@caretcms/core`, wires `caret()` into `astro.config`, and
-scaffolds a `.env` with a generated `CARET_SESSION_SECRET`.
+scaffolds a `.env` with a generated `CARET_SESSION_SECRET`, and adds `.env`, drafts,
+backups, and history to `.gitignore`.
 
 - **Static Astro projects** (default): `caret()` auto-selects static delivery — no SSR adapter.
 - **Server projects** (`output: "server"` already): keeps or adds adapter + `caret()`.
@@ -61,7 +62,8 @@ caretize init                wire CaretCMS into the project, then tag
 
   init                     set up CaretCMS first: install @caretcms/core, wire
                            caret() into astro.config (auto static delivery by default;
-                           server projects get SSR adapter wiring), scaffold .env
+                           server projects get SSR adapter wiring), scaffold .env,
+                           update .gitignore
   path                     file or directory to scan (default: src/)
   --review                 approve each change before writing; richer tiers still
                            offered at the end

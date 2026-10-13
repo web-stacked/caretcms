@@ -4,7 +4,7 @@ import { templateFromSchema } from './field-model.js';
 /** @typedef {{ path: string, message: string }} ValidationIssue */
 /**
  * @typedef {{
- *   kind: 'ready', data: Record<string, unknown>, revision: number, schema: Schema | null,
+ *   kind: 'ready', data: Record<string, unknown>, revision: number, baseRevision?: number, schema: Schema | null,
  *   validationIssues: ValidationIssue[], publicationFieldName: string | null,
  *   initialized: boolean,
  * } | { kind: 'missing', schema: Schema | null, publicationFieldName: string | null }
@@ -40,7 +40,10 @@ export function createStudioEntryLoader({ apiBasePath, fetchImpl = fetch }) {
    */
   async function load(input) {
     const entrySearch = new URLSearchParams({ collection: input.collection, id: input.id });
-    const schemaSearch = new URLSearchParams({ collection: input.collection });
+    // Existing entries pass their id: schemaless collections infer per entry.
+    const schemaSearch = new URLSearchParams(input.isNew
+      ? { collection: input.collection }
+      : { collection: input.collection, id: input.id });
     const [entryResponse, schemaResponse] = await Promise.all([
       fetchImpl(`${apiBasePath}/entries?${entrySearch}`, { credentials: 'same-origin' }),
       fetchImpl(`${apiBasePath}/schema?${schemaSearch}`, { credentials: 'same-origin' }),
@@ -78,6 +81,7 @@ export function createStudioEntryLoader({ apiBasePath, fetchImpl = fetch }) {
         kind: 'ready',
         data: rawEntry.data,
         revision: typeof rawEntry.revision === 'number' ? rawEntry.revision : 0,
+        ...(typeof rawEntry.baseRevision === 'number' ? { baseRevision: rawEntry.baseRevision } : {}),
         schema,
         validationIssues: validationIssues(rawEntry.validationIssues),
         publicationFieldName,
@@ -93,7 +97,8 @@ export function createStudioEntryLoader({ apiBasePath, fetchImpl = fetch }) {
       : templateFromSchema(schema);
     if (!isRecord(template)) return { kind: 'error', code: 'loadFailed' };
     return {
-      kind: 'ready', data: template, revision: 0, schema,
+      kind: 'ready', data: template, revision: typeof entryBody.revision === 'number' ? entryBody.revision : 0, schema,
+      ...(typeof entryBody.baseRevision === 'number' ? { baseRevision: entryBody.baseRevision } : {}),
       validationIssues: [], publicationFieldName, initialized: true,
     };
   }

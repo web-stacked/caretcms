@@ -33,15 +33,37 @@ function redirectToEditorLogin() {
   window.location.href = getEditorLoginUrl(window.location.href);
 }
 
+/**
+ * A Set that reports its size after every change.
+ * @template T
+ * @param {(size: number) => void} onChange
+ * @returns {Set<T>}
+ */
+function createObservedSet(onChange) {
+  /** @type {Set<T>} */
+  const set = new Set();
+  const add = set.add.bind(set);
+  const remove = set.delete.bind(set);
+  const clear = set.clear.bind(set);
+  set.add = (value) => { add(value); onChange(set.size); return set; };
+  set.delete = (value) => { const removed = remove(value); onChange(set.size); return removed; };
+  set.clear = () => { clear(); onChange(set.size); };
+  return set;
+}
+
 function boot() {
   if (normalizePreviewForDelivery()) return;
+
+  /** @type {(unsaved: boolean) => void} */
+  let reportUnsaved = () => {};
 
   /** @type {{ dirtyEls: Set<Element>, linkPopupEl: HTMLElement | null }} */
   const state = {
     // Every element with unsaved edits. A Set (not a single element) so a save
     // completing on field A can't clear the dirty flag for field B the user has
     // since moved to — that would let the beforeunload guard miss B's edits.
-    dirtyEls: new Set(),
+    // Every change is reported so the toolbar can show "Unsaved changes".
+    dirtyEls: createObservedSet(size => reportUnsaved(size > 0)),
     linkPopupEl: null,
   };
 
@@ -54,7 +76,7 @@ function boot() {
 
   const showToast = createToast();
 
-  const { studioButton, mapButton, editModeButton, previewModeButton, setStatus } = mountToolbar({
+  const { studioButton, mapButton, editModeButton, previewModeButton, setStatus, setUnsaved } = mountToolbar({
     showToast,
     clearDirty: () => {
       state.dirtyEls.clear();
@@ -71,6 +93,8 @@ function boot() {
       window.location.href = typeof result?.redirect === 'string' ? result.redirect : '/';
     },
   });
+
+  reportUnsaved = setUnsaved;
 
   const saveField = createSaveField({
     setStatus,

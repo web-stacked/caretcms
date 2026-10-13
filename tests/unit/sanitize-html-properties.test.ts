@@ -10,9 +10,7 @@ import {
 // this file fuzzes adversarial input and asserts the security INVARIANTS that
 // must hold for EVERY output, so a future refactor can't quietly open a hole.
 //
-// NOTE: the sanitizer re-escapes entities (`&lt;` → `&amp;lt;` on a second
-// pass), so it is intentionally NOT idempotent — we assert structural safety,
-// not output stability.
+// Sanitization also preserves semantic entity values across repeated passes.
 
 // --- Output inspectors (operate on already-sanitized HTML) ------------------
 

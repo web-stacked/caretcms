@@ -4,7 +4,7 @@
 
 .cms-toast-stack {
   position: fixed;
-  bottom: 62px;
+  bottom: 76px;
   right: 24px;
   z-index: 100000;
   display: flex;
@@ -19,14 +19,14 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 20px;
+  padding: 10px 16px 10px 10px;
   background: var(--cms-surface);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.32);
   font-family: var(--cms-font);
-  font-size: 12px;
+  font-size: 13px;
   color: rgba(255, 255, 255, 0.86);
-  border-radius: 2px;
+  border-radius: 12px;
   opacity: 0;
   transform: translateY(8px) scale(0.98);
   animation: cms-toast-in 0.3s ease forwards;
@@ -58,13 +58,24 @@
   flex-shrink: 0;
 }
 
-.cms-toast-success { border-left: 3px solid var(--cms-green); }
+/* The tinted icon carries the state; error and warning toasts also tint the border. */
+.cms-toast-icon-wrap {
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.cms-toast-success .cms-toast-icon-wrap { background: rgba(34, 197, 94, 0.16); }
 .cms-toast-success .cms-toast-icon { color: var(--cms-green); }
 
-.cms-toast-error { border-left: 3px solid var(--cms-red); }
+.cms-toast-error { border-color: rgba(248, 113, 113, 0.45); }
+.cms-toast-error .cms-toast-icon-wrap { background: rgba(248, 113, 113, 0.16); }
 .cms-toast-error .cms-toast-icon { color: var(--cms-red); }
 
-.cms-toast-warning { border-left: 3px solid var(--cms-amber, #eab308); }
+.cms-toast-warning { border-color: rgba(234, 179, 8, 0.45); }
+.cms-toast-warning .cms-toast-icon-wrap { background: rgba(234, 179, 8, 0.16); }
 .cms-toast-warning .cms-toast-icon { color: var(--cms-amber, #eab308); }
 
 /* Conflict prompt lays the action buttons below the message. */
@@ -85,7 +96,7 @@
   font-size: 11px;
   font-weight: 500;
   padding: 5px 12px;
-  border-radius: 2px;
+  border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: transparent;
   color: rgba(255, 255, 255, 0.78);
@@ -127,7 +138,7 @@
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
-  border-radius: 2px;
+  border-radius: 8px;
 }
 
 .cms-toast-close:hover {

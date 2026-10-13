@@ -8,12 +8,137 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-11
+
+Fixes 22 bugs found in a review of 0.5.0. Some fixes change stored data or API
+responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
+
+### Security
+
+- The rewrite engine reads bindings only from element tags. Bindings inside
+  comments, attribute values, `<script>` text, and SVG/MathML are ignored.
+- Sanitization decodes HTML entities once. URLs are checked after decoding and
+  reject unsafe schemes, control characters, and backslashes.
+- Editor, Studio, and API responses send `Cache-Control: private, no-store`.
+- Login and upload limit request size while reading the body and cancel
+  oversized requests.
+- KV editor and session overlays use the site's `keyPrefix`. Prefixed sites in
+  one namespace no longer share drafts.
+- Worker session cookies are verified before a private overlay is chosen.
+  Forged cookies get public content.
+
 ### Fixed
 
-- Static development pages now retain the signed-in editor's draft after a
-  reload, including routes generated with `getStaticPaths`. Other editors and
-  anonymous visitors continue to see their own content; static production
-  builds include only published content.
+- Static development pages show the signed-in editor's draft after a reload,
+  including routes from `getStaticPaths`. Static production builds contain only
+  published content.
+- `anyOf` and `oneOf` alternatives are validated separately, with nested
+  references, and `oneOf` requires exactly one match.
+- Layout writes, publish, and history restore validate the entry first. A
+  failing write changes nothing.
+- Pages whose only bindings are Markdown body blocks load the editor.
+- Entry reads take the same locks as writes, so content and revision always
+  match. Collection create and delete wait for in-progress entry writes.
+- Deleting a collection keeps its revision numbers, and recreating it does not
+  bring back removed seed entries (KV and Durable Objects).
+- Quoted YAML strings use one strict escape decoder. Unknown escapes raise an
+  error.
+- Git-on-publish commits the approved bytes through its own index and leaves
+  the working tree and staging alone. It no longer skips the commit on Linux
+  when Git closes an unused input pipe.
+- Caretize writes files atomically and refuses to overwrite a file that changed
+  after the scan, or a symlink.
+- Collection create and delete by real editors write to base storage in
+  preview, static, and policy modes.
+- Studio forms for collections without a schema are inferred from the entry
+  being edited. Before, every entry used the first entry's fields, so a page
+  with different sections opened as an empty form whose save replaced it.
+- `caretize --version` reports the installed version instead of `0.1.0`.
+- Images and links whose URL comes from `editable()` or `caretLoader()` work in
+  edit mode. The hidden binding key used to stay inside the `src` or `href`, so
+  the browser requested a URL that did not exist. Such images now get a normal
+  `data-caret` binding and can be replaced.
+- Caretize no longer tags elements a script finds by a valueless `data-*`
+  attribute, such as an animated `<span data-counter>`.
+- Publishing a changed frontmatter string keeps the quotes it was written with.
+- Replacing an image no longer wraps it in a new element. Images positioned by
+  the page, such as section backgrounds and carousel slides, keep their layout
+  in edit mode.
+- Caretize no longer tags an `<img>` whose `src` comes from props or data. It
+  gave those images invented keys such as `components::Team::hero`, which then
+  replaced the binding the data carried. Literal URLs and imported image files
+  are still tagged.
+- After a save conflict, **Keep my edits** applies only the fields changed in
+  the form on top of the newer version. Before, it saved the whole form and
+  reverted fields the other editor changed. The conflict dialog names nested
+  fields and marks fields both editors changed.
+- The inline toolbar shows **Unsaved changes** while an edit is pending, and
+  restores the previous status when the edit is undone.
+- Studio history shows "You" or "Earlier session" instead of an opaque session
+  ID for editors signed in without a name or email.
+- Save and link shortcuts work with Caps Lock on. Validation messages use the
+  singular for one character or item.
+- Packages include their TypeScript sources, so source maps and declaration
+  maps resolve. Vite no longer warns about missing source files.
+
+### Added
+
+- Merged draft views include `baseRevision`. Send it as `expectedBaseRevision`;
+  a stale value returns 409 with `currentBaseRevision`.
+- Optional `StorageAdapter` members: `guarantees`, `getEntrySnapshot`,
+  `getEntrySnapshots`, `committableEntryPaths`, `preparePublicationSources`,
+  `makeRecoveryOverlay`, and Git receipt methods on editor overlays. The file
+  adapters implement all except `getEntrySnapshot`, which core replaces with
+  in-process locks.
+- `@caretcms/core/testing/storage` exports a conformance suite for storage
+  adapters. See [storage adapters](docs/storage-adapters.md).
+- Content from `getCollection()`, `getEntry()`, and `getEntries()`, and JSON
+  files imported from `src/content`, is editable on the page without
+  annotations when Markdown storage is used. Editors see their drafts after a
+  reload. Values a schema restricts to a list, dates, URLs, ids, and numbers
+  are never marked, and text the page splits or rewrites is bound only where
+  the whole value appears. `caret({ bindContent: false })` turns it off.
+- Studio forms use the JSON Schemas Astro generates for content collections,
+  so enums, defaults, and required fields match `content.config.ts`.
+- Markdown storage reads and writes Astro `file()` data collections:
+  `src/content/<name>.json` holding an array of entries with `id`, or an object
+  keyed by id, plus any other JSON object as a single entry. Publish changes
+  only the edited values inside the file, so hand formatting survives. Before,
+  it created a separate Markdown file instead.
+- `astro dev` and `astro preview` load `CARET_*` settings from `.env`,
+  `.env.local`, and the mode files. Before, the session secret and password
+  that `caretize init` writes there were ignored. The real environment wins.
+- `caretize init` adds `.env`, `.caret/drafts/`, `.caret/.caretize-bak/`, and
+  `.caretcms/` to `.gitignore`.
+- Caretize ends with a hint when content comes from props or data, explaining
+  what CaretCMS binds on its own and how to bind other data with `editable()`.
+- `CARET_GIT_JOURNAL_RETRY=true` lets an interrupted Git commit finish later
+  without publishing again. The toolbar shows **Retry Git history** while one
+  is pending.
+- Opt-in coordinated Durable Object drafts save a multi-entry batch in one
+  transaction.
+- CI tests the packed packages in a separate project on Astro 6.0.0 and 7.2.4
+  with Node 22.12 and 24, runs native Cloudflare storage tests, and reopens
+  data written by 0.5.0.
+
+### Changed
+
+- The Studio has a collection sidebar, a Go to search (⌘K / Ctrl K) across
+  collections and entries, light and dark themes that follow the system with a
+  manual switch, collection page headers, a grid and list view with status
+  labels, and card-based entry forms. The sign-in page and dialogs match.
+- The on-page toolbar is a floating bar. It re-centers beside the open Studio
+  drawer and uses an icon-only Sign out on phones.
+- `theme.tokens` overrides apply in both light and dark mode.
+- Editor and Studio assets revalidate on each load (ETag) instead of being
+  cached for an hour, so upgrades take effect immediately.
+- Git-on-publish requires `preparePublicationSources`. Adapters without it
+  publish but skip the Git commit.
+- The recommended `.gitignore` no longer lists `public/uploads/`. Static sites
+  must commit uploads, because published content links to them.
+- Publish can fail with `invalid_entry`. The draft stays.
+- Single-entry API responses always include a top-level revision.
+- The Cloudflare Durable Object class must be deployed with the new adapter.
 
 ## [0.5.0] - 2026-09-13
 
@@ -454,7 +579,8 @@ requirements, and deployment retry limitations.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
-[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.0
 [0.5.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.5.0
 [0.4.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.4.0
 [0.3.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.3.0

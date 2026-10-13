@@ -1,4 +1,4 @@
-/** @typedef {{ id: string, name?: string, email?: string }} HistoryEditor */
+/** @typedef {{ id: string, name?: string, email?: string, current?: boolean }} HistoryEditor */
 /** @typedef {{ ts: number, action: string, data?: Record<string, unknown>, editor?: HistoryEditor }} HistoryItem */
 /**
  * @typedef {{ kind: 'loaded', items: HistoryItem[] }
@@ -8,7 +8,7 @@
 /**
  * @typedef {{ kind: 'restored', data: unknown, revision?: number }
  * | { kind: 'unauthorized' }
- * | { kind: 'error' }} RestoreResult
+ * | { kind: 'error', message?: string }} RestoreResult
  */
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
@@ -31,6 +31,7 @@ function historyItems(value) {
       normalized.editor = { id: item.editor.id };
       if (typeof item.editor.name === 'string') normalized.editor.name = item.editor.name;
       if (typeof item.editor.email === 'string') normalized.editor.email = item.editor.email;
+      if (item.editor.current === true) normalized.editor.current = true;
     }
     return [normalized];
   });
@@ -61,8 +62,10 @@ export function createStudioHistoryClient({ apiBasePath, fetchImpl = fetch }) {
       body: JSON.stringify(input),
     });
     if (response.status === 401) return { kind: 'unauthorized' };
-    if (!response.ok) return { kind: 'error' };
     const body = await response.json().catch(() => null);
+    if (!response.ok) return isRecord(body) && typeof body.error === 'string'
+      ? { kind: 'error', message: body.error }
+      : { kind: 'error' };
     if (!isRecord(body) || !Object.prototype.hasOwnProperty.call(body, 'data')) {
       return { kind: 'error' };
     }

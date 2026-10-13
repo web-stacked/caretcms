@@ -18,3 +18,25 @@ test("Durable Object commits survive concurrent browser-triggered Worker request
   expect(data.postB.data.order).toBe(2);
   expect(data.retry).toMatchObject({ ok: false, conflict: { currentRevision: 1 } });
 });
+
+test("Durable Object collection recreation preserves versions and rejects removed seed baselines", async ({ request }) => {
+  const response = await request.get(`/collection-recreate?run=${crypto.randomUUID()}`);
+  expect(response.ok()).toBe(true);
+  const result = await response.json();
+  expect(result.removed).toEqual({ entry: null, revision: 2 });
+  expect(result.recreated).toMatchObject({ ok: true, revisions: [{ revision: 3 }] });
+  expect(result.stale).toMatchObject({ ok: false, conflict: { currentRevision: 3, exists: true } });
+  expect(result.seedResult).toMatchObject({ ok: false, conflict: { currentRevision: 0, exists: false } });
+  expect(result.current).toEqual({ entry: { id: "one", data: { title: "Recreated" } }, revision: 3 });
+});
+
+test("coordinated drafts reject a changed base then retry privately in the same Durable Object", async ({ request }) => {
+  const response = await request.get(`/coordinated-draft?run=${crypto.randomUUID()}`);
+  expect(response.ok()).toBe(true);
+  const result = await response.json();
+  expect(result.raced).toMatchObject({ ok: false, conflict: { currentRevision: 0, currentBaseRevision: 2 } });
+  expect(result.retry).toMatchObject({ ok: true, revisions: [{ revision: 1 }] });
+  expect(result.published).toEqual({ entry: { id: "one", data: { title: "Other writer" } }, revision: 2 });
+  expect(result.private).toEqual({ entry: { id: "one", data: { title: "Private draft" } }, revision: 1 });
+  expect(result.otherEditor).toBeNull();
+});

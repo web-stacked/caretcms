@@ -2,6 +2,8 @@
  * @typedef {object} DraftState
  * @property {number} count
  * @property {boolean} canPublish
+ * @property {boolean} retryJournal
+ * @property {number} journalPending
  * @property {boolean} retryRebuild
  */
 /**
@@ -57,6 +59,9 @@ export function createDraftClient(options) {
         : 0,
       canPublish: data.canPublish !== false,
       retryRebuild: data.retryRebuild === true,
+      retryJournal: data.retryJournal === true,
+      journalPending: typeof data.journalPending === 'number' && Number.isSafeInteger(data.journalPending)
+        ? Math.max(0, data.journalPending) : 0,
     });
   }
 
@@ -83,5 +88,16 @@ export function createDraftClient(options) {
     });
   }
 
-  return { getState, publish, discard, retryDeployment };
+  async function retryJournal() {
+    const response = await requireOk(await request('POST', '/publish', JSON.stringify({ retryJournal: true })));
+    const data = record(await response.json());
+    const journal = record(data.journal);
+    if (data.ok !== true || typeof journal.pending !== 'number' || !Number.isSafeInteger(journal.pending) || journal.pending < 0 ||
+        typeof journal.blocked !== 'number' || !Number.isSafeInteger(journal.blocked) || journal.blocked < 0 || journal.blocked > journal.pending) {
+      throw new CmsDraftRequestError('Invalid Git history retry response');
+    }
+    return { pending: journal.pending, blocked: journal.blocked };
+  }
+
+  return { getState, publish, discard, retryDeployment, retryJournal };
 }

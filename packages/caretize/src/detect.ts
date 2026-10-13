@@ -55,6 +55,9 @@ export interface DetectOptions {
    * Empty/absent by default → components are skipped as before.
    */
   imageComponents?: ReadonlySet<string>;
+  /** Local names of imported image files (see `assetImportNames`). A dynamic
+   *  src is tagged only when it is one of these (`hero` or `hero.src`). */
+  assetImports?: ReadonlySet<string>;
 }
 
 const NO_IMAGE_COMPONENTS: ReadonlySet<string> = new Set();
@@ -73,12 +76,14 @@ export type SkipReason =
   | "inside-expression" // {cond && <h1>}, ternaries, etc. — dynamic
   | "inside-iterator" // {items.map(...)} — dynamic, flagged separately
   | "dynamic-content" // text is an {expression}
+  | "dynamic-src" // image src comes from props/data — bind it at its source (editable(), caretLoader)
   | "inside-rich" // descendant of a node we promoted to data-caret-rich
   | "mixed-children" // block/component child markup — can't round-trip as a field
   | "rich-eligible" // inline-only & lossless — would tag with --rich (run with --rich)
   | "rich-class-promotable" // inline-only but a class needs allowedClasses — tag with --rich-class
   | "rich-unsafe-attrs" // inline-only but carries non-class attrs the sanitizer strips
   | "empty" // no non-whitespace text and no src
+  | "script-hook" // a valueless data-* attribute (data-counter): a script rewrites it
   | "not-content"; // structural/non-content element
 
 export interface IteratorFlag {
@@ -145,7 +150,7 @@ export const RICH_SAFE_ATTRS: Record<string, Set<string>> = {
   a: new Set(["href", "target", "rel"]),
 };
 // `(?!\/)` rejects protocol-relative URLs (`//evil.com`). Mirrors core exactly.
-export const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/(?!\/))/i;
+export const SAFE_HREF_RE = /^(?!.*[\u0000-\u001f\u007f\\])(?:https?:|mailto:|tel:|\/(?!\/))/i;
 
 /** How the inline-markup children of a mixed element classify for rich promotion. */
 type RichShape =
@@ -269,6 +274,7 @@ export function detect(
   const candidates: Candidate[] = [];
   const skipped: Skipped[] = [];
   const imageComponents = options.imageComponents ?? NO_IMAGE_COMPONENTS;
+  const assetImports = options.assetImports ?? NO_IMAGE_COMPONENTS;
   const flagsByOffset = new Map<number, IteratorFlag>();
   // Nodes promoted to data-caret-rich. Their descendants must NOT be tagged
   // separately (the rich field owns the whole subtree); walkTags is preorder,
@@ -319,13 +325,24 @@ export function detect(
       return skip(m ? "inside-iterator" : "inside-expression");
     }
 
+    // `<span data-counter>01</span>`: a valueless data-* attribute is a hook a
+    // script finds the element by, usually to rewrite its text. An edit would
+    // be overwritten, or would freeze what the script animates.
+    if (node.attributes.some((a) => /^data-(?!caret)/.test(a.name) && (a.kind === "empty" || (a.value === "" && a.kind !== "quoted")))) {
+      return skip("script-hook");
+    }
+
     if (tag === "img" || isImageComponent) {
       const srcAttr = node.attributes.find((a) => a.name === "src");
       if (srcAttr === undefined || srcAttr.value.trim() === "") return skip("empty");
-      // A dynamic src (`src={expr}`, template literal, shorthand) has no
-      // author-time URL to surface in review; the binding key is assigned by
-      // assignFields regardless, and the engine swaps the rendered <img> src.
+      // A dynamic src is tagged only when it is an imported image file; one
+      // from props or data would get an invented key that shadows the binding
+      // the data itself carries (editable(), caretLoader).
       const staticSrc = srcAttr.kind === "quoted" || srcAttr.kind === undefined;
+      if (!staticSrc) {
+        const asset = /^([A-Za-z_$][\w$]*)(?:\.src)?$/.exec(srcAttr.value.trim());
+        if (!asset || !assetImports.has(asset[1])) return skip("dynamic-src");
+      }
       candidates.push({
         decision: "tag", kind: "image", node, tag, startOffset,
         confidence: "high", text: staticSrc ? srcAttr.value : "",
