@@ -58,6 +58,9 @@ responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
   edit mode. The hidden binding key used to stay inside the `src` or `href`, so
   the browser requested a URL that did not exist. Such images now get a normal
   `data-caret` binding and can be replaced.
+- Caretize no longer tags elements a script finds by a valueless `data-*`
+  attribute, such as an animated `<span data-counter>`.
+- Publishing a changed frontmatter string keeps the quotes it was written with.
 - Replacing an image no longer wraps it in a new element. Images positioned by
   the page, such as section backgrounds and carousel slides, keep their layout
   in edit mode.
@@ -89,17 +92,26 @@ responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
   in-process locks.
 - `@caretcms/core/testing/storage` exports a conformance suite for storage
   adapters. See [storage adapters](docs/storage-adapters.md).
+- Content from `getCollection()`, `getEntry()`, and `getEntries()`, and JSON
+  files imported from `src/content`, is editable on the page without
+  annotations when Markdown storage is used. Editors see their drafts after a
+  reload. Values a schema restricts to a list, dates, URLs, ids, and numbers
+  are never marked, and text the page splits or rewrites is bound only where
+  the whole value appears. `caret({ bindContent: false })` turns it off.
+- Studio forms use the JSON Schemas Astro generates for content collections,
+  so enums, defaults, and required fields match `content.config.ts`.
 - Markdown storage reads and writes Astro `file()` data collections:
   `src/content/<name>.json` holding an array of entries with `id`, or an object
-  keyed by id. Publish updates the entry inside that file and keeps its
-  formatting. Before, it created a separate Markdown file instead.
+  keyed by id, plus any other JSON object as a single entry. Publish changes
+  only the edited values inside the file, so hand formatting survives. Before,
+  it created a separate Markdown file instead.
 - `astro dev` and `astro preview` load `CARET_*` settings from `.env`,
   `.env.local`, and the mode files. Before, the session secret and password
   that `caretize init` writes there were ignored. The real environment wins.
 - `caretize init` adds `.env`, `.caret/drafts/`, `.caret/.caretize-bak/`, and
   `.caretcms/` to `.gitignore`.
-- Caretize ends with a hint when content comes from props or data, showing how
-  to bind it with `editable()` where the data is loaded.
+- Caretize ends with a hint when content comes from props or data, explaining
+  what CaretCMS binds on its own and how to bind other data with `editable()`.
 - `CARET_GIT_JOURNAL_RETRY=true` lets an interrupted Git commit finish later
   without publishing again. The toolbar shows **Retry Git history** while one
   is pending.

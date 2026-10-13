@@ -163,6 +163,34 @@ The inline editor only bootstraps on pages that contain `data-caret` or `data-ca
 `GET /api/cms/auth/session` confirms an authenticated editor session. Session cookies are issued
 as `HttpOnly`, `SameSite=Lax`, and automatically add `Secure` on HTTPS requests.
 
+### Content from collections and data files
+
+Most themes keep their copy in content collections or JSON files and pass it
+through helpers, loops, and component props. With Markdown storage (the default
+when `src/content` has collections), that content is editable without
+annotations:
+
+- Values read with `getCollection()`, `getEntry()`, or `getEntries()` from
+  `astro:content`.
+- JSON files in `src/content` imported directly
+  (`import site from "../content/site.json"`). An array of objects with `id`,
+  or an object of entries keyed by id, is a collection; any other object is a
+  single entry named after the file.
+
+During a signed-in editor's request, each display string carries its storage
+address as invisible characters, and the editor's drafts are shown. Clicking the
+text edits that field, and Publish writes it back to the Markdown frontmatter or
+into the JSON file, changing only the edited values. Visitors and builds get the
+original values.
+
+Strings that code compares or looks up are left alone: values the collection
+schema restricts to a list (`z.enum`), dates, URLs and paths (except image
+paths, which become replaceable images), slugs, ids, numbers, and fields named
+like identifiers (`icon`, `type`, `slug`, …). A value the page splits into words,
+shortens, or rewrites in code is only bound where the whole value appears, so
+an edit never saves a fragment. Set `caret({ bindContent: false })` to turn this
+off.
+
 When you're signed in and land on a live page that has **no** editable bindings yet, CaretCMS
 shows a small "signed in · no editable fields on this page" hint pointing you at the next step —
 so a page that isn't annotated yet reads as "nothing to edit here" rather than "is this broken?".
@@ -283,7 +311,11 @@ const posts = (await getCollection('posts')).filter((post) =>
 
 ## Explicit schemas (optional)
 
-By default, Studio infers field types from your stored data. For better field labels, validation, and widget hints, pass JSON Schemas via the integration config:
+With Markdown storage, Studio forms use the JSON Schemas Astro generates for
+your content collections (`.astro/collections/*.schema.json`), so enums,
+defaults, and required fields match `content.config.ts` without setup. Otherwise
+Studio infers field types from your stored data. To override a collection's
+schema, pass JSON Schemas via the integration config:
 
 ```js
 // astro.config.mjs
@@ -422,6 +454,7 @@ caret({
   apiBasePath: '/api/cms',      // API route prefix (default: /api/cms)
   enableAdmin: true,            // Inject admin pages (default: true)
   enableInlineEditor: true,     // Inject inline editor (default: true)
+  bindContent: true,            // Editable content from astro:content and src/content JSON
   delivery: 'auto',             // 'auto' | 'static' | 'server' | { mode, bake, publish }
   storage: filesystemStorage(), // Storage adapter (default: markdownStorage when
                                 //   src/content collections exist, else filesystem)
