@@ -572,6 +572,18 @@ export function serializeFrontmatter(data: Record<string, unknown>): SerializeRe
  * Changed fields are serialized canonically, including their nested contents.
  * This is intentionally not a full YAML concrete-syntax-tree editor.
  */
+/**
+ * A changed one-line string keeps the quotes its line used (`title: "A"` stays
+ * double-quoted), so an edit's diff shows only the words that changed.
+ */
+function sameQuoteStyle(fieldText: string, value: unknown): string | null {
+  if (typeof value !== "string" || /[\r\n]/.test(value)) return null;
+  const original = stripComment(fieldText.slice(findKeyColon(fieldText) + 1)).trim();
+  if (original.startsWith('"') && original.endsWith('"') && original.length > 1) return JSON.stringify(value);
+  if (original.startsWith("'") && original.endsWith("'") && original.length > 1) return `'${value.replace(/'/g, "''")}'`;
+  return null;
+}
+
 export function rewriteFrontmatter(source: string, data: Record<string, unknown>): SerializeResult {
   const parsed = parseFrontmatter(source);
   if (!parsed.ok) return parsed;
@@ -597,7 +609,12 @@ export function rewriteFrontmatter(source: string, data: Record<string, unknown>
       if (!Object.hasOwn(data, key)) continue;
       if (sameContent(parsed.data[key], data[key])) {
         yaml += located.yaml.slice(offsets[field.line], offsets[fields[i + 1]?.line ?? lines.length]);
-      } else yaml += emitEntry(key, data[key], indent, 0).join(eol) + eol;
+      } else {
+        const quoted = sameQuoteStyle(field.text, data[key]);
+        yaml += quoted !== null
+          ? " ".repeat(indent) + field.text.slice(0, findKeyColon(field.text) + 1) + " " + quoted + eol
+          : emitEntry(key, data[key], indent, 0).join(eol) + eol;
+      }
     }
     for (const [key, value] of Object.entries(data)) {
       if (!seen.has(key)) yaml += emitEntry(key, value, indent, 0).join(eol) + eol;
