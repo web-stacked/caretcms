@@ -192,6 +192,12 @@ describe("detect — astro:assets image components", () => {
     expect(r.candidates.map((c) => [c.tag, c.kind, c.text])).toEqual([["Image", "image", ""], ["img", "image", ""]]);
   });
 
+  it("skips elements a script finds by a valueless data attribute", async () => {
+    const r = await detectSource('<main><p><span data-counter>01</span></p><span class="x" data-label>Send Message</span><p data-note="">Kept</p><h2>Title</h2></main>');
+    expect(r.candidates.map((c) => c.text)).toEqual(["Kept", "Title"]);
+    expect(r.skipped.filter((s) => s.reason === "script-hook").map((s) => s.tag)).toEqual(["span", "span"]);
+  });
+
   it("skips a src from props or data so the data's own binding is not shadowed", async () => {
     const r = await detectSource(
       "<main><img src={team.image} /><Image src={image} alt=\"\" /><img src={`/img/${slug}.png`} /></main>",

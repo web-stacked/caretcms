@@ -83,6 +83,7 @@ export type SkipReason =
   | "rich-class-promotable" // inline-only but a class needs allowedClasses — tag with --rich-class
   | "rich-unsafe-attrs" // inline-only but carries non-class attrs the sanitizer strips
   | "empty" // no non-whitespace text and no src
+  | "script-hook" // a valueless data-* attribute (data-counter): a script rewrites it
   | "not-content"; // structural/non-content element
 
 export interface IteratorFlag {
@@ -322,6 +323,13 @@ export function detect(
         });
       }
       return skip(m ? "inside-iterator" : "inside-expression");
+    }
+
+    // `<span data-counter>01</span>`: a valueless data-* attribute is a hook a
+    // script finds the element by, usually to rewrite its text. An edit would
+    // be overwritten, or would freeze what the script animates.
+    if (node.attributes.some((a) => /^data-(?!caret)/.test(a.name) && (a.kind === "empty" || (a.value === "" && a.kind !== "quoted")))) {
+      return skip("script-hook");
     }
 
     if (tag === "img" || isImageComponent) {

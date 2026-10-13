@@ -292,10 +292,10 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
       `--bind-collections --bind-routes --rich --min-confidence low).\n`;
   }
   if (fromData) {
-    out += `↪ ${fromData} spot(s) render text or images from props or data. Bind them where the\n` +
-      `  data is loaded, and every page that renders it becomes editable:\n` +
-      `    const data = await editable(\`<collection>::\${id}\`, entry.data);  // from "@caretcms/core"\n` +
-      `  or load the collection with caretLoader() from "@caretcms/core/loader".\n`;
+    out += `↪ ${fromData} spot(s) render text or images from props or data. CaretCMS makes content\n` +
+      `  from getCollection()/getEntry() and JSON files in src/content editable in the browser\n` +
+      `  on its own. Other data can be bound where it is loaded:\n` +
+      `    const data = await editable("<collection>::<id>", value);  // from "@caretcms/core"\n`;
   }
   if (styled) {
     const snippet = styledClasses.size

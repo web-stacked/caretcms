@@ -133,11 +133,12 @@ describe("formatSummary", () => {
 });
 
 describe("formatHints", () => {
-  it("points data-driven text and images at editable() where the data loads", () => {
+  it("explains automatic content binding and editable() for other data", () => {
     const plans = [plan({ skipped: [{ reason: "dynamic-src" }, { reason: "dynamic-content" }] as unknown as FilePlan["skipped"] })];
     const out = formatHints(plans, {});
     expect(out).toContain("2 spot(s) render text or images from props or data");
-    expect(out).toContain("await editable(`<collection>::${id}`, entry.data)");
+    expect(out).toContain("JSON files in src/content editable in the browser");
+    expect(out).toContain('await editable("<collection>::<id>", value)');
     expect(formatHints([plan()], {})).toBe("");
   });
 
