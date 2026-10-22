@@ -9,7 +9,14 @@ const WARNING_SVG =
 /** @typedef {{ label: string, primary?: boolean, onClick: () => void | Promise<void> }} ToastAction */
 /** @typedef {{ message: string, sticky?: boolean, actions?: ToastAction[], role?: string }} ToastOptions */
 /** @typedef {{ message: string, onKeepMine: () => void | Promise<void>, onLoadLatest: () => void | Promise<void>, keepLabel?: string, latestLabel?: string }} ConflictOptions */
-/** @typedef {((message: string, type?: 'success' | 'error') => HTMLDivElement) & { conflict: (options: ConflictOptions) => HTMLDivElement }} ToastController */
+/** @typedef {{ message: string, actions: ToastAction[] }} PendingOptions */
+/**
+ * @typedef {((message: string, type?: 'success' | 'error') => HTMLDivElement) & {
+ *   conflict: (options: ConflictOptions) => HTMLDivElement,
+ *   pending: (options: PendingOptions) => HTMLDivElement,
+ *   dismiss: (toast: HTMLDivElement) => void,
+ * }} ToastController
+ */
 
 /** @param {ToastType} type @returns {string} */
 function iconFor(type) {
@@ -20,7 +27,8 @@ function iconFor(type) {
 
 /**
  * Toast controller. Returns a `showToast(message, type)` function with a
- * `.conflict()` method for the two-choice save-conflict prompt.
+ * `.conflict()` method for the two-choice save-conflict prompt, `.pending()`
+ * for work that is kept but not yet saved, and `.dismiss()`.
  *
  * Design notes:
  *  - Toasts stack (a container region) instead of one replacing the next, so a
@@ -137,6 +145,13 @@ export function createToast() {
         { label: latestLabel, onClick: onLoadLatest },
       ],
     });
+
+  // Work that is kept but not saved yet (offline, server error). Sticky and a
+  // warning rather than an error: nothing is lost, and the caller retries.
+  showToast.pending = ({ message, actions }) =>
+    render('warning', { message, sticky: true, role: 'alert', actions });
+
+  showToast.dismiss = dismiss;
 
   return showToast;
 }

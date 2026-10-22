@@ -14,12 +14,27 @@ import { sanitizeHtml } from './sanitize.js';
  *     onKeepMine: () => void | Promise<void>,
  *     onLoadLatest: () => void,
  *   }) => unknown,
+ *   pending: (options: { message: string, actions: { label: string, primary?: boolean, onClick: () => void | Promise<void> }[] }) => HTMLDivElement,
+ *   dismiss: (toast: HTMLDivElement) => void,
  * }} ConflictToast
  */
 
 /** @type {WeakMap<HTMLElement, string>} */
 const snapshots = new WeakMap();
 let keydownBound = false;
+
+// Fields whose last save failed, each with the function that saves it again.
+// Their text stays on the page and their snapshot stays at the last saved
+// value, so leaving the field or coming back online retries the same change.
+/** @type {Map<HTMLElement, () => Promise<void>>} */
+const unsavedFields = new Map();
+/** @type {HTMLDivElement | null} */
+let unsavedToast = null;
+let onlineRetryBound = false;
+
+function retryUnsavedFields() {
+  for (const save of [...unsavedFields.values()]) void save();
+}
 
 // `contenteditable="plaintext-only"` isn't supported in older Firefox (pre-136);
 // setting it there leaves the element non-editable. Feature-detect once and fall
@@ -40,7 +55,7 @@ const PLAINTEXT_ONLY_SUPPORTED = (() => {
  * @param {TextEditorState} options.state
  * @param {(attr: string) => ParsedCaretBinding | null} options.parseCaretAttr
  * @param {(text: string) => string} options.clientLinkify
- * @param {(collection: string, id: string, field: string, value: string) => Promise<SaveResult>} options.saveField
+ * @param {(collection: string, id: string, field: string, value: string, options?: { baseValue?: string }) => Promise<SaveResult>} options.saveField
  * @param {(element: Element, success: boolean) => void} options.flash
  * @param {ConflictToast} options.showToast
  */
@@ -82,6 +97,26 @@ export function mountTextEditors({
   if (!keydownBound) {
     document.addEventListener('keydown', onKeydown);
     keydownBound = true;
+  }
+  if (!onlineRetryBound) {
+    window.addEventListener('online', retryUnsavedFields);
+    onlineRetryBound = true;
+  }
+
+  function showUnsavedNotice() {
+    if (unsavedToast && document.body.contains(unsavedToast)) return;
+    unsavedToast = showToast.pending({
+      message: navigator.onLine
+        ? "Couldn't save your change. It's kept on the page."
+        : "You're offline. Your change is kept and saves when you reconnect.",
+      actions: [{ label: 'Retry now', primary: true, onClick: retryUnsavedFields }],
+    });
+  }
+
+  function clearUnsavedNotice() {
+    if (unsavedFields.size > 0 || !unsavedToast) return;
+    showToast.dismiss(unsavedToast);
+    unsavedToast = null;
   }
 
   document.querySelectorAll('[data-caret]').forEach((el) => {
@@ -126,14 +161,17 @@ export function mountTextEditors({
     }
 
     el.addEventListener('focus', () => {
+      // An unsaved field keeps the snapshot of its last saved value, so the
+      // next blur compares against that and saves the kept text again.
+      const keepSnapshot = unsavedFields.has(el);
       if (isRich) {
-        snapshots.set(el, el.innerHTML);
+        if (!keepSnapshot) snapshots.set(el, el.innerHTML);
       } else if (isLinkable) {
         const raw = el.getAttribute('data-caret-raw') || '';
-        snapshots.set(el, raw);
+        if (!keepSnapshot) snapshots.set(el, raw);
         el.textContent = raw;
         showLinkHint(el);
-      } else {
+      } else if (!keepSnapshot) {
         snapshots.set(el, el.textContent || '');
       }
     });
@@ -188,35 +226,32 @@ export function mountTextEditors({
       });
     };
 
-    el.addEventListener('blur', async () => {
-      removeLinkHint();
+    const markSaved = () => {
+      unsavedFields.delete(el);
+      el.classList.remove('cms-unsaved');
+      clearUnsavedNotice();
+    };
 
-      // If link popup is active for this element, defer the save
-      if (state.linkPopupEl === el) return;
-
-      // Skip save if Escape was pressed
-      if (editableEl._caretSkipSave) {
-        editableEl._caretSkipSave = false;
-        state.dirtyEls.delete(el);
-        if (isRich) {
-          el.innerHTML = snapshots.get(el) || '';
-        } else if (isLinkable) {
-          const raw = el.getAttribute('data-caret-raw') || '';
-          el.innerHTML = clientLinkify(raw);
-        }
-        return;
-      }
-
+    // Save the field's text if it differs from the last saved value. On blur
+    // the element holds the text being edited; on a retry it holds the
+    // rendered value (for linkable fields the kept text is in data-caret-raw).
+    /** @param {{ fromBlur?: boolean }} [options] */
+    const commit = async ({ fromBlur = false } = {}) => {
+      // A retry while the editor is typing in this field waits for its blur.
+      if (!fromBlur && document.activeElement === el) return;
       const snapshot = snapshots.get(el) ?? '';
       let current;
       if (isRich) {
         current = sanitizeHtml(el.innerHTML);
         el.innerHTML = current; // normalize
+      } else if (isLinkable && !fromBlur) {
+        current = el.getAttribute('data-caret-raw') || '';
       } else {
         current = el.textContent || '';
       }
 
       if (current === snapshot) {
+        markSaved();
         if (isLinkable) {
           el.innerHTML = clientLinkify(current);
         }
@@ -234,23 +269,53 @@ export function mountTextEditors({
       }
 
       el.classList.add('cms-saving');
-      const result = await saveField(resolved.collection, resolved.id, resolved.field, current);
+      const result = await saveField(resolved.collection, resolved.id, resolved.field, current, { baseValue: snapshot });
       el.classList.remove('cms-saving');
       flash(el, result.ok);
 
       if (result.ok) {
+        const wasUnsaved = unsavedFields.has(el);
+        markSaved();
+        snapshots.set(el, current);
         state.dirtyEls.delete(el);
         syncBoundText(attr, current);
-        showToast('Content saved', 'success');
+        showToast(wasUnsaved ? 'Your change is saved' : 'Content saved', 'success');
       } else if (result.reason === 'conflict') {
+        markSaved();
         // Preserve the user's edit and let them choose — don't overwrite it.
         runConflict(resolved, current, result.latestValue);
       } else if (result.reason !== 'unauthorized') {
-        // Genuine failure (not an auth redirect): revert to the pre-edit snapshot.
-        state.dirtyEls.delete(el);
-        syncBoundText(attr, snapshot);
-        showToast('Failed to save. Changes reverted.', 'error');
+        // Never throw the editor's text away: keep it, mark the field, and
+        // retry on the next blur, when the browser comes back online, or from
+        // the notice's Retry action.
+        unsavedFields.set(el, commit);
+        el.classList.add('cms-unsaved');
+        state.dirtyEls.add(el);
+        showUnsavedNotice();
       }
+    };
+
+    el.addEventListener('blur', async () => {
+      removeLinkHint();
+
+      // If link popup is active for this element, defer the save
+      if (state.linkPopupEl === el) return;
+
+      // Skip save if Escape was pressed
+      if (editableEl._caretSkipSave) {
+        editableEl._caretSkipSave = false;
+        state.dirtyEls.delete(el);
+        markSaved();
+        if (isRich) {
+          el.innerHTML = snapshots.get(el) || '';
+        } else if (isLinkable) {
+          const raw = el.getAttribute('data-caret-raw') || '';
+          el.innerHTML = clientLinkify(raw);
+        }
+        return;
+      }
+
+      await commit({ fromBlur: true });
     });
   });
 

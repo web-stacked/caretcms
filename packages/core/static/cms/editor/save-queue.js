@@ -9,6 +9,17 @@ import { mutateHeaders, readHeaders } from './security.js';
  */
 /** @typedef {'saving' | 'idle' | 'error'} SaveStatus */
 /** @typedef {{ type: 'save_field', collection: string, id: string, field: string, value: string, expectedRevision?: number, expectedBaseRevision?: number }} SaveFieldPayload */
+/**
+ * @typedef {{ baseValue?: string }} SaveFieldOptions
+ * `baseValue` is the field's value when the editor started editing it. A
+ * revision conflict whose latest value for this field still equals it was
+ * caused by a change to another field, so the save retries instead of asking.
+ */
+/**
+ * @typedef {((collection: string, id: string, field: string, value: string, options?: SaveFieldOptions) => Promise<SaveResult>) & {
+ *   prime: (collection: string, id: string) => void,
+ * }} SaveField
+ */
 
 /** @param {string} collection @param {string} id @returns {string} */
 function entryKey(collection, id) {
@@ -25,23 +36,20 @@ function isRevision(value) {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
-/** @param {unknown} data @param {string} path @returns {string | undefined} */
-function getNestedStringValue(data, path) {
-  if (!isRecord(data)) return undefined;
-
+/** @param {unknown} data @param {string} path @returns {{ found: boolean, value: unknown }} */
+function getNestedValue(data, path) {
   /** @type {unknown} */
   let current = data;
   for (const segment of path.split('.')) {
     if (Array.isArray(current)) {
-      if (!/^\d+$/.test(segment)) return undefined;
+      if (!/^\d+$/.test(segment) || Number(segment) >= current.length) return { found: false, value: undefined };
       current = current[Number(segment)];
     } else if (isRecord(current)) {
-      if (!Object.hasOwn(current, segment)) return undefined;
+      if (!Object.hasOwn(current, segment)) return { found: false, value: undefined };
       current = current[segment];
-    } else return undefined;
+    } else return { found: false, value: undefined };
   }
-
-  return typeof current === 'string' ? current : undefined;
+  return { found: true, value: current };
 }
 
 /**
@@ -83,7 +91,7 @@ async function fetchEntrySnapshot(collection, id, onUnauthorized) {
  * @param {object} options
  * @param {(status: SaveStatus, message: string) => void} options.setStatus
  * @param {() => void} options.onUnauthorized
- * @returns {(collection: string, id: string, field: string, value: string) => Promise<SaveResult>}
+ * @returns {SaveField}
  */
 export function createSaveField({ setStatus, onUnauthorized }) {
   const savesToDraft = isPolicyDraftMode() || isStaticDelivery();
@@ -122,26 +130,30 @@ export function createSaveField({ setStatus, onUnauthorized }) {
 
   /**
    * @param {string} collection @param {string} id @param {string} field
-   * @returns {Promise<{ currentRevision: number | undefined, latestValue: string | undefined }>}
+   * @returns {Promise<{ currentRevision: number | undefined, latestValue: string | undefined, fieldStored: boolean }>}
    */
   async function readLatestFieldValue(collection, id, field) {
     const snapshot = await fetchEntrySnapshot(collection, id, onUnauthorized);
-    if (!snapshot) return { currentRevision: undefined, latestValue: undefined };
+    if (!snapshot) return { currentRevision: undefined, latestValue: undefined, fieldStored: true };
 
     revisionByEntry.set(entryKey(collection, id), snapshot.revision);
     if (snapshot.baseRevision !== undefined) baseRevisionByEntry.set(entryKey(collection, id), snapshot.baseRevision);
     else baseRevisionByEntry.delete(entryKey(collection, id));
+    const stored = getNestedValue(snapshot.data, field);
     return {
       currentRevision: snapshot.revision,
-      latestValue: getNestedStringValue(snapshot.data, field),
+      latestValue: typeof stored.value === 'string' ? stored.value : undefined,
+      fieldStored: stored.found,
     };
   }
 
   /**
    * @param {string} collection @param {string} id @param {string} field @param {string} value
+   * @param {SaveFieldOptions} options
+   * @param {boolean} [isRetry]
    * @returns {Promise<SaveResult>}
    */
-  async function execSave(collection, id, field, value) {
+  async function execSave(collection, id, field, value, options, isRetry = false) {
     setStatus('saving', savesToDraft ? 'Saving draft…' : 'Saving live changes…');
     const key = entryKey(collection, id);
 
@@ -181,12 +193,21 @@ export function createSaveField({ setStatus, onUnauthorized }) {
             revisionByEntry.set(key, currentRevision);
           }
 
-          /** @type {{ currentRevision: number | undefined, latestValue: string | undefined }} */
-          let latest = { currentRevision: undefined, latestValue: undefined };
+          /** @type {{ currentRevision: number | undefined, latestValue: string | undefined, fieldStored: boolean }} */
+          let latest = { currentRevision: undefined, latestValue: undefined, fieldStored: true };
           try {
             latest = await readLatestFieldValue(collection, id, field);
           } catch {
             // Keep conflict semantics even if a follow-up refresh fails.
+          }
+          // Someone else changed a different field (this one still matches what
+          // the editor started from, or was never saved and still renders its
+          // template text), or saved the same text: nothing to decide.
+          const untouchedHere = options.baseValue !== undefined
+            && (latest.latestValue === options.baseValue || !latest.fieldStored);
+          const sameText = latest.latestValue === value;
+          if (!isRetry && typeof latest.currentRevision === 'number' && (untouchedHere || sameText)) {
+            return execSave(collection, id, field, value, options, true);
           }
           setStatus('error', 'Revision conflict');
           return {
@@ -223,13 +244,28 @@ export function createSaveField({ setStatus, onUnauthorized }) {
     }
   }
 
-  /** @param {string} collection @param {string} id @param {string} field @param {string} value */
-  return function saveField(collection, id, field, value) {
-    const task = saveQueue.then(() => execSave(collection, id, field, value));
-    saveQueue = task.then(
-      () => undefined,
-      () => undefined,
-    );
-    return task;
-  };
+  /** @type {SaveField} */
+  const saveField = Object.assign(
+    /** @param {string} collection @param {string} id @param {string} field @param {string} value @param {SaveFieldOptions} [options] */
+    (collection, id, field, value, options = {}) => {
+      const task = saveQueue.then(() => execSave(collection, id, field, value, options));
+      saveQueue = task.then(
+        () => undefined,
+        () => undefined,
+      );
+      return task;
+    },
+    {
+      // Record the revision the page was rendered from, so a stale tab's first
+      // save is checked against what its editor actually saw instead of
+      // whatever is newest when it happens to save.
+      /** @param {string} collection @param {string} id */
+      prime(collection, id) {
+        ensureRevision(collection, id).catch(() => {
+          // A failed prime falls back to reading the revision at save time.
+        });
+      },
+    },
+  );
+  return saveField;
 }

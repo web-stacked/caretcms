@@ -10,7 +10,7 @@
  * - content map
  */
 import { buildCmsUrl, clearCloudSessionToken, getEditorLoginUrl } from './editor/config.js';
-import { parseCaretAttr, flash } from './editor/helpers.js';
+import { parseCaretAttr, resolveBinding, flash } from './editor/helpers.js';
 import { clientLinkify } from './editor/linkify.js';
 import { createSaveField } from './editor/save-queue.js';
 import { compressImage, updateEmblaCarousel } from './editor/image-utils.js';
@@ -183,7 +183,22 @@ function boot() {
       onUnauthorized: redirectToEditorLogin,
     });
     applyPageMode();
+    primeRenderedRevisions();
   };
+
+  // Each entry's revision as of page load is the base its inline edits are
+  // checked against; see `saveField.prime`.
+  function primeRenderedRevisions() {
+    const seen = new Set();
+    document.querySelectorAll('[data-caret]').forEach((element) => {
+      const resolved = resolveBinding(element, parseCaretAttr(element.getAttribute('data-caret') || ''));
+      if (!resolved) return;
+      const key = `${resolved.collection}::${resolved.id}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      saveField.prime(resolved.collection, resolved.id);
+    });
+  }
 
   mountSectionControls({
     parseCaretAttr,

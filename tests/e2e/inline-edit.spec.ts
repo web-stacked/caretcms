@@ -503,6 +503,89 @@ test.describe("inline editor — click to edit", () => {
     expect(anonHtml).not.toContain("Remote value");
   });
 
+  test("a stale tab's first save asks instead of overwriting a newer edit", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    // Another editor saves the same field after this page loaded, before this
+    // tab has saved anything.
+    const elsewhere = await page.request.post("/api/cms/mutate", {
+      headers: { "x-caret-request": "1" },
+      data: { type: "save_field", collection: "pages", id: "home", field: "hero.headline", value: "Saved in another tab", expectedRevision: 0 },
+    });
+    expect(elsewhere.ok()).toBeTruthy();
+
+    await replaceText(page, headline, "Stale tab edit");
+    const stale = await blurToSave(page, headline);
+    expect(stale.status()).toBe(409);
+    await expect(page.getByText("This content changed elsewhere while you were editing.")).toBeVisible();
+    await expect(headline).toHaveText("Stale tab edit");
+    expect(await fetchAnonymousHtml("/")).toContain("Saved in another tab");
+  });
+
+  test("a newer edit to another field of the entry doesn't interrupt the save", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    const elsewhere = await page.request.post("/api/cms/mutate", {
+      headers: { "x-caret-request": "1" },
+      data: { type: "save_field", collection: "pages", id: "home", field: "our_teaching_philosophy", value: "Heading from another tab", expectedRevision: 0 },
+    });
+    expect(elsewhere.ok()).toBeTruthy();
+
+    await replaceText(page, headline, "Headline from this tab");
+    await headline.evaluate((el) => (el as HTMLElement).blur());
+    await expect(page.getByText("Content saved")).toBeVisible();
+    await expect(page.getByText("This content changed elsewhere while you were editing.")).toHaveCount(0);
+
+    const html = await fetchAnonymousHtml("/");
+    expect(html).toContain("Headline from this tab");
+    expect(html).toContain("Heading from another tab");
+  });
+
+  test("a failed save keeps the text on the page and Retry saves it", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await page.route("**/api/cms/mutate", (route) => route.fulfill({ status: 500, body: "{}" }));
+    await replaceText(page, headline, "Kept after a failure");
+    await headline.evaluate((el) => (el as HTMLElement).blur());
+
+    await expect(page.getByText("Couldn't save your change. It's kept on the page.")).toBeVisible();
+    await expect(headline).toHaveText("Kept after a failure");
+    await expect(headline).toHaveClass(/cms-unsaved/);
+    await expect(page.locator(".cms-status-text")).toHaveText("Unsaved changes");
+
+    await page.unroute("**/api/cms/mutate");
+    await page.getByRole("button", { name: "Retry now" }).click();
+    await expect(page.getByText("Your change is saved")).toBeVisible();
+    await expect(headline).not.toHaveClass(/cms-unsaved/);
+    expect(await fetchAnonymousHtml("/")).toContain("Kept after a failure");
+  });
+
+  test("an edit made offline saves itself when the connection returns", async ({ page, context }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await context.setOffline(true);
+    await replaceText(page, headline, "Written while offline");
+    await headline.evaluate((el) => (el as HTMLElement).blur());
+    await expect(page.getByText("You're offline. Your change is kept and saves when you reconnect.")).toBeVisible();
+    await expect(headline).toHaveText("Written while offline");
+
+    await context.setOffline(false);
+    await expect(page.getByText("Your change is saved")).toBeVisible();
+    expect(await fetchAnonymousHtml("/")).toContain("Written while offline");
+  });
+
   test("swapping a hero image uploads, persists, and serves the new src", async ({ page }) => {
     await loginAsEditor(page);
     await page.goto("/");
