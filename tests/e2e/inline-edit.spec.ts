@@ -569,6 +569,26 @@ test.describe("inline editor — click to edit", () => {
     expect(await fetchAnonymousHtml("/")).toContain("Kept after a failure");
   });
 
+  test("signing out with unsaved text on the page asks first", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await page.route("**/api/cms/mutate", (route) => route.fulfill({ status: 500, body: "{}" }));
+    await replaceText(page, headline, "Not saved yet");
+    await headline.evaluate((el) => (el as HTMLElement).blur());
+    await expect(headline).toHaveClass(/cms-unsaved/);
+
+    await page.getByRole("button", { name: "Sign out" }).click();
+    const dialog = page.getByRole("dialog", { name: "Unsaved changes" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(headline).toHaveText("Not saved yet");
+    await expect(page.locator(".cms-toolbar")).toBeVisible();
+  });
+
   test("an edit made offline saves itself when the connection returns", async ({ page, context }) => {
     await loginAsEditor(page);
     await page.goto("/");

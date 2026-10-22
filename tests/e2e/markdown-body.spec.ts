@@ -631,3 +631,50 @@ test('keeps inline code formatting when a paragraph group is edited and reloaded
   await expect(code).toHaveText('.md source');
   await expect(group.locator('strong')).toHaveText('title and excerpt');
 });
+
+test("signing out with an unpublished body draft asks first in server mode", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/ship-something-real/");
+  const paragraph = page.locator(".post-body [data-caret-md]").first();
+  await expect(paragraph).toHaveAttribute("contenteditable", "true");
+  await replaceText(page, paragraph, EDITED_TEXT);
+  const [save] = await Promise.all([
+    page.waitForResponse(isMutatePost),
+    paragraph.evaluate((element) => (element as HTMLElement).blur()),
+  ]);
+  expect(save.ok(), await save.text()).toBeTruthy();
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  const dialog = page.getByRole("dialog", { name: "Unpublished changes" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("1 unpublished change");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator(".cms-toolbar")).toBeVisible();
+  const state = await page.request.get("/api/cms/draft", { headers: { "x-caret-request": "1" } });
+  expect((await state.json()).count).toBe(1);
+});
+
+test("Studio sign-out with an unpublished body draft asks first", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/ship-something-real/");
+  const paragraph = page.locator(".post-body [data-caret-md]").first();
+  await expect(paragraph).toHaveAttribute("contenteditable", "true");
+  await replaceText(page, paragraph, EDITED_TEXT);
+  await Promise.all([
+    page.waitForResponse(isMutatePost),
+    paragraph.evaluate((element) => (element as HTMLElement).blur()),
+  ]);
+
+  await page.goto("/admin/cms");
+  const signOut = page.locator("#studio-logout-btn");
+  await signOut.click();
+  const dialog = page.getByRole("dialog", { name: "Unpublished changes" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("You have 1 unpublished change.");
+  await expect(dialog.getByRole("link", { name: "Open site to publish" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(signOut).toBeFocused();
+  await expect(page).toHaveURL(/\/admin\/cms$/);
+});

@@ -217,7 +217,11 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           system: m["theme.system"], light: m["theme.light"], dark: m["theme.dark"], label: m["theme.label"],
           empty: m["nav.searchEmpty"], collections: m["nav.collections"], entries: m["nav.searchEntries"],
           overview: m["nav.overview"], untitled: m["collection.untitled"],
+          draftsTitle: m["signOut.draftsTitle"], draftsCopyOne: m["signOut.draftsCopyOne"],
+          draftsCopyOther: m["signOut.draftsCopyOther"], cancel: m["common.cancel"],
+          signOutAnyway: m["signOut.anyway"], openSite: m["signOut.openSite"],
         })};
+        var editorHome = ${serializeJsonForScript(runtime.editorHome)};
         var navigation = ${serializeJsonForScript(navigation.map(({ name, label, href }) => ({ name, label, href })))};
         var root = document.documentElement;
 
@@ -256,9 +260,11 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
         // ── Identity ───────────────────────────────────────────────────
         var identityEl = document.getElementById('studio-editor-identity');
         var avatarEl = document.getElementById('studio-avatar');
+        var draftsSurviveSignOut = false;
         fetch(apiBase + '/auth/session', { credentials: 'same-origin' })
           .then(function (response) { return response.ok ? response.json() : null; })
           .then(function (body) {
+            draftsSurviveSignOut = Boolean(body && body.draftsSurviveSignOut === true);
             var identity = body && body.identity;
             var label = identity && (identity.name || identity.email);
             if (!label) return;
@@ -267,8 +273,10 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           }).catch(function () {});
 
         // ── Sign out ───────────────────────────────────────────────────
+        // Drafts from a password session can't be reopened after signing out,
+        // so ask first when any are unpublished.
         var logoutBtn = document.getElementById('studio-logout-btn');
-        if (logoutBtn) logoutBtn.addEventListener('click', function () {
+        function signOut() {
           fetch(apiBase + '/auth/logout', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-caret-request': '1' },
@@ -281,6 +289,55 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           }).catch(function () {
             window.location.href = mountPath;
           });
+        }
+        function element(tag, attrs, text) {
+          var node = document.createElement(tag);
+          Object.keys(attrs).forEach(function (name) { node.setAttribute(name, attrs[name]); });
+          if (text) node.textContent = text;
+          return node;
+        }
+        // Built only when needed, so pages don't carry a hidden dialog.
+        function openSignoutDialog(count) {
+          var dialog = element('div', { id: 'studio-signout-dialog', class: 'modal-backdrop', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'studio-signout-title', 'aria-describedby': 'studio-signout-copy' });
+          var card = element('div', { class: 'modal-card modal-card-confirm' });
+          var actions = element('div', { class: 'modal-actions' });
+          var cancel = element('button', { type: 'button', class: 'studio-btn-ghost' }, messages.cancel);
+          var anyway = element('button', { type: 'button', class: 'studio-btn-danger' }, messages.signOutAnyway);
+          var site = element('a', { class: 'studio-btn-primary', href: editorHome }, messages.openSite);
+          var copy = count === 1 ? messages.draftsCopyOne : messages.draftsCopyOther.replace('{count}', String(count));
+          card.appendChild(element('h2', { id: 'studio-signout-title' }, messages.draftsTitle));
+          card.appendChild(element('p', { id: 'studio-signout-copy' }, copy));
+          actions.appendChild(cancel); actions.appendChild(anyway); actions.appendChild(site);
+          card.appendChild(actions); dialog.appendChild(card);
+          document.body.appendChild(dialog);
+          function close() {
+            dialog.remove();
+            if (logoutBtn) logoutBtn.focus();
+          }
+          cancel.addEventListener('click', close);
+          anyway.addEventListener('click', function () { dialog.remove(); signOut(); });
+          dialog.addEventListener('click', function (event) { if (event.target === dialog) close(); });
+          dialog.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') { event.preventDefault(); close(); return; }
+            if (event.key !== 'Tab') return;
+            var controls = [cancel, anyway, site];
+            var index = controls.indexOf(document.activeElement);
+            var next = event.shiftKey ? (index <= 0 ? controls.length - 1 : index - 1) : (index + 1) % controls.length;
+            event.preventDefault();
+            controls[next].focus();
+          });
+          site.focus();
+        }
+        if (logoutBtn) logoutBtn.addEventListener('click', function () {
+          if (draftsSurviveSignOut) { signOut(); return; }
+          fetch(apiBase + '/draft', { headers: { 'x-caret-request': '1' }, credentials: 'same-origin' })
+            .then(function (response) { return response.ok ? response.json() : null; })
+            .then(function (body) {
+              var count = body && typeof body.count === 'number' ? body.count : 0;
+              if (count > 0) openSignoutDialog(count);
+              else signOut();
+            })
+            .catch(signOut);
         });
 
         // ── Command palette ────────────────────────────────────────────

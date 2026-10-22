@@ -81,6 +81,7 @@ function boot() {
     clearDirty: () => {
       state.dirtyEls.clear();
     },
+    hasUnsavedEdits: () => state.dirtyEls.size > 0,
     onLogout: async () => {
       const response = await fetch(buildCmsUrl('/auth/logout'), {
         method: 'POST',

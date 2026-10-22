@@ -124,10 +124,11 @@ function renderToolbar(staticDelivery) {
  * @param {{
  *   showToast: (message: string, type: 'success' | 'error') => void,
  *   clearDirty: () => void,
+ *   hasUnsavedEdits: () => boolean,
  *   onLogout: () => void | Promise<void>,
  * }} options
  */
-export function mountToolbar({ showToast, clearDirty, onLogout }) {
+export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, onLogout }) {
   const staticDelivery = isStaticDelivery();
   const toolbar = renderToolbar(staticDelivery);
 
@@ -353,23 +354,32 @@ export function mountToolbar({ showToast, clearDirty, onLogout }) {
   }
 
   toolbar.querySelector('.cms-exit-btn')?.addEventListener('click', async () => {
-    if (staticDelivery || isPolicyDraftMode()) {
-      const count = await fetchDraftCount();
-      if (count > 0) {
-        const action = await chooseSignoutAction(count, await draftsSurviveSignOut());
-        if (action === 'cancel') return;
-        if (action === 'publish') {
-          if (!(await publishDrafts({ reload: false }))) return;
-        } else if (action === 'discard') {
-          try {
-            await draftClient.discard();
-          } catch {
-            showToast('Some drafts need publish recovery. Retry Publish before discarding.', 'error');
-            return;
-          }
-        } else if (action !== 'keep') {
+    // Text on the page that hasn't saved yet (still being edited, or kept after
+    // a failed save) is gone once the page unloads.
+    if (hasUnsavedEdits() && !(await confirmToolbarAction({
+      title: 'Unsaved changes',
+      copy: 'Some text on this page hasn’t saved yet. Signing out now loses it.',
+      confirmLabel: 'Sign out anyway',
+      danger: true,
+    }))) return;
+
+    // Body-block drafts wait for Publish in every delivery mode, not only in
+    // static delivery or under an authorization policy.
+    const count = await fetchDraftCount();
+    if (count > 0) {
+      const action = await chooseSignoutAction(count, await draftsSurviveSignOut());
+      if (action === 'cancel') return;
+      if (action === 'publish') {
+        if (!(await publishDrafts({ reload: false }))) return;
+      } else if (action === 'discard') {
+        try {
+          await draftClient.discard();
+        } catch {
+          showToast('Some drafts need publish recovery. Retry Publish before discarding.', 'error');
           return;
         }
+      } else if (action !== 'keep') {
+        return;
       }
     }
 
