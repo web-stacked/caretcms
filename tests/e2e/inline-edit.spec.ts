@@ -606,6 +606,27 @@ test.describe("inline editor — click to edit", () => {
     expect(await fetchAnonymousHtml("/")).toContain("Written while offline");
   });
 
+  test("an emptied field stays visible and clickable", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const heading = page.locator('h2[data-caret="pages::home::our_teaching_philosophy"]');
+    await expect(heading).toHaveClass(/cms-editable/);
+    await heading.click();
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press("Backspace");
+    await blurToSave(page, heading);
+
+    await page.reload();
+    await expect(heading).toHaveClass(/cms-editable/);
+    await expect(heading).toBeEmpty();
+    const box = await heading.boundingBox();
+    expect(box!.width).toBeGreaterThan(20);
+    expect(box!.height).toBeGreaterThan(10);
+    expect(await heading.evaluate((el) => getComputedStyle(el, "::before").content)).toBe('"Add text"');
+    await heading.click();
+    await expect(heading).toBeFocused();
+  });
+
   test("swapping a hero image uploads, persists, and serves the new src", async ({ page }) => {
     await loginAsEditor(page);
     await page.goto("/");

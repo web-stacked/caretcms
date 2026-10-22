@@ -6,7 +6,7 @@ import { sanitizeHtml } from './sanitize.js';
 /** @typedef {{ collection: string, id: string, field: string }} ResolvedCaretBinding */
 /** @typedef {{ collection: string | null, id: string | null, field: string }} ParsedCaretBinding */
 /** @typedef {{ dirtyEls: Set<Element>, linkPopupEl: HTMLElement | null }} TextEditorState */
-/** @typedef {{ ok: true, revision?: number } | { ok: false, reason: 'conflict' | 'unauthorized' | 'error', latestValue?: unknown }} SaveResult */
+/** @typedef {{ ok: true, revision?: number } | { ok: false, reason: 'conflict' | 'unauthorized' | 'error', latestValue?: unknown } | { ok: false, reason: 'invalid', message: string }} SaveResult */
 /**
  * @typedef {((message: string, kind: 'success' | 'error') => unknown) & {
  *   conflict: (options: {
@@ -284,6 +284,13 @@ export function mountTextEditors({
         markSaved();
         // Preserve the user's edit and let them choose — don't overwrite it.
         runConflict(resolved, current, result.latestValue);
+      } else if (result.reason === 'invalid') {
+        // The server refused the value (an emptied required field, say), so a
+        // retry can't help: put the saved text back and say why.
+        markSaved();
+        state.dirtyEls.delete(el);
+        syncBoundText(attr, snapshot);
+        showToast(`${result.message.replace(/\.$/, '')}. The previous text is back.`, 'error');
       } else if (result.reason !== 'unauthorized') {
         // Never throw the editor's text away: keep it, mark the field, and
         // retry on the next blur, when the browser comes back online, or from

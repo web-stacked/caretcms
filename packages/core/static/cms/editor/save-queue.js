@@ -5,7 +5,10 @@ import { mutateHeaders, readHeaders } from './security.js';
 /**
  * @typedef {{ ok: true, revision?: number }
  *   | { ok: false, reason: 'conflict', currentRevision?: number, latestValue?: string }
+ *   | { ok: false, reason: 'invalid', message: string }
  *   | { ok: false, reason: 'unauthorized' | 'error' }} SaveResult
+ * `invalid` is a save the server refused (it won't succeed on retry);
+ * `error` is one that couldn't complete (offline, server failure).
  */
 /** @typedef {'saving' | 'idle' | 'error'} SaveStatus */
 /** @typedef {{ type: 'save_field', collection: string, id: string, field: string, value: string, expectedRevision?: number, expectedBaseRevision?: number }} SaveFieldPayload */
@@ -221,6 +224,13 @@ export function createSaveField({ setStatus, onUnauthorized }) {
           };
         }
 
+        if (res.status >= 400 && res.status < 500) {
+          const issue = Array.isArray(json.issues) && isRecord(json.issues[0]) ? json.issues[0] : null;
+          const message = typeof issue?.message === 'string' ? issue.message
+            : typeof json.error === 'string' ? json.error : 'This change could not be saved';
+          setStatus('error', 'Not saved');
+          return { ok: false, reason: 'invalid', message };
+        }
         setStatus('error', 'Save failed');
         return { ok: false, reason: 'error' };
       }

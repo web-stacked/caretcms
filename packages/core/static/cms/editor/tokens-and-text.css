@@ -164,6 +164,19 @@ body.cms-preview-mode .cms-link-follow {
   animation: cms-flash-red 1.5s ease-out;
 }
 
+/* An emptied field stays visible and clickable, with a hint, while editing. */
+.cms-edit-mode:not(.cms-preview-mode) .cms-editable:empty {
+  display: inline-block;
+  min-width: 6ch;
+  min-height: 1lh;
+}
+.cms-edit-mode:not(.cms-preview-mode) .cms-editable:empty::before {
+  content: "Add text";
+  opacity: 0.45;
+  font-style: italic;
+  pointer-events: none;
+}
+
 /* Text kept on the page after a failed save, waiting to be saved again. */
 .cms-editable.cms-unsaved {
   outline: 2px dashed var(--cms-amber, #eab308) !important;

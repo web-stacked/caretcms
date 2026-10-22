@@ -245,3 +245,45 @@ export function buildTemplate(schema: unknown): Record<string, unknown> | null {
       return null;
   }
 }
+
+/**
+ * Required text fields a change empties. JSON Schema's `required` only asks
+ * for the key, but editors read a required field as one that must have text,
+ * so a save may not blank one that had a value. Values that were already
+ * empty are left alone, so existing content stays savable. Array items are
+ * not compared: a reorder would pair unrelated items by index.
+ */
+export function clearedRequiredText(
+  schema: JsonSchemaNode,
+  before: unknown,
+  after: unknown,
+): JsonSchemaValidationIssue[] {
+  const issues: JsonSchemaValidationIssue[] = [];
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+  const resolve = (node: JsonSchemaNode, depth: number): JsonSchemaNode | null => {
+    let current: JsonSchemaNode | null = node;
+    for (let hops = 0; current && typeof current.$ref === "string" && hops < 16; hops++) {
+      current = resolveLocalRef(schema, current.$ref);
+    }
+    return depth > 32 ? null : current;
+  };
+  const walk = (raw: JsonSchemaNode, prev: unknown, next: unknown, path: string, depth: number) => {
+    const node = resolve(raw, depth);
+    if (!node?.properties || !isRecord(prev) || !isRecord(next)) return;
+    const required = new Set(node.required ?? []);
+    for (const [key, child] of Object.entries(node.properties)) {
+      const childPath = path ? `${path}.${key}` : key;
+      const was = prev[key], now = next[key];
+      const childNode = resolve(child, depth + 1);
+      if (required.has(key) && childNode?.type === "string" &&
+          typeof was === "string" && was.trim() !== "" && typeof now === "string" && now.trim() === "") {
+        issues.push({ path: childPath, code: "required", message: "This field can't be empty" });
+      } else if (childNode) {
+        walk(childNode, was, now, childPath, depth + 1);
+      }
+    }
+  };
+  walk(schema, before, after, "", 0);
+  return issues;
+}

@@ -4,7 +4,7 @@ import { resolveBinding } from './helpers.js';
 
 /** @typedef {{ collection: string, id: string, field: string }} ResolvedCaretBinding */
 /** @typedef {{ collection: string | null, id: string | null, field: string }} ParsedCaretBinding */
-/** @typedef {{ ok: true, revision?: number } | { ok: false, reason: 'conflict' | 'unauthorized' | 'error', latestValue?: unknown }} SaveResult */
+/** @typedef {{ ok: true, revision?: number } | { ok: false, reason: 'conflict' | 'unauthorized' | 'error', latestValue?: unknown } | { ok: false, reason: 'invalid', message: string }} SaveResult */
 /**
  * @typedef {((message: string, kind: 'success' | 'error') => unknown) & {
  *   conflict: (options: {

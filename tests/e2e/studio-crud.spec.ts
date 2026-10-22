@@ -750,3 +750,23 @@ test("collection pagination reaches every entry and title search crosses pages",
   await expect(page.locator("#entry-count")).toHaveText("24 entries");
   await expect(page.locator("#pagination")).toBeHidden();
 });
+
+test("Studio refuses to empty a required field and points at it", async ({ page }) => {
+  await page.goto("/admin/cms/studio-fixture/seed-entry");
+  const title = page.locator('[name="title"]');
+  await expect(title).toHaveValue("Seed entry");
+  await title.fill("");
+
+  const rejectedSave = page.waitForResponse((response) =>
+    response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
+  );
+  await page.locator("#btn-save").click();
+  await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
+  expect((await rejectedSave).status()).toBe(400);
+  await expect(title).toBeFocused();
+  await expect(title).toHaveAttribute("aria-invalid", "true");
+  await expect(page.locator('[data-field-path="title"] .studio-error-text')).toContainText("This field can't be empty");
+
+  const stored = await page.request.get("/api/cms/entries?collection=studio-fixture&id=seed-entry");
+  expect((await stored.json()).entries[0].data.title).toBe("Seed entry");
+});

@@ -177,3 +177,29 @@ describe("revision checks for inline edits", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(5);
   });
 });
+
+it("reports a refused save as invalid with the server's reason, not as a failure to retry", async () => {
+  const fetchImpl = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(entryResponse(2, { name: "Mara" }))
+    .mockResolvedValueOnce(Response.json({
+      error: "Entry does not match collection schema",
+      issues: [{ path: "name", code: "required", message: "This field can't be empty" }],
+    }, { status: 400 }));
+  vi.stubGlobal("fetch", fetchImpl);
+  const setStatus = vi.fn();
+  const save = createSaveField({ setStatus, onUnauthorized: vi.fn() });
+
+  await expect(save("team", "mara", "name", "")).resolves.toEqual({
+    ok: false, reason: "invalid", message: "This field can't be empty",
+  });
+  expect(setStatus).toHaveBeenLastCalledWith("error", "Not saved");
+});
+
+it("keeps a server failure retryable", async () => {
+  const fetchImpl = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(entryResponse(2, { name: "Mara" }))
+    .mockResolvedValueOnce(Response.json({ error: "Storage unavailable" }, { status: 503 }));
+  vi.stubGlobal("fetch", fetchImpl);
+  const save = createSaveField({ setStatus: vi.fn(), onUnauthorized: vi.fn() });
+  await expect(save("team", "mara", "name", "Mara E.")).resolves.toEqual({ ok: false, reason: "error" });
+});

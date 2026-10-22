@@ -17,7 +17,7 @@ import {
 } from "./contracts.js";
 import { resolveCollectionStudioConfig } from "../schema-registry.js";
 import { getRegisteredSchema } from "../schema-registry.js";
-import { validateJsonSchema, type JsonSchemaNode } from "../../schema-utils.js";
+import { clearedRequiredText, validateJsonSchema, type JsonSchemaNode } from "../../schema-utils.js";
 import { getRequestContext } from "../request-context.js";
 import { publicationField } from "../collection-policy.js";
 import { commitEntryChanges, historyForEditor } from "../storage/entry-commit.js";
@@ -209,9 +209,16 @@ function coerceFieldValue(value: string, schema: JsonSchemaNode | null): unknown
   return value;
 }
 
-function validateEntry(schema: JsonSchemaNode | null, data: Record<string, unknown>): MutationResult | null {
+function validateEntry(
+  schema: JsonSchemaNode | null,
+  data: Record<string, unknown>,
+  before: Record<string, unknown> | null = null,
+): MutationResult | null {
   if (!schema) return null;
-  const issues = validateJsonSchema(stripBodyOverlay(data), schema);
+  const issues = [
+    ...(before ? clearedRequiredText(schema, before, data) : []),
+    ...validateJsonSchema(stripBodyOverlay(data), schema),
+  ];
   return issues.length > 0
     ? fail(400, "Entry does not match collection schema", { issues })
     : null;
@@ -267,7 +274,7 @@ async function applySaveField(
 
     const publicationFailure = await validatePublication(adapter, collection, current);
     if (publicationFailure) return publicationFailure;
-    const validationFailure = validateEntry(schema, current);
+    const validationFailure = validateEntry(schema, current, before);
     if (validationFailure) return validationFailure;
 
     const committed = await commitEntryChanges(adapter, [{
@@ -307,7 +314,7 @@ async function applyPutEntry(
 
     const publicationFailure = await validatePublication(adapter, collection, data);
     if (publicationFailure) return publicationFailure;
-    const validationFailure = validateEntry(await collectionSchema(adapter, collection), data);
+    const validationFailure = validateEntry(await collectionSchema(adapter, collection), data, before);
     if (validationFailure) return validationFailure;
 
     const committed = await commitEntryChanges(adapter, [{

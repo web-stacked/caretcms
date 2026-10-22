@@ -748,3 +748,23 @@ test("Escape cancels an edit in a body paragraph", async ({ page }) => {
   expect(await paragraph.innerHTML()).toBe(original);
   expect(mutations).toBe(0);
 });
+
+test("emptying a required field on the page keeps its text and says why", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/ship-something-real/");
+  const author = page.locator('[data-caret="author"]').first();
+  await expect(author).toHaveClass(/cms-editable/);
+  const original = (await author.textContent())!.trim();
+
+  await author.click();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Backspace");
+  const saving = page.waitForResponse(isMutatePost);
+  await author.evaluate((element) => (element as HTMLElement).blur());
+  expect((await saving).status()).toBe(400);
+
+  await expect(page.getByText("This field can't be empty. The previous text is back.")).toBeVisible();
+  await expect(author).toHaveText(original);
+  await expect(author).not.toHaveClass(/cms-unsaved/);
+  expect(readFileSync(POST, "utf8")).toContain(`author: ${original}`);
+});
