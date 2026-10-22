@@ -255,40 +255,6 @@ export async function GET(context: APIContext): Promise<Response> {
         padding-inline: 0.75rem;
       }
     }
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: var(--studio-scrim);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-      padding: 1rem;
-    }
-    .modal-backdrop[hidden] { display: none; }
-    .modal-card {
-      width: 100%;
-      max-width: 26rem;
-      background: var(--studio-surface);
-      border: 1px solid var(--studio-border-hover);
-      border-radius: var(--radius-theme-lg);
-      box-shadow: var(--studio-shadow);
-      padding: 1.5rem;
-      text-align: center;
-    }
-    .modal-card .icon-wrap {
-      width: 48px;
-      height: 48px;
-      margin: 0 auto 1rem;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: var(--studio-red-soft);
-      border-radius: 50%;
-    }
-    .modal-card h2 { font-size: 1rem; font-weight: 650; margin: 0 0 0.5rem; color: var(--studio-text); }
-    .modal-card p.delete-entry-name { margin: -0.25rem 0 0.75rem; color: var(--studio-text); font-size: 0.9rem; overflow-wrap: anywhere; }
-    .modal-card p { font-size: 0.85rem; line-height: 1.5; color: var(--studio-text-muted); margin: 0 0 1.5rem; }
     .history-panel {
       margin-bottom: 1.25rem;
       overflow: hidden;
@@ -367,7 +333,7 @@ export async function GET(context: APIContext): Promise<Response> {
   </div>
 
   <div id="delete-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" aria-describedby="delete-entry-name delete-dialog-copy" hidden>
-    <div class="modal-card">
+    <div class="modal-card modal-card-confirm">
       <div class="icon-wrap">
         <svg style="width:24px;height:24px;color:var(--studio-red);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
@@ -384,7 +350,7 @@ export async function GET(context: APIContext): Promise<Response> {
   </div>
 
   <div id="confirm-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-copy" hidden>
-    <div class="modal-card">
+    <div class="modal-card modal-card-confirm">
       <h2 id="confirm-dialog-title"></h2>
       <p id="confirm-dialog-copy"></p>
       <div style="display:flex;justify-content:flex-end;gap:0.75rem;">
@@ -395,7 +361,7 @@ export async function GET(context: APIContext): Promise<Response> {
   </div>
 
   <div id="conflict-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="conflict-dialog-title" aria-describedby="conflict-dialog-copy" hidden>
-    <div class="modal-card">
+    <div class="modal-card modal-card-confirm">
       <h2 id="conflict-dialog-title">${escapeHtml(messages["entry.conflictTitle"])}</h2>
       <p id="conflict-dialog-copy">${escapeHtml(messages["entry.conflictCopy"])}</p>
       <ul id="conflict-fields" class="conflict-fields"></ul>

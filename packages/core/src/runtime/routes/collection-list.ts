@@ -179,26 +179,7 @@ export async function GET(context: APIContext): Promise<Response> {
     .reorder-order { font-size: 11px; color: var(--studio-text-dim); font-variant-numeric: tabular-nums; min-width: 24px; text-align: right; }
     .reorder-controls { display: flex; gap: 0.35rem; flex-shrink: 0; }
     .reorder-move { min-width: 32px; padding: 4px 8px; }
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: var(--studio-scrim);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-      padding: 1rem;
-    }
-    .modal-backdrop[hidden] { display: none; }
-    .modal-card {
-      width: 100%;
-      max-width: 28rem;
-      overflow: hidden;
-      background: var(--studio-surface);
-      border: 1px solid var(--studio-border-hover);
-      border-radius: var(--radius-theme-lg);
-      box-shadow: var(--studio-shadow);
-    }
+    .modal-card { max-width: 28rem; overflow: hidden; }
     .modal-header {
       display: flex;
       align-items: center;

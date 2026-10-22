@@ -843,3 +843,42 @@ button.studio-nav-link {
 
 .studio-toast.error { border-left: 3px solid var(--studio-red); }
 .studio-toast.success { border-left: 3px solid var(--studio-green); }
+
+/* Dialogs shared by every Studio page. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--studio-scrim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+.modal-backdrop[hidden] { display: none; }
+.modal-card {
+  width: 100%;
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-border-hover);
+  border-radius: var(--radius-theme-lg);
+  box-shadow: var(--studio-shadow);
+}
+.modal-card-confirm {
+  max-width: 26rem;
+  padding: 1.5rem;
+  text-align: center;
+}
+.modal-card-confirm .icon-wrap {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--studio-red-soft);
+  border-radius: 50%;
+}
+.modal-card-confirm h2 { font-size: 1rem; font-weight: 650; margin: 0 0 0.5rem; color: var(--studio-text); }
+.modal-card-confirm p.delete-entry-name { margin: -0.25rem 0 0.75rem; color: var(--studio-text); font-size: 0.9rem; overflow-wrap: anywhere; }
+.modal-card-confirm p { font-size: 0.85rem; line-height: 1.5; color: var(--studio-text-muted); margin: 0 0 1.5rem; }
+.modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.75rem; }
