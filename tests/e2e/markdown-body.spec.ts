@@ -678,3 +678,73 @@ test("Studio sign-out with an unpublished body draft asks first", async ({ page 
   await expect(signOut).toBeFocused();
   await expect(page).toHaveURL(/\/admin\/cms$/);
 });
+
+test("pasting a sentence into a paragraph saves", async ({ page, context }) => {
+  await loginAsEditor(page);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/blog/start-from-the-words/");
+  const group = page.locator(".post-body [data-caret-md]").first();
+  await expect(group).toHaveAttribute("contenteditable", "true");
+  await page.evaluate(() => navigator.clipboard.writeText("A pasted sentence."));
+  await group.click();
+  await page.keyboard.press("ControlOrMeta+ArrowDown");
+  await page.keyboard.press("ControlOrMeta+v");
+  await expect(group).toContainText("A pasted sentence.");
+
+  const saving = page.waitForResponse(isMutatePost);
+  await group.evaluate((element) => (element as HTMLElement).blur());
+  const response = await saving;
+  expect(response.ok(), `${response.status()} ${await response.text()} ${response.request().postData()}`).toBe(true);
+  await expect(page.getByText("This formatting cannot be saved in a markdown block")).toHaveCount(0);
+});
+
+test("pasting from a word processor keeps bold, italic and links and drops the rest", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/start-from-the-words/");
+  const group = page.locator(".post-body [data-caret-md]").first();
+  await expect(group).toHaveAttribute("contenteditable", "true");
+  await group.click();
+  await page.keyboard.press("ControlOrMeta+a");
+  await group.evaluate((element) => {
+    const html = '<html><head><style>p.MsoNormal { color: red; }</style></head><body>'
+      + '<p class="MsoNormal" style="margin:0"><b>Bold</b> and <i>italic</i> with <a href="https://example.com/doc">a link</a>, '
+      + '<u>underlined</u> and <span style="font-size:14pt">sized</span> text<o:p></o:p></p>'
+      + '<p class="MsoNormal">Second paragraph</p></body></html>';
+    const data = new DataTransfer();
+    data.setData("text/html", html);
+    data.setData("text/plain", "Bold and italic with a link, underlined and sized text\n\nSecond paragraph");
+    element.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+
+  await expect(group.locator("p")).toHaveCount(2);
+  await expect(group.locator("strong, b")).toHaveText("Bold");
+  await expect(group.locator("em, i")).toHaveText("italic");
+  await expect(group.locator('a[href="https://example.com/doc"]')).toHaveText("a link");
+  await expect(group.locator("u")).toHaveCount(0);
+  await expect(group).not.toContainText("color: red");
+
+  const saving = page.waitForResponse(isMutatePost);
+  await group.evaluate((element) => (element as HTMLElement).blur());
+  const response = await saving;
+  expect(response.ok(), await response.text()).toBe(true);
+});
+
+test("Escape cancels an edit in a body paragraph", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/ship-something-real/");
+  const paragraph = page.locator(".post-body [data-caret-md]").first();
+  await expect(paragraph).toHaveAttribute("contenteditable", "true");
+  const original = await paragraph.innerHTML();
+  let mutations = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/api/cms/mutate") && request.method() === "POST") mutations += 1;
+  });
+
+  await paragraph.click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" not wanted");
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("Edit cancelled")).toBeVisible();
+  expect(await paragraph.innerHTML()).toBe(original);
+  expect(mutations).toBe(0);
+});

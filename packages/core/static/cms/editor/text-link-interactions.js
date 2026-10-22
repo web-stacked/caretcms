@@ -163,7 +163,7 @@ export function createTextLinkInteractions({
     // Ctrl+S / Cmd+S — save focused element by triggering blur save
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
       e.preventDefault();
-      if (focused && focused.matches('[data-caret]')) {
+      if (focused && focused.matches('[data-caret], [data-caret-md]')) {
         focused.blur();
       }
       return;
@@ -262,6 +262,16 @@ export function createTextLinkInteractions({
     // Escape — revert to snapshot and blur without saving
     if (e.key === 'Escape') {
       if (activePopover) return;
+
+      // Markdown body blocks keep their own snapshot; their blur handler
+      // restores it when the save is skipped.
+      if (focused && focused.matches('[data-caret-md]')) {
+        e.preventDefault();
+        focused._caretSkipSave = true;
+        focused.blur();
+        showToast('Edit cancelled', 'success');
+        return;
+      }
 
       if (focused && focused.matches('[data-caret]')) {
         e.preventDefault();

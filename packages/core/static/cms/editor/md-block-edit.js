@@ -1,4 +1,4 @@
-import { mountParagraphGroups, paragraphHtml, pasteParagraphText } from './md-paragraphs.js';
+import { markdownBlockHtml, mountParagraphGroups, paragraphHtml, pasteParagraphText } from './md-paragraphs.js';
 /**
  * Inline editing for markdown body blocks (`data-caret-md`).
  *
@@ -17,7 +17,6 @@ import { mountParagraphGroups, paragraphHtml, pasteParagraphText } from './md-pa
  */
 
 import { serializeBlock, domToSNodes, SerializeError } from './md-serialize.js';
-import { sanitizeHtml } from './sanitize.js';
 import { buildCmsUrl } from './config.js';
 import { mutateHeaders } from './security.js';
 
@@ -220,7 +219,7 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
       const snapshot = snapshots.get(el) ?? '';
       const submitted = el.innerHTML;
       const paragraphs = sources ? paragraphHtml(el) : null;
-      const clean = paragraphs ? paragraphs.map(p => `<p>${p || '<br>'}</p>`).join('') : sanitizeHtml(submitted);
+      const clean = paragraphs ? paragraphs.map(p => `<p>${p || '<br>'}</p>`).join('') : markdownBlockHtml(submitted);
       if (!sources) el.innerHTML = clean;
       if (submitted === snapshot && !state.dirtyEls.has(el)) return;
 
