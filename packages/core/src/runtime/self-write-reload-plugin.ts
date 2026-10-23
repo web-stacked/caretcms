@@ -1,4 +1,4 @@
-import { isSelfWrite } from "./self-writes.js";
+import { isSelfWrite, notifySelfWriteReload } from "./self-writes.js";
 
 export type DevServerLike = {
   watcher: { on(event: string, listener: (file: string) => void): unknown };
@@ -10,7 +10,8 @@ export type DevServerLike = {
  * changes with a full page reload, which drops the editor's place and any edit
  * still in progress. Reloads caused only by CaretCMS's own writes are skipped;
  * Astro still refreshes its content store, so the next page load shows the
- * change. A developer's own edits reload as usual.
+ * change. A developer's own edits reload as usual. A skipped reload also tells
+ * anyone waiting (a publish) that Astro now has the new content.
  */
 export function createSelfWriteReloadPlugin() {
   return {
@@ -36,7 +37,10 @@ export function createSelfWriteReloadPlugin() {
           const onlySelf = selfChanges > 0 && otherChanges === 0 && Date.now() - lastChange < 5_000;
           selfChanges = 0;
           otherChanges = 0;
-          if (onlySelf) return;
+          if (onlySelf) {
+            notifySelfWriteReload();
+            return;
+          }
         }
         return send(payload, ...rest);
       };

@@ -25,18 +25,21 @@ export function normalizePreviewForDelivery() {
 
 /** @typedef {'saving' | 'idle' | 'error'} ToolbarStatusState */
 
+/** @param {number} count */
+function changeCount(count) {
+  return count === 1 ? '1 unpublished change' : `${count} unpublished changes`;
+}
+
 /** @param {boolean} staticDelivery */
 function renderDraftControls(staticDelivery) {
-  // Static delivery is always drafting, so the controls stay visible. Server
-  // delivery saves field edits straight to the site, but inline body-block
-  // edits are ALWAYS drafts (they splice into source files only at publish), so
-  // the controls render here too — hidden until at least one draft is pending
-  // (toggled by refreshDraftControls) so the toolbar stays quiet otherwise.
+  // Shown only while drafts are pending, in every mode (toggled by
+  // refreshDraftControls): static delivery and policies always draft, and
+  // server delivery drafts inline body-block edits until they're published.
   const publishTitle = isPolicyDraftMode() ? 'Publish private drafts to shared content' : staticDelivery
     ? 'Publish drafts; static visitors update after rebuild and deploy'
     : 'Publish your body-block drafts into the source files';
   return `
-        <span class="cms-draft-controls"${staticDelivery ? '' : ' hidden'}>
+        <span class="cms-draft-controls" hidden>
           <button class="cms-publish-btn cms-go-live-btn" type="button" title="${publishTitle}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/></svg>
             <span class="cms-go-live-label">Publish</span>
@@ -134,7 +137,7 @@ function renderToolbar(staticDelivery) {
 
 /**
  * @param {{
- *   showToast: (message: string, type: 'success' | 'error') => void,
+ *   showToast: import('./toast.js').ToastController,
  *   clearDirty: () => void,
  *   hasUnsavedEdits: () => boolean,
  *   undo: { available: () => boolean, run: () => void | Promise<void> },
@@ -255,6 +258,23 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     closePanel();
     void undo.run();
   });
+  // A Publish or Discard ends in a reload; carry its confirmation across it.
+  /** @param {string} message @param {'success' | 'error'} kind */
+  function reloadWithToast(message, kind) {
+    try { sessionStorage.setItem('caret:after-reload-toast', JSON.stringify({ message, kind })); } catch { /* shown nowhere */ }
+    window.location.reload();
+  }
+  try {
+    const carried = JSON.parse(sessionStorage.getItem('caret:after-reload-toast') || 'null');
+    sessionStorage.removeItem('caret:after-reload-toast');
+    if (carried && typeof carried.message === 'string') {
+      // Shown as the page comes back, so it stays long enough to be read.
+      setTimeout(() => (carried.kind === 'error'
+        ? showToast(carried.message, 'error')
+        : showToast.saved({ message: carried.message })), 0);
+    }
+  } catch { /* nothing carried */ }
+
   panel.querySelector('[data-action="history"]')?.addEventListener('click', () => {
     closePanel(false);
     onOpenHistory();
@@ -282,12 +302,16 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     }
   }
 
+  // A deploy that failed and waits for Retry outranks an older "Live".
+  let rebuildPending = false;
   const deploymentStatus = createDeploymentStatusPoller({
     fetchStatus: () => fetch(buildCmsUrl('/deployment'), {
         credentials: 'same-origin',
         headers: { 'x-caret-request': '1' },
       }),
-    setStatus,
+    setStatus: (state, text) => (rebuildPending && state === 'idle'
+      ? setStatus('error', 'Deploy failed')
+      : setStatus(state, text)),
     setBuildId(buildId) {
       buildLabel = buildId ? `Build ${buildId}` : '';
       if (!panel.hidden) renderPanel();
@@ -429,6 +453,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
 
   let canPublishDrafts = true;
   let pendingGitHistory = false;
+  let draftCount = 0;
   const retryJournalButton = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-retry-journal-btn'));
   const retryRebuildButton = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-retry-rebuild-btn'));
   async function fetchDraftCount() {
@@ -440,6 +465,9 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       const publishButton = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-publish-btn'));
       if (publishButton) publishButton.hidden = !data.canPublish;
       if (retryRebuildButton) retryRebuildButton.hidden = !data.retryRebuild || !data.canPublish;
+      rebuildPending = data.retryRebuild && data.canPublish;
+      if (rebuildPending && current.state === 'idle') setStatus('error', 'Deploy failed');
+      draftCount = data.count;
       return data.count;
     } catch {
       return 0;
@@ -456,8 +484,8 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       if (presentation.status) {
         setStatus(presentation.status.state, presentation.status.text);
       }
-      showToast(presentation.toast.message, presentation.toast.kind);
-      if (presentation.reload && reload) window.location.reload();
+      if (presentation.reload && reload) reloadWithToast(presentation.toast.message, presentation.toast.kind);
+      else showToast(presentation.toast.message, presentation.toast.kind);
       return presentation.completed;
     } catch {
       setStatus('error', 'Publish failed');
@@ -510,11 +538,12 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
 
   const publishBtn = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-publish-btn'));
   publishBtn?.addEventListener('click', async () => {
+    const changes = changeCount(draftCount);
     if (!(await confirmToolbarAction({
       title: 'Publish drafts?',
       copy: staticDelivery
-        ? 'This publishes all draft changes. Static visitors update after rebuild and deploy.'
-        : 'This publishes all your draft changes to the live site.',
+        ? `This publishes ${changes}. Static visitors update after rebuild and deploy.`
+        : `This publishes ${changes} to the live site.`,
       confirmLabel: 'Publish',
       restoreFocus: publishBtn,
     }))) return;
@@ -525,15 +554,14 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   discardBtn?.addEventListener('click', async () => {
     if (!(await confirmToolbarAction({
       title: 'Discard drafts?',
-      copy: 'This permanently removes all your draft changes.',
+      copy: `This permanently removes ${changeCount(draftCount)}.`,
       confirmLabel: 'Discard drafts',
       danger: true,
       restoreFocus: discardBtn,
     }))) return;
     try {
       await draftClient.discard();
-      showToast('Draft discarded', 'success');
-      window.location.reload();
+      reloadWithToast('Drafts discarded', 'success');
     } catch {
       showToast('Discard failed', 'error');
     }
@@ -546,10 +574,17 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   const draftControls = /** @type {HTMLElement | null} */ (toolbar.querySelector('.cms-draft-controls'));
   async function refreshDraftControls() {
     const count = await fetchDraftCount();
-    if (draftControls) draftControls.hidden = !staticDelivery && !isPolicyDraftMode() && count === 0;
+    if (draftControls) draftControls.hidden = count === 0;
+    const label = toolbar.querySelector('.cms-go-live-label');
+    if (label) label.textContent = count > 0 ? `Publish ${count}` : 'Publish';
+    publishBtn?.setAttribute('aria-label', count > 0 ? `Publish ${changeCount(count)}` : 'Publish');
   }
   refreshDraftControls();
   window.addEventListener('cms:draftSaved', refreshDraftControls);
+  // Drafts can change elsewhere (another tab, another device) while this page waits.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refreshDraftControls();
+  });
   retryRebuildButton?.addEventListener('click', async () => {
     retryRebuildButton.disabled = true;
     setStatus('saving', 'Retrying deploy…');

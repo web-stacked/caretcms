@@ -451,6 +451,8 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
       return;
     }
 
+    if (['cms:saved', 'cms:created', 'cms:deleted'].includes(msg.type)) noteStudioChange();
+
     if (msg.type === 'cms:saved') {
       applySavedMessage(msg);
       // Text changes are already on the page. A layout change needs a reload,
@@ -472,6 +474,11 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
     }
   });
 
+  // A Studio change may be a draft: let the toolbar recount what's unpublished.
+  function noteStudioChange() {
+    window.dispatchEvent(new CustomEvent('cms:draftSaved'));
+  }
+
   // Standalone Studio pages live in a separate tab, so postMessage cannot
   // reach the site preview. BroadcastChannel provides a same-origin bridge.
   // Reload only after a confirmed mutation. The server remains the source of
@@ -489,6 +496,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
           return;
         }
         if (!['cms:saved', 'cms:created', 'cms:deleted'].includes(msg.type)) return;
+        noteStudioChange();
 
         if (state.dirtyEls.size > 0) {
           showToast('Saved in Studio — finish your inline edit before refreshing', 'success');

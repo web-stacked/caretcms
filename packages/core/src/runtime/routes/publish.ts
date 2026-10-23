@@ -10,6 +10,10 @@ import { journalPublishedEntries, retryPublicationJournals, durableGitJournalEna
 import { isGitRepo, getGitJournalTarget } from "../git-journal.js";
 import { triggerRebuildWebhook } from "../rebuild-webhook.js";
 import { json, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
+import { waitForSelfWriteReload } from "../self-writes.js";
+
+declare const __ASTRO_CARET_DEV__: boolean | undefined;
+const isDev = typeof __ASTRO_CARET_DEV__ === "boolean" && __ASTRO_CARET_DEV__;
 import type { DeploymentTarget, RebuildReceipt, StorageAdapter } from "../../types.js";
 
 function commitMessage(scope: PublishScope, count: number): string {
@@ -108,10 +112,14 @@ export async function POST(context: APIContext): Promise<Response> {
       if (durableJournal && !(await canRetryPublicationJournals(overlay, scope))) throw new PermissionDenied();
       const targetRepository = durableJournal ? await getGitJournalTarget(process.cwd()) : null;
       if (durableJournal && !targetRepository) return json({ error: "Durable Git journaling requires an available Git working tree" }, 400);
-      const { published, conflicts, failed, journalSources, journalVersions } = await publishOverlay(base, overlay, scope,
+      // In dev, Astro re-renders published files only once it has seen them;
+      // answer after that, so the editor's reload shows what was published.
+      const devContentReady = isDev ? waitForSelfWriteReload(3_000) : null;
+      const { published, conflicts, failed, journalSources, journalVersions, sourceChanged } = await publishOverlay(base, overlay, scope,
         targetRepository ? { journal: { target: targetRepository, authorName: `CaretCMS editor ${editorId.slice(0, 8)}`,
           authorEmail: "editor@caretcms.local" } } : {});
       const journal = durableJournal ? await retryPublicationJournals(base, overlay, process.cwd(), scope) : null;
+      if (devContentReady && published.length > 0) await devContentReady;
 
       // Best-effort git journal (opt-in via CARET_GIT_ON_PUBLISH): turn the publish
       // into a commit when content lives in a git repo. Runs AFTER the publish, so a
@@ -172,7 +180,12 @@ export async function POST(context: APIContext): Promise<Response> {
       if (published.length > 0 && rebuild.ok && !receiptError) {
         try { await overlay.setRebuildReceipt?.(null); } catch { receiptError = true; }
       }
-      return json({ ok: true, published, conflicts, failed, commit, rebuild,
+      // Visitors see the change only after a rebuild: always for static
+      // delivery, and for rewritten source files outside dev (Astro renders
+      // those at build time).
+      const needsRebuild = published.length > 0 &&
+        (services.delivery.mode === "static" || (!isDev && sourceChanged));
+      return json({ ok: true, published, conflicts, failed, commit, rebuild, needsRebuild,
         deploymentTracked,
         ...(journal ? { journal, journalRetryAvailable: journal.pending > 0 } : {}),
         retryAvailable: !rebuild.ok && !receiptError && Boolean(overlay.setRebuildReceipt), receiptError });

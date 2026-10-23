@@ -21,6 +21,11 @@ function entries(value) {
   return Array.isArray(value) ? value.map(record) : [];
 }
 
+/** @param {number} count */
+function changes(count) {
+  return count === 1 ? '1 change' : `${count} changes`;
+}
+
 /**
  * Turn the publish API's mutually exclusive outcomes into one toolbar action.
  * Keeping this pure makes recovery/conflict/deploy wording testable without DOM.
@@ -44,7 +49,7 @@ export function presentPublishResult(input) {
       status: { state: 'error', text: 'Publish needs recovery' },
       toast: {
         kind: 'error',
-        message: `Finished ${published.length} change(s); ${failed.length} need recovery. Some content may already be published. Retry Publish after checking storage. Drafts are kept.`,
+        message: `Finished ${changes(published.length)}; ${failed.length} need recovery. Some content may already be published. Retry Publish after checking storage. Drafts are kept.`,
       },
     };
   }
@@ -98,10 +103,12 @@ export function presentPublishResult(input) {
       kind: 'success',
       message: rebuildTriggered
         ? published.length > 0
-          ? `Published ${published.length} change(s) — rebuild started`
+          ? `Published ${changes(published.length)} — rebuild started`
           : 'Your site is rebuilding'
         : published.length > 0
-          ? `Published ${published.length} change(s) — rebuild and deploy to update visitors`
+          ? data.needsRebuild === true
+            ? `Published ${changes(published.length)} — rebuild and deploy to update visitors`
+            : `Published ${changes(published.length)}`
           : 'Already up to date',
     },
   };

@@ -15,7 +15,7 @@ describe("browser publish result presentation", () => {
       status: { state: "error", text: "Publish needs recovery" },
       toast: {
         kind: "error",
-        message: "Finished 1 change(s); 1 need recovery. Some content may already be published. Retry Publish after checking storage. Drafts are kept.",
+        message: "Finished 1 change; 1 need recovery. Some content may already be published. Retry Publish after checking storage. Drafts are kept.",
       },
     });
   });
@@ -60,12 +60,17 @@ describe("browser publish result presentation", () => {
       failed: [], conflicts: [], rebuild: { triggered: true, ok: true },
     })).toMatchObject({
       completed: true, reload: true,
-      toast: { kind: "success", message: "Published 1 change(s) — rebuild started" },
+      toast: { kind: "success", message: "Published 1 change — rebuild started" },
     });
+    expect(presentPublishResult({
+      published: [{ collection: "pages", id: "home" }, { collection: "pages", id: "about" }],
+      failed: [], conflicts: [], rebuild: { triggered: false, ok: true }, needsRebuild: true,
+    }).toast.message).toBe("Published 2 changes — rebuild and deploy to update visitors");
+    // Content that's live as soon as it's published: no rebuild to mention.
     expect(presentPublishResult({
       published: [{ collection: "pages", id: "home" }],
       failed: [], conflicts: [], rebuild: { triggered: false, ok: true },
-    }).toast.message).toBe("Published 1 change(s) — rebuild and deploy to update visitors");
+    }).toast.message).toBe("Published 1 change");
     expect(presentPublishResult({
       published: [], failed: [], conflicts: [], rebuild: { triggered: false, ok: true },
     }).toast.message).toBe("Already up to date");

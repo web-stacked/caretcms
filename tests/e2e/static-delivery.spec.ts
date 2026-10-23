@@ -228,17 +228,27 @@ test("discards a draft and retries a failed deploy through toolbar requests", as
     await page.context().addCookies([{ name: "caret_preview", value: "1", url: ORIGIN }]);
     await page.goto("/");
 
-    const saveDraft = (headline: string) => page.request.post("/api/cms/mutate", {
-      headers: { "x-caret-request": "1" },
-      data: { type: "put_entry", collection: "pages", id: "home", data: { headline } },
-    });
+    // Drafts saved elsewhere (here: the API); the toolbar recounts when the
+    // editor comes back to the tab.
+    const saveDraft = async (headline: string) => {
+      const response = await page.request.post("/api/cms/mutate", {
+        headers: { "x-caret-request": "1" },
+        data: { type: "put_entry", collection: "pages", id: "home", data: { headline } },
+      });
+      await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+      return response;
+    };
     expect((await saveDraft("Discard this draft")).ok()).toBe(true);
     const discarded = page.waitForResponse(response =>
       response.url().includes("/api/cms/draft") && response.request().method() === "DELETE");
     await page.locator(".cms-discard-btn").click();
-    await page.getByRole("dialog", { name: "Discard drafts?" }).getByRole("button", { name: "Discard drafts" }).click();
+    const discardDialog = page.getByRole("dialog", { name: "Discard drafts?" });
+    await expect(discardDialog).toContainText("This permanently removes 1 unpublished change.");
+    await discardDialog.getByRole("button", { name: "Discard drafts" }).click();
     expect((await discarded).ok()).toBe(true);
     await page.waitForLoadState("domcontentloaded");
+    // The result survives the reload that follows a discard.
+    await expect(page.locator(".cms-toast-success .cms-toast-msg")).toHaveText("Drafts discarded");
     expect((await (await page.request.get("/api/cms/draft")).json()).count).toBe(0);
 
     expect((await saveDraft("Retry deployment target")).ok()).toBe(true);
@@ -253,6 +263,12 @@ test("discards a draft and retries a failed deploy through toolbar requests", as
     });
     await expect(page.locator(".cms-status-text")).toHaveText("Published, deploy failed");
     await expect(page.locator(".cms-retry-rebuild-btn")).toBeVisible();
+    // Back on the page later, the failed deploy still outranks "Live", and
+    // there are no drafts left to publish.
+    await page.reload();
+    await expect(page.locator(".cms-status-text")).toHaveText("Deploy failed");
+    await expect(page.locator(".cms-retry-rebuild-btn")).toBeVisible();
+    await expect(page.locator(".cms-draft-controls")).toBeHidden();
 
     const retried = page.waitForResponse(response =>
       response.url().includes("/api/cms/publish") && response.request().method() === "POST");

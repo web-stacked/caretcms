@@ -69,13 +69,14 @@ afterEach(async () => {
 describe("publish body splice — full pipeline", () => {
   it("writes the drafted prose into the .md, keeps frontmatter, clears the draft", async () => {
     await draftBlock("1", "First paragraph — em dash included.", "EDITED <strong>prose</strong>.");
-    const { published, conflicts } = await publishOverlay(base, overlay, {
+    const { published, conflicts, sourceChanged } = await publishOverlay(base, overlay, {
       collection: "blog",
       id: "hello",
     });
 
     expect(conflicts).toEqual([]);
     expect(published).toHaveLength(1);
+    expect(sourceChanged).toBe(true);
 
     const file = await readFile(mdPath(), "utf8");
     expect(file).toContain("EDITED **prose**.");

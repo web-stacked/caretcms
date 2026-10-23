@@ -19,7 +19,9 @@ describe("publishOverlay", () => {
     await draft.writeEntry("pages", "home", { title: "Edited" });
 
     const baseRevBefore = await base.getRevision("pages", "home");
-    const { published: result } = await publishOverlay(base, overlay, { collection: "pages", id: "home" });
+    const { published: result, sourceChanged } = await publishOverlay(base, overlay, { collection: "pages", id: "home" });
+    // Stored entries, no source file: live without a rebuild.
+    expect(sourceChanged).toBe(false);
 
     expect((await base.getEntry("pages", "home"))?.data).toEqual({ title: "Edited" });
     expect(result).toHaveLength(1);

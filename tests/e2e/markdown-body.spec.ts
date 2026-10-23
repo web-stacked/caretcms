@@ -128,6 +128,8 @@ test("edits rendered Markdown, publishes through the toolbar, and renders after 
   await expect(paragraph).toContainText("The fastest way to kill a project");
   await expect(paragraph).toHaveAttribute("data-caret-md", /blog::ship-something-real::body::/);
   await expect(paragraph).toHaveAttribute("contenteditable", "true");
+  // Nothing to publish yet, so there's nothing to click.
+  await expect(page.locator(".cms-draft-controls")).toBeHidden();
 
   await replaceText(page, paragraph, EDITED_TEXT);
   const [save] = await Promise.all([
@@ -137,14 +139,24 @@ test("edits rendered Markdown, publishes through the toolbar, and renders after 
   expect(save.ok(), await save.text()).toBeTruthy();
   await expect(paragraph).toHaveText(EDITED_TEXT);
   expect(readFileSync(POST, "utf8")).toBe(ORIGINAL);
+  await expect(page.locator(".cms-publish-btn")).toHaveText("Publish 1");
 
   const publishPromise = page.waitForResponse((response) =>
     response.url().includes("/api/cms/publish") && response.request().method() === "POST",
   );
   await page.locator(".cms-publish-btn").click();
-  await page.getByRole("dialog", { name: "Publish drafts?" }).getByRole("button", { name: "Publish", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Publish drafts?" });
+  await expect(dialog).toContainText("This publishes 1 unpublished change to the live site.");
+  await dialog.getByRole("button", { name: "Publish", exact: true }).click();
   const publish = await publishPromise;
   expect(publish.ok()).toBeTruthy();
+
+  // The page reloads and still says what happened: Markdown renders at build
+  // time, so a production server shows it after the rebuild.
+  await expect(page.locator(".cms-toast-success .cms-toast-msg")).toHaveText(
+    "Published 1 change — rebuild and deploy to update visitors",
+  );
+  await expect(page.locator(".cms-draft-controls")).toBeHidden();
 
   const source = readFileSync(POST, "utf8");
   expect(source).toContain(EDITED_TEXT);

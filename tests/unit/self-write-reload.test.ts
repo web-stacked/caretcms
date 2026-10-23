@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { createSelfWriteReloadPlugin } from "../../packages/core/src/runtime/self-write-reload-plugin.js";
-import { recordSelfWrite } from "../../packages/core/src/runtime/self-writes.js";
+import { recordSelfWrite, waitForSelfWriteReload } from "../../packages/core/src/runtime/self-writes.js";
 
 function devServer() {
   const watcher = new EventEmitter();
@@ -45,5 +45,18 @@ describe("dev reloads after CaretCMS writes", () => {
     send({ type: "full-reload", path: "*" });
     expect(sent).toHaveBeenCalledTimes(1);
     expect(sent).toHaveBeenCalledWith({ type: "update", updates: [] });
+  });
+
+  it("tells a waiting publish when Astro has picked up its writes", async () => {
+    const { watcher, send, sent } = devServer();
+    let ready = false;
+    const waiting = waitForSelfWriteReload(10_000).then(() => { ready = true; });
+    recordSelfWrite("/site/src/content/blog/post.md");
+    watcher.emit("change", "/site/src/content/blog/post.md");
+    expect(ready).toBe(false);
+    send({ type: "full-reload", path: "*" });
+    await waiting;
+    expect(ready).toBe(true);
+    expect(sent).not.toHaveBeenCalled();
   });
 });

@@ -52,6 +52,8 @@ export interface PublishOutcome {
   journalVersions: Array<{ collection: string; id: string; revision: number }>;
   conflicts: PublishConflict[];
   failed: Array<{ collection: string; id: string; reason: "storage_error" | "recovery_conflict" }>;
+  /** A source file was rewritten, so build-time renders show it only after a rebuild. */
+  sourceChanged: boolean;
 }
 
 /** Extract + validate the body-draft map from draft data, or null when absent.
@@ -139,6 +141,7 @@ export async function publishOverlay(
   if (!(await canPublishOverlay(overlay, scope))) throw new PermissionDenied();
   const targets = await overlayEntriesInScope(overlay, scope);
   const published: PublishedEntry[] = [];
+  let sourceChanged = false;
   let journalSources: PublicationSourceSnapshot[] | null = [];
   const journalVersions: PublishOutcome["journalVersions"] = [];
   const conflicts: PublishConflict[] = [];
@@ -234,6 +237,7 @@ export async function publishOverlay(
         }
         const revision = await resumePublish(base, overlay, collection, id, plan);
         published.push({ collection, id, revision, deleted: plan.afterData === null });
+        if (plan.afterSource !== undefined && plan.afterSource !== plan.beforeSource) sourceChanged = true;
         if (!options.journal || !plan.journalReceipt) {
           journalVersions.push({ collection, id, revision: plan.beforeRevision + 1 });
           if (plan.journalSources === undefined) journalSources = null;
@@ -249,7 +253,7 @@ export async function publishOverlay(
       failed.push({ collection, id, reason: error instanceof RecoveryConflict ? "recovery_conflict" : "storage_error" });
     }
   }
-  return { published, conflicts, failed, journalSources, journalVersions };
+  return { published, conflicts, failed, journalSources, journalVersions, sourceChanged };
 }
 
 /** Count draft entries currently held in an editor overlay. */
