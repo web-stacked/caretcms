@@ -26,6 +26,7 @@ import {
 import { caretRemarkPlugin } from "./markdown/remark.js";
 import { publicationField, resolvePreviewPath } from "./runtime/collection-policy.js";
 import { withDevRequest } from "./runtime/dev-request-context.js";
+import { createSelfWriteReloadPlugin } from "./runtime/self-write-reload-plugin.js";
 import type { GitHubDeploymentOptions } from "./providers/deployment/github.js";
 
 // --- Public type re-exports ---
@@ -1149,6 +1150,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
             },
             plugins: [
               createRuntimeProvidersPlugin(resolved, effectiveDelivery),
+              ...(command === "dev" ? [createSelfWriteReloadPlugin()] : []),
               createSchemasPlugin(resolved.schemas, resolved.collections, astroSchemasDir),
               ...(resolved.bindContent && resolved.enableInlineEditor
                 ? [createContentBindingsPlugin(contentRoot)]
