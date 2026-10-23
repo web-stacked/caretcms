@@ -156,10 +156,10 @@ The response's `journal` reports `completed`, `pending`, `blocked`, and the last
 acknowledged `commit`; `journalRetryAvailable` indicates remaining records.
 `GET /api/cms/draft` includes `journalPending` and permission-aware `retryJournal`
 when records remain. Pending Git history is separate from published content and
-deployment status. Password sessions receive a new editor ID after signing out,
-so their next login cannot reopen this queue. The toolbar warns before sign-out;
-records remain for operator recovery. Stable named identities can reopen their
-private records after signing in again.
+deployment status. Stable named identities, and shared-password sign-ins in the
+same browser, reopen their private records after signing in again. Only demo
+sessions lose access to the queue on sign-out; the toolbar warns first, and the
+records remain for operator recovery.
 
 Each completed journal atomically records a Git marker at
 `refs/caretcms/journal/<sha256-operation-id>` together with branch advancement.
