@@ -43,7 +43,9 @@
 }
 
 .cms-toast-msg {
-  flex: 1 1 auto;
+  /* Shares the first row with the icon; actions wrap below. */
+  flex: 1 1 0;
+  min-width: 0;
   line-height: 1.4;
 }
 
@@ -79,7 +81,8 @@
 .cms-toast-warning .cms-toast-icon { color: var(--cms-amber, #eab308); }
 
 /* Conflict prompt lays the action buttons below the message. */
-.cms-toast-warning {
+.cms-toast-warning,
+.cms-toast-interactive {
   flex-wrap: wrap;
 }
 

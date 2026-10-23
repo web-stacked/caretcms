@@ -243,6 +243,7 @@
 .cms-status-panel-mode { font-size: 0.85rem; }
 .cms-status-panel-hint { color: rgba(255, 255, 255, 0.68); margin-bottom: 0.5rem !important; }
 .cms-status-panel-line { color: rgba(255, 255, 255, 0.82); }
+.cms-status-panel-problem { color: #fca5a5 !important; }
 .cms-status-panel-actions {
   display: flex;
   flex-wrap: wrap;

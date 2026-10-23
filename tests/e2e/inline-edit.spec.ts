@@ -809,6 +809,30 @@ test.describe("inline editor — click to edit", () => {
     await expect(pill).toHaveText("Unsaved changes");
   });
 
+  test("an error sits above the toolbar and stays listed in the status panel", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await page.route("**/api/cms/mutate", (route) => route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Entry does not match collection schema", issues: [{ path: "hero.headline", code: "required", message: "This field can't be empty" }] }),
+    }));
+    await replaceText(page, headline, "Refused by the server");
+    await headline.evaluate((el) => (el as HTMLElement).blur());
+    const toast = page.locator(".cms-toast", { hasText: "This field can't be empty. The previous text is back." });
+    await expect(toast).toBeVisible();
+    const [toastBox, toolbarBox] = await Promise.all([toast.boundingBox(), page.locator(".cms-toolbar").boundingBox()]);
+    expect(toastBox!.y + toastBox!.height).toBeLessThanOrEqual(toolbarBox!.y);
+    await expect(toast.getByRole("button", { name: "Dismiss" })).toBeVisible();
+
+    await page.locator(".cms-status-pill").click();
+    await expect(page.getByRole("dialog", { name: "Save status" }))
+      .toContainText("Last problem: This field can't be empty. The previous text is back.");
+  });
+
   test("swapping a hero image uploads, persists, and serves the new src", async ({ page }) => {
     await loginAsEditor(page);
     await page.goto("/");

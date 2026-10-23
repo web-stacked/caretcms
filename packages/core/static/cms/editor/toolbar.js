@@ -102,6 +102,7 @@ function renderToolbar(staticDelivery) {
       <p class="cms-status-panel-mode"><strong>${badgeLabel}</strong></p>
       <p class="cms-status-panel-hint">${badgeHint}</p>
       <p class="cms-status-panel-line" data-line="status" hidden></p>
+      <p class="cms-status-panel-line cms-status-panel-problem" data-line="problem" hidden></p>
       <p class="cms-status-panel-line" data-line="saved" hidden></p>
       <p class="cms-status-panel-line" data-line="drafts" hidden></p>
       <p class="cms-status-panel-line" data-line="build" hidden></p>
@@ -160,6 +161,14 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   /** @type {number | null} */
   let lastSavedAt = null;
   let buildLabel = '';
+  /** @type {{ message: string, at: number } | null} */
+  let lastProblem = null;
+
+  /** Keep the latest error in the panel after its toast closes. @param {string} message */
+  function reportProblem(message) {
+    lastProblem = { message, at: Date.now() };
+    if (!panel.hidden) renderPanel();
+  }
   /** @type {ReturnType<typeof setTimeout> | undefined} */
   let restModeTimer;
 
@@ -198,6 +207,8 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
 
   function renderPanel() {
     setLine('status', current.state === 'idle' ? '' : current.text);
+    const problemRecent = lastProblem && Date.now() - lastProblem.at < 10 * 60 * 1000;
+    setLine('problem', problemRecent && lastProblem ? `Last problem: ${lastProblem.message}` : '');
     setLine('saved', lastSavedAt ? savedAgo(lastSavedAt) : '');
     setLine('build', buildLabel);
     const undoButton = /** @type {HTMLElement | null} */ (panel.querySelector('[data-action="undo"]'));
@@ -589,6 +600,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     editModeButton,
     previewModeButton,
     setStatus,
+    reportProblem,
     setUnsaved,
   };
 }

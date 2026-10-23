@@ -16,6 +16,7 @@ const WARNING_SVG =
  *   conflict: (options: ConflictOptions) => HTMLDivElement,
  *   pending: (options: PendingOptions) => HTMLDivElement,
  *   saved: (options: SavedOptions) => HTMLDivElement,
+ *   onProblem?: (message: string) => void,
  *   dismiss: (toast: HTMLDivElement) => void,
  * }} ToastController
  */
@@ -35,8 +36,9 @@ function iconFor(type) {
  * Design notes:
  *  - Toasts stack (a container region) instead of one replacing the next, so a
  *    burst of saves or an error + a later success don't clobber each other.
- *  - Errors and conflict prompts are STICKY and dismissible — a 2.5s auto-hide
- *    would let a failure or a data-loss choice vanish before it's read.
+ *  - Conflict prompts and pending-work notices are STICKY — a data-loss choice
+ *    must not vanish unread. Errors stay 10s with a close button and are kept
+ *    in the status pill's panel, so they don't pile up over the toolbar.
  *  - The message is always set via textContent, never innerHTML, so a
  *    server-provided error string can't inject markup into the editor chrome.
  *  - The container is an aria-live region; errors/conflicts are role="alert".
@@ -49,11 +51,16 @@ export function createToast() {
 
   /** @returns {HTMLDivElement} */
   function ensureContainer() {
-    if (container && document.body.contains(container)) return container;
-    container = document.createElement('div');
-    container.className = 'cms-toast-stack';
-    container.setAttribute('aria-live', 'polite');
-    document.body.appendChild(container);
+    if (!container || !document.body.contains(container)) {
+      container = document.createElement('div');
+      container.className = 'cms-toast-stack';
+      container.setAttribute('aria-live', 'polite');
+      document.body.appendChild(container);
+    }
+    // Sit above the toolbar wherever it is (it moves up over Astro's dev
+    // toolbar), so toasts never cover its buttons.
+    const bar = document.querySelector('.cms-toolbar');
+    if (bar) container.style.bottom = `${Math.max(16, window.innerHeight - bar.getBoundingClientRect().top + 12)}px`;
     return container;
   }
 
@@ -104,7 +111,7 @@ export function createToast() {
         group.appendChild(btn);
       }
       toast.appendChild(group);
-    } else if (sticky) {
+    } else if (sticky || type === 'error') {
       const close = document.createElement('button');
       close.type = 'button';
       close.className = 'cms-toast-close';
@@ -119,13 +126,16 @@ export function createToast() {
     return toast;
   }
 
+  // Errors close on their own after a while instead of piling up; the last
+  // one stays listed in the status pill's panel (`onProblem`).
   /** @type {ToastController} */
   const showToast = (message, type) => {
     const t = type === 'error' ? 'error' : type || 'success';
+    if (t === 'error') showToast.onProblem?.(message);
     return render(t, {
       message,
-      sticky: t === 'error',
       role: t === 'error' ? 'alert' : undefined,
+      duration: t === 'error' ? 10000 : 2500,
     });
   };
 

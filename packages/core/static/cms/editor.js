@@ -79,7 +79,7 @@ function boot() {
 
   const showToast = createToast();
 
-  const { studioButton, mapButton, editModeButton, previewModeButton, setStatus, setUnsaved } = mountToolbar({
+  const { studioButton, mapButton, editModeButton, previewModeButton, setStatus, setUnsaved, reportProblem } = mountToolbar({
     showToast,
     clearDirty: () => {
       state.dirtyEls.clear();
@@ -101,6 +101,7 @@ function boot() {
   });
 
   reportUnsaved = setUnsaved;
+  showToast.onProblem = reportProblem;
 
   const saveField = createSaveField({
     setStatus,
