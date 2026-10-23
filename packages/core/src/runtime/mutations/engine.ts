@@ -556,7 +556,9 @@ async function applyMdBlock(
       }
       delete drafts[path];
     }
-    drafts[blockPath] = { md, html: clean, src: target, ts: Date.now(),
+    // Back to the source text (an Undo, say): nothing left to publish here.
+    if (md === body.slice(target.start, target.end)) delete drafts[blockPath];
+    else drafts[blockPath] = { md, html: clean, src: target, ts: Date.now(),
       ...(group ? { paragraphs: group.paragraphs, sources: command.sources } : {}) };
 
     current[BODY_OVERLAY_KEY] = drafts;

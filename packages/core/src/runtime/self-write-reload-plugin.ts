@@ -1,4 +1,4 @@
-import { isSelfWrite, notifySelfWriteReload } from "./self-writes.js";
+import { notifySelfWriteReload, selfWriteTime } from "./self-writes.js";
 
 export type DevServerLike = {
   watcher: { on(event: string, listener: (file: string) => void): unknown };
@@ -21,10 +21,14 @@ export function createSelfWriteReloadPlugin() {
       let selfChanges = 0;
       let otherChanges = 0;
       let lastChange = 0;
+      let newestSelfWrite = 0;
       const note = (file: string) => {
         if (/[\\/](?:node_modules|\.astro)[\\/]/.test(file)) return;
-        if (isSelfWrite(file)) selfChanges += 1;
-        else otherChanges += 1;
+        const writtenAt = selfWriteTime(file);
+        if (writtenAt !== null) {
+          selfChanges += 1;
+          newestSelfWrite = Math.max(newestSelfWrite, writtenAt);
+        } else otherChanges += 1;
         lastChange = Date.now();
       };
       for (const event of ["add", "change", "unlink"]) server.watcher.on(event, note);
@@ -35,10 +39,12 @@ export function createSelfWriteReloadPlugin() {
       hot.send = (payload: unknown, ...rest: unknown[]) => {
         if ((payload as { type?: unknown } | null)?.type === "full-reload") {
           const onlySelf = selfChanges > 0 && otherChanges === 0 && Date.now() - lastChange < 5_000;
+          const writtenAt = newestSelfWrite;
           selfChanges = 0;
           otherChanges = 0;
+          newestSelfWrite = 0;
           if (onlySelf) {
-            notifySelfWriteReload();
+            notifySelfWriteReload(writtenAt);
             return;
           }
         }

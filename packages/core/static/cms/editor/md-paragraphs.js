@@ -25,8 +25,9 @@ function readParagraphBinding(element) {
   return { binding, prefix: parts.slice(0, 3).join('::'), blockPath: parts[3], src };
 }
 
-export function mountParagraphGroups() {
-  document.querySelectorAll('p[data-caret-md-paragraph="true"]').forEach(first => {
+/** @param {Document} [root] the live page, or a freshly fetched copy of it */
+export function mountParagraphGroups(root = document) {
+  root.querySelectorAll('p[data-caret-md-paragraph="true"]').forEach(first => {
     if (!isParagraphCandidate(first) || !first.isConnected || first.closest('li, blockquote, [data-caret-md-sources]')) return;
     const firstBinding = readParagraphBinding(first);
     if (!firstBinding) return;
@@ -53,7 +54,7 @@ export function mountParagraphGroups() {
       next = sibling instanceof HTMLElement ? sibling : null;
     }
     if (!sources.length) return;
-    const host = document.createElement('div');
+    const host = root.createElement('div');
     host.setAttribute('data-caret-md', firstBinding.binding);
     host.setAttribute('data-caret-md-src', sources[0].src);
     host.setAttribute('data-caret-md-sources', JSON.stringify(sources));

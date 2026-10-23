@@ -49,11 +49,20 @@ describe("dev reloads after CaretCMS writes", () => {
 
   it("tells a waiting publish when Astro has picked up its writes", async () => {
     const { watcher, send, sent } = devServer();
+    const tick = () => new Promise(resolveTick => setTimeout(resolveTick, 5));
+    // A draft stored just before the publish: its reload must not count.
+    recordSelfWrite("/site/.caret/drafts/post.json");
+    await tick();
     let ready = false;
     const waiting = waitForSelfWriteReload(10_000).then(() => { ready = true; });
+    watcher.emit("change", "/site/.caret/drafts/post.json");
+    send({ type: "full-reload", path: "*" });
+    await tick();
+    expect(ready).toBe(false);
+
+    await tick();
     recordSelfWrite("/site/src/content/blog/post.md");
     watcher.emit("change", "/site/src/content/blog/post.md");
-    expect(ready).toBe(false);
     send({ type: "full-reload", path: "*" });
     await waiting;
     expect(ready).toBe(true);

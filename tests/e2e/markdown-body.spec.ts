@@ -345,7 +345,7 @@ test("rich toolbar creates a Markdown link without an early draft save", async (
   await block.evaluate((element) => (element as HTMLElement).blur());
   expect((await save).ok()).toBeTruthy();
   expect(mutationCount).toBe(1);
-  await expect(page.getByText("Draft saved — publish to update the file")).toBeVisible();
+  await expect(page.getByText("Draft saved — publish to update the page")).toBeVisible();
 });
 
 test("exposes only collection operations the example implements", async ({ page }) => {
@@ -810,4 +810,110 @@ test("a new team member isn't stored or shown until its required fields are fill
   } finally {
     rmSync(created, { force: true });
   }
+});
+
+test("in dev, body edits save live like fields, with Undo", async ({ page }) => {
+  test.setTimeout(180_000);
+  const DEV_PORT = process.env.MARKDOWN_DEV_PORT ?? "4405";
+  const DEV = `http://localhost:${DEV_PORT}`;
+  const site = mkdtempSync(resolve(REPO_ROOT, ".tmp-caret-markdown-dev-"));
+  cpSync(CONTENT_SITE, site, {
+    recursive: true,
+    filter: (source) => ![".astro", ".caret", ".caretcms", "dist"].includes(basename(source)),
+  });
+  const post = resolve(site, "src/content/blog/ship-something-real.md");
+  const stop = () => {
+    try { execFileSync("npx", ["astro", "dev", "stop"], { cwd: site, stdio: "ignore" }); } catch { /* not running */ }
+  };
+  try {
+    execFileSync("npx", ["astro", "dev", "--background", "--port", DEV_PORT], {
+      cwd: site,
+      stdio: "inherit",
+      env: { ...process.env, CARET_EDIT_PASSWORD: "e2e-secret" },
+    });
+    const login = await page.request.post(`${DEV}/api/cms/auth/login`, {
+      data: { password: "e2e-secret" }, headers: { Accept: "application/json" },
+    });
+    expect(login.ok(), await login.text()).toBeTruthy();
+    await page.goto(`${DEV}/blog/ship-something-real/`);
+    const blocks = page.locator('.post-body [data-caret-md][contenteditable="true"]');
+    await expect(blocks.first()).toBeVisible();
+    await page.evaluate(() => { (window as unknown as { stayed: boolean }).stayed = true; });
+
+    /** Put the caret at the end of a block's last paragraph. */
+    const caretAtEnd = (index: number) => blocks.nth(index).evaluate((el) => {
+      (el as HTMLElement).focus();
+      const target = el.querySelector("p:last-of-type") ?? el;
+      const selection = getSelection()!;
+      selection.selectAllChildren(target);
+      selection.collapseToEnd();
+    });
+    /** The live save of a request carrying `text`. */
+    const liveSave = (text: string) => page.waitForResponse(async (response) =>
+      isMutatePost(response) && (response.request().postData() ?? "").includes(text) &&
+      (await response.json()).live === true);
+
+    // Autosave goes live while the editor is still typing: no draft, no reload.
+    await caretAtEnd(0);
+    let saved = liveSave("Live now.");
+    await page.keyboard.type(" Live now.");
+    await saved;
+    await expect(blocks.first()).toBeFocused();
+    expect(readFileSync(post, "utf8")).toContain("hypotheticals. Live now.");
+    await expect(page.locator(".cms-draft-controls")).toBeHidden();
+
+    // A later block saves too: its stamps were refreshed after the file moved.
+    const last = (await blocks.count()) - 1;
+    await caretAtEnd(last);
+    saved = liveSave("Second live edit.");
+    // After a live save the editor re-reads block stamps from a fresh render.
+    const refreshed = page.waitForResponse((response) =>
+      response.url() === `${DEV}/blog/ship-something-real/` && response.request().resourceType() === "fetch");
+    await page.keyboard.type(" Second live edit.");
+    await blocks.nth(last).evaluate((el) => (el as HTMLElement).blur());
+    await saved;
+    await refreshed;
+    expect(readFileSync(post, "utf8")).toContain("to production. Second live edit.");
+
+    const toast = page.locator(".cms-toast-success").filter({ hasText: "Saved" });
+    await expect(toast.locator(".cms-toast-msg")).toHaveText("Saved");
+    saved = liveSave("to production.");
+    await toast.getByRole("button", { name: "Undo" }).click();
+    await saved;
+    await expect(page.locator(".cms-toast-success .cms-toast-msg").last()).toHaveText("Change undone");
+    expect(readFileSync(post, "utf8")).not.toContain("Second live edit.");
+    expect(readFileSync(post, "utf8")).toContain("hypotheticals. Live now.");
+    expect(await page.evaluate(() => (window as unknown as { stayed?: boolean }).stayed)).toBe(true);
+  } finally {
+    stop();
+    rmSync(site, { recursive: true, force: true });
+  }
+});
+
+test("a body draft taken back with Undo leaves nothing to publish", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/ship-something-real/");
+  const paragraph = page.locator(".post-body [data-caret-md]").first();
+  await expect(paragraph).toHaveAttribute("contenteditable", "true");
+
+  await replaceText(page, paragraph, EDITED_TEXT);
+  const [save] = await Promise.all([
+    page.waitForResponse(isMutatePost),
+    paragraph.evaluate((element) => (element as HTMLElement).blur()),
+  ]);
+  expect(save.ok(), await save.text()).toBeTruthy();
+  // A production server renders Markdown at build time: the body stays a draft.
+  const toast = page.locator(".cms-toast-success").filter({ hasText: "Draft saved" });
+  await expect(toast.locator(".cms-toast-msg")).toHaveText("Draft saved — publish to update the page");
+  await expect(page.locator(".cms-publish-btn")).toHaveText("Publish 1");
+
+  const [undo] = await Promise.all([
+    page.waitForResponse(isMutatePost),
+    toast.getByRole("button", { name: "Undo" }).click(),
+  ]);
+  expect(undo.ok(), await undo.text()).toBeTruthy();
+  await expect(paragraph).toContainText("The fastest way to kill a project");
+  await expect(page.locator(".cms-draft-controls")).toBeHidden();
+  expect((await (await page.request.get("/api/cms/draft")).json()).count).toBe(0);
+  expect(readFileSync(POST, "utf8")).toBe(ORIGINAL);
 });
