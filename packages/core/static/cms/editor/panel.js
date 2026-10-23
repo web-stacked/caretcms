@@ -1,4 +1,5 @@
 import { STUDIO_PATH } from './config.js';
+import { entryRoute, initialPanelRoute, rememberPanelRoute } from './panel-route.js';
 
 /** @param {string} key @returns {string | null} */
 function readSessionValue(key) {
@@ -18,8 +19,24 @@ function writeSessionValue(key, value) {
   }
 }
 
-/** @param {{ studioButton: Element | null }} options */
-export function mountStudioPanel({ studioButton }) {
+const FOCUSABLE = 'button:not([disabled]):not([hidden]), summary, [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** @param {ParentNode} root @returns {HTMLElement[]} */
+function focusables(root) {
+  return /** @type {HTMLElement[]} */ (Array.from(root.querySelectorAll(FOCUSABLE)).filter((element) =>
+    !element.closest('[hidden], [inert]') && element.getClientRects().length > 0,
+  ));
+}
+
+/**
+ * @param {{
+ *   studioButton: Element | null,
+ *   toolbar: HTMLElement | null,
+ *   onLayoutChange?: (drawer: { side: 'left' | 'right', width: number } | null) => void,
+ *   isStudioDirty?: () => boolean,
+ * }} options
+ */
+export function mountStudioPanel({ studioButton, toolbar, onLayoutChange, isStudioDirty = () => false }) {
   if (!STUDIO_PATH) {
     studioButton?.setAttribute('hidden', 'hidden');
     studioButton?.setAttribute('aria-hidden', 'true');
@@ -48,6 +65,15 @@ export function mountStudioPanel({ studioButton }) {
       '<button type="button" class="cms-panel-expand">Expand</button>' +
       '<button type="button" class="cms-panel-close">Close</button>' +
     '</div>';
+  // Tab from the drawer's last control goes on to the toolbar, and from the
+  // toolbar's last back to the drawer, instead of through the page behind it.
+  const startGuard = document.createElement('span');
+  const endGuard = document.createElement('span');
+  for (const guard of [startGuard, endGuard]) {
+    guard.className = 'cms-focus-guard';
+    guard.tabIndex = 0;
+  }
+  panel.appendChild(startGuard);
   panel.appendChild(panelHeader);
 
   const backButton = /** @type {HTMLButtonElement} */ (panelHeader.querySelector('.cms-panel-back'));
@@ -68,33 +94,82 @@ export function mountStudioPanel({ studioButton }) {
   const iframe = document.createElement('iframe');
   /** @type {'left' | 'right'} */
   let panelSide = readSessionValue('cms-panel-side') === 'right' ? 'right' : 'left';
-  let rememberedPath = '';
-  const storedPath = readSessionValue('cms-panel-path') || '';
-  if (storedPath === studioPath || storedPath.startsWith(`${studioPath}/`)) {
-    rememberedPath = storedPath;
-  }
-  iframe.src = rememberedPath || studioPath;
+  iframe.src = initialPanelRoute();
   iframe.title = 'Content Studio';
   iframe.addEventListener('load', () => {
     loading.setAttribute('hidden', 'hidden');
     try {
       const iframeWindow = iframe.contentWindow;
       if (!iframeWindow) return;
-      const currentPath = `${iframeWindow.location.pathname}${iframeWindow.location.search}`;
-      if (currentPath === studioPath || currentPath.startsWith(`${studioPath}/`)) {
-        writeSessionValue('cms-panel-path', currentPath);
-      }
+      rememberPanelRoute(`${iframeWindow.location.pathname}${iframeWindow.location.search}`);
       const documentTitle = iframeWindow.document.title.split(' — ')[0]?.trim();
       titleElement.textContent = documentTitle || 'Studio';
-      backButton.disabled = currentPath === studioPath;
+      backButton.disabled = iframeWindow.location.pathname === studioPath;
       iframeWindow.document.addEventListener('keydown', handleEscape);
+      // After navigating inside the drawer, start the next Tab at the new
+      // page's heading rather than at the top of the Studio chrome.
+      if (panel.classList.contains('open') && document.activeElement === iframe) focusFrameHeading();
     } catch {
       // The configured Studio may be cross-origin, in which case its route is
       // intentionally unavailable to the parent page.
     }
   });
   panel.appendChild(iframe);
+  panel.appendChild(endGuard);
   document.body.appendChild(panel);
+
+  /** Focus the Studio page's heading (else its main area), or the frame while it loads. */
+  function focusFrameHeading() {
+    try {
+      const doc = iframe.contentDocument;
+      const visible = doc ? Array.from(doc.querySelectorAll('h1, main')).filter((element) => element.getClientRects().length > 0) : [];
+      const heading = /** @type {HTMLElement | undefined} */ (visible.find((element) => element.matches('h1')) ?? visible[0]);
+      if (heading) {
+        heading.tabIndex = -1;
+        heading.focus({ preventScroll: true });
+        return;
+      }
+    } catch {
+      // A cross-origin Studio takes focus on its own document.
+    }
+    iframe.focus({ preventScroll: true });
+  }
+
+  /** @returns {HTMLElement[]} */
+  function toolbarControls() {
+    return toolbar ? focusables(toolbar) : [];
+  }
+
+  function focusDrawerStart() {
+    focusables(panelHeader)[0]?.focus();
+  }
+
+  function focusDrawerEnd() {
+    try {
+      const doc = iframe.contentDocument;
+      const last = doc ? focusables(doc).at(-1) : null;
+      if (last) { last.focus(); return; }
+    } catch {
+      // A cross-origin Studio keeps its own focus order.
+    }
+    iframe.focus();
+  }
+
+  endGuard.addEventListener('focus', () => (toolbarControls()[0] ?? focusables(panelHeader)[0])?.focus());
+  startGuard.addEventListener('focus', () => {
+    const controls = toolbarControls();
+    if (controls.length) controls[controls.length - 1].focus();
+    else focusDrawerEnd();
+  });
+  toolbar?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab' || !panel.classList.contains('open')) return;
+    const controls = toolbarControls();
+    const edge = event.shiftKey ? controls[0] : controls[controls.length - 1];
+    if (event.target !== edge) return;
+    event.preventDefault();
+    if (event.shiftKey) focusDrawerEnd();
+    else focusDrawerStart();
+  });
 
   // Remember what had focus so we can restore it on close.
   /** @type {HTMLElement | null} */
@@ -109,7 +184,15 @@ export function mountStudioPanel({ studioButton }) {
     moveButton.textContent = onRight ? 'Move left' : 'Move right';
     moveButton.setAttribute('aria-label', onRight ? 'Move Studio panel left' : 'Move Studio panel right');
     writeSessionValue('cms-panel-side', side);
+    reportLayout();
   }
+
+  function reportLayout() {
+    onLayoutChange?.(panel.classList.contains('open') && window.innerWidth > 768
+      ? { side: panelSide, width: panel.offsetWidth }
+      : null);
+  }
+  window.addEventListener('resize', reportLayout);
 
   /** Keep the selected page content beside the drawer without reflowing host layout.
    * @param {Element} element
@@ -134,8 +217,46 @@ export function mountStudioPanel({ studioButton }) {
     if (event.key === 'caret-studio-theme' || event.key === null) syncPanelTheme();
   });
 
+  // An inline save changes what the drawer's form should show. Reload it now
+  // if that can't interrupt anyone (open, untouched, focus on the page), else
+  // the next time it's shown.
+  let stale = false;
+
+  function framePath() {
+    try {
+      const location = iframe.contentWindow?.location;
+      return location ? `${location.pathname}${location.search}` : '';
+    } catch {
+      return '';
+    }
+  }
+
+  /** @param {string} [path] where to land; defaults to where the drawer is */
+  function reloadFrame(path) {
+    stale = false;
+    loading.removeAttribute('hidden');
+    try {
+      const frameWindow = iframe.contentWindow;
+      if (!frameWindow) throw new Error('no frame');
+      // Point src at the target first (a same-document move when only the
+      // fragment differs), then load it fresh.
+      if (path) iframe.src = path;
+      frameWindow.location.reload();
+    } catch {
+      iframe.src = path || iframe.src;
+    }
+  }
+
+  window.addEventListener('cms:entrySaved', (event) => {
+    const detail = /** @type {CustomEvent<{ collection: string, id: string }>} */ (event).detail;
+    if (!detail || framePath() !== entryRoute(detail.collection, detail.id) || isStudioDirty()) return;
+    if (panel.classList.contains('open') && !panel.contains(document.activeElement)) reloadFrame();
+    else stale = true;
+  });
+
   /** @param {boolean} [animate] */
   function openPanel(animate = true) {
+    if (stale && !isStudioDirty()) reloadFrame();
     lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (!animate) {
       panel.classList.add('no-transition');
@@ -147,13 +268,10 @@ export function mountStudioPanel({ studioButton }) {
     studioButton?.classList.add('active');
     studioButton?.setAttribute('aria-expanded', 'true');
     writeSessionValue('cms-panel-open', '1');
+    reportLayout();
     // Move focus into the drawer so keyboard users aren't left behind the
-    // covering panel. The iframe is focusable and hands focus to its own content.
-    if (animate) {
-      try {
-        iframe.focus({ preventScroll: true });
-      } catch (e) {}
-    }
+    // covering panel, at the heading that says what it shows.
+    if (animate) focusFrameHeading();
     if (!animate) {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -171,6 +289,7 @@ export function mountStudioPanel({ studioButton }) {
     studioButton?.classList.remove('active');
     studioButton?.setAttribute('aria-expanded', 'false');
     writeSessionValue('cms-panel-open', '0');
+    reportLayout();
     // Return focus to the trigger (or wherever it was) so it isn't lost.
     const restore = lastFocused || studioButton;
     if (restore instanceof HTMLElement) {
@@ -229,7 +348,10 @@ export function mountStudioPanel({ studioButton }) {
 
   /** Open the drawer on a Studio route. @param {string} path */
   function openAt(path) {
-    iframe.src = path;
+    rememberPanelRoute(path);
+    // Same entry, new fragment: a stale form must load again, not just scroll.
+    if (stale && framePath() === path.split('#')[0]) reloadFrame(path);
+    else iframe.src = path;
     openPanel();
   }
 

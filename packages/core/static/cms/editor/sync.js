@@ -1,6 +1,7 @@
 import { sanitizeHtml } from './sanitize.js';
 import { parseCaretAttr, resolveBinding } from './helpers.js';
 import { STUDIO_PATH } from './config.js';
+import { entryRoute, rememberPanelRoute } from './panel-route.js';
 
 const SYNC_CHANNEL = 'caretcms:content';
 const PENDING_SELECTION_KEY = 'caretcms:pending-preview-selection';
@@ -239,8 +240,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
 
   /** @param {SelectionMessage} message */
   function studioEntryPath(message) {
-    if (!STUDIO_PATH) return null;
-    return `${STUDIO_PATH}/${encodeURIComponent(message.collection)}/${encodeURIComponent(message.id)}`;
+    return STUDIO_PATH ? entryRoute(message.collection, message.id) : null;
   }
 
   /** @param {SelectionMessage} message */
@@ -271,11 +271,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
       if (studioIframe.contentWindow.location.pathname !== targetPath) {
         pendingStudioSelection = message;
         studioIframe.src = targetPath;
-        try {
-          sessionStorage.setItem('cms-panel-path', targetPath);
-        } catch {
-          // Remembering the route is optional; the current navigation is not.
-        }
+        rememberPanelRoute(targetPath);
         return;
       }
     } catch {
@@ -331,11 +327,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
   /** @param {SyncMessage} msg */
   function rememberStudioPath(msg) {
     if (!('studioPath' in msg) || typeof msg.studioPath !== 'string') return;
-    try {
-      sessionStorage.setItem('cms-panel-path', msg.studioPath);
-    } catch {
-      // Remembering the current Studio route is a progressive enhancement.
-    }
+    rememberPanelRoute(msg.studioPath);
   }
 
   /** @param {SyncMessage} msg */

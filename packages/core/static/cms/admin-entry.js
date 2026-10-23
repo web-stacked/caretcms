@@ -1476,6 +1476,10 @@ import { rebaseEdits } from './studio/merge.js';
         publicationFieldName = result.publicationFieldName;
         loadingEl.hidden = true;
         if (result.kind === "missing") {
+          // The on-page drawer opens entries the page shows, which may not be
+          // stored until their first edit.
+          var notFoundText = notFoundEl.querySelector("p");
+          if (window.parent !== window && notFoundText) notFoundText.textContent = msg("entry.notSavedYet", "Nothing is saved for this content yet. Edit it on the page and it will show up here.");
           notFoundEl.hidden = false;
           return;
         }

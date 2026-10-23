@@ -6,7 +6,10 @@ import { getRuntimeConfig } from "../config.js";
 import { resolveAdapter } from "./_helpers.js";
 import {
   getStudioCollections,
+  resolveCollectionStudioConfig,
 } from "../schema-registry.js";
+import { COLLECTION_NAME_RE, ENTRY_ID_RE } from "../storage/id-contracts.js";
+import type { StorageAdapter } from "../../types.js";
 import {
   escapeHtml,
   htmlResponse,
@@ -16,6 +19,55 @@ import {
   renderStudioPage,
   serializeJsonForScript,
 } from "../views/studio-layout.js";
+
+/** The on-page drawer lists at most this many entries from the page it covers. */
+const MAX_PAGE_ENTRIES = 8;
+const TITLE_KEYS = ["title", "name", "headline", "label", "question"];
+
+/** "about-us" -> "About us". */
+function humanizeId(id: string): string {
+  const text = id.replace(/[-_]+/g, " ").trim();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * The entries the on-page drawer found on the page it covers, passed as
+ * repeated `on=collection::id` parameters. Malformed keys are dropped.
+ */
+function readPageEntryKeys(url: URL): Array<{ collection: string; id: string }> {
+  const seen = new Set<string>();
+  const keys: Array<{ collection: string; id: string }> = [];
+  for (const raw of url.searchParams.getAll("on")) {
+    const [collection, id, extra] = raw.split("::");
+    if (extra !== undefined || !collection || !id) continue;
+    if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) continue;
+    const key = `${collection}::${id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    keys.push({ collection, id });
+    if (keys.length === MAX_PAGE_ENTRIES) break;
+  }
+  return keys;
+}
+
+async function describePageEntry(
+  adapter: StorageAdapter,
+  collection: string,
+  id: string,
+): Promise<{ title: string; collectionLabel: string; icon: string | undefined }> {
+  const [config, entry] = await Promise.all([
+    resolveCollectionStudioConfig(adapter, collection),
+    adapter.getEntry(collection, id).catch(() => null),
+  ]);
+  const data = entry?.data ?? {};
+  const titleKeys = config.titleField ? [config.titleField, ...TITLE_KEYS] : TITLE_KEYS;
+  const titleKey = titleKeys.find((key) => typeof data[key] === "string" && String(data[key]).trim());
+  return {
+    title: titleKey ? String(data[titleKey]).trim() : humanizeId(id),
+    collectionLabel: config.label || humanizeCollection(collection),
+    icon: config.icon,
+  };
+}
 
 export async function GET(context: APIContext): Promise<Response> {
   const runtime = getRuntimeConfig();
@@ -36,6 +88,23 @@ export async function GET(context: APIContext): Promise<Response> {
       ? `${runtime.mountPath}/cms/${encodeURIComponent(name)}/${encodeURIComponent(config.singletonId)}`
       : `${runtime.mountPath}/cms/${encodeURIComponent(name)}`,
   }));
+
+  const pageEntryKeys = readPageEntryKeys(context.url);
+  const pageEntries = await Promise.all(pageEntryKeys.map(async ({ collection, id }) => {
+    const { title, collectionLabel, icon } = await describePageEntry(adapter, collection, id);
+    const href = `${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`;
+    return `<a href="${escapeHtml(href)}" class="studio-card-interactive studio-collection-card studio-page-entry" data-entry="${escapeHtml(`${collection}::${id}`)}">
+        <span class="studio-collection-icon">${renderCollectionIcon(icon, collection)}</span>
+        <span class="studio-collection-body">
+          <h3 class="studio-collection-name">${escapeHtml(title)}</h3>
+          <p class="studio-collection-description">${escapeHtml(collectionLabel)}</p>
+        </span>
+      </a>`;
+  }));
+  const onThisPage = pageEntries.length === 0 ? "" : `<section class="studio-home-section" aria-labelledby="studio-on-this-page">
+      <h2 id="studio-on-this-page" class="studio-home-section-title">${escapeHtml(runtime.messages["home.onThisPage"])}</h2>
+      <div class="studio-home-grid">${pageEntries.join("")}</div>
+    </section>`;
 
   const cards = configuredCollections
     .map(({ name, config }, index) => {
@@ -64,10 +133,16 @@ export async function GET(context: APIContext): Promise<Response> {
       </div>
     </header>
 
+    ${onThisPage}
     ${
       configuredCollections.length === 0
         ? emptyState
-        : `<div class="studio-home-grid">${cards}</div>`
+        : onThisPage
+          ? `<section class="studio-home-section" aria-labelledby="studio-all-collections">
+      <h2 id="studio-all-collections" class="studio-home-section-title">${escapeHtml(runtime.messages["nav.collections"])}</h2>
+      <div class="studio-home-grid">${cards}</div>
+    </section>`
+          : `<div class="studio-home-grid">${cards}</div>`
     }
   </div>`;
 

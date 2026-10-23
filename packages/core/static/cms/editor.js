@@ -18,6 +18,8 @@ import { createToast } from './editor/toast.js';
 import { mountEditorGuards } from './editor/guards.js';
 import { mountToolbar, normalizePreviewForDelivery } from './editor/toolbar.js';
 import { mountStudioPanel } from './editor/panel.js';
+import { pageEntryRoute } from './editor/panel-route.js';
+import { anchorToolbar } from './editor/toolbar-anchor.js';
 import { mountStudioSync } from './editor/sync.js';
 import { mountTextEditors } from './editor/text-edit.js';
 import { canUndoLastEdit, undoLastEdit } from './editor/undo-stack.js';
@@ -109,25 +111,19 @@ function boot() {
     onUnauthorized,
   });
 
-  const { iframe: studioIframe, placeOpposite, openAt } = mountStudioPanel({ studioButton });
+  const toolbarElement = studioButton?.closest('.cms-toolbar');
+  const toolbarAnchor = toolbarElement instanceof HTMLElement ? anchorToolbar(toolbarElement) : null;
+  const { iframe: studioIframe, placeOpposite, openAt } = mountStudioPanel({
+    studioButton,
+    toolbar: toolbarElement instanceof HTMLElement ? toolbarElement : null,
+    onLayoutChange: toolbarAnchor?.setDrawer,
+    isStudioDirty: () => studioUnsaved,
+  });
 
-  // History for the entry this page shows: the one the drawer last had open,
-  // else the page's first editable binding.
+  // History for the entry the drawer has open on this page, else the page's own.
   function openHistory() {
     if (!STUDIO_PATH) return;
-    let entryPath = '';
-    try {
-      const remembered = (sessionStorage.getItem('cms-panel-path') || '').split(/[?#]/)[0];
-      if (remembered.startsWith(`${STUDIO_PATH}/`) && /^\/[^/]+\/[^/]+$/.test(remembered.slice(STUDIO_PATH.length))) {
-        entryPath = remembered;
-      }
-    } catch { /* no remembered drawer route */ }
-    if (!entryPath) {
-      for (const element of document.querySelectorAll('[data-caret]')) {
-        const resolved = resolveBinding(element, parseCaretAttr(element.getAttribute('data-caret') || ''));
-        if (resolved) { entryPath = `${STUDIO_PATH}/${encodeURIComponent(resolved.collection)}/${encodeURIComponent(resolved.id)}`; break; }
-      }
-    }
+    const entryPath = pageEntryRoute();
     if (entryPath) openAt(`${entryPath}#history`);
   }
 

@@ -55,7 +55,9 @@ test("sidebar Studio links fields in both directions and stays on the entry afte
 
   const iframe = page.locator('iframe[title="Content Studio"]');
   const studio = page.frameLocator('iframe[title="Content Studio"]');
-  await expect(studio.getByRole("heading", { name: "Content Studio" })).toBeVisible();
+  // The drawer opens on the entry this page shows.
+  await expect(iframe).toHaveAttribute("src", "/admin/cms/pages/home");
+  await expect(studio.getByRole("textbox", { name: "Headline", exact: true })).toBeVisible();
 
   await headline.dispatchEvent("pointerdown", { bubbles: true });
   await expect(iframe).toHaveAttribute("src", "/admin/cms/pages/home");

@@ -247,6 +247,7 @@ export function createSaveField({ setStatus, onUnauthorized }) {
 
       setStatus('idle', savesToDraft ? 'Draft saved' : 'Changes are live');
       if (savesToDraft) window.dispatchEvent(new CustomEvent('cms:draftSaved'));
+      window.dispatchEvent(new CustomEvent('cms:entrySaved', { detail: { collection, id } }));
       return { ok: true, revision: nextRevision };
     } catch {
       setStatus('error', 'Save failed');

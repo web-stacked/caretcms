@@ -152,18 +152,20 @@
   to { transform: rotate(360deg); }
 }
 
-/* Center the floating toolbar in the space the drawer leaves uncovered. */
-body.cms-panel-open .cms-toolbar {
-  left: calc(50% + var(--cms-panel-width) / 2);
-  transition: left 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-body.cms-panel-open.cms-panel-right .cms-toolbar {
-  left: calc(50% - var(--cms-panel-width) / 2);
-}
-
-body.cms-panel-open.no-transition .cms-toolbar {
+/* The toolbar stays put when the drawer opens and moves only to clear it
+   (toolbar-anchor.js). */
+body.no-transition .cms-toolbar {
   transition: none;
+}
+
+/* Visually hidden stops that carry Tab between the drawer and the toolbar. */
+.cms-focus-guard {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* Opt-in: push host content aside instead of overlaying it. */
@@ -184,17 +186,11 @@ body.cms-panel-open.caret-push-content.no-transition {
   box-shadow: 0 0 8px rgba(59, 130, 246, 0.15);
 }
 
-/* Mobile: full-width overlay, no toolbar shift. */
+/* Mobile: full-width overlay; the toolbar keeps its full-width phone layout. */
 @media (max-width: 768px) {
   .cms-studio-panel {
     width: 100%;
     box-shadow: none;
-  }
-
-  body.cms-panel-open .cms-toolbar,
-  body.cms-panel-open.cms-panel-right .cms-toolbar {
-    right: 8px;
-    left: 8px;
   }
 
   body.cms-panel-open.caret-push-content {
@@ -206,7 +202,6 @@ body.cms-panel-open.caret-push-content.no-transition {
 
 @media (prefers-reduced-motion: reduce) {
   .cms-studio-panel,
-  body.cms-panel-open .cms-toolbar,
   body.cms-panel-open.caret-push-content,
   .cms-studio-panel-spinner {
     transition: none;

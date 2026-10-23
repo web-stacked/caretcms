@@ -331,6 +331,21 @@ kbd {
   gap: var(--space-theme-md);
   min-height: 10rem;
 }
+/* The on-page drawer moves focus to the heading to announce the page; it isn't a control. */
+h1[tabindex="-1"]:focus { outline: none; }
+
+/* The drawer opened from a page with several entries lists them first. */
+.studio-home-section + .studio-home-section { margin-top: var(--space-theme-xl); }
+.studio-home-section-title {
+  margin: 0 0 var(--space-theme-md);
+  color: var(--studio-text-dim);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.studio-card-interactive.studio-collection-card.studio-page-entry { min-height: 0; flex-direction: row; align-items: center; }
+.studio-embedded .studio-home-section + .studio-home-section { margin-top: var(--space-theme-lg); }
 /* The on-page drawer is narrow: collection cards become compact rows. */
 .studio-embedded .studio-home-grid { grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
 .studio-embedded .studio-card-interactive.studio-collection-card {

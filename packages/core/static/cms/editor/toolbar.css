@@ -17,6 +17,21 @@
   animation: cms-toolbar-enter 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.3s forwards;
 }
 
+/* Anchored by its right edge once placed, so its buttons don't shift when
+   the status word or the button set changes length (toolbar-anchor.js). */
+@media (min-width: 769px) {
+  .cms-toolbar.cms-toolbar-anchored {
+    left: auto;
+    right: var(--cms-toolbar-right);
+    translate: none;
+    transition: right 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+@media (min-width: 769px) and (prefers-reduced-motion: reduce) {
+  .cms-toolbar.cms-toolbar-anchored { transition: none; }
+}
+
 /* Insulate the toolbar from consumer page resets: every descendant uses
    border-box so padding doesn't expand widths, and inherits our font stack so
    user-agent defaults on <button> can't bleed through. */

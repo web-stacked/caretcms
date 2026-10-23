@@ -163,7 +163,8 @@ test.describe("inline editor — click to edit", () => {
     const studio = page.frameLocator('iframe[title="Content Studio"]');
     await expect(studio.getByRole("button", { name: "Sign out" })).toBeHidden();
     await expect(studio.locator(".studio-header")).toBeHidden();
-    await studio.getByRole("link", { name: /Pages/ }).focus();
+    // Opening the drawer moves focus into the Studio page.
+    await expect(studio.locator("h1:visible, main").first()).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(page.locator(".cms-studio-panel")).toHaveAttribute("aria-hidden", "true");
     await expect(studioButton).toBeFocused();
@@ -171,7 +172,7 @@ test.describe("inline editor — click to edit", () => {
 
     await studioButton.click();
     await panel.getByRole("button", { name: "Expand" }).click();
-    await expect(page).toHaveURL(/\/admin\/cms$/);
+    await expect(page).toHaveURL(/\/admin\/cms\/pages\/home$/);
   });
 
   test("Studio panel controls preserve work and keep selected content beside the drawer", async ({ page }) => {
