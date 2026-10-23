@@ -8,6 +8,7 @@ import { getRegisteredSchema } from "../schema-registry.js";
 import { validateJsonSchema, type JsonSchemaValidationIssue } from "../../schema-utils.js";
 import { contentReadFailure } from "../content-errors.js";
 import { json, resolveAdapter } from "./_helpers.js";
+import { getRequestContext } from "../request-context.js";
 import { readEntrySnapshot, readEntrySnapshots } from "../storage/read-snapshot.js";
 
 type CmsEntryResponse = {
@@ -113,11 +114,17 @@ export async function GET(context: APIContext): Promise<Response> {
       const entries: CmsEntryResponse[] = entry
         ? [withValidation(collection, entry, revision, baseRevision)]
         : [];
+      // With a private draft overlay, also return what visitors see, so the
+      // Studio can say whether this entry has unpublished changes and what
+      // publishing would change.
+      const base = getRequestContext()?.publishedAdapter;
+      const published = base ? await readEntrySnapshot(base, collection, singleId) : null;
 
       return json({
         entries,
         revision,
         ...(baseRevision !== undefined ? { baseRevision } : {}),
+        ...(published ? { live: { data: published.entry ? stripBodyOverlay(published.entry.data) : null } } : {}),
         pagination: {
           page: 1,
           pageSize: 1,

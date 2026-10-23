@@ -3,6 +3,11 @@ import type { AuthorizationAction, EditorIdentity, StorageAdapter, UploadHandler
 
 export interface CaretRequestContext {
   adapter: StorageAdapter;
+  /**
+   * The published store under `adapter` when a draft overlay is installed, so
+   * editor reads can compare a draft with what visitors see.
+   */
+  publishedAdapter?: StorageAdapter;
   /** A request-bound, fail-closed policy. Omitted in legacy full-access mode. */
   authorize?: (action: AuthorizationAction, collection?: string, id?: string) => Promise<boolean>;
   uploadHandler: UploadHandler;

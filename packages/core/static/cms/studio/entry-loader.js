@@ -6,7 +6,7 @@ import { templateFromSchema } from './field-model.js';
  * @typedef {{
  *   kind: 'ready', data: Record<string, unknown>, revision: number, baseRevision?: number, schema: Schema | null,
  *   validationIssues: ValidationIssue[], publicationFieldName: string | null,
- *   initialized: boolean,
+ *   initialized: boolean, live?: Record<string, unknown> | null,
  * } | { kind: 'missing', schema: Schema | null, publicationFieldName: string | null }
  * | { kind: 'unauthorized' }
  * | { kind: 'error', code: string }} EntryLoadResult
@@ -72,6 +72,11 @@ export function createStudioEntryLoader({ apiBasePath, fetchImpl = fetch }) {
       ? (typeof publication.field === 'string' ? publication.field : 'published')
       : null;
 
+    // Present when edits go to a private draft: what visitors see (null when
+    // the entry isn't published).
+    const live = isRecord(entryBody.live)
+      ? { live: isRecord(entryBody.live.data) ? entryBody.live.data : null }
+      : {};
     const rawEntry = entryBody.entries[0];
     if (rawEntry !== undefined) {
       if (!isRecord(rawEntry) || !isRecord(rawEntry.data)) {
@@ -86,6 +91,7 @@ export function createStudioEntryLoader({ apiBasePath, fetchImpl = fetch }) {
         validationIssues: validationIssues(rawEntry.validationIssues),
         publicationFieldName,
         initialized: false,
+        ...live,
       };
     }
 
@@ -99,7 +105,7 @@ export function createStudioEntryLoader({ apiBasePath, fetchImpl = fetch }) {
     return {
       kind: 'ready', data: template, revision: typeof entryBody.revision === 'number' ? entryBody.revision : 0, schema,
       ...(typeof entryBody.baseRevision === 'number' ? { baseRevision: entryBody.baseRevision } : {}),
-      validationIssues: [], publicationFieldName, initialized: true,
+      validationIssues: [], publicationFieldName, initialized: true, ...live,
     };
   }
 

@@ -59,10 +59,11 @@ export function createFieldGroup(label, isRequired, inline) {
  * buildObjectArray: (value: unknown, path: string, schema: Schema | null) => HTMLElement,
  * buildTagList: (value: unknown, path: string) => HTMLElement,
  * getPublicationField: () => string | null,
- * getMessage: (key: string, fallback: string) => string
+ * getMessage: (key: string, fallback: string) => string,
+ * savesDraft: boolean
  * }} dependencies
  */
-export function createFieldRenderer({ updateField, buildSingleImage, buildImageGallery, buildObjectArray, buildTagList, getPublicationField, getMessage }) {
+export function createFieldRenderer({ updateField, buildSingleImage, buildImageGallery, buildObjectArray, buildTagList, getPublicationField, getMessage, savesDraft }) {
   /** @param {HTMLElement} group @param {Schema} prop @param {string} path */
   function appendFieldDescription(group, prop, path) {
     if (typeof prop.description !== "string" || !prop.description.trim()) return;
@@ -352,13 +353,21 @@ export function createFieldRenderer({ updateField, buildSingleImage, buildImageG
           group.classList.add("caret-field-with-help");
           var publishHelp = document.createElement("p");
           publishHelp.className = "caret-field-help";
-          publishHelp.textContent = current
-            ? "Turn this off and Save to remove the entry from the public site without deleting it."
-            : "Turn this on and Save when the entry is ready to appear on the public site.";
+          // In draft modes saving only updates the draft; publishing applies it.
+          /** @param {boolean} on */
+          var publishHelpText = function (on) {
+            if (savesDraft) {
+              return on
+                ? getMessage("entry.publicationOffDraft", "Turn this off, save, then publish to remove the entry from the public site without deleting it.")
+                : getMessage("entry.publicationOnDraft", "Turn this on, save, then publish when the entry is ready to appear on the public site.");
+            }
+            return on
+              ? getMessage("entry.publicationOff", "Turn this off and Save to remove the entry from the public site without deleting it.")
+              : getMessage("entry.publicationOn", "Turn this on and Save when the entry is ready to appear on the public site.");
+          };
+          publishHelp.textContent = publishHelpText(Boolean(current));
           toggle.addEventListener("click", function () {
-            publishHelp.textContent = toggle.classList.contains("active")
-              ? "Turn this off and Save to remove the entry from the public site without deleting it."
-              : "Turn this on and Save when the entry is ready to appear on the public site.";
+            publishHelp.textContent = publishHelpText(toggle.classList.contains("active"));
           });
           group.appendChild(publishHelp);
         }

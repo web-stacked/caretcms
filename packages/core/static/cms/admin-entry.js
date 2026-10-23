@@ -94,6 +94,10 @@ import { rebaseEdits } from './studio/merge.js';
   var pendingRemoteSelection = null;
   /** @type {string | null} */
   var publicationFieldName = null;
+  /** What visitors see when edits go to a private draft (null: not published
+   * yet; undefined: edits save live, or the server didn't say).
+   * @type {Record<string, unknown> | null | undefined} */
+  var liveData = undefined;
   var studioSync = createStudioSync({
     collection: COLLECTION,
     id: ID,
@@ -165,10 +169,40 @@ import { rebaseEdits } from './studio/merge.js';
     document.title = document.title.replace(/^Edit .*?(?= — )/, "Edit " + title);
   }
 
+  /** @param {unknown} value @returns {string} */
+  function stableJson(value) {
+    if (Array.isArray(value)) return "[" + value.map(stableJson).join(",") + "]";
+    if (value && typeof value === "object") {
+      var record = /** @type {Record<string, unknown>} */ (value);
+      return "{" + Object.keys(record).sort().map(function (key) { return JSON.stringify(key) + ":" + stableJson(record[key]); }).join(",") + "}";
+    }
+    return JSON.stringify(value);
+  }
+
+  /** Whether the saved draft differs from what visitors see. */
+  function hasUnpublishedDraft() {
+    if (SAVE_TARGET !== "preview" || liveData === undefined) return true;
+    if (liveData === null) return true;
+    return stableJson(fillDefaults(deepClone(liveData), entrySchema)) !== stableJson(JSON.parse(originalJson || "{}"));
+  }
+
+  function savedStatusMessage() {
+    if (SAVE_TARGET !== "preview") return msg("entry.allLive", "All changes live");
+    return hasUnpublishedDraft() ? msg("entry.draftSaved", "Draft saved") : msg("entry.matchesLive", "Matches live");
+  }
+
   function updateVisibility() {
     if (!visibilityEl || !entryData || !CFG.publicationField) return;
     var visible = getNestedValue(entryData, CFG.publicationField) === true;
-    visibilityEl.textContent = visible ? msg("entry.public", "Public") : msg("entry.hidden", "Hidden");
+    var label = visible ? msg("entry.public", "Public") : msg("entry.hidden", "Hidden");
+    // In draft modes the switch only takes effect when the draft is published.
+    if (SAVE_TARGET === "preview" && liveData !== undefined) {
+      var liveVisible = liveData !== null && getNestedValue(liveData, CFG.publicationField) === true;
+      if (visible !== liveVisible) {
+        label = visible ? msg("entry.publicAfterPublish", "Public after publish") : msg("entry.hiddenAfterPublish", "Hidden after publish");
+      }
+    }
+    visibilityEl.textContent = label;
     visibilityEl.dataset.visible = visible ? "true" : "false";
   }
 
@@ -184,7 +218,7 @@ import { rebaseEdits } from './studio/merge.js';
     if (entryData !== null && !preserveStatus) {
       if (saving) showStatus("saving", SAVE_TARGET === "preview" ? msg("entry.savingDraft", "Saving draft…") : msg("entry.savingLiveChanges", "Saving live changes…"));
       else if (dirty) showStatus("dirty", msg("entry.unsaved", "Unsaved changes"));
-      else showStatus("saved", SAVE_TARGET === "preview" ? msg("entry.draftSaved", "Draft saved") : msg("entry.allLive", "All changes live"));
+      else showStatus("saved", savedStatusMessage());
     }
   }
 
@@ -418,7 +452,7 @@ import { rebaseEdits } from './studio/merge.js';
       if (typeof result.revision === "number") entryRevision = result.revision;
       originalJson = JSON.stringify(entryData);
       studioSync.announceChange("cms:saved", entryData);
-      showStatus("saved", SAVE_TARGET === "preview" ? msg("entry.draftSaved", "Draft saved") : msg("entry.savedLive", "Changes are live"));
+      showStatus("saved", SAVE_TARGET === "preview" ? savedStatusMessage() : msg("entry.savedLive", "Changes are live"));
     }).catch(function () {
       preserveSaveStatus = true;
       showStatus("error", msg("common.error", "Error"));
@@ -596,6 +630,7 @@ import { rebaseEdits } from './studio/merge.js';
     buildTagList,
     getPublicationField: () => publicationFieldName,
     getMessage: msg,
+    savesDraft: SAVE_TARGET === "preview",
   });
 
   /* ─── Image gallery ─────────────────────────────────────────────── */
@@ -1388,6 +1423,7 @@ import { rebaseEdits } from './studio/merge.js';
         entryData = fillDefaults(deepClone(initialData), entrySchema);
         entryRevision = result.revision;
         entryBaseRevision = result.baseRevision;
+        liveData = result.live;
         originalJson = JSON.stringify(entryData);
         updateDisplayedTitle();
         renderFields(fieldsEl, entryData, entrySchema, "");

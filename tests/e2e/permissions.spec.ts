@@ -135,3 +135,39 @@ test("reviewer draft is isolated and can be published with attributed history", 
     await anonymous.close();
   }
 });
+
+test("Studio tells a draft's visibility apart from what visitors see", async ({ browser }) => {
+  const admin = await identityContext(browser, "admin");
+  const anonymous = await browser.newContext({ baseURL: "http://localhost:4405" });
+  try {
+    const page = await admin.newPage();
+    const created = await page.request.post("/api/cms/mutate", {
+      headers: { "x-caret-request": "1" },
+      data: { type: "put_entry", collection: "studio-fixture", id: "pol-entry", data: {
+        title: "Policy entry", summary: "", website: "", published: true, details: [], images: [],
+      } },
+    });
+    expect(created.ok(), await created.text()).toBe(true);
+    const published = await page.request.post("/api/cms/publish", { headers: { "x-caret-request": "1" }, data: {} });
+    expect(published.ok(), await published.text()).toBe(true);
+
+    await page.goto("/admin/cms/studio-fixture/pol-entry");
+    const status = page.locator("#status-msg");
+    const visibility = page.locator("#visibility-status");
+    await expect(status).toHaveText("Matches live");
+    await expect(visibility).toHaveText("Public");
+
+    await page.getByRole("switch", { name: "Published" }).click();
+    await page.locator("#btn-save").click();
+    await expect(status).toHaveText("Draft saved");
+    await expect(visibility).toHaveText("Hidden after publish");
+    await expect(page.locator('[data-field-path="published"] .caret-field-help')).toContainText("publish");
+
+    const visitor = await anonymous.newPage();
+    await visitor.goto("/publication");
+    await expect(visitor.getByText("Policy entry")).toBeVisible();
+  } finally {
+    await admin.close();
+    await anonymous.close();
+  }
+});

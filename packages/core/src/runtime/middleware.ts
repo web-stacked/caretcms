@@ -228,6 +228,7 @@ async function prepareRequest(
     ...(policyActive ? { authorize } : {}),
     demoMode,
     overlayActive,
+    ...(overlayActive ? { publishedAdapter: services.adapter } : {}),
     runtimeEnv,
     editor: false,
   };
