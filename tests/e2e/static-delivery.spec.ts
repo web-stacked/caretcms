@@ -350,6 +350,8 @@ test("publishes an authored draft into the next static build", async ({ page }) 
 });
 
 test("shows a provider-confirmed deployment failure", async ({ page }) => {
+  // Start from a server in failure mode even if an earlier test left one running.
+  stopDevServer();
   startDevServer("failed");
   await waitForServer();
   const login = await page.request.post("/api/cms/auth/login", {
