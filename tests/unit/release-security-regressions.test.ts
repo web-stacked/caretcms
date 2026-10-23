@@ -4,7 +4,7 @@ import { hasCaretBindings } from "../../packages/core/src/runtime/html-tokens";
 import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memory-adapter";
 import { onRequest } from "../../packages/core/src/runtime/middleware";
 import { __setRuntimeServicesForTests } from "../../packages/core/src/runtime/providers";
-import { issueEditorSessionCookie } from "../../packages/core/src/runtime/auth/session";
+import { issueEditorSessionCookies } from "../../packages/core/src/runtime/auth/session";
 import { BODY_OVERLAY_KEY } from "../../packages/core/src/markdown/contracts";
 import { readFormBody } from "../../packages/core/src/runtime/routes/_helpers";
 import { POST as login } from "../../packages/core/src/runtime/routes/auth-login";
@@ -53,7 +53,7 @@ it.each(["<!-->", "<!--->", "</>"])("still rewrites bindings after the empty mar
 });
 
 function authedContext() {
-  const value = decodeURIComponent(issueEditorSessionCookie().split(";")[0].split("=")[1]);
+  const value = decodeURIComponent(issueEditorSessionCookies()[0].split(";")[0].split("=")[1]);
   return { locals: {}, request: new Request("http://localhost/"), cookies: { get: (name: string) => name === "caret_session" ? { value } : undefined } };
 }
 

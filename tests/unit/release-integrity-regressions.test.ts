@@ -7,7 +7,7 @@ import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memo
 import { MarkdownAdapter } from "../../packages/core/src/runtime/storage/markdown-adapter";
 import { __setRuntimeServicesForTests } from "../../packages/core/src/runtime/providers";
 import { onRequest } from "../../packages/core/src/runtime/middleware";
-import { issueEditorSessionCookie, getEditorId } from "../../packages/core/src/runtime/auth/session";
+import { issueEditorSessionCookies, getEditorId } from "../../packages/core/src/runtime/auth/session";
 import { POST as mutate } from "../../packages/core/src/runtime/routes/mutate";
 import { POST as publish } from "../../packages/core/src/runtime/routes/publish";
 import { GET as entries } from "../../packages/core/src/runtime/routes/entries";
@@ -23,7 +23,7 @@ const roots: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllEnvs(); __setRuntimeServicesForTests(null); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 async function temp() { const root = await mkdtemp(join(tmpdir(), "caret-integrity-")); roots.push(root); return root; }
 function session(preview = false) {
-  const token = decodeURIComponent(issueEditorSessionCookie().split(";")[0].split("=")[1]);
+  const token = decodeURIComponent(issueEditorSessionCookies()[0].split(";")[0].split("=")[1]);
   return { get(name: string) { return name === "caret_session" ? { value: token } : name === "caret_preview" && preview ? { value: "1" } : undefined; } };
 }
 async function route(handler: (ctx: any) => Promise<Response>, cookies: ReturnType<typeof session>, path: string, body?: unknown) {

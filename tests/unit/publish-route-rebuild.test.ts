@@ -1,7 +1,7 @@
 import { SessionOverlayAdapter } from "../../packages/core/src/runtime/storage/session-overlay-adapter";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { POST } from "../../packages/core/src/runtime/routes/publish";
-import { issueEditorSessionCookie, getEditorId } from "../../packages/core/src/runtime/auth/session";
+import { issueEditorSessionCookies, getEditorId } from "../../packages/core/src/runtime/auth/session";
 import { __setRuntimeServicesForTests } from "../../packages/core/src/runtime/providers";
 import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memory-adapter";
 
@@ -23,7 +23,7 @@ describe("publish route rebuild webhook", () => {
       new Response("ok", { status: 202 }),
     );
 
-    const session = cookieValue(issueEditorSessionCookie("/"));
+    const session = cookieValue(issueEditorSessionCookies("/")[0]);
     const cookies = {
       get(name: string) {
         return name === "caret_session" ? { value: session } : undefined;
@@ -82,7 +82,7 @@ describe("publish route rebuild webhook", () => {
       new Response("ok", { status: 202 }),
     );
 
-    const session = cookieValue(issueEditorSessionCookie("/"));
+    const session = cookieValue(issueEditorSessionCookies("/")[0]);
     const cookies = {
       get(name: string) {
         return name === "caret_session" ? { value: session } : undefined;
@@ -134,7 +134,7 @@ describe("deployment retry receipts", () => {
   it("retries only the webhook after content has already been published", async () => {
     vi.stubEnv("CARET_SESSION_SECRET", "test-secret");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("failed", { status: 503 })).mockResolvedValueOnce(new Response("accepted", { status: 202 }));
-    const session = cookieValue(issueEditorSessionCookie("/"));
+    const session = cookieValue(issueEditorSessionCookies("/")[0]);
     const cookies = { get: (name: string) => name === "caret_session" ? { value: session } : undefined };
     const base = new InMemoryAdapter();
     await base.writeEntry("pages", "home", { title: "Before" });

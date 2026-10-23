@@ -150,7 +150,7 @@ test("keeps a saved draft on reload without exposing it to other visitors", asyn
   }
 });
 
-test("explains that password-session drafts cannot be kept after sign out", async ({ page }) => {
+test("keeps drafts for the next sign-in in the same browser", async ({ page }) => {
   await page.request.post("/api/cms/auth/login", {
     data: { password: EDIT_PASSWORD },
     headers: { Accept: "application/json" },
@@ -159,21 +159,25 @@ test("explains that password-session drafts cannot be kept after sign out", asyn
   await page.goto("/");
   const save = await page.request.post("/api/cms/mutate", {
     headers: { "x-caret-request": "1" },
-    data: { type: "put_entry", collection: "pages", id: "home", data: { headline: "Session-only draft" } },
+    data: { type: "put_entry", collection: "pages", id: "home", data: { headline: "Kept across sign-in" } },
   });
   expect(save.ok()).toBe(true);
 
-  await page.locator(".cms-discard-btn").click();
-  await page.getByRole("dialog", { name: "Discard drafts?" }).getByRole("button", { name: "Cancel" }).click();
   await page.getByRole("button", { name: "Sign out" }).click();
   const dialog = page.getByRole("dialog", { name: "Unpublished changes" });
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("cannot be reopened after signing out");
-  await expect(page.getByRole("button", { name: "Keep drafts and sign out" })).toBeHidden();
-  await expect(page.getByRole("button", { name: "Discard and sign out" })).toBeVisible();
-  await page.getByRole("button", { name: "Cancel" }).click();
-  await expect(dialog).toBeHidden();
-  await expect(page.locator(".cms-toolbar")).toBeVisible();
+  await expect(dialog).toContainText("keep the drafts for your next sign-in");
+  const logout = page.waitForResponse(response =>
+    response.url().includes("/api/cms/auth/logout") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Keep drafts and sign out" }).click();
+  expect((await logout).ok()).toBe(true);
+
+  await page.request.post("/api/cms/auth/login", {
+    data: { password: EDIT_PASSWORD },
+    headers: { Accept: "application/json" },
+  });
+  const drafts = await page.request.get("/api/cms/draft", { headers: { "x-caret-request": "1" } });
+  expect((await drafts.json()).count).toBe(1);
 });
 
 test("rejects an older editor draft and keeps Publish above the Astro toolbar", async ({ browser }) => {

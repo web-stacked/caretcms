@@ -209,7 +209,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, onLogout 
     discard.textContent = 'Discard and sign out';
     copy.textContent = canKeep
       ? `You have ${count} unpublished change${count === 1 ? '' : 's'}. Publish now, keep the drafts for your next sign-in, or discard them.`
-      : `You have ${count} unpublished change${count === 1 ? '' : 's'}. Drafts from this password session cannot be reopened after signing out, so publish, discard, or cancel.`;
+      : `You have ${count} unpublished change${count === 1 ? '' : 's'}. Drafts from this session can't be reopened after signing out, so publish, discard, or cancel.`;
     publish.hidden = !canPublishDrafts;
     keep.hidden = !canKeep;
     discard.hidden = false;
@@ -388,7 +388,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, onLogout 
     await fetchDraftCount();
     if (pendingGitHistory && !(await draftsSurviveSignOut()) && !(await confirmToolbarAction({
       title: 'Git history is pending',
-      copy: 'Your content is published. Pending Git records from this password session cannot be reopened after signing out. Cancel to retry Git history, or sign out and leave the records for an operator to review.',
+      copy: 'Your content is published. Pending Git records from this session cannot be reopened after signing out. Cancel to retry Git history, or sign out and leave the records for an operator to review.',
       confirmLabel: 'Sign out',
     }))) return;
     clearDirty();

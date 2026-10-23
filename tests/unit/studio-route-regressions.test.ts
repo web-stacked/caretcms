@@ -3,7 +3,7 @@ import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memo
 import { GET as schema } from "../../packages/core/src/runtime/routes/schema";
 import { GET as history } from "../../packages/core/src/runtime/routes/history";
 import { onRequest } from "../../packages/core/src/runtime/middleware";
-import { getEditorId, issueEditorSessionCookie } from "../../packages/core/src/runtime/auth/session";
+import { getEditorId, issueEditorSessionCookies } from "../../packages/core/src/runtime/auth/session";
 import { __setRuntimeServicesForTests } from "../../packages/core/src/runtime/providers";
 import { createStudioEntryLoader } from "../../packages/core/static/cms/studio/entry-loader.js";
 
@@ -13,7 +13,7 @@ afterEach(() => { __setRuntimeServicesForTests(null); });
 
 async function getSchema(adapter: InMemoryAdapter, query: string) {
   __setRuntimeServicesForTests({ adapter, uploadHandler: { upload: vi.fn() } });
-  const token = decodeURIComponent(issueEditorSessionCookie().split(";")[0].split("=")[1]);
+  const token = decodeURIComponent(issueEditorSessionCookies()[0].split(";")[0].split("=")[1]);
   const url = new URL(`/api/cms/schema?${query}`, "http://localhost");
   const context = { request: new Request(url), url, locals: {}, cookies: { get: (name: string) => name === "caret_session" ? { value: token } : undefined } };
   return (await onRequest(context as never, () => schema(context as never))).json();
@@ -59,7 +59,7 @@ it("asks for an existing entry's schema by id and a new entry's by collection", 
 it("marks only the requesting editor's history snapshots as current", async () => {
   const adapter = await pages();
   __setRuntimeServicesForTests({ adapter, uploadHandler: { upload: vi.fn() } });
-  const token = decodeURIComponent(issueEditorSessionCookie().split(";")[0].split("=")[1]);
+  const token = decodeURIComponent(issueEditorSessionCookies()[0].split(";")[0].split("=")[1]);
   const url = new URL("/api/cms/history?collection=pages&id=home", "http://localhost");
   const context = { request: new Request(url), url, locals: {}, cookies: { get: (name: string) => name === "caret_session" ? { value: token } : undefined } };
   const own = await onRequest(context as never, async () => Response.json({ id: getEditorId(context as never) }));

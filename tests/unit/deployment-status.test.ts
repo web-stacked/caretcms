@@ -4,7 +4,7 @@ import {
   normalizeDeploymentEvidence,
 } from "../../packages/core/src/runtime/deployment-status";
 import { GET } from "../../packages/core/src/runtime/routes/deployment";
-import { issueEditorSessionCookie, getEditorId } from "../../packages/core/src/runtime/auth/session";
+import { issueEditorSessionCookies, getEditorId } from "../../packages/core/src/runtime/auth/session";
 import { __setRuntimeServicesForTests } from "../../packages/core/src/runtime/providers";
 import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memory-adapter";
 import { simulatedDeploymentProvider } from "../../packages/core/src/providers/deployment/simulated";
@@ -83,7 +83,7 @@ describe("deployment status evidence", () => {
 
   it("serves authenticated provider evidence for the editor's latest target", async () => {
     vi.stubEnv("CARET_SESSION_SECRET", "test-secret");
-    const session = cookieValue(issueEditorSessionCookie("/"));
+    const session = cookieValue(issueEditorSessionCookies("/")[0]);
     const cookies = { get: (name: string) => name === "caret_session" ? { value: session } : undefined };
     const base = new InMemoryAdapter();
     const overlay = await base.makeEditorOverlay(getEditorId({ cookies })!);
@@ -114,7 +114,7 @@ describe("deployment status evidence", () => {
   it("does not expose provider errors as false completion", async () => {
     vi.stubEnv("CARET_SESSION_SECRET", "test-secret");
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const session = cookieValue(issueEditorSessionCookie("/"));
+    const session = cookieValue(issueEditorSessionCookies("/")[0]);
     const cookies = { get: (name: string) => name === "caret_session" ? { value: session } : undefined };
     const base = new InMemoryAdapter();
     const overlay = await base.makeEditorOverlay(getEditorId({ cookies })!);

@@ -4,7 +4,7 @@ import type { APIContext } from "astro";
 import {
   hasConfiguredEditorPassword,
   isEditorPasswordValid,
-  issueEditorSessionCookie,
+  issueEditorSessionCookies,
 } from "../auth/session.js";
 import { sanitizeRedirect } from "../auth/cookie-utils.js";
 import {
@@ -17,9 +17,9 @@ import { getRuntimeConfig } from "../config.js";
 import { readJsonBody, readFormBody, MAX_JSON_BODY_BYTES } from "./_helpers.js";
 import { getRuntimeServices } from "../providers.js";
 
-function redirect(pathname: string, setCookie?: string): Response {
-  const headers: Record<string, string> = { Location: pathname, "Cache-Control": "private, no-store" };
-  if (setCookie) headers["Set-Cookie"] = setCookie;
+function redirect(pathname: string, setCookies: string[] = []): Response {
+  const headers = new Headers({ Location: pathname, "Cache-Control": "private, no-store" });
+  for (const cookie of setCookies) headers.append("Set-Cookie", cookie);
   return new Response(null, { status: 302, headers });
 }
 
@@ -27,12 +27,14 @@ function json(
   body: Record<string, unknown>,
   status = 200,
   extraHeaders?: Record<string, string>,
+  setCookies: string[] = [],
 ): Response {
-  const headers: Record<string, string> = {
+  const headers = new Headers({
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "private, no-store",
     ...extraHeaders,
-  };
+  });
+  for (const cookie of setCookies) headers.append("Set-Cookie", cookie);
   return new Response(JSON.stringify(body), { status, headers });
 }
 
@@ -96,7 +98,7 @@ export async function POST(context: APIContext): Promise<Response> {
   // secret, which throws in production when CARET_SESSION_SECRET is unset.
   // Surface that as a configuration error instead of an unhandled 500.
   let passwordValid: boolean;
-  let cookie: string;
+  let cookies: string[];
   try {
     passwordValid = isEditorPasswordValid(password);
     if (!passwordValid) {
@@ -105,15 +107,15 @@ export async function POST(context: APIContext): Promise<Response> {
       return redirect(`${runtime.mountPath}?error=invalid`);
     }
     clearLoginAttempts(rateLimitKey);
-    cookie = issueEditorSessionCookie("/", context.request);
+    cookies = issueEditorSessionCookies("/", context.request);
   } catch (err) {
     return json({ error: (err as Error).message }, 500);
   }
 
   if (wantsJsonResponse) {
-    return json({ ok: true, redirect: safeRedirect }, 200, { "Set-Cookie": cookie });
+    return json({ ok: true, redirect: safeRedirect }, 200, undefined, cookies);
   }
-  return redirect(safeRedirect, cookie);
+  return redirect(safeRedirect, cookies);
 }
 
 export async function GET(): Promise<Response> {

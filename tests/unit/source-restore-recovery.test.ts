@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { MarkdownAdapter } from "../../packages/core/src/runtime/storage/markdown-adapter";
 import { onRequest } from "../../packages/core/src/runtime/middleware";
 import { POST as restore } from "../../packages/core/src/runtime/routes/history";
-import { getEditorId, issueEditorSessionCookie } from "../../packages/core/src/runtime/auth/session";
+import { getEditorId, issueEditorSessionCookies } from "../../packages/core/src/runtime/auth/session";
 import { __setRuntimeServicesForTests } from "../../packages/core/src/runtime/providers";
 import { PUBLISH_RECOVERY_KEY } from "../../packages/core/src/runtime/draft-state";
 import { registerCollectionSchema } from "../../packages/core/src/runtime/schema-registry";
@@ -15,7 +15,7 @@ const original = "---\ntitle: Current\n---\nCurrent body\n";
 const historical = "---\ntitle: Historical\n---\nHistorical body\n";
 afterEach(async () => { vi.restoreAllMocks(); __setRuntimeServicesForTests(null); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 function session() {
-  const token = decodeURIComponent(issueEditorSessionCookie().split(";")[0].split("=")[1]);
+  const token = decodeURIComponent(issueEditorSessionCookies()[0].split(";")[0].split("=")[1]);
   return { get(name: string) { return name === "caret_session" ? { value: token } : undefined; } };
 }
 async function fixture(collection = "posts") {

@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 const { env } = vi.hoisted(() => ({ env: { CARET_SESSION_SECRET: "worker-only-session-secret" } }));
 vi.mock("cloudflare:workers", () => ({ env }));
 
-import { issueEditorSessionCookie } from "../../packages/core/src/runtime/auth/session";
+import { issueEditorSessionCookies } from "../../packages/core/src/runtime/auth/session";
 import { onRequest } from "../../packages/core/src/runtime/middleware";
 import { __setRuntimeServicesForTests } from "../../packages/core/src/runtime/providers";
 import { getRequestContext, runWithRequestContext } from "../../packages/core/src/runtime/request-context";
@@ -19,7 +19,7 @@ it("verifies Worker-only session secrets before selecting editor drafts and reje
   __setRuntimeServicesForTests({ adapter: base, uploadHandler });
   await base.writeEntry("pages", "home", { title: "Published" });
   const seed = { adapter: base, uploadHandler, sessionId: null, demoMode: false, runtimeEnv: env };
-  const token = await runWithRequestContext(seed, async () => issueEditorSessionCookie("/", new Request("https://worker.test"))
+  const token = await runWithRequestContext(seed, async () => issueEditorSessionCookies("/", new Request("https://worker.test"))[0]
     .split(";")[0].slice("caret_session=".length));
   const preview = async (session: string) => onRequest({ locals: {}, request: new Request("https://worker.test"),
     cookies: { get: name => name === "caret_preview" ? { value: "1" } : name === "caret_session" ? { value: session } : undefined } },

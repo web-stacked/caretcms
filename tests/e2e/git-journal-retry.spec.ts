@@ -29,20 +29,24 @@ test("Git history retry sends only a retry request and keeps the page content un
   expect(await title.textContent()).toBe(original);
 });
 
-test("signing out warns about password-session Git records and Cancel preserves retry access", async ({ page }) => {
+test("pending Git records stay with this browser, so signing out doesn't warn", async ({ page }) => {
   resetCmsStorage();
   await loginAsEditor(page);
+  const before = (await (await page.request.get("/api/cms/auth/session")).json()).identity.id;
   await page.route("**/api/cms/draft", route => route.fulfill({ json: { count: 0, retryJournal: true, journalPending: 1 } }));
   await page.goto("/");
   await page.getByRole("button", { name: "Retry Git history", exact: true }).waitFor();
+
+  const logout = page.waitForResponse(response =>
+    response.url().includes("/api/cms/auth/logout") && response.request().method() === "POST");
   await page.locator(".cms-exit-btn").click();
-  const dialog = page.getByRole("dialog", { name: "Git history is pending", exact: true });
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("cannot be reopened after signing out");
-  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(dialog).toBeHidden();
-  await expect(page.getByRole("button", { name: "Retry Git history", exact: true })).toBeVisible();
-  expect((await page.request.get("/api/cms/auth/session")).ok()).toBe(true);
+  expect((await logout).ok()).toBe(true);
+  await expect(page.getByRole("dialog", { name: "Git history is pending", exact: true })).toHaveCount(0);
+
+  // Signing in again in the same browser reopens the same editor's records.
+  await loginAsEditor(page);
+  const after = (await (await page.request.get("/api/cms/auth/session")).json()).identity.id;
+  expect(after).toBe(before);
 });
 
 test("Git retry stays hidden when the server denies permission", async ({ page }) => {

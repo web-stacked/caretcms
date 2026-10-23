@@ -43,14 +43,16 @@ function isDevContext(): boolean {
 
 const SESSION_COOKIE_NAME = "caret_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
+const EDITOR_DEVICE_COOKIE_NAME = "caret_editor";
+const EDITOR_DEVICE_TTL_SECONDS = 60 * 60 * 24 * 400;
 
 type SessionPayload = {
   editor: true;
   exp: number;
   /**
-   * A stable id minted once per login, identifying this editor session. Used to
-   * key a per-editor draft overlay (so two editors' unpublished edits stay
-   * isolated). Required — every issued token carries one.
+   * The editor id this browser signs in with (see `issueEditorSessionCookies`).
+   * Keys the per-editor draft overlay, so two editors' unpublished edits stay
+   * isolated. Required — every issued token carries one.
    */
   editorId: string;
 };
@@ -152,8 +154,18 @@ function serializeEditorSessionCookie(
   maxAge: number,
   request?: Request,
 ): string {
+  return serializeCookie(SESSION_COOKIE_NAME, value, path, maxAge, request);
+}
+
+function serializeCookie(
+  name: string,
+  value: string,
+  path: string,
+  maxAge: number,
+  request?: Request,
+): string {
   const parts = [
-    `${SESSION_COOKIE_NAME}=${value}`,
+    `${name}=${value}`,
     `Path=${path}`,
     "HttpOnly",
     "SameSite=Lax",
@@ -225,15 +237,50 @@ export function isEditorPasswordValid(candidate: string): boolean {
   return timingSafeEqual(candidateDigest, expectedDigest);
 }
 
-export function issueEditorSessionCookie(path = "/", request?: Request): string {
+function editorDeviceSignature(editorId: string): string {
+  return signPayload(`editor-device:${editorId}`);
+}
+
+/** The editor id this browser signed in with before, if its cookie is genuine. */
+function readEditorDeviceId(request?: Request): string | null {
+  const header = request?.headers.get("cookie") ?? "";
+  const prefix = `${EDITOR_DEVICE_COOKIE_NAME}=`;
+  const raw = header.split(/;\s*/).find((part) => part.startsWith(prefix))?.slice(prefix.length);
+  if (!raw) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  const [id, signature, extra] = decoded.split(".");
+  if (extra !== undefined || !id || !signature || !/^[0-9a-f-]{36}$/.test(id)) return null;
+  const expected = Buffer.from(editorDeviceSignature(id));
+  const actual = Buffer.from(signature);
+  return expected.length === actual.length && timingSafeEqual(expected, actual) ? id : null;
+}
+
+/**
+ * The session cookie plus a long-lived, signed cookie remembering this
+ * browser's editor id, which sign-out keeps. Signing in again in the same
+ * browser reuses the id, so drafts, history and Git records survive signing
+ * out and session expiry, while people sharing the password on different
+ * browsers keep separate drafts.
+ */
+export function issueEditorSessionCookies(path = "/", request?: Request): string[] {
+  const editorId = readEditorDeviceId(request) ?? randomUUID();
   const exp = Date.now() + SESSION_TTL_SECONDS * 1000;
-  const token = buildToken({ editor: true, exp, editorId: randomUUID() });
-  return serializeEditorSessionCookie(
-    encodeURIComponent(token),
-    path,
-    SESSION_TTL_SECONDS,
-    request,
-  );
+  const token = buildToken({ editor: true, exp, editorId });
+  return [
+    serializeEditorSessionCookie(encodeURIComponent(token), path, SESSION_TTL_SECONDS, request),
+    serializeCookie(
+      EDITOR_DEVICE_COOKIE_NAME,
+      encodeURIComponent(`${editorId}.${editorDeviceSignature(editorId)}`),
+      path,
+      EDITOR_DEVICE_TTL_SECONDS,
+      request,
+    ),
+  ];
 }
 
 export function clearEditorSessionCookie(path = "/", request?: Request): string {

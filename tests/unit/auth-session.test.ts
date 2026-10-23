@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   clearEditorSessionCookie,
   isEditorAuthenticated,
-  issueEditorSessionCookie,
+  issueEditorSessionCookies,
 } from '../../packages/core/src/runtime/auth/session';
 
 const PUBLIC_DEV_SECRET = 'caretcms-dev-secret';
@@ -20,7 +20,7 @@ function forgeSession(secret: string): string {
 
 describe('auth session cookies', () => {
   it('marks editor session cookies as HttpOnly by default', () => {
-    const cookie = issueEditorSessionCookie('/');
+    const cookie = issueEditorSessionCookies('/')[0];
 
     expect(cookie).toContain('HttpOnly');
     expect(cookie).not.toContain('Secure');
@@ -28,7 +28,7 @@ describe('auth session cookies', () => {
 
   it('uses Secure for https requests and preserves deletion flags', () => {
     const request = new Request('https://example.com/admin');
-    const issued = issueEditorSessionCookie('/', request);
+    const issued = issueEditorSessionCookies('/', request)[0];
     const cleared = clearEditorSessionCookie('/', request);
 
     expect(issued).toContain('Secure');
@@ -46,7 +46,7 @@ describe('auth session cookies', () => {
     vi.stubEnv('CARET_EDIT_PASSWORD', '');
     vi.stubEnv('CARET_SESSION_SECRET', '');
     try {
-      expect(() => issueEditorSessionCookie('/')).toThrow();
+      expect(() => issueEditorSessionCookies('/')[0]).toThrow();
     } finally {
       vi.unstubAllEnvs();
     }
@@ -86,7 +86,7 @@ describe('auth session cookies', () => {
   it('fails closed (not 500) when the production session secret is missing', () => {
     // A cookie minted while a secret was available...
     vi.stubEnv('CARET_SESSION_SECRET', 'test-secret');
-    const issued = issueEditorSessionCookie('/');
+    const issued = issueEditorSessionCookies('/')[0];
     const token = decodeURIComponent(
       issued.split(';')[0].replace('caret_session=', ''),
     );

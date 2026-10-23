@@ -9,7 +9,7 @@ import { createStudioEntryLoader } from "../../packages/core/static/cms/studio/e
 import { POST as restore } from "../../packages/core/src/runtime/routes/history";
 import { GET as entries } from "../../packages/core/src/runtime/routes/entries";
 import { onRequest } from "../../packages/core/src/runtime/middleware";
-import { issueEditorSessionCookie } from "../../packages/core/src/runtime/auth/session";
+import { issueEditorSessionCookies } from "../../packages/core/src/runtime/auth/session";
 import { __setRuntimeServicesForTests } from "../../packages/core/src/runtime/providers";
 
 vi.mock("../../packages/core/src/runtime/config.js", () => ({ getRuntimeConfig: () => ({ mountPath: "/admin", apiBasePath: "/api/cms", editorHome: "/" }) }));
@@ -30,7 +30,7 @@ function put(collection: string, data: Record<string, unknown>, revision = 0, ba
 }
 async function route(base: InMemoryAdapter, handler: (ctx: any) => Promise<Response>, path: string, body?: unknown, preview = false) {
   __setRuntimeServicesForTests({ adapter: base, uploadHandler: { upload: vi.fn() } });
-  const token = decodeURIComponent(issueEditorSessionCookie().split(";")[0].split("=")[1]);
+  const token = decodeURIComponent(issueEditorSessionCookies()[0].split(";")[0].split("=")[1]);
   const url = new URL(path, "http://localhost");
   const request = new Request(url, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json", "x-caret-request": "1" }, body: JSON.stringify(body) });
   const context = { request, url, locals: {}, cookies: { get(name: string) { return name === "caret_session" ? { value: token } : preview && name === "caret_preview" ? { value: "1" } : undefined; } } };

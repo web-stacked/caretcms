@@ -273,8 +273,8 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           }).catch(function () {});
 
         // ── Sign out ───────────────────────────────────────────────────
-        // Drafts from a password session can't be reopened after signing out,
-        // so ask first when any are unpublished.
+        // Drafts from a throwaway (demo) session can't be reopened after
+        // signing out, so ask first when any are unpublished.
         var logoutBtn = document.getElementById('studio-logout-btn');
         function signOut() {
           fetch(apiBase + '/auth/logout', {

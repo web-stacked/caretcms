@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { POST } from "../../packages/core/src/runtime/routes/publish";
 import { GET } from "../../packages/core/src/runtime/routes/draft";
-import { issueEditorSessionCookie, getEditorId } from "../../packages/core/src/runtime/auth/session";
+import { issueEditorSessionCookies, getEditorId } from "../../packages/core/src/runtime/auth/session";
 import { __setRuntimeServicesForTests } from "../../packages/core/src/runtime/providers";
 import { MarkdownAdapter } from "../../packages/core/src/runtime/storage/markdown-adapter";
 import { SessionOverlayAdapter } from "../../packages/core/src/runtime/storage/session-overlay-adapter";
@@ -35,7 +35,7 @@ beforeEach(async () => {
   vi.stubEnv("CARET_SESSION_SECRET", "test-secret");
   vi.stubEnv("CARET_GIT_ON_PUBLISH", "true");
   vi.stubEnv("CARET_GIT_JOURNAL_RETRY", "true");
-  const session = issueEditorSessionCookie("/").split(";")[0].split("=").slice(1).join("=");
+  const session = issueEditorSessionCookies("/")[0].split(";")[0].split("=").slice(1).join("=");
   cookies = { get: name => name === "caret_session" ? { value: session } : undefined };
   base = new MarkdownAdapter({ contentRoot: join(dir, "src/content"), metaRoot: join(dir, ".caretcms"), draftsRoot: join(dir, ".caret/drafts") });
   fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("accepted", { status: 202 }));
@@ -85,7 +85,7 @@ it("refuses unavailable Git before applying content in durable mode", async () =
 it("does not expose another editor's private queue", async () => {
   writeFileSync(join(dir, ".git/index.lock"), "Another writer");
   await post();
-  const session = issueEditorSessionCookie("/").split(";")[0].split("=").slice(1).join("=");
+  const session = issueEditorSessionCookies("/")[0].split(";")[0].split("=").slice(1).join("=");
   cookies = { get: name => name === "caret_session" ? { value: session } : undefined };
   expect(await (await state()).json()).not.toHaveProperty("journalPending");
   expect(await (await post({ retryJournal: true })).json()).toMatchObject({ journal: { pending: 0, completed: 0 } });
