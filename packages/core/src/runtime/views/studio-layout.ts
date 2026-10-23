@@ -22,7 +22,15 @@ export function serializeJsonForScript(value: unknown): string {
 }
 
 export type Crumb = { label: string; href?: string };
-export type StudioNavItem = { name: string; label: string; href: string; icon?: string; selected?: boolean };
+export type StudioNavItem = {
+  name: string;
+  label: string;
+  href: string;
+  icon?: string;
+  selected?: boolean;
+  /** The palette's "New …" action, when the editor may add entries here. */
+  create?: { label: string; href: string };
+};
 
 export type StudioLayoutOptions = {
   runtime: CaretRuntimeConfig;
@@ -220,9 +228,11 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           draftsTitle: m["signOut.draftsTitle"], draftsCopyOne: m["signOut.draftsCopyOne"],
           draftsCopyOther: m["signOut.draftsCopyOther"], cancel: m["common.cancel"],
           signOutAnyway: m["signOut.anyway"], openSite: m["signOut.openSite"],
+          actions: m["palette.actions"], visitSite: m["palette.openSite"],
+          switchTheme: m["palette.switchTheme"], themeTo: m["palette.themeTo"],
         })};
         var editorHome = ${serializeJsonForScript(runtime.editorHome)};
-        var navigation = ${serializeJsonForScript(navigation.map(({ name, label, href }) => ({ name, label, href })))};
+        var navigation = ${serializeJsonForScript(navigation.map(({ name, label, href, create }) => ({ name, label, href, create: create ?? null })))};
         var root = document.documentElement;
 
         // ── Theme: System → Light → Dark ───────────────────────────────
@@ -236,14 +246,16 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           if (themeBtn) themeBtn.setAttribute('aria-label', messages.label + ': ' + messages[theme]);
         }
         showTheme();
-        if (themeBtn) themeBtn.addEventListener('click', function () {
-          var next = { system: 'light', light: 'dark', dark: 'system' }[currentTheme()];
+        function setTheme(next) {
           if (next === 'system') delete root.dataset.theme; else root.dataset.theme = next;
           try {
             if (next === 'system') localStorage.removeItem('caret-studio-theme');
             else localStorage.setItem('caret-studio-theme', next);
           } catch (e) { /* the choice still applies to this page */ }
           showTheme();
+        }
+        if (themeBtn) themeBtn.addEventListener('click', function () {
+          setTheme({ system: 'light', light: 'dark', dark: 'system' }[currentTheme()]);
         });
 
         // ── Mobile sidebar ─────────────────────────────────────────────
@@ -352,11 +364,40 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
         var restoreFocus = null;
         var searchTimer = 0;
 
+        // Pages add their own actions (an entry's History) to this list.
+        var pageActions = window.caretStudioActions = window.caretStudioActions || [];
+        /** Every word of the query appears in the item's label, detail or keywords. */
+        function matches(item, words) {
+          var text = (item.label + ' ' + (item.detail || '') + ' ' + (item.keywords || '')).toLowerCase();
+          return words.every(function (word) { return text.indexOf(word) >= 0; });
+        }
+        function actions() {
+          var items = pageActions.map(function (action) {
+            return { group: messages.actions, label: action.label, keywords: action.keywords, run: action.run };
+          });
+          items.push({ group: messages.actions, label: messages.visitSite, keywords: 'view website preview home', run: function () { (window.top || window).location.href = editorHome; } });
+          ['light', 'dark', 'system'].forEach(function (theme) {
+            if (theme === currentTheme()) return;
+            items.push({
+              group: messages.actions,
+              label: messages.switchTheme,
+              detail: messages.themeTo.replace('{theme}', messages[theme]),
+              keywords: 'theme mode appearance ' + theme,
+              run: function () { setTheme(theme); },
+            });
+          });
+          return items;
+        }
         function staticResults(query) {
-          var q = query.toLowerCase();
-          var items = [{ group: messages.collections, label: messages.overview, href: mountPath + '/cms' }]
+          var words = query.toLowerCase().split(/\\s+/).filter(Boolean);
+          var places = [{ group: messages.collections, label: messages.overview, href: mountPath + '/cms' }]
             .concat(navigation.map(function (item) { return { group: messages.collections, label: item.label, href: item.href }; }));
-          return q ? items.filter(function (item) { return item.label.toLowerCase().indexOf(q) >= 0; }) : items;
+          if (!words.length) return places.concat(actions());
+          // "New …" actions only appear once the editor asks for one.
+          var creates = navigation.filter(function (item) { return item.create; }).map(function (item) {
+            return { group: messages.actions, label: item.create.label, detail: item.label, keywords: 'new add create', href: item.create.href };
+          });
+          return places.concat(creates, actions()).filter(function (item) { return matches(item, words); });
         }
         function render() {
           list.innerHTML = '';
@@ -392,6 +433,12 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
               detail.textContent = item.detail;
               option.appendChild(detail);
             }
+            if (item.snippet) {
+              var snippet = document.createElement('span');
+              snippet.className = 'studio-palette-snippet';
+              snippet.textContent = item.snippet;
+              option.appendChild(snippet);
+            }
             option.addEventListener('mousemove', function () { if (active !== index) { active = index; render(); } });
             option.addEventListener('click', function () { go(index); });
             list.appendChild(option);
@@ -419,19 +466,24 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
                 .then(function (body) {
                   var entries = body && Array.isArray(body.entries) ? body.entries : [];
                   return entries.map(function (entry) {
-                    return { group: messages.entries, label: entryTitle(entry.data, entry.id), detail: item.label, href: mountPath + '/cms/' + encodeURIComponent(item.name) + '/' + encodeURIComponent(entry.id) };
+                    var snippet = entry.match && typeof entry.match.snippet === 'string' ? entry.match.snippet : '';
+                    return { group: messages.entries, label: entryTitle(entry.data, entry.id), detail: item.label, snippet: snippet, href: mountPath + '/cms/' + encodeURIComponent(item.name) + '/' + encodeURIComponent(entry.id) };
                   });
                 }).catch(function () { return []; });
             })).then(function (groups) {
               if (token !== searchToken) return;
-              results = staticResults(query).concat([].concat.apply([], groups));
+              // Entries named by the query first, across collections; the sort is stable.
+              var found = [].concat.apply([], groups).sort(function (a, b) { return (a.snippet ? 1 : 0) - (b.snippet ? 1 : 0); });
+              results = staticResults(query).concat(found);
               render();
             });
           }, 180);
         }
         function go(index) {
           var item = results[index];
-          if (item) window.location.href = item.href;
+          if (!item) return;
+          if (item.run) { closePalette(); item.run(); }
+          else window.location.href = item.href;
         }
         function openPalette() {
           if (!palette.hidden) return;

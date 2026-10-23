@@ -19,6 +19,7 @@ import {
   renderStudioPage,
   serializeJsonForScript,
 } from "../views/studio-layout.js";
+import { studioNavigation } from "../views/studio-navigation.js";
 
 /** The on-page drawer lists at most this many entries from the page it covers. */
 const MAX_PAGE_ENTRIES = 8;
@@ -80,14 +81,7 @@ export async function GET(context: APIContext): Promise<Response> {
   const adapter = await resolveAdapter();
   const configuredCollections = await getStudioCollections(adapter);
 
-  const navigation = configuredCollections.map(({ name, config }) => ({
-    name,
-    icon: config.icon,
-    label: config.label || humanizeCollection(name),
-    href: config.singletonId
-      ? `${runtime.mountPath}/cms/${encodeURIComponent(name)}/${encodeURIComponent(config.singletonId)}`
-      : `${runtime.mountPath}/cms/${encodeURIComponent(name)}`,
-  }));
+  const navigation = await studioNavigation(runtime, adapter);
 
   const pageEntryKeys = readPageEntryKeys(context.url);
   const pageEntries = await Promise.all(pageEntryKeys.map(async ({ collection, id }) => {

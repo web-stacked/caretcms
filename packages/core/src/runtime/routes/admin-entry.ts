@@ -6,7 +6,6 @@ import { isEditorAuthenticated } from "../auth/session.js";
 import { getRuntimeConfig } from "../config.js";
 import { resolveAdapter } from "./_helpers.js";
 import {
-  getStudioCollections,
   isKnownStudioCollection,
   resolveCollectionStudioConfig,
 } from "../schema-registry.js";
@@ -15,13 +14,11 @@ import { publicationField, resolvePreviewPath } from "../collection-policy.js";
 import {
   escapeHtml,
   htmlResponse,
+  humanizeCollection,
   redirectResponse,
   renderStudioPage,
 } from "../views/studio-layout.js";
-
-function humanize(name: string): string {
-  return name.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
+import { studioNavigation } from "../views/studio-navigation.js";
 
 export async function GET(context: APIContext): Promise<Response> {
   const runtime = getRuntimeConfig();
@@ -48,17 +45,8 @@ export async function GET(context: APIContext): Promise<Response> {
       `${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(collectionConfig.singletonId)}`,
     );
   }
-  const label = collectionConfig.label || humanize(collection);
-  const studioCollections = await getStudioCollections(adapter);
-  const navigation = studioCollections.map(({ name, config }) => ({
-    name,
-    icon: config.icon,
-    label: config.label || humanize(name),
-    href: config.singletonId
-      ? `${runtime.mountPath}/cms/${encodeURIComponent(name)}/${encodeURIComponent(config.singletonId)}`
-      : `${runtime.mountPath}/cms/${encodeURIComponent(name)}`,
-    selected: name === collection,
-  }));
+  const label = collectionConfig.label || humanizeCollection(collection);
+  const navigation = await studioNavigation(runtime, adapter, collection);
   const editable = await canPerform("edit", collection, id);
   const deletable = editable && collectionConfig.deletable !== false && !collectionConfig.singletonId && await canPerform("delete", collection, id);
   const canRestore = editable && await canPerform("publish", collection, id);

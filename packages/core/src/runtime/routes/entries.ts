@@ -1,6 +1,7 @@
 export const prerender = false;
 
 import type { APIContext } from "astro";
+import { matchEntry } from "../entry-search.js";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { parseCollectionName, parseEntryId } from "../mutations/contracts.js";
 import { stripBodyOverlay } from "../utils.js";
@@ -18,6 +19,8 @@ type CmsEntryResponse = {
   baseRevision?: number;
   validationIssues?: JsonSchemaValidationIssue[];
   readError?: { code: string; error: string };
+  /** For a search hit inside a field rather than the title: where, and the words around it. */
+  match?: { field: string; snippet: string };
 };
 
 function withValidation(
@@ -166,25 +169,38 @@ export async function GET(context: APIContext): Promise<Response> {
       }
       return Promise.all(ids.map(readEntry));
     }
-    const titleKeys = ["name", "title", "question", "company_name", "headline", "label"];
     const filteredIds: string[] = [];
+    const fieldMatches = new Map<string, { field: string; snippet: string }>();
     // Bounded batches avoid unbounded simultaneous reads on remote adapters.
     if (q) {
+      const titleHits: string[] = [];
+      const fieldHits: string[] = [];
       for (let offset = 0; offset < allIds.length; offset += 20) {
         const batch = await readBatch(allIds.slice(offset, offset + 20));
         for (const entry of batch) {
           if (!entry) continue;
-          const title = titleKeys.map(key => entry.data[key]).find(value => typeof value === "string" && value);
-          if (entry.id.toLowerCase().includes(q) || (typeof title === "string" && title.toLowerCase().includes(q))) filteredIds.push(entry.id);
+          const match = matchEntry(entry.id, entry.data, q);
+          if (match?.kind === "title") titleHits.push(entry.id);
+          else if (match) {
+            fieldHits.push(entry.id);
+            fieldMatches.set(entry.id, { field: match.field, snippet: match.snippet });
+          }
         }
       }
+      // Entries named by the query come before ones that only mention it.
+      filteredIds.push(...titleHits, ...fieldHits);
     } else filteredIds.push(...allIds);
     const total = filteredIds.length;
     const totalPages = total > 0 ? Math.ceil(total / pageSize) : 0;
     const effectivePage = totalPages === 0 ? 1 : Math.min(page, totalPages);
     const start = (effectivePage - 1) * pageSize;
     const pageIds = filteredIds.slice(start, start + pageSize);
-    const entries = (await readBatch(pageIds)).filter((entry): entry is CmsEntryResponse => entry !== null);
+    const entries = (await readBatch(pageIds))
+      .filter((entry): entry is CmsEntryResponse => entry !== null)
+      .map((entry) => {
+        const match = fieldMatches.get(entry.id);
+        return match ? { ...entry, match } : entry;
+      });
 
     return json({
       entries,

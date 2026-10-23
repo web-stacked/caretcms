@@ -6,7 +6,6 @@ import { isEditorAuthenticated } from "../auth/session.js";
 import { getRuntimeConfig } from "../config.js";
 import { resolveAdapter } from "./_helpers.js";
 import {
-  getStudioCollections,
   getRegisteredSchema,
   isKnownStudioCollection,
   resolveCollectionStudioConfig,
@@ -15,16 +14,14 @@ import { publicationField } from "../collection-policy.js";
 import {
   escapeHtml,
   htmlResponse,
+  humanizeCollection,
   redirectResponse,
   renderCollectionIcon,
   renderIcon,
   renderStudioPage,
   serializeJsonForScript,
 } from "../views/studio-layout.js";
-
-function humanize(name: string): string {
-  return name.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
+import { studioNavigation } from "../views/studio-navigation.js";
 
 export async function GET(context: APIContext): Promise<Response> {
   const runtime = getRuntimeConfig();
@@ -50,17 +47,8 @@ export async function GET(context: APIContext): Promise<Response> {
       `${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(collectionConfig.singletonId)}`,
     );
   }
-  const label = collectionConfig.label || humanize(collection);
-  const studioCollections = await getStudioCollections(adapter);
-  const navigation = studioCollections.map(({ name, config }) => ({
-    name,
-    icon: config.icon,
-    label: config.label || humanize(name),
-    href: config.singletonId
-      ? `${runtime.mountPath}/cms/${encodeURIComponent(name)}/${encodeURIComponent(config.singletonId)}`
-      : `${runtime.mountPath}/cms/${encodeURIComponent(name)}`,
-    selected: name === collection,
-  }));
+  const label = collectionConfig.label || humanizeCollection(collection);
+  const navigation = await studioNavigation(runtime, adapter, collection);
   const messages = runtime.messages;
   const creatable = collectionConfig.creatable !== false && await canPerform("edit", collection);
   const orderable = collectionConfig.orderable !== false && await canPerform("edit", collection);
@@ -419,7 +407,8 @@ export async function GET(context: APIContext): Promise<Response> {
         // Entries without a title field (fixed pages, settings) read better by id.
         if (title === MSG['collection.untitled']) title = humanizeId(entry.id);
         var thumb = getThumb(entry.data);
-        var subtitle = getSubtitle(entry.data);
+        // A search hit inside a field shows the words it matched instead.
+        var subtitle = entry.match && typeof entry.match.snippet === 'string' ? entry.match.snippet : getSubtitle(entry.data);
         var publication = PUBLICATION_FIELD && entry.data && typeof entry.data[PUBLICATION_FIELD] === 'boolean'
           ? (entry.data[PUBLICATION_FIELD]
             ? '<span class="entry-card-status studio-chip success">' + htmlEsc(MSG['collection.published']) + '</span>'
@@ -659,6 +648,14 @@ export async function GET(context: APIContext): Promise<Response> {
         });
     }
     if (newBtn) newBtn.addEventListener('click', openDialog);
+    // The ⌘K palette's "New …" action links here with #new.
+    function openDialogFromHash() {
+      if (window.location.hash !== '#new' || !newBtn) return;
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      openDialog();
+    }
+    openDialogFromHash();
+    window.addEventListener('hashchange', openDialogFromHash);
     if (emptyCreateBtn) emptyCreateBtn.addEventListener('click', openDialog);
     createCloseBtn.addEventListener('click', closeDialog);
     createCancelBtn.addEventListener('click', closeDialog);

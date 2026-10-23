@@ -1427,6 +1427,13 @@ import { rebaseEdits } from './studio/merge.js';
   saveBtn.addEventListener("click", save);
   if (deleteBtn) deleteBtn.addEventListener("click", deleteEntry);
   historyBtn.addEventListener("click", loadHistory);
+  // The ⌘K palette offers this entry's history.
+  var studioWindow = /** @type {Window & { caretStudioActions?: Array<{ label: string, keywords: string, run: () => void }> }} */ (window);
+  (studioWindow.caretStudioActions = studioWindow.caretStudioActions || []).push({
+    label: msg("entry.versionHistory", "Version history"),
+    keywords: "history versions revisions restore",
+    run: function () { if (!creating && !historyBtn.hidden) loadHistory(); },
+  });
   historyCloseBtn.addEventListener("click", closeHistoryPanel);
 
   // Focusing a Studio control locates its live-page counterpart without
