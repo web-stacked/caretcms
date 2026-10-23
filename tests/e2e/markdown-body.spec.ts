@@ -80,9 +80,15 @@ async function renderFromFreshBuild(): Promise<string> {
     expect(response.ok).toBeTruthy();
     return await response.text();
   } finally {
-    if (server?.exitCode === null) {
-      server.kill("SIGTERM");
-      await new Promise<void>((resolveExit) => server.once("exit", () => resolveExit()));
+    if (server && server.exitCode === null && server.signalCode === null) {
+      // Listen before signalling so a fast exit isn't missed, and don't wait
+      // forever on a server that ignores SIGTERM.
+      const running = server;
+      const exited = new Promise<void>((resolveExit) => running.once("exit", () => resolveExit()));
+      running.kill("SIGTERM");
+      const forceKill = setTimeout(() => running.kill("SIGKILL"), 5_000);
+      await exited;
+      clearTimeout(forceKill);
     }
     rmSync(buildRoot, { recursive: true, force: true });
   }
