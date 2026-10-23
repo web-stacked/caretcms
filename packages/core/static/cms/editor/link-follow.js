@@ -119,15 +119,22 @@ function position(anchor, btn) {
 
 function scheduleHide() {
   cancelHide();
-  hideTimer = window.setTimeout(removeBtn, 180);
+  hideTimer = window.setTimeout(() => {
+    // Keyboard focus is on the button: keep it until focus moves on.
+    if (activeBtn && activeBtn.contains(document.activeElement)) return;
+    removeBtn();
+  }, 180);
 }
 
-/** @param {HTMLAnchorElement} anchor */
-function show(anchor) {
+/** @param {HTMLAnchorElement} anchor @param {{ fromHover?: boolean }} [options] */
+function show(anchor, { fromHover = false } = {}) {
   if (activeAnchor === anchor && activeBtn) {
     cancelHide();
     return;
   }
+  // The pointer passing over another link doesn't take the button away from
+  // keyboard focus.
+  if (fromHover && activeBtn && activeBtn.contains(document.activeElement)) return;
   removeBtn();
 
   const href = anchor.getAttribute("href");
@@ -158,6 +165,7 @@ function show(anchor) {
     cancelHide();
   });
   btn.addEventListener("mouseleave", scheduleHide);
+  btn.addEventListener("focusout", scheduleHide);
 
   document.body.appendChild(btn);
   activeBtn = btn;
@@ -189,7 +197,7 @@ export function mountLinkFollowAffordances() {
     const anchor = anchorFromEditable(editable);
     if (!anchor) return;
 
-    show(anchor);
+    show(anchor, { fromHover: true });
   });
 
   document.addEventListener("mouseout", (e) => {
