@@ -72,11 +72,16 @@ export function createStudioSync(options) {
     }, 80);
   }
 
-  /** @param {string} type @param {unknown} data */
-  function announceChange(type, data) {
+  /**
+   * @param {string} type @param {unknown} data
+   * @param {{ structural?: boolean }} [options] `structural`: the change goes
+   *   beyond text the page can update in place, so the page needs a refresh.
+   */
+  function announceChange(type, data, options = {}) {
     const message = {
       type, collection, id, data: data ? deepClone(data) : null,
       embedded: isEmbedded, studioPath: studioPath(), savedAt: now(),
+      ...(typeof options.structural === 'boolean' ? { structural: options.structural } : {}),
     };
     if (isEmbedded) {
       try { postToParent(message); } catch { /* Progressive enhancement. */ }

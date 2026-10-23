@@ -209,7 +209,6 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
   await page.locator("#btn-save").click();
-  await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await updateSave).ok()).toBe(true);
 
   const updated = await page.request.get("/api/cms/entries?collection=studio-fixture&id=first-studio-entry");
@@ -289,7 +288,6 @@ test("formatted fields keep supported markup while HTML editing stays secondary"
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
   await page.locator("#btn-save").click();
-  await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await saved).ok()).toBe(true);
   await page.reload();
   await expect(page.locator('[name="summary"] strong')).toHaveText("Bold opening");
@@ -397,7 +395,6 @@ test("Studio applies form edits on top of a conflicting save without reverting i
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
   await page.locator("#btn-save").click();
-  await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await conflict).status()).toBe(409);
   const conflictDialog = page.getByRole("dialog", { name: "Newer changes found" });
   await expect(conflictDialog).toContainText("Title — you edited this too");
@@ -540,7 +537,6 @@ test("Studio history restores the previous entry and keeps the replaced state un
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
   await page.locator("#btn-save").click();
-  await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await save).ok()).toBeTruthy();
 
   const historyButton = page.locator("#btn-history");
@@ -768,7 +764,6 @@ test("Studio refuses to empty a required field and points at it", async ({ page 
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
   await page.locator("#btn-save").click();
-  await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await rejectedSave).status()).toBe(400);
   await expect(title).toBeFocused();
   await expect(title).toHaveAttribute("aria-invalid", "true");
@@ -776,4 +771,44 @@ test("Studio refuses to empty a required field and points at it", async ({ page 
 
   const stored = await page.request.get("/api/cms/entries?collection=studio-fixture&id=seed-entry");
   expect((await stored.json()).entries[0].data.title).toBe("Seed entry");
+});
+
+test("Studio saves on its own after a pause, and Undo puts the previous value back", async ({ page }) => {
+  await page.goto("/admin/cms/studio-fixture/seed-entry");
+  const title = page.locator('[name="title"]');
+  await expect(title).toHaveValue("Seed entry");
+
+  const autosave = page.waitForResponse((response) =>
+    response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
+  );
+  await title.fill("Saved without a click");
+  expect((await autosave).ok()).toBe(true);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(title).toBeFocused();
+  await expect(page.locator("#status-msg")).toHaveText("All changes live");
+
+  const undo = page.waitForResponse((response) =>
+    response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
+  );
+  await page.locator("#btn-undo").click();
+  expect((await undo).ok()).toBe(true);
+  await expect(page.locator('[name="title"]')).toHaveValue("Seed entry");
+  await expect(page.locator("#status-msg")).toHaveText("Change undone");
+  const stored = await page.request.get("/api/cms/entries?collection=studio-fixture&id=seed-entry");
+  expect((await stored.json()).entries[0].data.title).toBe("Seed entry");
+});
+
+test("an autosave that fails validation points at the field without moving the cursor", async ({ page }) => {
+  await page.goto("/admin/cms/studio-fixture/seed-entry");
+  const title = page.locator('[name="title"]');
+  await expect(title).toHaveValue("Seed entry");
+
+  const refused = page.waitForResponse((response) =>
+    response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
+  );
+  await title.fill("");
+  expect((await refused).status()).toBe(400);
+  await expect(title).toBeFocused();
+  await expect(title).toHaveAttribute("aria-invalid", "true");
+  await expect(page.locator("#status-msg")).toHaveText("Not saved — fix the highlighted fields");
 });

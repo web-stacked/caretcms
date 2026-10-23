@@ -292,6 +292,7 @@ export async function GET(context: APIContext): Promise<Response> {
         <div class="editor-heading">
           <h1 id="entry-title">…</h1>
           <span id="status-msg" hidden></span>
+          <button id="btn-undo" type="button" class="studio-btn-ghost entry-undo" hidden>${escapeHtml(messages["entry.undo"])}</button>
           ${publicationFieldName ? `<span id="visibility-status" class="entry-visibility" aria-live="polite"></span>` : ""}
         </div>
         <div class="editor-actions">

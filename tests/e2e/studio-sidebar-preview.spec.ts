@@ -72,14 +72,16 @@ test("sidebar Studio links fields in both directions and stays on the entry afte
   await headlineInput.fill(previewHeadline);
   await expect(headline).toHaveText(previewHeadline);
 
+  // A text change is already on the page, so saving doesn't reload it (a
+  // reload would also reset the drawer mid-edit).
+  await page.evaluate(() => { (window as Window & { __caretStay?: boolean }).__caretStay = true; });
   const saved = page.waitForResponse((response) =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
-  const refreshed = page.waitForNavigation({ waitUntil: "domcontentloaded" });
   await studio.locator("#btn-save").click();
-  await studio.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await saved).ok()).toBe(true);
-  await refreshed;
+  await page.waitForTimeout(1000);
+  expect(await page.evaluate(() => (window as Window & { __caretStay?: boolean }).__caretStay)).toBe(true);
 
   await expect(headline).toHaveText(previewHeadline);
   await expect(panel).toHaveClass(/open/);

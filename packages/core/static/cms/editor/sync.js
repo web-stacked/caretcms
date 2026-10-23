@@ -31,6 +31,7 @@ const PENDING_SELECTION_KEY = 'caretcms:pending-preview-selection';
  * @property {Record<string, unknown> | null} [data]
  * @property {string} [studioPath]
  * @property {boolean} [embedded]
+ * @property {boolean} [structural] A save the page can't apply in place.
  */
 /** @typedef {SelectionMessage | EntryReadyMessage | ChangeMessage} SyncMessage */
 /**
@@ -86,6 +87,7 @@ export function normalizeSyncMessage(value) {
     type: /** @type {ChangeMessage['type']} */ (value.type),
     ...(value.data !== undefined ? { data: value.data } : {}),
     ...(typeof value.studioPath === 'string' ? { studioPath: value.studioPath } : {}),
+    ...(typeof value.structural === 'boolean' ? { structural: value.structural } : {}),
   };
 }
 
@@ -114,7 +116,9 @@ export function normalizePendingSelection(value) {
  * @param {object} options
  * @param {HTMLIFrameElement | null} options.studioIframe
  * @param {InlineEditorState} options.state
- * @param {(message: string, kind: 'success' | 'error') => void} options.showToast
+ * @param {((message: string, kind: 'success' | 'error') => void) & {
+ *   saved: (options: { message: string, action?: { label: string, onClick: () => void | Promise<void> } }) => unknown,
+ * }} options.showToast
  * @param {(text: string) => string} options.clientLinkify
  * @param {(element: Element) => void} options.onInlineSelection
  */
@@ -434,7 +438,18 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
 
     if (msg.type === 'cms:saved') {
       applySavedMessage(msg);
-      scheduleEmbeddedRefresh(msg);
+      // Text changes are already on the page. A layout change needs a reload,
+      // but reloading here would also reload the Studio drawer mid-edit, so
+      // offer it instead.
+      rememberStudioPath(msg);
+      if (msg.structural === true) {
+        showToast.saved({
+          message: 'Saved. Refresh to see the layout change.',
+          action: { label: 'Refresh', onClick: () => window.location.reload() },
+        });
+      } else if (msg.structural === undefined) {
+        scheduleEmbeddedRefresh(msg);
+      }
     }
 
     if (msg.type === 'cms:created' || msg.type === 'cms:deleted') {
@@ -465,7 +480,11 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
           return;
         }
 
-        if (msg.type === 'cms:saved') applySavedMessage(msg);
+        if (msg.type === 'cms:saved') {
+          applySavedMessage(msg);
+          // Text changes apply in place; only layout changes need a reload.
+          if (msg.structural === false) return;
+        }
         showToast('Saved — refreshing preview…', 'success');
         window.clearTimeout(refreshTimer);
         refreshTimer = window.setTimeout(() => window.location.reload(), 280);

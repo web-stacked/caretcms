@@ -450,7 +450,6 @@ test(`Studio edits ${style} frontmatter and preserves untouched YAML and body`, 
     await page.locator('[name="alt"]').fill("Changed alt");
     let pending = page.waitForResponse(isMutatePost);
     await page.locator("#btn-save").click();
-    await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
     expect((await pending).ok()).toBe(true);
     expect(readFileSync(path, "utf8")).toContain(scalar);
     await caption.fill("Edited first line\nEdited second line\n\n");
@@ -786,7 +785,6 @@ test("a new team member isn't stored or shown until its required fields are fill
 
     const refused = page.waitForResponse(isMutatePost);
     await page.locator("#btn-save").click();
-    await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
     expect((await refused).status()).toBe(400);
     await expect(page.locator('[name="role"]')).toHaveAttribute("aria-invalid", "true");
     await expect(page.locator('[data-field-path="role"] .studio-error-text')).toContainText("This field can't be empty");

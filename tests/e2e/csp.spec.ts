@@ -103,7 +103,6 @@ test("Studio modules load and save under a script CSP with hashes", async ({ pag
   await page.getByRole("textbox", { name: /^Title/ }).fill("Saved through Studio modules");
   const saved = page.waitForResponse(response => response.url().includes("/api/cms/mutate") && response.request().method() === "POST");
   await page.locator("#btn-save").click();
-  await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await saved).ok()).toBe(true);
   await page.reload();
   await expect(page.getByRole("textbox", { name: /^Title/ })).toHaveValue("Saved through Studio modules");

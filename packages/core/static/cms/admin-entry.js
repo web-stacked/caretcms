@@ -154,6 +154,45 @@ import { rebaseEdits } from './studio/merge.js';
   // editor presses Create with the required fields filled in.
   var creating = false;
 
+  // Edits save on their own ~1.5s after the last change. A save requested
+  // while one is running goes out as soon as it finishes.
+  var AUTOSAVE_DELAY_MS = 1500;
+  var AUTOSAVE = { auto: true };
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  var autosaveTimer;
+  var saveAgain = false;
+  // The entry as it was before the last save, for Undo.
+  /** @type {Record<string, unknown> | null} */
+  var undoData = null;
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  var undoTimer;
+  var undoBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-undo"));
+
+  /** Whether a change goes beyond text the page can update in place.
+   * @param {unknown} before @param {unknown} after @returns {boolean} */
+  function hasStructuralChange(before, after) {
+    if (typeof before === "string" && typeof after === "string") return false;
+    if (Array.isArray(before) || Array.isArray(after)) {
+      if (!Array.isArray(before) || !Array.isArray(after) || before.length !== after.length) return true;
+      return before.some(function (item, index) { return hasStructuralChange(item, after[index]); });
+    }
+    if (before && after && typeof before === "object" && typeof after === "object") {
+      var a = /** @type {Record<string, unknown>} */ (before), b = /** @type {Record<string, unknown>} */ (after);
+      var keys = Object.keys(a).concat(Object.keys(b).filter(function (key) { return !(key in a); }));
+      return keys.some(function (key) { return hasStructuralChange(a[key], b[key]); });
+    }
+    return before !== after;
+  }
+
+  /** @param {Record<string, unknown> | null} previous */
+  function offerUndo(previous) {
+    undoData = previous;
+    if (!undoBtn) return;
+    undoBtn.hidden = previous === null;
+    clearTimeout(undoTimer);
+    if (previous) undoTimer = setTimeout(function () { if (undoBtn) undoBtn.hidden = true; undoData = null; }, 10000);
+  }
+
   /** Empty required text fields, so a new entry never starts with placeholder content.
    * @param {Record<string, unknown>} data @param {Schema | null} schema */
   function blankRequiredText(data, schema) {
@@ -266,6 +305,9 @@ import { rebaseEdits } from './studio/merge.js';
     clearTimeout(dirtyTimer);
     dirtyTimer = setTimeout(updateSaveButton, 300);
     studioSync.queuePreview(entryData);
+    offerUndo(null);
+    clearTimeout(autosaveTimer);
+    if (!creating && CFG.editable !== false) autosaveTimer = setTimeout(function () { save(AUTOSAVE); }, AUTOSAVE_DELAY_MS);
   }
 
   function loginRedirect() {
@@ -399,20 +441,13 @@ import { rebaseEdits } from './studio/merge.js';
   }
 
   /* ─── Save / Delete ─────────────────────────────────────────────── */
-  async function save() {
-    if (!entryData || saving) return;
-    // Creating a hidden entry changes nothing visitors see, so skip the warning.
-    if (SAVE_TARGET === "live" && !(creating && publicationFieldName)) {
-      var liveConfirmationKey = "caretcms:confirmed-live-save";
-      var confirmed = false;
-      try { confirmed = sessionStorage.getItem(liveConfirmationKey) === "1"; } catch (e) { /* storage may be disabled */ }
-      if (!confirmed && !(await confirmAction({
-        title: msg("entry.liveConfirmTitle", "Save live changes?"),
-        copy: msg("entry.liveConfirm", "These changes will be visible on the live site as soon as saving finishes."),
-        action: msg("entry.saveLive", "Save live"),
-      }))) return;
-      try { sessionStorage.setItem(liveConfirmationKey, "1"); } catch (e) { /* confirmation still applies to this save */ }
-    }
+  /** @param {unknown} [options] `AUTOSAVE` for a save the editor didn't ask for. */
+  async function save(options) {
+    var auto = options === AUTOSAVE;
+    clearTimeout(autosaveTimer);
+    if (!entryData) return;
+    if (saving) { saveAgain = true; return; }
+    if (auto && (!isDirty() || creating)) return;
     saving = true;
     updateSaveButton();
     var preserveSaveStatus = false;
@@ -431,6 +466,11 @@ import { rebaseEdits } from './studio/merge.js';
       if (result.kind === "validation") {
           preserveSaveStatus = true;
           var firstInvalid = showValidationErrors(result.issues);
+          if (auto) {
+            // Point at the fields without moving the editor's cursor.
+            showStatus("error", msg("entry.fixFields", "Not saved — fix the highlighted fields"));
+            return;
+          }
           showStatus("error", msg("entry.validationFailed", "Validation failed") + " (" + result.issues.length + ")");
           if (firstInvalid) {
             firstInvalid.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -478,17 +518,41 @@ import { rebaseEdits } from './studio/merge.js';
         creating = false;
         history.replaceState(null, "", window.location.pathname);
       }
+      var previous = /** @type {Record<string, unknown>} */ (JSON.parse(originalJson || "{}"));
+      var wasUndo = Boolean(options && /** @type {{ undo?: boolean }} */ (options).undo);
       originalJson = JSON.stringify(entryData);
-      studioSync.announceChange("cms:saved", entryData);
-      showStatus("saved", SAVE_TARGET === "preview" ? savedStatusMessage() : msg("entry.savedLive", "Changes are live"));
+      studioSync.announceChange("cms:saved", entryData, { structural: hasStructuralChange(previous, entryData) });
+      if (wasUndo) {
+        offerUndo(null);
+        preserveSaveStatus = true;
+        showStatus("saved", msg("entry.undone", "Change undone"));
+      } else {
+        offerUndo(previous);
+        showStatus("saved", SAVE_TARGET === "preview" ? savedStatusMessage() : msg("entry.savedLive", "Changes are live"));
+      }
     }).catch(function () {
       preserveSaveStatus = true;
       showStatus("error", msg("common.error", "Error"));
     }).then(function () {
       saving = false;
       updateSaveButton(preserveSaveStatus);
+      if (saveAgain) {
+        saveAgain = false;
+        if (isDirty()) save(AUTOSAVE);
+      }
     });
   }
+
+  // Undo puts back the entry as it was before the last save, and saves it.
+  if (undoBtn) undoBtn.addEventListener("click", function () {
+    if (!undoData || saving) return;
+    entryData = fillDefaults(deepClone(undoData), entrySchema);
+    offerUndo(null);
+    fieldsEl.innerHTML = "";
+    renderFields(fieldsEl, entryData, entrySchema, "");
+    studioSync.queuePreview(entryData);
+    save({ undo: true });
+  });
 
   function deleteEntry() {
     deleteNameEl.textContent = displayTitle(entryData);
