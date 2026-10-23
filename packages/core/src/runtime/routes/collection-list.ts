@@ -526,40 +526,32 @@ export async function GET(context: APIContext): Promise<Response> {
       if (knownDuplicateIds.has(v) || allEntries.some(function (e) { return e.id === v; })) { errorEl.textContent = MSG['collection.duplicateId']; errorEl.hidden = false; confirmBtn.disabled = true; return; }
       errorEl.hidden = true; confirmBtn.disabled = false;
     }
+    // Opens the new entry's form. Nothing is stored until the editor presses
+    // Create there with the required fields filled in.
     function createEntry() {
       var entryId = idInput.value.trim();
       if (!entryId || !ID_RE.test(entryId)) return;
       confirmBtn.disabled = true;
       confirmBtn.textContent = MSG['collection.creating'];
-      fetch(API + '/schema?collection=' + encodeURIComponent(COLLECTION))
-        .then(function (res) { return res.ok ? res.json() : { template: {} }; })
-        .then(function (info) {
-          var template = (info && info.template) || {};
-          if ('slug' in template) template.slug = entryId;
-          if ('id' in template) template.id = entryId;
-          if (TITLE_FIELD && titleInput) template[TITLE_FIELD] = titleInput.value.trim();
-          return fetch(API + '/mutate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-caret-request': '1' },
-            credentials: 'same-origin',
-            body: JSON.stringify({ type: 'put_entry', collection: COLLECTION, id: entryId, data: template, createOnly: true }),
-          });
-        })
+      fetch(API + '/entries?collection=' + encodeURIComponent(COLLECTION) + '&id=' + encodeURIComponent(entryId), { credentials: 'same-origin' })
         .then(function (res) {
-          if (!res) return;
           if (res.status === 401) { window.location.href = MOUNT + '?redirect=' + encodeURIComponent(window.location.pathname); return; }
-          if (res.status === 409) {
-            knownDuplicateIds.add(entryId);
-            errorEl.textContent = MSG['collection.duplicateId'];
-            errorEl.hidden = false;
-            confirmBtn.disabled = true;
-            confirmBtn.textContent = CREATE_LABEL;
-            idInput.focus();
-            idInput.select();
-            return;
-          }
-          if (!res.ok) throw new Error('mutate failed');
-          window.location.href = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entryId) + '?new=1';
+          if (!res.ok) throw new Error('lookup failed');
+          return res.json().then(function (body) {
+            if (body && Array.isArray(body.entries) && body.entries.length > 0) {
+              knownDuplicateIds.add(entryId);
+              errorEl.textContent = MSG['collection.duplicateId'];
+              errorEl.hidden = false;
+              confirmBtn.disabled = true;
+              confirmBtn.textContent = CREATE_LABEL;
+              idInput.focus();
+              idInput.select();
+              return;
+            }
+            var target = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entryId) + '?new=1';
+            if (TITLE_FIELD && titleInput && titleInput.value.trim()) target += '&title=' + encodeURIComponent(titleInput.value.trim());
+            window.location.href = target;
+          });
         })
         .catch(function () {
           errorEl.textContent = MSG['collection.createFailed'];

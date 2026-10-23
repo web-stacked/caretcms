@@ -287,3 +287,37 @@ export function clearedRequiredText(
   walk(schema, before, after, "", 0);
   return issues;
 }
+
+/**
+ * Required text fields left empty. Creating an entry asks for them, so a new
+ * entry never appears with blank or placeholder content.
+ */
+export function emptyRequiredText(schema: JsonSchemaNode, data: unknown): JsonSchemaValidationIssue[] {
+  const issues: JsonSchemaValidationIssue[] = [];
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+  const resolve = (node: JsonSchemaNode): JsonSchemaNode | null => {
+    let current: JsonSchemaNode | null = node;
+    for (let hops = 0; current && typeof current.$ref === "string" && hops < 16; hops++) {
+      current = resolveLocalRef(schema, current.$ref);
+    }
+    return current;
+  };
+  const walk = (raw: JsonSchemaNode, value: unknown, path: string, depth: number) => {
+    const node = resolve(raw);
+    if (!node?.properties || !isRecord(value) || depth > 32) return;
+    const required = new Set(node.required ?? []);
+    for (const [key, child] of Object.entries(node.properties)) {
+      const childPath = path ? `${path}.${key}` : key;
+      const childNode = resolve(child);
+      const current = value[key];
+      if (required.has(key) && childNode?.type === "string" && (current === undefined || (typeof current === "string" && current.trim() === ""))) {
+        issues.push({ path: childPath, code: "required", message: "This field can't be empty" });
+      } else if (childNode) {
+        walk(childNode, current, childPath, depth + 1);
+      }
+    }
+  };
+  walk(schema, data, "", 0);
+  return issues;
+}

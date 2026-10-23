@@ -40,7 +40,7 @@ export function createStudioMutationClient({ apiBasePath, fetchImpl = fetch }) {
   }
 
   /**
-   * @param {{ collection: string, id: string, data: Record<string, unknown>, expectedRevision?: number, expectedBaseRevision?: number }} input
+   * @param {{ collection: string, id: string, data: Record<string, unknown>, expectedRevision?: number, expectedBaseRevision?: number, createOnly?: boolean }} input
    * @returns {Promise<SaveResult>}
    */
   async function save(input) {

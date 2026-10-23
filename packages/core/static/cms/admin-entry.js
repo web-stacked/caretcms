@@ -150,6 +150,25 @@ import { rebaseEdits } from './studio/merge.js';
     return entryData !== null && JSON.stringify(entryData) !== originalJson;
   }
 
+  // A new entry opened from the create dialog: nothing is stored until the
+  // editor presses Create with the required fields filled in.
+  var creating = false;
+
+  /** Empty required text fields, so a new entry never starts with placeholder content.
+   * @param {Record<string, unknown>} data @param {Schema | null} schema */
+  function blankRequiredText(data, schema) {
+    if (!schema || !schema.properties) return;
+    var required = schema.required || [];
+    Object.keys(schema.properties).forEach(function (key) {
+      var prop = /** @type {Schema} */ (schema.properties && schema.properties[key]);
+      if (!prop) return;
+      if (prop.type === "string" && required.indexOf(key) !== -1) data[key] = "";
+      else if (prop.type === "object" && data[key] && typeof data[key] === "object" && !Array.isArray(data[key])) {
+        blankRequiredText(/** @type {Record<string, unknown>} */ (data[key]), prop);
+      }
+    });
+  }
+
   /** @param {Record<string, unknown> | null} data */
   function displayTitle(data) {
     if (data && CFG.titleField) {
@@ -209,14 +228,17 @@ import { rebaseEdits } from './studio/merge.js';
   /** @param {boolean} [preserveStatus] */
   function updateSaveButton(preserveStatus) {
     var dirty = isDirty();
-    saveBtn.disabled = CFG.editable === false || !dirty || saving;
+    saveBtn.disabled = CFG.editable === false || (!dirty && !creating) || saving;
     saveBtn.classList.remove("studio-save-dirty", "studio-save-clean", "studio-save-saving");
-    saveBtn.classList.add(saving ? "studio-save-saving" : (dirty ? "studio-save-dirty" : "studio-save-clean"));
-    saveBtn.textContent = saving ? msg("common.saving", "Saving…") : (SAVE_TARGET === "preview" ? msg("entry.saveDraft", "Save draft") : msg("entry.saveLive", "Save live"));
+    saveBtn.classList.add(saving ? "studio-save-saving" : (dirty || creating ? "studio-save-dirty" : "studio-save-clean"));
+    saveBtn.textContent = saving ? msg("common.saving", "Saving…")
+      : creating ? msg("entry.create", "Create")
+      : (SAVE_TARGET === "preview" ? msg("entry.saveDraft", "Save draft") : msg("entry.saveLive", "Save live"));
     updateDisplayedTitle();
     updateVisibility();
     if (entryData !== null && !preserveStatus) {
       if (saving) showStatus("saving", SAVE_TARGET === "preview" ? msg("entry.savingDraft", "Saving draft…") : msg("entry.savingLiveChanges", "Saving live changes…"));
+      else if (creating) showStatus("dirty", msg("entry.notCreated", "Not created yet"));
       else if (dirty) showStatus("dirty", msg("entry.unsaved", "Unsaved changes"));
       else showStatus("saved", savedStatusMessage());
     }
@@ -379,7 +401,8 @@ import { rebaseEdits } from './studio/merge.js';
   /* ─── Save / Delete ─────────────────────────────────────────────── */
   async function save() {
     if (!entryData || saving) return;
-    if (SAVE_TARGET === "live") {
+    // Creating a hidden entry changes nothing visitors see, so skip the warning.
+    if (SAVE_TARGET === "live" && !(creating && publicationFieldName)) {
       var liveConfirmationKey = "caretcms:confirmed-live-save";
       var confirmed = false;
       try { confirmed = sessionStorage.getItem(liveConfirmationKey) === "1"; } catch (e) { /* storage may be disabled */ }
@@ -393,7 +416,7 @@ import { rebaseEdits } from './studio/merge.js';
     saving = true;
     updateSaveButton();
     var preserveSaveStatus = false;
-    /** @type {{ collection: string, id: string, data: Record<string, unknown>, expectedRevision?: number, expectedBaseRevision?: number }} */
+    /** @type {{ collection: string, id: string, data: Record<string, unknown>, expectedRevision?: number, expectedBaseRevision?: number, createOnly?: boolean }} */
     var payload = {
       collection: COLLECTION,
       id: ID,
@@ -401,6 +424,7 @@ import { rebaseEdits } from './studio/merge.js';
     };
     if (typeof entryRevision === "number") payload.expectedRevision = entryRevision;
     if (typeof entryBaseRevision === "number") payload.expectedBaseRevision = entryBaseRevision;
+    if (creating) payload.createOnly = true;
 
     mutationClient.save(payload).then(async function (result) {
       if (result.kind === "unauthorized") { loginRedirect(); return; }
@@ -450,6 +474,10 @@ import { rebaseEdits } from './studio/merge.js';
       if (result.kind === "error") throw new Error("save failed");
       clearFieldErrors();
       if (typeof result.revision === "number") entryRevision = result.revision;
+      if (creating) {
+        creating = false;
+        history.replaceState(null, "", window.location.pathname);
+      }
       originalJson = JSON.stringify(entryData);
       studioSync.announceChange("cms:saved", entryData);
       showStatus("saved", SAVE_TARGET === "preview" ? savedStatusMessage() : msg("entry.savedLive", "Changes are live"));
@@ -1424,6 +1452,13 @@ import { rebaseEdits } from './studio/merge.js';
         entryRevision = result.revision;
         entryBaseRevision = result.baseRevision;
         liveData = result.live;
+        if (IS_NEW && result.initialized) {
+          creating = true;
+          blankRequiredText(entryData, entrySchema);
+          var givenTitle = new URLSearchParams(window.location.search).get("title");
+          if (CFG.titleField && givenTitle) setNestedValue(entryData, CFG.titleField, givenTitle);
+          if (publicationFieldName) setNestedValue(entryData, publicationFieldName, false);
+        }
         originalJson = JSON.stringify(entryData);
         updateDisplayedTitle();
         renderFields(fieldsEl, entryData, entrySchema, "");
@@ -1434,13 +1469,13 @@ import { rebaseEdits } from './studio/merge.js';
           validationWarningEl.hidden = false;
         }
         updateSaveButton();
-        if (IS_NEW || result.initialized) {
+        if (creating) {
           var guide = document.getElementById("editor-guide");
           var guideTitle = document.getElementById("editor-guide-title");
           var guideCopy = document.getElementById("editor-guide-copy");
           if (guide) guide.setAttribute("open", "");
-          if (guideTitle) guideTitle.textContent = msg("entry.newGuideTitle", "Entry created with safe defaults");
-          if (guideCopy) guideCopy.textContent = msg("entry.newGuideCopy", "Fill in the fields below. Save becomes available after your first change. In the sidebar Studio, text and image edits preview on the page as you work; Save confirms them and refreshes the visual preview for structural changes. When publication is enabled, new entries stay private until Published is turned on.");
+          if (guideTitle) guideTitle.textContent = msg("entry.newGuideTitle", "New entry");
+          if (guideCopy) guideCopy.textContent = msg("entry.newGuideCopy", "Fill in the fields marked *, then press Create. Nothing is saved or shown on the site until then.");
         }
         editorEl.hidden = false;
         studioSync.announceReady();

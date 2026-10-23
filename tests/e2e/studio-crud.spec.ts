@@ -67,24 +67,28 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   await expect(createId).toHaveValue("draft-title");
   await createId.fill("first-studio-entry");
   await Promise.all([
-    page.waitForURL(/\/admin\/cms\/studio-fixture\/first-studio-entry\?new=1$/),
+    page.waitForURL(/\/admin\/cms\/studio-fixture\/first-studio-entry\?new=1&title=Draft%20title$/),
     page.locator("#btn-create-confirm").click(),
   ]);
 
-  await expect(page.getByText("Entry created with safe defaults")).toBeVisible();
+  await expect(page.getByText("New entry", { exact: true })).toBeVisible();
+  await expect(page.locator('[name="title"]')).toHaveValue("Draft title");
+  const notStored = await page.request.get("/api/cms/entries?collection=studio-fixture&id=first-studio-entry");
+  expect((await notStored.json()).entries).toHaveLength(0);
   await expect(page.locator("#fields")).not.toContainText("(optional)");
   await expect(page.getByText("Fields marked * are required.")).toBeVisible();
   await expect(page.locator(".caret-field-section-title")).toHaveText(["Content", "Repeatable content"]);
   await expect(page.getByText("Use bold, italic, or links to add emphasis.")).toBeVisible();
   await expect(page.locator('[name="title"]')).toHaveAttribute("aria-required", "true");
   await expect(page.locator('[name="summary"]')).toHaveAttribute("aria-describedby", "caret-field-summary-help");
-  await expect(page.locator("#status-msg")).toHaveText("All changes live");
+  await expect(page.locator("#status-msg")).toHaveText("Not created yet");
+  await expect(page.locator("#btn-save")).toHaveText("Create");
   await expect(page.locator("#save-target")).toHaveText("Saving live");
   await expect(page.locator("#visibility-status")).toHaveText("Hidden");
   await expect(page.locator("#btn-preview")).toHaveAttribute("target", "_blank");
   await expect(page.locator(".editor-action-bar")).toHaveCSS("position", "sticky");
   await page.locator('[name="title"]').fill("First studio entry");
-  await expect(page.locator("#status-msg")).toHaveText("Unsaved changes");
+  await expect(page.locator("#status-msg")).toHaveText("Not created yet");
   await page.locator('[name="published"]').check();
   await expect(page.locator("#visibility-status")).toHaveText("Public");
 
@@ -162,8 +166,8 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   const rejectedSave = page.waitForResponse((response) =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
+  // Creating a hidden entry changes nothing visitors see, so there's no live-save prompt.
   await page.locator("#btn-save").click();
-  await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await rejectedSave).status()).toBe(400);
   await expect(page.locator('[name="images.0.width"]')).toBeVisible();
   await expect(page.locator('[name="images.0.width"]')).toBeFocused();
@@ -198,11 +202,14 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   expect(typeof createdBody.entries[0].data.images[0].width).toBe("number");
   const firstRevision = createdBody.entries[0].revision;
 
+  await expect(page).toHaveURL(/\/admin\/cms\/studio-fixture\/first-studio-entry$/);
+  await expect(page.locator("#btn-save")).toHaveText("Save live");
   await page.locator('[name="summary"]').fill("Updated summary");
   const updateSave = page.waitForResponse((response) =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
   await page.locator("#btn-save").click();
+  await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await updateSave).ok()).toBe(true);
 
   const updated = await page.request.get("/api/cms/entries?collection=studio-fixture&id=first-studio-entry");
@@ -715,11 +722,11 @@ test("collection pagination reaches every entry and title search crosses pages",
   await page.locator("#create-title-input").fill("Duplicate post");
   await page.locator("#create-id-input").fill("post-30");
   await expect(page.locator("#btn-create-confirm")).toBeEnabled();
-  const duplicateResponse = page.waitForResponse((response) =>
-    response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
+  const duplicateLookup = page.waitForResponse((response) =>
+    response.url().includes("/api/cms/entries?collection=studio-fixture&id=post-30"),
   );
   await page.locator("#btn-create-confirm").click();
-  expect((await duplicateResponse).status()).toBe(409);
+  expect((await duplicateLookup).ok()).toBe(true);
   await expect(page.locator("#create-error"))
     .toHaveText("An entry with this ID already exists.");
   await expect(page.locator("#create-id-input")).toBeFocused();

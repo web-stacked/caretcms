@@ -767,3 +767,31 @@ test("emptying a required field on the page keeps its text and says why", async 
   await expect(author).not.toHaveClass(/cms-unsaved/);
   expect(readFileSync(POST, "utf8")).toContain(`author: ${original}`);
 });
+
+test("a new team member isn't stored or shown until its required fields are filled", async ({ page }) => {
+  const created = resolve(CONTENT_SITE, "src/content/team/noor-haddad.md");
+  try {
+    await loginAsEditor(page);
+    await page.goto("/admin/cms/team");
+    await page.locator("#btn-new").click();
+    await page.locator("#create-title-input").fill("Noor Haddad");
+    await Promise.all([
+      page.waitForURL(/\/admin\/cms\/team\/noor-haddad\?new=1&title=Noor%20Haddad$/),
+      page.locator("#btn-create-confirm").click(),
+    ]);
+
+    await expect(page.locator('[name="name"]')).toHaveValue("Noor Haddad");
+    await expect(page.locator('[name="role"]')).toHaveValue("");
+    expect(await (await page.request.get("/about")).text()).not.toContain("Noor Haddad");
+
+    const refused = page.waitForResponse(isMutatePost);
+    await page.locator("#btn-save").click();
+    await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
+    expect((await refused).status()).toBe(400);
+    await expect(page.locator('[name="role"]')).toHaveAttribute("aria-invalid", "true");
+    await expect(page.locator('[data-field-path="role"] .studio-error-text')).toContainText("This field can't be empty");
+    expect(await (await page.request.get("/about")).text()).not.toContain("Noor Haddad");
+  } finally {
+    rmSync(created, { force: true });
+  }
+});

@@ -17,7 +17,7 @@ import {
 } from "./contracts.js";
 import { resolveCollectionStudioConfig } from "../schema-registry.js";
 import { getRegisteredSchema } from "../schema-registry.js";
-import { clearedRequiredText, validateJsonSchema, type JsonSchemaNode } from "../../schema-utils.js";
+import { clearedRequiredText, emptyRequiredText, validateJsonSchema, type JsonSchemaNode } from "../../schema-utils.js";
 import { getRequestContext } from "../request-context.js";
 import { publicationField } from "../collection-policy.js";
 import { commitEntryChanges, historyForEditor } from "../storage/entry-commit.js";
@@ -314,7 +314,11 @@ async function applyPutEntry(
 
     const publicationFailure = await validatePublication(adapter, collection, data);
     if (publicationFailure) return publicationFailure;
-    const validationFailure = validateEntry(await collectionSchema(adapter, collection), data, before);
+    const schema = await collectionSchema(adapter, collection);
+    // Creating asks for every required text field up front.
+    const missing = command.createOnly && schema ? emptyRequiredText(schema, data) : [];
+    if (missing.length) return fail(400, "Entry does not match collection schema", { issues: missing });
+    const validationFailure = validateEntry(schema, data, before);
     if (validationFailure) return validationFailure;
 
     const committed = await commitEntryChanges(adapter, [{

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clearedRequiredText, type JsonSchemaNode } from "../../packages/core/src/schema-utils.js";
+import { clearedRequiredText, emptyRequiredText, type JsonSchemaNode } from "../../packages/core/src/schema-utils.js";
 
 const schema: JsonSchemaNode = {
   type: "object",
@@ -38,5 +38,15 @@ describe("clearedRequiredText", () => {
   it("ignores non-text values and missing fields", () => {
     expect(clearedRequiredText(schema, { name: "Mara" }, {})).toEqual([]);
     expect(clearedRequiredText(schema, { count: 2 }, { count: 0 })).toEqual([]);
+  });
+});
+
+describe("emptyRequiredText", () => {
+  it("lists required text fields that are empty or missing, including nested ones", () => {
+    expect(emptyRequiredText(schema, { name: " ", profile: {} }).map((issue) => issue.path)).toEqual(["name", "profile.bio"]);
+  });
+
+  it("passes when required text is filled and ignores optional fields", () => {
+    expect(emptyRequiredText(schema, { name: "Mara", role: "", profile: { bio: "Writes" } })).toEqual([]);
   });
 });
