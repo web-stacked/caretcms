@@ -2,6 +2,7 @@ import { createTextLinkInteractions } from './text-link-interactions.js';
 import { resolveBinding } from './helpers.js';
 import { ALLOWED_TAGS, sanitizeHtml } from './sanitize.js';
 import { SESSION_RESTORED_EVENT } from './session-recovery.js';
+import { bindUndo, dropEdit, recordEdit, undoLastEdit } from './undo-stack.js';
 
 /** @typedef {HTMLElement & { _caretSkipSave?: boolean }} EditableElement */
 /** @typedef {{ collection: string, id: string, field: string }} ResolvedCaretBinding */
@@ -29,59 +30,6 @@ let keydownBound = false;
 
 // Text edits save on their own: ~1.2s after typing stops, and on blur.
 const AUTOSAVE_DELAY_MS = 1200;
-
-/**
- * One undo step per edit (focus to blur), however many autosaves it took.
- * `apply` saves a value over the one expected to be stored.
- * @typedef {{ el: HTMLElement, edit: number, before: string, after: string,
- *   apply: (value: string, expected: string) => Promise<boolean> }} UndoStep
- */
-/** @type {UndoStep[]} */
-const undoSteps = [];
-/** @type {UndoStep[]} */
-const redoSteps = [];
-const UNDO_LIMIT = 50;
-let undoKeysBound = false;
-/** @type {ConflictToast | null} */
-let undoToast = null;
-
-/** Whether a saved on-page edit can be undone. */
-export function canUndoLastEdit() {
-  return undoSteps.length > 0;
-}
-
-export async function undoLastEdit() {
-  const step = undoSteps.pop();
-  if (!step) return;
-  if (await step.apply(step.before, step.after)) {
-    redoSteps.push(step);
-    undoToast?.saved({ message: 'Change undone', action: { label: 'Redo', onClick: redoLastEdit } });
-  } else {
-    undoSteps.push(step);
-  }
-}
-
-async function redoLastEdit() {
-  const step = redoSteps.pop();
-  if (!step) return;
-  if (await step.apply(step.after, step.before)) {
-    undoSteps.push(step);
-    undoToast?.saved({ message: 'Change redone', action: { label: 'Undo', onClick: undoLastEdit } });
-  } else {
-    redoSteps.push(step);
-  }
-}
-
-/** ⌘Z / Ctrl+Z undoes the last saved edit when no text field has focus
- * (inside a field the browser's own undo applies). @param {KeyboardEvent} event */
-function onUndoKeys(event) {
-  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== 'z') return;
-  const active = document.activeElement;
-  if (active instanceof HTMLElement && (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName))) return;
-  if (!(event.shiftKey ? redoSteps.length : undoSteps.length)) return;
-  event.preventDefault();
-  void (event.shiftKey ? redoLastEdit() : undoLastEdit());
-}
 
 // Fields whose last save failed, each with the function that saves it again.
 // Their text stays on the page and their snapshot stays at the last saved
@@ -153,11 +101,7 @@ export function mountTextEditors({
     showToast,
     editStarts,
   });
-  undoToast = showToast;
-  if (!undoKeysBound) {
-    document.addEventListener('keydown', onUndoKeys);
-    undoKeysBound = true;
-  }
+  bindUndo(showToast);
 
   if (!keydownBound) {
     document.addEventListener('keydown', onKeydown);
@@ -294,13 +238,7 @@ export function mountTextEditors({
 
     /** One undo step per edit: the first save of an edit adds it, later ones update it. @param {string} saved */
     const recordUndo = (saved) => {
-      const top = undoSteps[undoSteps.length - 1];
-      if (top && top.el === el && top.edit === edit) top.after = saved;
-      else {
-        undoSteps.push({ el, edit, before: editStarts.get(el) ?? '', after: saved, apply: applyUndo });
-        if (undoSteps.length > UNDO_LIMIT) undoSteps.shift();
-      }
-      redoSteps.length = 0;
+      recordEdit({ el, edit, before: editStarts.get(el) ?? '', after: saved, apply: applyUndo });
       editSaved = true;
     };
 
@@ -447,8 +385,7 @@ export function mountTextEditors({
 
     // An Escape after an autosave takes the edit back; it leaves no undo step.
     const dropUndoForEdit = () => {
-      const top = undoSteps[undoSteps.length - 1];
-      if (top && top.el === el && top.edit === edit) undoSteps.pop();
+      dropEdit(el, edit);
       editSaved = false;
     };
 

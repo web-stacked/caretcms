@@ -20,6 +20,7 @@
     "static/cms/editor/section-controls.js",
     "static/cms/editor/sync.js",
     "static/cms/editor/text-edit.js",
+    "static/cms/editor/undo-stack.js",
     "static/cms/editor/text-link-interactions.js",
     "static/cms/editor/image-edit.js",
     "static/cms/editor/image-utils.js",
