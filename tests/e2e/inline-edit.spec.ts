@@ -381,7 +381,7 @@ test.describe("inline editor — click to edit", () => {
     expect(mutate.ok()).toBeTruthy();
 
     // The save-confirmation toast appears.
-    await expect(page.getByText("Content saved")).toBeVisible();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
     await expect(page.locator(".cms-status-text")).toHaveText("Changes are live");
 
     // The override is persisted and rendered by the rewrite middleware for an
@@ -405,7 +405,7 @@ test.describe("inline editor — click to edit", () => {
     await replaceText(page, headline, newHeadline);
     const mutate = await blurToSave(page, headline);
     expect(mutate.ok()).toBeTruthy();
-    await expect(page.getByText("Content saved")).toBeVisible();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
     await expect(headline).toHaveText(newHeadline);
 
     const anonHtml = await fetchAnonymousHtml("/");
@@ -422,7 +422,7 @@ test.describe("inline editor — click to edit", () => {
     // First edit: revision 0 → 1. The editor now caches revision 1 for this entry.
     await replaceText(page, headline, "First edit");
     await blurToSave(page, headline);
-    await expect(page.getByText("Content saved")).toBeVisible();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 
     // A concurrent writer bumps the entry to revision 2 out-of-band, exactly as
     // a second editor (or another tab) would. The browser editor still believes
@@ -473,7 +473,7 @@ test.describe("inline editor — click to edit", () => {
     // Seed a cached revision (0 → 1) for this entry.
     await replaceText(page, headline, "Local first");
     await blurToSave(page, headline);
-    await expect(page.getByText("Content saved")).toBeVisible();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 
     // Out-of-band concurrent write bumps the revision behind the editor's back.
     const conflict = await page.request.post("/api/cms/mutate", {
@@ -540,7 +540,7 @@ test.describe("inline editor — click to edit", () => {
 
     await replaceText(page, headline, "Headline from this tab");
     await headline.evaluate((el) => (el as HTMLElement).blur());
-    await expect(page.getByText("Content saved")).toBeVisible();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
     await expect(page.getByText("This content changed elsewhere while you were editing.")).toHaveCount(0);
 
     const html = await fetchAnonymousHtml("/");
@@ -647,7 +647,7 @@ test.describe("inline editor — click to edit", () => {
     await page.keyboard.press("End");
     await page.keyboard.type(" Visitors see this.");
     await blurToSave(page, subtext);
-    await expect(page.getByText("Content saved")).toBeVisible();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 
     const html = await fetchAnonymousHtml("/");
     const visitorSubtext = html.match(/<p data-caret="hero\.subtext"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? "";
@@ -674,6 +674,82 @@ test.describe("inline editor — click to edit", () => {
     expect(await heading.evaluate((el) => getComputedStyle(el, "::before").content)).toBe('"Add text"');
     await heading.click();
     await expect(heading).toBeFocused();
+  });
+
+  test("typing saves on its own after a pause, without leaving the field", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await replaceText(page, headline, "Saved while typing");
+    const autosave = await page.waitForResponse(isMutatePost);
+    expect(autosave.ok()).toBe(true);
+    await expect(headline).toBeFocused();
+    expect(await fetchAnonymousHtml("/")).toContain("Saved while typing");
+  });
+
+  test("Undo puts the previous text back, and Cmd+Z and Cmd+Shift+Z undo and redo", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await replaceText(page, headline, "A headline to undo");
+    await blurToSave(page, headline);
+    const saved = page.locator(".cms-toast", { hasText: "Saved" });
+    await expect(saved).toBeVisible();
+    const undo = page.waitForResponse(isMutatePost);
+    await saved.getByRole("button", { name: "Undo" }).click();
+    expect((await undo).ok()).toBe(true);
+    await expect(headline).toHaveText(TEMPLATE_HEADLINE);
+    await expect(page.getByText("Change undone")).toBeVisible();
+    expect(await fetchAnonymousHtml("/")).not.toContain("A headline to undo");
+
+    const redo = page.waitForResponse(isMutatePost);
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    expect((await redo).ok()).toBe(true);
+    await expect(headline).toHaveText("A headline to undo");
+
+    const undoAgain = page.waitForResponse(isMutatePost);
+    await page.keyboard.press("ControlOrMeta+z");
+    expect((await undoAgain).ok()).toBe(true);
+    await expect(headline).toHaveText(TEMPLATE_HEADLINE);
+  });
+
+  test("an edit that autosaved several times is one undo step", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await replaceText(page, headline, "First draft");
+    await page.waitForResponse(isMutatePost);
+    await page.keyboard.type(" and more");
+    await page.waitForResponse(isMutatePost);
+    await headline.evaluate((el) => (el as HTMLElement).blur());
+    await expect(page.locator(".cms-toast", { hasText: "Saved" })).toBeVisible();
+
+    const undo = page.waitForResponse(isMutatePost);
+    await page.keyboard.press("ControlOrMeta+z");
+    expect((await undo).ok()).toBe(true);
+    await expect(headline).toHaveText(TEMPLATE_HEADLINE);
+    expect(await fetchAnonymousHtml("/")).toContain(TEMPLATE_HEADLINE);
+  });
+
+  test("Escape after an autosave takes the whole edit back", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await replaceText(page, headline, "Not wanted after all");
+    await page.waitForResponse(isMutatePost);
+    const revert = page.waitForResponse(isMutatePost);
+    await page.keyboard.press("Escape");
+    expect((await revert).ok()).toBe(true);
+    await expect(headline).toHaveText(TEMPLATE_HEADLINE);
+    expect(await fetchAnonymousHtml("/")).not.toContain("Not wanted after all");
   });
 
   test("swapping a hero image uploads, persists, and serves the new src", async ({ page }) => {

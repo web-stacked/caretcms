@@ -16,13 +16,67 @@ import { SESSION_RESTORED_EVENT } from './session-recovery.js';
  *     onLoadLatest: () => void,
  *   }) => unknown,
  *   pending: (options: { message: string, actions: { label: string, primary?: boolean, onClick: () => void | Promise<void> }[] }) => HTMLDivElement,
+ *   saved: (options: { message: string, action?: { label: string, onClick: () => void | Promise<void> } }) => HTMLDivElement,
  *   dismiss: (toast: HTMLDivElement) => void,
  * }} ConflictToast
  */
 
-/** @type {WeakMap<HTMLElement, string>} */
+/** Each field's last saved text. @type {WeakMap<HTMLElement, string>} */
 const snapshots = new WeakMap();
+/** Each field's text when the current edit began. @type {WeakMap<HTMLElement, string>} */
+const editStarts = new WeakMap();
 let keydownBound = false;
+
+// Text edits save on their own: ~1.2s after typing stops, and on blur.
+const AUTOSAVE_DELAY_MS = 1200;
+
+/**
+ * One undo step per edit (focus to blur), however many autosaves it took.
+ * `apply` saves a value over the one expected to be stored.
+ * @typedef {{ el: HTMLElement, edit: number, before: string, after: string,
+ *   apply: (value: string, expected: string) => Promise<boolean> }} UndoStep
+ */
+/** @type {UndoStep[]} */
+const undoSteps = [];
+/** @type {UndoStep[]} */
+const redoSteps = [];
+const UNDO_LIMIT = 50;
+let undoKeysBound = false;
+/** @type {ConflictToast | null} */
+let undoToast = null;
+
+async function undoLastEdit() {
+  const step = undoSteps.pop();
+  if (!step) return;
+  if (await step.apply(step.before, step.after)) {
+    redoSteps.push(step);
+    undoToast?.saved({ message: 'Change undone', action: { label: 'Redo', onClick: redoLastEdit } });
+  } else {
+    undoSteps.push(step);
+  }
+}
+
+async function redoLastEdit() {
+  const step = redoSteps.pop();
+  if (!step) return;
+  if (await step.apply(step.after, step.before)) {
+    undoSteps.push(step);
+    undoToast?.saved({ message: 'Change redone', action: { label: 'Undo', onClick: undoLastEdit } });
+  } else {
+    redoSteps.push(step);
+  }
+}
+
+/** ⌘Z / Ctrl+Z undoes the last saved edit when no text field has focus
+ * (inside a field the browser's own undo applies). @param {KeyboardEvent} event */
+function onUndoKeys(event) {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLowerCase() !== 'z') return;
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && (active.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName))) return;
+  if (!(event.shiftKey ? redoSteps.length : undoSteps.length)) return;
+  event.preventDefault();
+  void (event.shiftKey ? redoLastEdit() : undoLastEdit());
+}
 
 // Fields whose last save failed, each with the function that saves it again.
 // Their text stays on the page and their snapshot stays at the last saved
@@ -79,12 +133,12 @@ export function mountTextEditors({
       target.textContent = value;
     }
   };
-  /** @param {string} attr @param {string} value */
-  const syncBoundText = (attr, value) => {
+  /** @param {string} attr @param {string} value @param {HTMLElement} [except] an element still being typed in */
+  const syncBoundText = (attr, value, except) => {
     document.querySelectorAll('[data-caret]').forEach((node) => {
       if (!(node instanceof HTMLElement)) return;
       if (node.getAttribute('data-caret') !== attr) return;
-      if (node instanceof HTMLImageElement) return;
+      if (node instanceof HTMLImageElement || node === except) return;
       applyTextValue(node, value);
     });
   };
@@ -92,8 +146,13 @@ export function mountTextEditors({
     state,
     clientLinkify,
     showToast,
-    snapshots,
+    editStarts,
   });
+  undoToast = showToast;
+  if (!undoKeysBound) {
+    document.addEventListener('keydown', onUndoKeys);
+    undoKeysBound = true;
+  }
 
   if (!keydownBound) {
     document.addEventListener('keydown', onKeydown);
@@ -176,10 +235,17 @@ export function mountTextEditors({
       }
     }
 
+    let edit = 0;
+    let editSaved = false;
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let autosaveTimer;
+
     el.addEventListener('focus', () => {
       // An unsaved field keeps the snapshot of its last saved value, so the
       // next blur compares against that and saves the kept text again.
       const keepSnapshot = unsavedFields.has(el);
+      edit += 1;
+      editSaved = false;
       if (isRich) {
         if (!keepSnapshot) snapshots.set(el, el.innerHTML);
       } else if (isLinkable) {
@@ -190,6 +256,7 @@ export function mountTextEditors({
       } else if (!keepSnapshot) {
         snapshots.set(el, el.textContent || '');
       }
+      editStarts.set(el, snapshots.get(el) ?? '');
     });
 
     el.addEventListener('input', () => {
@@ -197,7 +264,50 @@ export function mountTextEditors({
       const current = isRich ? el.innerHTML : (el.textContent || '');
       if (current !== snapshot) state.dirtyEls.add(el);
       else state.dirtyEls.delete(el);
+      clearTimeout(autosaveTimer);
+      autosaveTimer = setTimeout(() => {
+        if (document.activeElement === el && state.linkPopupEl !== el) void commit({ fromBlur: true, live: true });
+      }, AUTOSAVE_DELAY_MS);
     });
+
+    /** Save `value` over `expected` for undo and redo. @param {string} value @param {string} expected */
+    const applyUndo = async (value, expected) => {
+      const resolved = resolveBinding(el, parseCaretAttr(attr));
+      if (!resolved) return false;
+      const result = await saveField(resolved.collection, resolved.id, resolved.field, value, { baseValue: expected });
+      if (result.ok) {
+        snapshots.set(el, value);
+        syncBoundText(attr, value);
+        flash(el, true);
+        return true;
+      }
+      showToast(result.reason === 'conflict'
+        ? "This text changed since, so it wasn't undone."
+        : "Couldn't undo the change. Try again.", 'error');
+      return false;
+    };
+
+    /** One undo step per edit: the first save of an edit adds it, later ones update it. @param {string} saved */
+    const recordUndo = (saved) => {
+      const top = undoSteps[undoSteps.length - 1];
+      if (top && top.el === el && top.edit === edit) top.after = saved;
+      else {
+        undoSteps.push({ el, edit, before: editStarts.get(el) ?? '', after: saved, apply: applyUndo });
+        if (undoSteps.length > UNDO_LIMIT) undoSteps.shift();
+      }
+      redoSteps.length = 0;
+      editSaved = true;
+    };
+
+    /** When an edit ends, confirm it once with Undo. @param {boolean} retried */
+    const finishEdit = (retried) => {
+      if (!editSaved) return;
+      editSaved = false;
+      showToast.saved({
+        message: retried ? 'Your change is saved' : 'Saved',
+        action: { label: 'Undo', onClick: undoLastEdit },
+      });
+    };
 
     // Save-conflict resolution: never silently discard the user's edit. Keep
     // their text in the field and offer an explicit choice. "Keep mine" re-saves
@@ -251,15 +361,20 @@ export function mountTextEditors({
     // Save the field's text if it differs from the last saved value. On blur
     // the element holds the text being edited; on a retry it holds the
     // rendered value (for linkable fields the kept text is in data-caret-raw).
-    /** @param {{ fromBlur?: boolean }} [options] */
-    const commit = async ({ fromBlur = false } = {}) => {
+    // `live` is an autosave while the editor is still typing: the element's
+    // DOM is left alone so the caret doesn't move. `cancel` is an Escape:
+    // the edit's starting text is saved back and no undo step is kept.
+    /** @param {{ fromBlur?: boolean, live?: boolean, cancel?: boolean }} [options] */
+    const commit = async ({ fromBlur = false, live = false, cancel = false } = {}) => {
       // A retry while the editor is typing in this field waits for its blur.
       if (!fromBlur && document.activeElement === el) return;
+      if (!live) clearTimeout(autosaveTimer);
       const snapshot = snapshots.get(el) ?? '';
+      const wasUnsaved = unsavedFields.has(el);
       let current;
       if (isRich) {
         current = sanitizeHtml(el.innerHTML);
-        el.innerHTML = current; // normalize
+        if (!live) el.innerHTML = current; // normalize
       } else if (isLinkable && !fromBlur) {
         current = el.getAttribute('data-caret-raw') || '';
       } else {
@@ -268,9 +383,11 @@ export function mountTextEditors({
 
       if (current === snapshot) {
         markSaved();
-        if (isLinkable) {
+        if (isLinkable && !live) {
           el.innerHTML = clientLinkify(current);
         }
+        if (cancel) dropUndoForEdit();
+        else if (!live) finishEdit(wasUnsaved);
         return;
       }
 
@@ -281,21 +398,25 @@ export function mountTextEditors({
       // Update raw attribute and re-render before saving
       if (isLinkable) {
         el.setAttribute('data-caret-raw', current);
-        el.innerHTML = clientLinkify(current);
+        if (!live) el.innerHTML = clientLinkify(current);
       }
 
       el.classList.add('cms-saving');
       const result = await saveField(resolved.collection, resolved.id, resolved.field, current, { baseValue: snapshot });
       el.classList.remove('cms-saving');
-      flash(el, result.ok);
+      if (!live) flash(el, result.ok);
 
       if (result.ok) {
-        const wasUnsaved = unsavedFields.has(el);
         markSaved();
         snapshots.set(el, current);
-        state.dirtyEls.delete(el);
-        syncBoundText(attr, current);
-        showToast(wasUnsaved ? 'Your change is saved' : 'Content saved', 'success');
+        const stillTyped = live && (isRich ? sanitizeHtml(el.innerHTML) : (el.textContent || '')) !== current;
+        if (!stillTyped) state.dirtyEls.delete(el);
+        syncBoundText(attr, current, live ? el : undefined);
+        if (cancel) dropUndoForEdit();
+        else {
+          recordUndo(current);
+          if (!live) finishEdit(wasUnsaved);
+        }
       } else if (result.reason === 'conflict') {
         markSaved();
         // Preserve the user's edit and let them choose — don't overwrite it.
@@ -319,23 +440,26 @@ export function mountTextEditors({
       }
     };
 
+    // An Escape after an autosave takes the edit back; it leaves no undo step.
+    const dropUndoForEdit = () => {
+      const top = undoSteps[undoSteps.length - 1];
+      if (top && top.el === el && top.edit === edit) undoSteps.pop();
+      editSaved = false;
+    };
+
     el.addEventListener('blur', async () => {
       removeLinkHint();
 
       // If link popup is active for this element, defer the save
       if (state.linkPopupEl === el) return;
 
-      // Skip save if Escape was pressed
+      // Escape put the edit's starting text back; save it if part of the
+      // edit had already autosaved.
       if (editableEl._caretSkipSave) {
         editableEl._caretSkipSave = false;
         state.dirtyEls.delete(el);
         markSaved();
-        if (isRich) {
-          el.innerHTML = snapshots.get(el) || '';
-        } else if (isLinkable) {
-          const raw = el.getAttribute('data-caret-raw') || '';
-          el.innerHTML = clientLinkify(raw);
-        }
+        await commit({ fromBlur: true, cancel: true });
         return;
       }
 

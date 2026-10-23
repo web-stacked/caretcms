@@ -7,13 +7,15 @@ const WARNING_SVG =
 
 /** @typedef {'success' | 'error' | 'warning'} ToastType */
 /** @typedef {{ label: string, primary?: boolean, onClick: () => void | Promise<void> }} ToastAction */
-/** @typedef {{ message: string, sticky?: boolean, actions?: ToastAction[], role?: string }} ToastOptions */
+/** @typedef {{ message: string, sticky?: boolean, actions?: ToastAction[], role?: string, duration?: number }} ToastOptions */
+/** @typedef {{ message: string, action?: ToastAction }} SavedOptions */
 /** @typedef {{ message: string, onKeepMine: () => void | Promise<void>, onLoadLatest: () => void | Promise<void>, keepLabel?: string, latestLabel?: string }} ConflictOptions */
 /** @typedef {{ message: string, actions: ToastAction[] }} PendingOptions */
 /**
  * @typedef {((message: string, type?: 'success' | 'error') => HTMLDivElement) & {
  *   conflict: (options: ConflictOptions) => HTMLDivElement,
  *   pending: (options: PendingOptions) => HTMLDivElement,
+ *   saved: (options: SavedOptions) => HTMLDivElement,
  *   dismiss: (toast: HTMLDivElement) => void,
  * }} ToastController
  */
@@ -64,7 +66,7 @@ export function createToast() {
   }
 
   /** @param {ToastType} type @param {ToastOptions} options @returns {HTMLDivElement} */
-  function render(type, { message, sticky, actions, role }) {
+  function render(type, { message, sticky, actions, role, duration = 2500 }) {
     const stack = ensureContainer();
 
     const toast = document.createElement('div');
@@ -113,7 +115,7 @@ export function createToast() {
     }
 
     stack.appendChild(toast);
-    if (!sticky) setTimeout(() => dismiss(toast), 2500);
+    if (!sticky) setTimeout(() => dismiss(toast), duration);
     return toast;
   }
 
@@ -150,6 +152,16 @@ export function createToast() {
   // warning rather than an error: nothing is lost, and the caller retries.
   showToast.pending = ({ message, actions }) =>
     render('warning', { message, sticky: true, role: 'alert', actions });
+
+  // A finished save, usually with Undo. One at a time, and long enough to
+  // reach the button.
+  /** @type {HTMLDivElement | null} */
+  let savedToast = null;
+  showToast.saved = ({ message, action }) => {
+    if (savedToast) dismiss(savedToast);
+    savedToast = render('success', { message, actions: action ? [action] : undefined, duration: 8000 });
+    return savedToast;
+  };
 
   showToast.dismiss = dismiss;
 

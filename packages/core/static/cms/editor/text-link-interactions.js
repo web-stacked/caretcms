@@ -10,13 +10,13 @@ import { escapeHtml } from './linkify.js';
  * @param {TextEditorState} options.state
  * @param {(text: string) => string} options.clientLinkify
  * @param {ShowToast} options.showToast
- * @param {WeakMap<HTMLElement, string>} options.snapshots
+ * @param {WeakMap<HTMLElement, string>} options.editStarts Each field's text when editing began; Escape restores it.
  */
 export function createTextLinkInteractions({
   state,
   clientLinkify,
   showToast,
-  snapshots,
+  editStarts,
 }) {
   /** @type {HTMLDivElement | null} */
   let activePopover = null;
@@ -259,7 +259,8 @@ export function createTextLinkInteractions({
       return;
     }
 
-    // Escape — revert to snapshot and blur without saving
+    // Escape — put back the text from when editing began, then blur; the blur
+    // saves that text if part of the edit had already autosaved.
     if (e.key === 'Escape') {
       if (activePopover) return;
 
@@ -275,17 +276,17 @@ export function createTextLinkInteractions({
 
       if (focused && focused.matches('[data-caret]')) {
         e.preventDefault();
-        const snapshot = snapshots.get(focused);
-        if (snapshot !== undefined) {
+        const start = editStarts.get(focused);
+        if (start !== undefined) {
           const isRich = focused.hasAttribute('data-caret-rich');
           const isLinkable = focused.hasAttribute('data-caret-raw');
           if (isRich) {
-            focused.innerHTML = snapshot;
+            focused.innerHTML = start;
           } else if (isLinkable) {
-            focused.innerHTML = clientLinkify(snapshot);
-            focused.setAttribute('data-caret-raw', snapshot);
+            focused.innerHTML = clientLinkify(start);
+            focused.setAttribute('data-caret-raw', start);
           } else {
-            focused.textContent = snapshot;
+            focused.textContent = start;
           }
           state.dirtyEls.delete(focused);
         }

@@ -39,7 +39,7 @@ test("a caretize-tagged element is editable and its edit persists", async ({ pag
   // Blur triggers save through the full-triple binding → mutate endpoint.
   const mutate = await blurToSave(page, h2);
   expect(mutate.ok()).toBeTruthy();
-  await expect(page.getByText("Content saved")).toBeVisible();
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 
   // The override is persisted and rendered by the rewrite middleware for an
   // anonymous visitor — the real end-to-end proof.
