@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { Buffer } from "node:buffer";
 import { test, expect } from "@playwright/test";
 import {
+  EDIT_PASSWORD,
   blurToSave,
   fetchAnonymousHtml,
   isMutatePost,
@@ -604,6 +605,34 @@ test.describe("inline editor — click to edit", () => {
     await context.setOffline(false);
     await expect(page.getByText("Your change is saved")).toBeVisible();
     expect(await fetchAnonymousHtml("/")).toContain("Written while offline");
+  });
+
+  test("an expired session asks to sign in again and then saves the kept edit", async ({ page, context }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await context.clearCookies();
+    await replaceText(page, headline, "Saved after signing in again");
+    await headline.evaluate((el) => (el as HTMLElement).blur());
+
+    const dialog = page.getByRole("dialog", { name: "Sign in again" });
+    await expect(dialog).toBeVisible();
+    await expect(headline).toHaveText("Saved after signing in again");
+    await expect(headline).toHaveClass(/cms-unsaved/);
+    await expect(dialog.getByLabel("Password")).toBeFocused();
+
+    await dialog.getByLabel("Password").fill("not-the-password");
+    await dialog.getByRole("button", { name: "Sign in" }).click();
+    await expect(dialog.getByText("That password isn't right.")).toBeVisible();
+
+    await dialog.getByLabel("Password").fill(EDIT_PASSWORD);
+    await dialog.getByRole("button", { name: "Sign in" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByText("Your change is saved")).toBeVisible();
+    await expect(headline).not.toHaveClass(/cms-unsaved/);
+    expect(await fetchAnonymousHtml("/")).toContain("Saved after signing in again");
   });
 
   test("an emptied field stays visible and clickable", async ({ page }) => {

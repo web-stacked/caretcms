@@ -3,7 +3,8 @@ import { canPerform } from "../authorization.js";
 export const prerender = false;
 
 import type { APIContext } from "astro";
-import { getEditorIdentity, isEditorAuthenticated } from "../auth/session.js";
+import { getEditorIdentity, hasConfiguredEditorPassword, isEditorAuthenticated } from "../auth/session.js";
+import { getRuntimeServices } from "../providers.js";
 import { json } from "./_helpers.js";
 
 export async function GET(context: APIContext): Promise<Response> {
@@ -21,5 +22,7 @@ export async function GET(context: APIContext): Promise<Response> {
     draftsSurviveSignOut: authenticated && Boolean(
       getRequestContext()?.identityAuthoritative && getRequestContext()?.identity?.id,
     ),
+    // Lets the editor offer a password field when a session ends mid-edit.
+    passwordLogin: !(await getRuntimeServices()).identityAdapter && hasConfiguredEditorPassword(),
   });
 }

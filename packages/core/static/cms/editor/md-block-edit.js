@@ -19,6 +19,7 @@ import { markdownBlockHtml, mountParagraphGroups, paragraphHtml, pasteParagraphT
 import { serializeBlock, domToSNodes, SerializeError } from './md-serialize.js';
 import { buildCmsUrl } from './config.js';
 import { mutateHeaders } from './security.js';
+import { SESSION_RESTORED_EVENT } from './session-recovery.js';
 
 /** @typedef {HTMLElement & { _caretSkipSave?: boolean }} MdEditableElement */
 /** @typedef {{ collection: string, id: string, blockPath: string }} MdBinding */
@@ -139,6 +140,12 @@ async function saveMdBlock(binding, src, html, group) {
   }
 }
 
+// Blocks whose save stopped because the session ended, each with the function
+// that saves it again once the editor signs back in.
+/** @type {Map<HTMLElement, () => Promise<void>>} */
+const awaitingSignIn = new Map();
+let sessionRetryBound = false;
+
 /**
  * @param {object} options
  * @param {MdEditorState} options.state
@@ -147,6 +154,12 @@ async function saveMdBlock(binding, src, html, group) {
  * @param {() => void} options.onUnauthorized
  */
 export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized }) {
+  if (!sessionRetryBound) {
+    window.addEventListener(SESSION_RESTORED_EVENT, () => {
+      for (const save of [...awaitingSignIn.values()]) void save();
+    });
+    sessionRetryBound = true;
+  }
   mountParagraphGroups();
   document.querySelectorAll('[data-caret-md]').forEach((el) => {
     if (!(el instanceof HTMLElement)) return;
@@ -205,7 +218,8 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
       else state.dirtyEls.delete(el);
     });
 
-    el.addEventListener('blur', async () => {
+    const commitBlock = async () => {
+      awaitingSignIn.delete(el);
       if (state.linkPopupEl === el) return;
 
       const editableEl = /** @type {MdEditableElement} */ (el);
@@ -271,11 +285,14 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
         state.dirtyEls.add(el);
         showToast('This content changed. Copy your edits, then reload before saving.', 'error');
       } else if (result.reason === 'unauthorized') {
+        state.dirtyEls.add(el);
+        awaitingSignIn.set(el, commitBlock);
         onUnauthorized();
       } else {
         state.dirtyEls.add(el);
         showToast('Failed to save. Your edits are kept here; focus and leave the block to retry.', 'error');
       }
-    });
+    };
+    el.addEventListener('blur', commitBlock);
   });
 }

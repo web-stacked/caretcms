@@ -9,7 +9,7 @@
  * - image editing
  * - content map
  */
-import { buildCmsUrl, clearCloudSessionToken, getEditorLoginUrl } from './editor/config.js';
+import { buildCmsUrl, clearCloudSessionToken } from './editor/config.js';
 import { parseCaretAttr, resolveBinding, flash } from './editor/helpers.js';
 import { clientLinkify } from './editor/linkify.js';
 import { createSaveField } from './editor/save-queue.js';
@@ -28,10 +28,7 @@ import { mountMdBlockEditors } from './editor/md-block-edit.js';
 import { mountLinkFollowAffordances } from './editor/link-follow.js';
 import { revealAndFade } from './editor/highlight.js';
 import { hydrateStega } from './editor/stega-hydrate.js';
-
-function redirectToEditorLogin() {
-  window.location.href = getEditorLoginUrl(window.location.href);
-}
+import { createSessionRecovery } from './editor/session-recovery.js';
 
 /**
  * A Set that reports its size after every change.
@@ -71,6 +68,9 @@ function boot() {
   // any scanner runs, so prop/component/loop content is click-to-edit too.
   hydrateStega();
 
+  const sessionRecovery = createSessionRecovery();
+  const onUnauthorized = () => sessionRecovery.handleExpired();
+
   mountEditorGuards(state);
   mountLinkFollowAffordances();
 
@@ -99,7 +99,7 @@ function boot() {
 
   const saveField = createSaveField({
     setStatus,
-    onUnauthorized: redirectToEditorLogin,
+    onUnauthorized,
   });
 
   const { iframe: studioIframe, placeOpposite } = mountStudioPanel({ studioButton });
@@ -170,7 +170,7 @@ function boot() {
       state,
       flash,
       showToast,
-      onUnauthorized: redirectToEditorLogin,
+      onUnauthorized,
     });
 
     mountImageEditors({
@@ -181,7 +181,7 @@ function boot() {
       saveField,
       setStatus,
       showToast,
-      onUnauthorized: redirectToEditorLogin,
+      onUnauthorized,
     });
     applyPageMode();
     primeRenderedRevisions();
@@ -205,7 +205,7 @@ function boot() {
     parseCaretAttr,
     setStatus,
     showToast,
-    onUnauthorized: redirectToEditorLogin,
+    onUnauthorized,
     onCanvasStructureChanged: mountInlineEditors,
   });
 

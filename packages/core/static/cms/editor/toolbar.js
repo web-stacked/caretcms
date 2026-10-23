@@ -101,11 +101,11 @@ function renderToolbar(staticDelivery) {
         </button>
       </div>
     </div>
-    <div class="cms-signout-backdrop" hidden>
-      <div class="cms-signout-dialog" role="dialog" aria-modal="true" aria-labelledby="cms-signout-title" aria-describedby="cms-signout-copy">
+    <div class="cms-dialog-backdrop" hidden>
+      <div class="cms-dialog" role="dialog" aria-modal="true" aria-labelledby="cms-signout-title" aria-describedby="cms-signout-copy">
         <h2 id="cms-signout-title">Unpublished changes</h2>
         <p id="cms-signout-copy"></p>
-        <div class="cms-signout-actions">
+        <div class="cms-dialog-actions">
           <button class="cms-signout-cancel" type="button">Cancel</button>
           <button class="cms-signout-discard" type="button">Discard and sign out</button>
           <button class="cms-signout-keep" type="button">Keep drafts and sign out</button>
@@ -115,7 +115,7 @@ function renderToolbar(staticDelivery) {
     </div>
   `;
   document.body.appendChild(toolbar);
-  const signoutBackdrop = toolbar.querySelector('.cms-signout-backdrop');
+  const signoutBackdrop = toolbar.querySelector('.cms-dialog-backdrop');
   if (signoutBackdrop) document.body.appendChild(signoutBackdrop);
   return toolbar;
 }
@@ -194,8 +194,8 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, onLogout 
 
   /** @param {number} count @param {boolean} canKeep @returns {Promise<'publish' | 'keep' | 'discard' | 'cancel'>} */
   function chooseSignoutAction(count, canKeep) {
-    const backdrop = /** @type {HTMLElement} */ (document.querySelector('.cms-signout-backdrop'));
-    const dialog = /** @type {HTMLElement} */ (backdrop.querySelector('.cms-signout-dialog'));
+    const backdrop = /** @type {HTMLElement} */ (document.querySelector('.cms-dialog-backdrop'));
+    const dialog = /** @type {HTMLElement} */ (backdrop.querySelector('.cms-dialog'));
     const copy = /** @type {HTMLElement} */ (backdrop.querySelector('#cms-signout-copy'));
     const publish = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-publish'));
     const keep = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-keep'));
@@ -258,7 +258,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, onLogout 
    * @returns {Promise<boolean>}
    */
   function confirmToolbarAction({ title, copy, confirmLabel, danger = false, restoreFocus = null }) {
-    const backdrop = /** @type {HTMLElement} */ (document.querySelector('.cms-signout-backdrop'));
+    const backdrop = /** @type {HTMLElement} */ (document.querySelector('.cms-dialog-backdrop'));
     const titleEl = /** @type {HTMLElement} */ (backdrop.querySelector('#cms-signout-title'));
     const copyEl = /** @type {HTMLElement} */ (backdrop.querySelector('#cms-signout-copy'));
     const confirm = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-publish'));

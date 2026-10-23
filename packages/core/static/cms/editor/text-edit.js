@@ -1,6 +1,7 @@
 import { createTextLinkInteractions } from './text-link-interactions.js';
 import { resolveBinding } from './helpers.js';
 import { sanitizeHtml } from './sanitize.js';
+import { SESSION_RESTORED_EVENT } from './session-recovery.js';
 
 /** @typedef {HTMLElement & { _caretSkipSave?: boolean }} EditableElement */
 /** @typedef {{ collection: string, id: string, field: string }} ResolvedCaretBinding */
@@ -100,6 +101,7 @@ export function mountTextEditors({
   }
   if (!onlineRetryBound) {
     window.addEventListener('online', retryUnsavedFields);
+    window.addEventListener(SESSION_RESTORED_EVENT, retryUnsavedFields);
     onlineRetryBound = true;
   }
 
@@ -291,14 +293,15 @@ export function mountTextEditors({
         state.dirtyEls.delete(el);
         syncBoundText(attr, snapshot);
         showToast(`${result.message.replace(/\.$/, '')}. The previous text is back.`, 'error');
-      } else if (result.reason !== 'unauthorized') {
+      } else {
         // Never throw the editor's text away: keep it, mark the field, and
-        // retry on the next blur, when the browser comes back online, or from
-        // the notice's Retry action.
+        // retry on the next blur, when the browser comes back online or the
+        // session is restored, or from the notice's Retry action. An expired
+        // session has its own sign-in dialog instead of the notice.
         unsavedFields.set(el, commit);
         el.classList.add('cms-unsaved');
         state.dirtyEls.add(el);
-        showUnsavedNotice();
+        if (result.reason !== 'unauthorized') showUnsavedNotice();
       }
     };
 

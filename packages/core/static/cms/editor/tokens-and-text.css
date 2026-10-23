@@ -37,8 +37,8 @@
 .cms-link-follow,
 .cms-rich-toolbar,
 .cms-studio-panel,
-.cms-signout-backdrop,
-.cms-signout-dialog {
+.cms-dialog-backdrop,
+.cms-dialog {
   box-sizing: border-box;
   font-family: var(--cms-font);
   line-height: normal;

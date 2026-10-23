@@ -408,7 +408,7 @@ body:has(.cms-toolbar) #back-to-top {
   bottom: 80px;
 }
 
-.cms-signout-backdrop {
+.cms-dialog-backdrop {
   position: fixed;
   inset: 0;
   z-index: 2147483647;
@@ -417,8 +417,8 @@ body:has(.cms-toolbar) #back-to-top {
   padding: 1rem;
   background: rgba(0, 0, 0, 0.58);
 }
-.cms-signout-backdrop[hidden] { display: none; }
-.cms-signout-dialog {
+.cms-dialog-backdrop[hidden] { display: none; }
+.cms-dialog {
   width: min(100%, 32rem);
   padding: 1.25rem;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -428,24 +428,24 @@ body:has(.cms-toolbar) #back-to-top {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
   font-family: var(--cms-font);
 }
-.cms-signout-dialog h2 {
+.cms-dialog h2 {
   margin: 0 0 0.5rem;
   font-size: 1rem;
 }
-.cms-signout-dialog p {
+.cms-dialog p {
   margin: 0;
   color: rgba(255, 255, 255, 0.68);
   font-size: 0.82rem;
   line-height: 1.55;
 }
-.cms-signout-actions {
+.cms-dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
   margin-top: 1rem;
   flex-wrap: wrap;
 }
-.cms-signout-actions button {
+.cms-dialog-actions button {
   min-height: 34px;
   padding: 0 0.75rem;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -455,19 +455,57 @@ body:has(.cms-toolbar) #back-to-top {
   cursor: pointer;
   font: 500 0.75rem/1 var(--cms-font);
 }
-.cms-signout-actions button:hover,
-.cms-signout-actions button:focus-visible { border-color: var(--cms-blue); }
-.cms-signout-actions .cms-signout-publish {
+.cms-dialog-actions button:hover,
+.cms-dialog-actions button:focus-visible { border-color: var(--cms-blue); }
+.cms-dialog-actions .cms-signout-publish {
   border-color: var(--cms-green);
   background: rgba(34, 197, 94, 0.12);
   color: var(--cms-green);
 }
-.cms-signout-actions .cms-signout-publish.is-danger {
+.cms-dialog-actions .cms-signout-publish.is-danger {
   border-color: rgba(248, 113, 113, 0.42);
   background: rgba(248, 113, 113, 0.1);
   color: var(--cms-red);
 }
-.cms-signout-actions .cms-signout-discard { color: var(--cms-red); }
+.cms-dialog-actions .cms-signout-discard { color: var(--cms-red); }
+.cms-dialog-actions .cms-dialog-primary {
+  border-color: var(--cms-blue);
+  background: rgba(59, 130, 246, 0.16);
+  color: #dbeafe;
+}
+.cms-dialog-actions .cms-dialog-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 0.5rem;
+  color: rgba(255, 255, 255, 0.72);
+  font: 500 0.75rem/1 var(--cms-font);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.cms-dialog-actions .cms-dialog-link:hover,
+.cms-dialog-actions .cms-dialog-link:focus-visible { color: #f3f4f6; }
+.cms-reauth-label {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 1rem;
+  color: rgba(255, 255, 255, 0.8);
+  font: 500 0.78rem/1.2 var(--cms-font);
+}
+.cms-reauth-input {
+  min-height: 38px;
+  padding: 0 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f3f4f6;
+  font: 400 16px/1 var(--cms-font);
+}
+.cms-reauth-input:focus-visible { outline: 2px solid var(--cms-blue); outline-offset: 1px; }
+.cms-dialog p.cms-reauth-error {
+  margin-top: 0.5rem;
+  color: var(--cms-red);
+}
 
 /* Phones: tighten spacing so every control fits without horizontal scrolling.
    The Live/Draft label stays available to assistive tech and in the tooltip. */
