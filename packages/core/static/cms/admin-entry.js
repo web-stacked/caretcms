@@ -127,10 +127,6 @@ import { rebaseEdits } from './studio/merge.js';
   var historyPanel = /** @type {HTMLElement} */ (document.getElementById("history-panel"));
   var historyList = /** @type {HTMLElement} */ (document.getElementById("history-list"));
   var historyCloseBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-history-close"));
-  var deleteDialog = /** @type {HTMLElement} */ (document.getElementById("delete-dialog"));
-  var deleteNameEl = /** @type {HTMLElement} */ (document.getElementById("delete-entry-name"));
-  var deleteCancelBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-delete-cancel"));
-  var deleteConfirmBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-delete-confirm"));
   var confirmDialog = /** @type {HTMLElement} */ (document.getElementById("confirm-dialog"));
   var confirmTitleEl = /** @type {HTMLElement} */ (document.getElementById("confirm-dialog-title"));
   var confirmCopyEl = /** @type {HTMLElement} */ (document.getElementById("confirm-dialog-copy"));
@@ -141,8 +137,6 @@ import { rebaseEdits } from './studio/merge.js';
   var conflictCancelBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-conflict-cancel"));
   var conflictLatestBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-conflict-latest"));
   var conflictKeepBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-conflict-keep"));
-  /** @type {HTMLElement | null} */
-  var deleteRestoreFocus = null;
 
   /* ─── Helpers ───────────────────────────────────────────────────── */
 
@@ -554,28 +548,26 @@ import { rebaseEdits } from './studio/merge.js';
     save({ undo: true });
   });
 
+  // Deleting hands the entry to the collection page, which hides it, offers
+  // Undo and sends the deletion a few seconds later; see collection-list.ts.
   function deleteEntry() {
-    deleteNameEl.textContent = displayTitle(entryData);
-    // Close the More actions menu; focus returns to its button afterwards.
     var moreMenu = document.getElementById("entry-more");
-    var moreSummary = moreMenu ? moreMenu.querySelector("summary") : null;
     if (moreMenu && moreMenu.hasAttribute("open")) moreMenu.removeAttribute("open");
-    deleteRestoreFocus = moreSummary instanceof HTMLElement ? moreSummary
-      : document.activeElement instanceof HTMLElement ? document.activeElement : deleteBtn;
-    deleteDialog.hidden = false;
-    deleteCancelBtn.focus();
+    var pending = {
+      collection: COLLECTION, id: ID, title: displayTitle(entryData), at: Date.now(),
+      revision: entryRevision, baseRevision: entryBaseRevision,
+    };
+    try {
+      sessionStorage.setItem("caret:pending-delete", JSON.stringify(pending));
+    } catch (e) {
+      // Without session storage there's no way to offer Undo; delete now.
+      deleteNow();
+      return;
+    }
+    window.location.href = MOUNT + "/cms/" + encodeURIComponent(COLLECTION);
   }
 
-  function closeDeleteDialog() {
-    deleteDialog.hidden = true;
-    var restore = deleteRestoreFocus || deleteBtn;
-    deleteRestoreFocus = null;
-    if (restore instanceof HTMLElement && restore.isConnected) restore.focus();
-  }
-
-  function confirmDelete() {
-    deleteConfirmBtn.disabled = true;
-    deleteConfirmBtn.textContent = msg("entry.deleting", "Deleting…");
+  function deleteNow() {
     /** @type {{ collection: string, id: string, expectedRevision?: number, expectedBaseRevision?: number }} */
     var payload = { collection: COLLECTION, id: ID };
     if (typeof entryRevision === "number") payload.expectedRevision = entryRevision;
@@ -586,9 +578,6 @@ import { rebaseEdits } from './studio/merge.js';
       studioSync.announceChange("cms:deleted", null);
       window.location.href = MOUNT + "/cms/" + encodeURIComponent(COLLECTION);
     }).catch(function () {
-      closeDeleteDialog();
-      deleteConfirmBtn.disabled = false;
-      deleteConfirmBtn.textContent = msg("entry.delete", "Delete");
       showStatus("error", msg("entry.deleteFailed", "Delete failed"));
     });
   }
@@ -1438,27 +1427,6 @@ import { rebaseEdits } from './studio/merge.js';
   if (deleteBtn) deleteBtn.addEventListener("click", deleteEntry);
   historyBtn.addEventListener("click", loadHistory);
   historyCloseBtn.addEventListener("click", closeHistoryPanel);
-  deleteCancelBtn.addEventListener("click", closeDeleteDialog);
-  deleteConfirmBtn.addEventListener("click", confirmDelete);
-  deleteDialog.addEventListener("click", function (e) {
-    if (e.target === deleteDialog) closeDeleteDialog();
-  });
-  deleteDialog.addEventListener("keydown", function (e) {
-    if (deleteDialog.hidden) return;
-    if (e.key !== "Tab") return;
-    var controls = Array.from(deleteDialog.querySelectorAll("button:not([disabled])"));
-    var first = controls[0];
-    var last = controls[controls.length - 1];
-    if (!(first instanceof HTMLElement) || !(last instanceof HTMLElement)) return;
-    var active = document.activeElement;
-    if (e.shiftKey && (active === first || !deleteDialog.contains(active))) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  });
 
   // Focusing a Studio control locates its live-page counterpart without
   // stealing focus from the editor. The temporary blue cue is distinct from
@@ -1476,11 +1444,10 @@ import { rebaseEdits } from './studio/merge.js';
   });
 
   window.addEventListener("keydown", function (e) {
-    if (e.key === "Escape" && (!deleteDialog.hidden || !historyPanel.hidden)) {
+    if (e.key === "Escape" && !historyPanel.hidden) {
       e.preventDefault();
       e.stopPropagation();
-      if (!deleteDialog.hidden) closeDeleteDialog();
-      else closeHistoryPanel();
+      closeHistoryPanel();
       return;
     }
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {

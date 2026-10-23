@@ -333,23 +333,6 @@ export async function GET(context: APIContext): Promise<Response> {
     </div>
   </div>
 
-  <div id="delete-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" aria-describedby="delete-entry-name delete-dialog-copy" hidden>
-    <div class="modal-card modal-card-confirm">
-      <div class="icon-wrap">
-        <svg style="width:24px;height:24px;color:var(--studio-red);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-        </svg>
-      </div>
-      <h2 id="delete-dialog-title">${escapeHtml(messages["entry.deleteTitle"])}</h2>
-      <p class="delete-entry-name"><strong id="delete-entry-name"></strong></p>
-      <p id="delete-dialog-copy">${escapeHtml(messages["entry.deleteCopy"])}</p>
-      <div style="display:flex;justify-content:center;gap:0.75rem;">
-        <button id="btn-delete-cancel" type="button" class="studio-btn-ghost">${escapeHtml(messages["common.cancel"])}</button>
-        <button id="btn-delete-confirm" type="button" class="studio-btn-danger studio-btn-danger-confirm">${escapeHtml(messages["entry.delete"])}</button>
-      </div>
-    </div>
-  </div>
-
   <div id="confirm-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-copy" hidden>
     <div class="modal-card modal-card-confirm">
       <h2 id="confirm-dialog-title"></h2>

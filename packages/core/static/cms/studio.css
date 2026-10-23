@@ -868,17 +868,6 @@ button.studio-nav-link {
   padding: 1.5rem;
   text-align: center;
 }
-.modal-card-confirm .icon-wrap {
-  width: 48px;
-  height: 48px;
-  margin: 0 auto 1rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--studio-red-soft);
-  border-radius: 50%;
-}
 .modal-card-confirm h2 { font-size: 1rem; font-weight: 650; margin: 0 0 0.5rem; color: var(--studio-text); }
-.modal-card-confirm p.delete-entry-name { margin: -0.25rem 0 0.75rem; color: var(--studio-text); font-size: 0.9rem; overflow-wrap: anywhere; }
 .modal-card-confirm p { font-size: 0.85rem; line-height: 1.5; color: var(--studio-text-muted); margin: 0 0 1.5rem; }
 .modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.75rem; }

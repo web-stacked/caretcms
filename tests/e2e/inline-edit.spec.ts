@@ -362,6 +362,28 @@ test.describe("inline editor — click to edit", () => {
     expect(pageErrors).toEqual([]);
   });
 
+  test("deleting a section can be undone", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const hero = page.locator('section[data-caret-section-id="hero"]');
+    await expect(hero).toHaveClass(/cms-section-editable/);
+
+    await hero.hover();
+    await hero.getByText("More", { exact: true }).click();
+    const deleted = page.waitForResponse(isMutatePost);
+    await hero.getByRole("button", { name: "Delete", exact: true }).click();
+    expect((await deleted).ok()).toBe(true);
+    const toast = page.locator(".cms-toast", { hasText: "Section deleted" });
+    await expect(toast).toBeVisible();
+
+    const undone = page.waitForResponse(isMutatePost);
+    await toast.getByRole("button", { name: "Undo" }).click();
+    expect((await undone).ok()).toBe(true);
+    await expect(page.getByText("Change undone")).toBeVisible();
+    const stored = await (await page.request.get("/api/cms/entries?collection=pages&id=home")).json();
+    expect(stored.entries[0].data.layout.sections.map((section: { id: string }) => section.id)).toEqual(["hero", "philosophy"]);
+  });
+
   test("editing a headline persists and is served to anonymous visitors", async ({ page }) => {
     const NEW_HEADLINE = "Edited inline by the E2E suite";
 

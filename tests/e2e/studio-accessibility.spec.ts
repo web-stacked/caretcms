@@ -72,10 +72,11 @@ for (const colorScheme of ["light", "dark"] as const) test(`login, collection li
 
   await page.locator("#entry-more > summary").click();
   await page.locator("#btn-delete").click();
-  await expect(page.getByRole("dialog", { name: "Delete entry" })).toBeVisible();
-  await expect(page.locator("#btn-delete-cancel")).toBeFocused();
+  await expect(page.locator("#delete-notice")).toBeVisible();
   await expectNoAxeViolations(page);
-  await page.locator("#btn-delete-cancel").press("Escape");
+  await page.getByRole("button", { name: "Undo" }).click();
+  await page.goto("/admin/cms/studio-fixture/axe-entry");
+  await expect(page.locator("#editor")).toBeVisible();
 
   await page.locator("#entry-more > summary").click();
   await page.locator("#btn-history").click();

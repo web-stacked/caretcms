@@ -35,7 +35,9 @@ import { isPolicyDraftMode, isStaticDelivery } from '../config.js';
  * @param {{
  *   parseCaretAttr: (value: string) => ParsedCaretBinding | null,
  *   setStatus: (type: ToolbarStatusState, message: string) => void,
- *   showToast: (message: string, type?: ToastType) => void,
+ *   showToast: ((message: string, type?: ToastType) => void) & {
+ *     saved: (options: { message: string, action?: { label: string, onClick: () => void | Promise<void> } }) => unknown,
+ *   },
  *   onUnauthorized: () => void,
  *   onCanvasStructureChanged?: () => void,
  * }} options
@@ -61,6 +63,8 @@ export function mountSectionControls({
 
   /** @type {Section[]} */
   let sections = sectionsFromDom(sectionNodes);
+  // The layout as last saved, so Undo can put it back after the next save.
+  let savedLayout = structuredClone(sections);
   /** @type {Record<string, unknown>} */
   let entryData = {};
   let revision = 0;
@@ -527,6 +531,7 @@ export function mountSectionControls({
     }
 
     sections = latestSections;
+    savedLayout = structuredClone(sections);
     setStatus('idle', 'Layout synced');
     showToast('Layout conflict resolved with latest content.', 'success');
   }
@@ -580,8 +585,15 @@ export function mountSectionControls({
     },
   });
 
-  /** @param {string} successMessage */
-  async function persistWithReload(successMessage) {
+  // Undo saves the layout as it was before the last change.
+  /** @param {import('./model.js').Section[]} previous */
+  function undoLayout(previous) {
+    sections = structuredClone(previous);
+    void persistWithReload('Change undone', { undo: true });
+  }
+
+  /** @param {string} successMessage @param {{ undo?: boolean }} [options] */
+  async function persistWithReload(successMessage, { undo = false } = {}) {
     if (!canEditLayout()) return;
     if (busy) return;
 
@@ -619,6 +631,8 @@ export function mountSectionControls({
 
       revision = result.revision;
       syncEntryDataSections();
+      const previousLayout = savedLayout;
+      savedLayout = structuredClone(sections);
 
       if (!applySectionsToCanvas(sections)) {
         markRefreshRequired({
@@ -632,7 +646,9 @@ export function mountSectionControls({
 
       setStatus('idle', savesToDraft ? 'Layout draft saved' : 'Layout changes are live');
       if (savesToDraft) window.dispatchEvent(new CustomEvent('cms:draftSaved'));
-      showToast(successMessage, 'success');
+      showToast.saved(undo
+        ? { message: successMessage }
+        : { message: successMessage, action: { label: 'Undo', onClick: () => undoLayout(previousLayout) } });
     } catch {
       setStatus('error', 'Layout save failed');
       showToast('Failed to save layout', 'error');
@@ -674,6 +690,7 @@ export function mountSectionControls({
       revision = loaded.revision;
     baseRevision = loaded.baseRevision;
       sections = normalizeSectionsFromData(entryData, sections);
+      savedLayout = structuredClone(sections);
       mountControls();
       syncEntryDataSections();
     } catch (error) {

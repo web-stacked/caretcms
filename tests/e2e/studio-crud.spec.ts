@@ -216,33 +216,17 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   expect(updatedBody.entries[0].data.summary).toBe("Updated summary");
   expect(updatedBody.entries[0].revision).toBeGreaterThan(firstRevision);
 
-  const deleteButton = page.locator("#btn-delete");
+  // Delete hands the entry to the list, which sends the deletion after its
+  // Undo window.
   await page.locator("#entry-more > summary").click();
-  await deleteButton.click();
-  const deleteDialog = page.getByRole("dialog", { name: "Delete entry" });
-  const deleteCancel = page.locator("#btn-delete-cancel");
-  const deleteConfirm = page.locator("#btn-delete-confirm");
-  await expect(deleteDialog).toBeVisible();
-  await expect(deleteDialog).toContainText("First studio entry");
-  await expect(deleteCancel).toBeFocused();
-  await page.keyboard.press("Shift+Tab");
-  await expect(deleteConfirm).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(deleteCancel).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(deleteDialog).toBeHidden();
-  // Choosing Delete closes the More actions menu, so focus returns to its button.
-  await expect(page.locator("#entry-more > summary")).toBeFocused();
-
-  await page.locator("#entry-more > summary").click();
-  await deleteButton.click();
   const deleteResponse = page.waitForResponse((response) =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
-  );
+  { timeout: 15_000 });
   await Promise.all([
     page.waitForURL(/\/admin\/cms\/studio-fixture$/),
-    deleteConfirm.click(),
+    page.locator("#btn-delete").click(),
   ]);
+  await expect(page.locator("#delete-notice")).toContainText("Deleted “First studio entry”.");
   expect((await deleteResponse).ok()).toBe(true);
 
   const deleted = await page.request.get("/api/cms/entries?collection=studio-fixture&id=first-studio-entry");
@@ -310,16 +294,17 @@ test("embedded Studio Escape closes local overlays before the Studio drawer", as
   await expect(deleteButton).toBeVisible();
   await deleteButton.click();
 
-  const deleteDialog = studio.getByRole("dialog", { name: "Delete entry" });
-  const cancel = studio.locator("#btn-delete-cancel");
-  await expect(deleteDialog).toBeVisible();
-  await cancel.press("Escape");
-
-  await expect(deleteDialog).toBeHidden();
-  await expect(studio.locator("#entry-more > summary")).toBeFocused();
+  // Deleting inside the drawer moves it to the list, where Undo keeps the entry.
+  await expect(studio.locator("#delete-notice")).toContainText("Deleted");
+  await studio.getByRole("button", { name: "Undo" }).click();
+  await expect(studio.locator("#delete-notice")).toContainText("is back");
   await expect(panel).toBeVisible();
   await expect(page.getByRole("button", { name: "Studio", exact: true }))
     .toHaveAttribute("aria-expanded", "true");
+  await iframe.evaluate((element) => {
+    (element as HTMLIFrameElement).src = "/admin/cms/studio-fixture/seed-entry";
+  });
+  await expect(studio.locator("#editor")).toBeVisible();
 
   const historyButton = studio.locator("#btn-history");
   await studio.locator("#entry-more > summary").click();
@@ -811,4 +796,45 @@ test("an autosave that fails validation points at the field without moving the c
   await expect(title).toBeFocused();
   await expect(title).toHaveAttribute("aria-invalid", "true");
   await expect(page.locator("#status-msg")).toHaveText("Not saved — fix the highlighted fields");
+});
+
+test("deleting waits for its Undo window, and Undo keeps the entry", async ({ page }) => {
+  await page.goto("/admin/cms/studio-fixture/seed-entry");
+  await expect(page.locator("#editor")).toBeVisible();
+  let deletes = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/api/cms/mutate") && request.method() === "POST" && request.postData()?.includes("delete_entry")) deletes += 1;
+  });
+
+  await page.locator("#entry-more > summary").click();
+  await Promise.all([
+    page.waitForURL(/\/admin\/cms\/studio-fixture$/),
+    page.locator("#btn-delete").click(),
+  ]);
+  const notice = page.locator("#delete-notice");
+  await expect(notice).toContainText("Deleted “Seed entry”.");
+  await expect(page.locator("#entries-grid a", { hasText: "Seed entry" })).toHaveCount(0);
+
+  await notice.getByRole("button", { name: "Undo" }).click();
+  await expect(notice).toContainText("“Seed entry” is back.");
+  await expect(page.locator("#entries-grid a", { hasText: "Seed entry" })).toHaveCount(1);
+  await page.waitForTimeout(11_000);
+  expect(deletes).toBe(0);
+  const stored = await page.request.get("/api/cms/entries?collection=studio-fixture&id=seed-entry");
+  expect((await stored.json()).entries).toHaveLength(1);
+});
+
+test("leaving the list during the Undo window still deletes the entry", async ({ page }) => {
+  await page.goto("/admin/cms/studio-fixture/seed-entry");
+  await expect(page.locator("#editor")).toBeVisible();
+  await page.locator("#entry-more > summary").click();
+  await Promise.all([
+    page.waitForURL(/\/admin\/cms\/studio-fixture$/),
+    page.locator("#btn-delete").click(),
+  ]);
+  await expect(page.locator("#delete-notice")).toContainText("Deleted");
+  const sent = page.waitForRequest((request) => request.url().includes("/api/cms/mutate") && request.postData()?.includes("delete_entry") === true);
+  await page.goto("/admin/cms");
+  await sent;
+  await expect.poll(async () => (await (await page.request.get("/api/cms/entries?collection=studio-fixture&id=seed-entry")).json()).entries.length).toBe(0);
 });

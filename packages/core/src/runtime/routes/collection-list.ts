@@ -180,6 +180,21 @@ export async function GET(context: APIContext): Promise<Response> {
     .reorder-controls { display: flex; gap: 0.35rem; flex-shrink: 0; }
     .reorder-move { min-width: 32px; padding: 4px 8px; }
     .modal-card { max-width: 28rem; overflow: hidden; }
+    .list-notice {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin: 0 0 1rem;
+      padding: 0.6rem 0.75rem 0.6rem 1rem;
+      border: 1px solid var(--studio-border);
+      border-radius: var(--radius-theme-md);
+      background: var(--studio-surface);
+      color: var(--studio-text);
+      font-size: 0.875rem;
+    }
+    .list-notice[hidden] { display: none; }
     .modal-header {
       display: flex;
       align-items: center;
@@ -211,6 +226,10 @@ export async function GET(context: APIContext): Promise<Response> {
         ${creatable ? `<button id="btn-new" class="studio-btn-primary">${escapeHtml(newLabel)}</button>` : ""}
       </div>
     </header>
+    <div id="delete-notice" class="list-notice" role="status" hidden>
+      <span id="delete-notice-text"></span>
+      <button id="delete-undo" type="button" class="studio-btn-ghost">${escapeHtml(messages["collection.undo"])}</button>
+    </div>
 
     <div id="loading" style="display:flex;justify-content:center;padding:5rem 0;">
       <div class="studio-spinner" style="width:24px;height:24px;"></div>
@@ -469,7 +488,11 @@ export async function GET(context: APIContext): Promise<Response> {
             reorderScope.hidden = true;
           }
 
-          renderEntries(allEntries);
+          if (pendingDelete && allEntries.some(function (entry) { return entry.id === pendingDelete.id; })) {
+            var shown = paging.total - 1;
+            countEl.textContent = shown + ' ' + (shown === 1 ? MSG['count.entry'] : MSG['count.entries']);
+          }
+          renderEntries(pendingDelete ? allEntries.filter(function (entry) { return entry.id !== pendingDelete.id; }) : allEntries);
         })
         .catch(function () {
           if (version !== requestVersion) return;
@@ -477,6 +500,81 @@ export async function GET(context: APIContext): Promise<Response> {
           countEl.textContent = MSG['common.error'];
           errorState.hidden = false;
         });
+    }
+
+    /* ─── Deleting with Undo ────────────────────────────────────────── */
+    // The entry page hands a deletion over here. It waits ten seconds before
+    // it's sent, so Undo only has to show the entry again and nothing is ever
+    // lost, whatever the storage. Leaving the page sends it straight away.
+    var PENDING_DELETE_KEY = 'caret:pending-delete';
+    var DELETE_DELAY_MS = 10000;
+    var pendingDelete = null;
+    var deleteTimer = 0;
+    var noticeEl = document.getElementById('delete-notice');
+    var noticeText = document.getElementById('delete-notice-text');
+    var noticeUndo = document.getElementById('delete-undo');
+    try {
+      var handedOver = JSON.parse(sessionStorage.getItem(PENDING_DELETE_KEY) || 'null');
+      sessionStorage.removeItem(PENDING_DELETE_KEY);
+      if (handedOver && handedOver.collection === COLLECTION && typeof handedOver.id === 'string' && Date.now() - handedOver.at < 60000) {
+        pendingDelete = handedOver;
+      }
+    } catch (e) { /* no pending deletion */ }
+
+    function showNotice(text, undoable) {
+      noticeText.textContent = text;
+      noticeUndo.hidden = !undoable;
+      noticeEl.hidden = false;
+    }
+    function deleteRequest(entry, keepalive) {
+      var body = { type: 'delete_entry', collection: COLLECTION, id: entry.id };
+      if (typeof entry.revision === 'number') body.expectedRevision = entry.revision;
+      if (typeof entry.baseRevision === 'number') body.expectedBaseRevision = entry.baseRevision;
+      return fetch(API + '/mutate', {
+        method: 'POST', keepalive: Boolean(keepalive), credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'x-caret-request': '1' },
+        body: JSON.stringify(body),
+      });
+    }
+    // Tell the page behind the Studio drawer, or a preview tab, to refresh.
+    function announceDeleted(id) {
+      var embedded = window.parent !== window;
+      var message = { type: 'cms:deleted', collection: COLLECTION, id: id, data: null, embedded: embedded, savedAt: Date.now() };
+      if (embedded) { try { window.parent.postMessage(message, window.location.origin); } catch (e) { /* progressive */ } }
+      try { var channel = new BroadcastChannel('caretcms:content'); channel.postMessage(message); channel.close(); } catch (e) { /* progressive */ }
+    }
+    function commitDelete() {
+      var entry = pendingDelete;
+      if (!entry) return;
+      pendingDelete = null;
+      clearTimeout(deleteTimer);
+      deleteRequest(entry, false).then(function (res) {
+        if (res.status === 401) { window.location.href = MOUNT + '?redirect=' + encodeURIComponent(window.location.pathname); return; }
+        if (!res.ok) throw new Error('delete failed');
+        noticeEl.hidden = true;
+        announceDeleted(entry.id);
+        loadEntries();
+      }).catch(function () {
+        showNotice(MSG['collection.deleteFailed'].replace('{title}', entry.title), false);
+        loadEntries();
+      });
+    }
+    noticeUndo.addEventListener('click', function () {
+      if (!pendingDelete) return;
+      clearTimeout(deleteTimer);
+      var title = pendingDelete.title;
+      pendingDelete = null;
+      showNotice(MSG['collection.restored'].replace('{title}', title), false);
+      loadEntries();
+    });
+    window.addEventListener('pagehide', function () {
+      if (!pendingDelete) return;
+      deleteRequest(pendingDelete, true);
+      pendingDelete = null;
+    });
+    if (pendingDelete) {
+      showNotice(MSG['collection.deleted'].replace('{title}', pendingDelete.title), true);
+      deleteTimer = setTimeout(commitDelete, DELETE_DELAY_MS);
     }
 
     loadEntries();
