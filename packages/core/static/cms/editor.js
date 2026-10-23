@@ -9,7 +9,7 @@
  * - image editing
  * - content map
  */
-import { buildCmsUrl, clearCloudSessionToken } from './editor/config.js';
+import { STUDIO_PATH, buildCmsUrl, clearCloudSessionToken } from './editor/config.js';
 import { parseCaretAttr, resolveBinding, flash } from './editor/helpers.js';
 import { clientLinkify } from './editor/linkify.js';
 import { createSaveField } from './editor/save-queue.js';
@@ -19,7 +19,7 @@ import { mountEditorGuards } from './editor/guards.js';
 import { mountToolbar, normalizePreviewForDelivery } from './editor/toolbar.js';
 import { mountStudioPanel } from './editor/panel.js';
 import { mountStudioSync } from './editor/sync.js';
-import { mountTextEditors } from './editor/text-edit.js';
+import { canUndoLastEdit, mountTextEditors, undoLastEdit } from './editor/text-edit.js';
 import { mountImageEditors } from './editor/image-edit.js';
 import { mountSectionControls } from './editor/section-controls.js';
 import { mountContentMap } from './editor/content-map.js';
@@ -53,6 +53,9 @@ function boot() {
 
   /** @type {(unsaved: boolean) => void} */
   let reportUnsaved = () => {};
+  // Unsaved text on the page or in the Studio drawer both show on the status.
+  let inlineUnsaved = false;
+  let studioUnsaved = false;
 
   /** @type {{ dirtyEls: Set<Element>, linkPopupEl: HTMLElement | null }} */
   const state = {
@@ -60,7 +63,7 @@ function boot() {
     // completing on field A can't clear the dirty flag for field B the user has
     // since moved to — that would let the beforeunload guard miss B's edits.
     // Every change is reported so the toolbar can show "Unsaved changes".
-    dirtyEls: createObservedSet(size => reportUnsaved(size > 0)),
+    dirtyEls: createObservedSet(size => { inlineUnsaved = size > 0; reportUnsaved(inlineUnsaved || studioUnsaved); }),
     linkPopupEl: null,
   };
 
@@ -82,6 +85,8 @@ function boot() {
       state.dirtyEls.clear();
     },
     hasUnsavedEdits: () => state.dirtyEls.size > 0,
+    undo: { available: canUndoLastEdit, run: undoLastEdit },
+    onOpenHistory: () => openHistory(),
     onLogout: async () => {
       const response = await fetch(buildCmsUrl('/auth/logout'), {
         method: 'POST',
@@ -102,7 +107,27 @@ function boot() {
     onUnauthorized,
   });
 
-  const { iframe: studioIframe, placeOpposite } = mountStudioPanel({ studioButton });
+  const { iframe: studioIframe, placeOpposite, openAt } = mountStudioPanel({ studioButton });
+
+  // History for the entry this page shows: the one the drawer last had open,
+  // else the page's first editable binding.
+  function openHistory() {
+    if (!STUDIO_PATH) return;
+    let entryPath = '';
+    try {
+      const remembered = (sessionStorage.getItem('cms-panel-path') || '').split(/[?#]/)[0];
+      if (remembered.startsWith(`${STUDIO_PATH}/`) && /^\/[^/]+\/[^/]+$/.test(remembered.slice(STUDIO_PATH.length))) {
+        entryPath = remembered;
+      }
+    } catch { /* no remembered drawer route */ }
+    if (!entryPath) {
+      for (const element of document.querySelectorAll('[data-caret]')) {
+        const resolved = resolveBinding(element, parseCaretAttr(element.getAttribute('data-caret') || ''));
+        if (resolved) { entryPath = `${STUDIO_PATH}/${encodeURIComponent(resolved.collection)}/${encodeURIComponent(resolved.id)}`; break; }
+      }
+    }
+    if (entryPath) openAt(`${entryPath}#history`);
+  }
 
   mountStudioSync({
     studioIframe,
@@ -110,6 +135,7 @@ function boot() {
     showToast,
     clientLinkify,
     onInlineSelection: placeOpposite,
+    onStudioDirty: (dirty) => { studioUnsaved = dirty; reportUnsaved(inlineUnsaved || studioUnsaved); },
   });
 
   mountContentMap({ mapButton });

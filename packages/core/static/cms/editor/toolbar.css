@@ -50,25 +50,6 @@
   gap: 12px;
 }
 
-.cms-toolbar-badge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 4px;
-}
-
-.cms-toolbar-badge svg {
-  width: 14px;
-  height: 14px;
-  color: var(--cms-accent);
-}
-
-.cms-toolbar-badge-text {
-  color: var(--cms-accent);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0;
-}
 
 .cms-toolbar-divider {
   width: 1px;
@@ -196,40 +177,91 @@
   flex-shrink: 0;
 }
 
-/* Status indicator */
-.cms-status-group {
-  display: flex;
+/* Status pill: the dot's color is the save state; a hollow dot means edits
+   go to a draft. The word sits beside it; the panel holds the details. */
+.cms-toolbar button.cms-status-pill {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
+  background: transparent;
+  border-color: transparent;
+  color: rgba(255, 255, 255, 0.72);
+}
+.cms-toolbar button.cms-status-pill:hover,
+.cms-toolbar button.cms-status-pill[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .cms-status-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
+  flex: none;
   border-radius: 50%;
-  transition: background-color 0.3s, box-shadow 0.3s;
+  background-color: currentColor;
+  transition: color 0.3s;
+}
+.cms-status-pill[data-mode="draft"] .cms-status-dot {
+  background-color: transparent;
+  box-shadow: inset 0 0 0 2px currentColor;
 }
 
-.cms-status-idle {
-  background-color: var(--cms-green);
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
-}
-
+.cms-status-idle { color: var(--cms-green); }
 .cms-status-saving {
-  background-color: var(--cms-yellow);
-  box-shadow: 0 0 6px rgba(234, 179, 8, 0.4);
+  color: var(--cms-blue);
   animation: cms-dot-pulse 1s ease-in-out infinite;
 }
+.cms-status-dirty { color: var(--cms-yellow); }
+.cms-status-error { color: var(--cms-red); }
 
-.cms-status-dirty {
-  background-color: var(--cms-yellow);
-  box-shadow: 0 0 6px rgba(234, 179, 8, 0.4);
+@media (prefers-reduced-motion: reduce) {
+  .cms-status-saving { animation: none; }
 }
 
-.cms-status-error {
-  background-color: var(--cms-red);
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+.cms-status-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
 }
+
+.cms-status-panel {
+  position: fixed;
+  z-index: 2147483646;
+  width: min(300px, calc(100vw - 16px));
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: var(--cms-surface);
+  color: #f3f4f6;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  font: 400 0.8rem/1.5 var(--cms-font);
+}
+.cms-status-panel[hidden] { display: none; }
+.cms-status-panel p { margin: 0; }
+.cms-status-panel-mode { font-size: 0.85rem; }
+.cms-status-panel-hint { color: rgba(255, 255, 255, 0.68); margin-bottom: 0.5rem !important; }
+.cms-status-panel-line { color: rgba(255, 255, 255, 0.82); }
+.cms-status-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.cms-status-panel-actions button {
+  min-height: 32px;
+  padding: 0 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: transparent;
+  color: #f3f4f6;
+  cursor: pointer;
+  font: 500 0.75rem/1 var(--cms-font);
+}
+.cms-status-panel-actions button[hidden] { display: none; }
+.cms-status-panel-actions button:hover,
+.cms-status-panel-actions button:focus-visible { border-color: var(--cms-blue); }
 
 @keyframes cms-dot-pulse {
   0%, 100% { opacity: 1; }
@@ -508,7 +540,8 @@ body:has(.cms-toolbar) #back-to-top {
 }
 
 /* Phones: tighten spacing so every control fits without horizontal scrolling.
-   The Live/Draft label stays available to assistive tech and in the tooltip. */
+   The status pill shows only its dot; the status stays announced and the
+   panel still opens from it. */
 @media (max-width: 480px) {
   .cms-toolbar-inner { gap: 4px; padding: 0 4px 0 10px; }
   .cms-toolbar-left { gap: 6px; }
@@ -516,15 +549,7 @@ body:has(.cms-toolbar) #back-to-top {
   .cms-toolbar button,
   .cms-tools-summary { padding: 6px 8px; }
   .cms-toolbar .cms-mode-switch button { padding: 5px 7px; }
-  .cms-toolbar-badge { padding: 5px 0; }
-  .cms-toolbar-badge-text {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-  }
+  .cms-status-pill .cms-status-text { display: none; }
   .cms-tools-summary::after { margin-left: 0.3rem; }
 }
 

@@ -61,14 +61,11 @@ function renderToolbar(staticDelivery) {
   toolbar.innerHTML = `
     <div class="cms-toolbar-inner">
       <div class="cms-toolbar-left">
-        <div class="cms-toolbar-badge" title="${badgeHint}">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 9l10 13 10-13L12 2zm0 3.84L18.26 9 12 17.65 5.74 9 12 5.84z"/></svg>
-          <span class="cms-toolbar-badge-text">${badgeLabel}</span>
-        </div>
-        <div class="cms-status-group" role="status" aria-live="polite">
+        <button type="button" class="cms-status-pill" data-mode="${badgeLabel.toLowerCase()}" aria-haspopup="dialog" aria-expanded="false" aria-controls="cms-status-panel">
           <span class="cms-status-dot cms-status-idle" aria-hidden="true"></span>
-          <span class="cms-status-text">Ready</span>
-        </div>
+          <span class="cms-status-text">${badgeLabel}</span>
+        </button>
+        <span class="cms-status-live" role="status" aria-live="polite"></span>
       </div>
       <div class="cms-toolbar-right">
         ${renderDraftControls(staticDelivery)}
@@ -101,6 +98,18 @@ function renderToolbar(staticDelivery) {
         </button>
       </div>
     </div>
+    <div id="cms-status-panel" class="cms-status-panel" role="dialog" aria-label="Save status" hidden>
+      <p class="cms-status-panel-mode"><strong>${badgeLabel}</strong></p>
+      <p class="cms-status-panel-hint">${badgeHint}</p>
+      <p class="cms-status-panel-line" data-line="status" hidden></p>
+      <p class="cms-status-panel-line" data-line="saved" hidden></p>
+      <p class="cms-status-panel-line" data-line="drafts" hidden></p>
+      <p class="cms-status-panel-line" data-line="build" hidden></p>
+      <div class="cms-status-panel-actions">
+        <button type="button" data-action="undo" hidden>Undo last change</button>
+        <button type="button" data-action="history">History</button>
+      </div>
+    </div>
     <div class="cms-dialog-backdrop" hidden>
       <div class="cms-dialog" role="dialog" aria-modal="true" aria-labelledby="cms-signout-title" aria-describedby="cms-signout-copy">
         <h2 id="cms-signout-title">Unpublished changes</h2>
@@ -117,6 +126,8 @@ function renderToolbar(staticDelivery) {
   document.body.appendChild(toolbar);
   const signoutBackdrop = toolbar.querySelector('.cms-dialog-backdrop');
   if (signoutBackdrop) document.body.appendChild(signoutBackdrop);
+  const statusPanel = toolbar.querySelector('.cms-status-panel');
+  if (statusPanel) document.body.appendChild(statusPanel);
   return toolbar;
 }
 
@@ -125,25 +136,118 @@ function renderToolbar(staticDelivery) {
  *   showToast: (message: string, type: 'success' | 'error') => void,
  *   clearDirty: () => void,
  *   hasUnsavedEdits: () => boolean,
+ *   undo: { available: () => boolean, run: () => void | Promise<void> },
+ *   onOpenHistory: () => void,
  *   onLogout: () => void | Promise<void>,
  * }} options
  */
-export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, onLogout }) {
+export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onOpenHistory, onLogout }) {
   const staticDelivery = isStaticDelivery();
   const toolbar = renderToolbar(staticDelivery);
+  const modeLabel = staticDelivery || isPolicyDraftMode() ? 'Draft' : 'Live';
 
   const statusDot = toolbar.querySelector('.cms-status-dot');
   const statusText = toolbar.querySelector('.cms-status-text');
+  const statusLive = toolbar.querySelector('.cms-status-live');
+  const pill = /** @type {HTMLButtonElement} */ (toolbar.querySelector('.cms-status-pill'));
+  const panel = /** @type {HTMLElement} */ (document.getElementById('cms-status-panel'));
+
+  // The status pill: one dot and one word. The word says what's happening
+  // (saving, unsaved, a failure) and returns to the mode ("Live" or "Draft")
+  // a few seconds after a success. The panel holds the details.
+  /** @type {{ state: ToolbarStatusState | 'dirty', text: string }} */
+  let current = { state: 'idle', text: modeLabel };
+  /** @type {number | null} */
+  let lastSavedAt = null;
+  let buildLabel = '';
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let restModeTimer;
 
   /** @param {ToolbarStatusState | 'dirty'} state @param {string} text */
   function showStatus(state, text) {
-    if (statusDot) {
-      statusDot.className = `cms-status-dot cms-status-${state}`;
+    clearTimeout(restModeTimer);
+    current = { state, text };
+    if (statusDot) statusDot.className = `cms-status-dot cms-status-${state}`;
+    if (statusText && text) statusText.textContent = text;
+    if (statusLive && text) statusLive.textContent = text;
+    if (state === 'idle') {
+      if (text !== modeLabel) lastSavedAt = Date.now();
+      restModeTimer = setTimeout(() => {
+        if (current.state === 'idle' && statusText) statusText.textContent = modeLabel;
+      }, 3000);
     }
-    if (statusText && text) {
-      statusText.textContent = text;
-    }
+    if (!panel.hidden) renderPanel();
   }
+
+  /** @param {number} at */
+  function savedAgo(at) {
+    const seconds = Math.round((Date.now() - at) / 1000);
+    if (seconds < 45) return 'Last saved just now';
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `Last saved ${minutes} min ago`;
+    return `Last saved at ${new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  }
+
+  /** @param {string} name @param {string} text */
+  function setLine(name, text) {
+    const line = /** @type {HTMLElement | null} */ (panel.querySelector(`[data-line="${name}"]`));
+    if (!line) return;
+    line.textContent = text;
+    line.hidden = !text;
+  }
+
+  function renderPanel() {
+    setLine('status', current.state === 'idle' ? '' : current.text);
+    setLine('saved', lastSavedAt ? savedAgo(lastSavedAt) : '');
+    setLine('build', buildLabel);
+    const undoButton = /** @type {HTMLElement | null} */ (panel.querySelector('[data-action="undo"]'));
+    if (undoButton) undoButton.hidden = !undo.available();
+  }
+
+  function positionPanel() {
+    const rect = pill.getBoundingClientRect();
+    panel.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 8))}px`;
+    panel.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 8)}px`;
+  }
+
+  async function openPanel() {
+    panel.hidden = false;
+    pill.setAttribute('aria-expanded', 'true');
+    renderPanel();
+    positionPanel();
+    const count = await fetchDraftCount();
+    setLine('drafts', count > 0 ? `${count} unpublished change${count === 1 ? '' : 's'}` : '');
+    positionPanel();
+  }
+
+  /** @param {boolean} [restoreFocus] */
+  function closePanel(restoreFocus = true) {
+    if (panel.hidden) return;
+    panel.hidden = true;
+    pill.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) pill.focus();
+  }
+
+  pill.addEventListener('click', () => {
+    if (panel.hidden) void openPanel();
+    else closePanel();
+  });
+  panel.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') { event.preventDefault(); closePanel(); }
+  });
+  document.addEventListener('pointerdown', (event) => {
+    if (!panel.hidden && event.target instanceof Node && !panel.contains(event.target) && !pill.contains(event.target)) {
+      closePanel(false);
+    }
+  });
+  panel.querySelector('[data-action="undo"]')?.addEventListener('click', () => {
+    closePanel();
+    void undo.run();
+  });
+  panel.querySelector('[data-action="history"]')?.addEventListener('click', () => {
+    closePanel(false);
+    onOpenHistory();
+  });
 
   // The status shown before "Unsaved changes", restored if the edit is undone.
   /** @type {{ dot: string, text: string } | null} */
@@ -174,10 +278,8 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, onLogout 
       }),
     setStatus,
     setBuildId(buildId) {
-      const statusGroup = /** @type {HTMLElement | null} */ (toolbar.querySelector('.cms-status-group'));
-      if (statusGroup) {
-        statusGroup.title = buildId ? `Build ${buildId}` : '';
-      }
+      buildLabel = buildId ? `Build ${buildId}` : '';
+      if (!panel.hidden) renderPanel();
     },
   });
   const draftClient = createDraftClient({ buildUrl: path => buildCmsUrl(path) });

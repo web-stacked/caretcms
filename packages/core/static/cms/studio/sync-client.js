@@ -108,5 +108,15 @@ export function createStudioSync(options) {
     catch { /* Progressive enhancement. */ }
   }
 
-  return { queuePreview, announceChange, announceFieldSelection, announceReady };
+  // Lets the page behind the drawer show unsaved drawer changes on its status.
+  let lastDirty = false;
+  /** @param {boolean} dirty */
+  function announceStatus(dirty) {
+    if (!isEmbedded || dirty === lastDirty) return;
+    lastDirty = dirty;
+    try { postToParent({ type: 'cms:status', collection, id, dirty, embedded: true }); }
+    catch { /* Progressive enhancement. */ }
+  }
+
+  return { queuePreview, announceChange, announceFieldSelection, announceReady, announceStatus };
 }

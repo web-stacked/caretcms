@@ -269,6 +269,7 @@ import { rebaseEdits } from './studio/merge.js';
       : (SAVE_TARGET === "preview" ? msg("entry.saveDraft", "Save draft") : msg("entry.saveLive", "Save live"));
     updateDisplayedTitle();
     updateVisibility();
+    studioSync.announceStatus(dirty);
     if (entryData !== null && !preserveStatus) {
       if (saving) showStatus("saving", SAVE_TARGET === "preview" ? msg("entry.savingDraft", "Saving draft…") : msg("entry.savingLiveChanges", "Saving live changes…"));
       else if (creating) showStatus("dirty", msg("entry.notCreated", "Not created yet"));
@@ -1510,6 +1511,13 @@ import { rebaseEdits } from './studio/merge.js';
         }
         editorEl.hidden = false;
         studioSync.announceReady();
+        // The toolbar's History link opens the entry with #history (a reload,
+        // or only a hash change when the drawer already shows this entry).
+        var openHistoryFromHash = function () {
+          if (window.location.hash === "#history" && !creating && !historyBtn.hidden && historyPanel.hidden) loadHistory();
+        };
+        openHistoryFromHash();
+        window.addEventListener("hashchange", openHistoryFromHash);
         if (pendingRemoteSelection) {
           var pending = pendingRemoteSelection;
           pendingRemoteSelection = null;

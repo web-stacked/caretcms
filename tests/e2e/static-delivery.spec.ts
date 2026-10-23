@@ -314,7 +314,9 @@ test("publishes an authored draft into the next static build", async ({ page }) 
   await page.reload();
   await expect(page.locator(".cms-status-text")).toHaveText("Deploying…");
   await expect(page.locator(".cms-status-text")).toHaveText("Live", { timeout: 8_000 });
-  await expect(page.locator(".cms-status-group")).toHaveAttribute("title", /Build simulated-/);
+  await page.locator(".cms-status-pill").click();
+  await expect(page.getByRole("dialog", { name: "Save status" })).toContainText(/Build simulated-/);
+  await page.keyboard.press("Escape");
   const deployment = await (await page.request.get("/api/cms/deployment")).json();
   expect(deployment).toMatchObject({
     configured: true,

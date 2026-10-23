@@ -774,6 +774,41 @@ test.describe("inline editor — click to edit", () => {
     expect(await fetchAnonymousHtml("/")).not.toContain("Not wanted after all");
   });
 
+  test("the status pill shows the save state and opens details, Undo and History", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+    const pill = page.locator(".cms-status-pill");
+    await expect(pill).toHaveAttribute("data-mode", "live");
+    await expect(pill).toHaveText("Live");
+
+    await replaceText(page, headline, "Shown on the status pill");
+    await blurToSave(page, headline);
+    await expect(pill).toHaveText("Changes are live");
+    await expect(pill).toHaveText("Live", { timeout: 6_000 });
+
+    await pill.click();
+    const panel = page.getByRole("dialog", { name: "Save status" });
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("Changes save directly to your site");
+    await expect(panel).toContainText("Last saved just now");
+    const undo = page.waitForResponse(isMutatePost);
+    await panel.getByRole("button", { name: "Undo last change" }).click();
+    expect((await undo).ok()).toBe(true);
+    await expect(headline).toHaveText(TEMPLATE_HEADLINE);
+
+    await pill.click();
+    await panel.getByRole("button", { name: "History" }).click();
+    const iframe = page.locator('iframe[title="Content Studio"]');
+    await expect(iframe).toHaveAttribute("src", /\/admin\/cms\/pages\/home#history$/);
+    const studio = page.frameLocator('iframe[title="Content Studio"]');
+    await expect(studio.getByRole("region", { name: "Version history" })).toBeVisible();
+
+    await studio.getByRole("textbox", { name: "Headline", exact: true }).fill("Typed in the drawer");
+    await expect(pill).toHaveText("Unsaved changes");
+  });
+
   test("swapping a hero image uploads, persists, and serves the new src", async ({ page }) => {
     await loginAsEditor(page);
     await page.goto("/");

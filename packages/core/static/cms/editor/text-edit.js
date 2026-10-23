@@ -45,7 +45,12 @@ let undoKeysBound = false;
 /** @type {ConflictToast | null} */
 let undoToast = null;
 
-async function undoLastEdit() {
+/** Whether a saved on-page edit can be undone. */
+export function canUndoLastEdit() {
+  return undoSteps.length > 0;
+}
+
+export async function undoLastEdit() {
   const step = undoSteps.pop();
   if (!step) return;
   if (await step.apply(step.before, step.after)) {

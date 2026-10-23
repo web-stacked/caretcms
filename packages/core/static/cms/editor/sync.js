@@ -17,6 +17,14 @@ const PENDING_SELECTION_KEY = 'caretcms:pending-preview-selection';
  * @property {string} [source]
  */
 /**
+ * @typedef {object} StatusMessage
+ * @property {'cms:status'} type
+ * @property {string} collection
+ * @property {string} id
+ * @property {boolean} dirty The drawer has unsaved changes.
+ * @property {boolean} [embedded]
+ */
+/**
  * @typedef {object} EntryReadyMessage
  * @property {'cms:entry-ready'} type
  * @property {string} collection
@@ -33,7 +41,7 @@ const PENDING_SELECTION_KEY = 'caretcms:pending-preview-selection';
  * @property {boolean} [embedded]
  * @property {boolean} [structural] A save the page can't apply in place.
  */
-/** @typedef {SelectionMessage | EntryReadyMessage | ChangeMessage} SyncMessage */
+/** @typedef {SelectionMessage | EntryReadyMessage | StatusMessage | ChangeMessage} SyncMessage */
 /**
  * @typedef {object} PendingSelection
  * @property {string} collection
@@ -80,6 +88,7 @@ export function normalizeSyncMessage(value) {
     };
   }
   if (value.type === 'cms:entry-ready') return { ...common, type: value.type };
+  if (value.type === 'cms:status') return typeof value.dirty === 'boolean' ? { ...common, type: value.type, dirty: value.dirty } : null;
   if (!['cms:preview', 'cms:saved', 'cms:created', 'cms:deleted'].includes(value.type)) return null;
   if (value.data !== undefined && value.data !== null && !isRecord(value.data)) return null;
   return {
@@ -121,8 +130,9 @@ export function normalizePendingSelection(value) {
  * }} options.showToast
  * @param {(text: string) => string} options.clientLinkify
  * @param {(element: Element) => void} options.onInlineSelection
+ * @param {(dirty: boolean) => void} [options.onStudioDirty]
  */
-export function mountStudioSync({ studioIframe, state, showToast, clientLinkify, onInlineSelection }) {
+export function mountStudioSync({ studioIframe, state, showToast, clientLinkify, onInlineSelection, onStudioDirty }) {
   let refreshTimer = 0;
   /** @type {Element | null} */
   let selectedInlineEl = null;
@@ -415,6 +425,11 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
     if (!studioIframe || e.source !== studioIframe.contentWindow) return;
     const msg = normalizeSyncMessage(e.data);
     if (!msg) return;
+
+    if (msg.type === 'cms:status') {
+      onStudioDirty?.(msg.dirty);
+      return;
+    }
 
     if (
       msg.type === 'cms:entry-ready'

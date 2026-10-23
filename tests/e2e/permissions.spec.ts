@@ -36,7 +36,7 @@ test("writer edits a private draft while destructive and publishing actions stay
     const headline = page.locator(HEADLINE);
     await replaceText(page, headline, "Writer private draft");
     expect((await blurToSave(page, headline)).ok()).toBe(true);
-    await expect(page.locator(".cms-toolbar-badge-text")).toHaveText("Draft");
+    await expect(page.locator(".cms-status-pill")).toHaveAttribute("data-mode", "draft");
     await expect(page.locator(".cms-publish-btn")).toBeHidden();
 
     await page.getByRole("button", { name: "Sign out" }).click();

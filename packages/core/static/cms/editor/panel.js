@@ -23,7 +23,7 @@ export function mountStudioPanel({ studioButton }) {
   if (!STUDIO_PATH) {
     studioButton?.setAttribute('hidden', 'hidden');
     studioButton?.setAttribute('aria-hidden', 'true');
-    return { iframe: null, closePanel() {}, placeOpposite() {} };
+    return { iframe: null, closePanel() {}, placeOpposite() {}, openAt() {} };
   }
   const studioPath = STUDIO_PATH;
 
@@ -227,5 +227,11 @@ export function mountStudioPanel({ studioButton }) {
   // do not cross an iframe boundary after focus moves into the Studio.
   document.addEventListener('keydown', handleEscape);
 
-  return { iframe, closePanel, placeOpposite };
+  /** Open the drawer on a Studio route. @param {string} path */
+  function openAt(path) {
+    iframe.src = path;
+    openPanel();
+  }
+
+  return { iframe, closePanel, placeOpposite, openAt };
 }
