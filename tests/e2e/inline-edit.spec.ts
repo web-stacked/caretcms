@@ -635,6 +635,26 @@ test.describe("inline editor — click to edit", () => {
     expect(await fetchAnonymousHtml("/")).toContain("Saved after signing in again");
   });
 
+  test("a field with inline formatting saves as rich text and reaches visitors", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const subtext = page.locator('p[data-caret="hero.subtext"]');
+    await expect(subtext).toHaveClass(/cms-editable/);
+    await expect(subtext).toHaveAttribute("data-caret-rich", "");
+
+    await subtext.click();
+    await page.keyboard.press("ControlOrMeta+ArrowDown");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" Visitors see this.");
+    await blurToSave(page, subtext);
+    await expect(page.getByText("Content saved")).toBeVisible();
+
+    const html = await fetchAnonymousHtml("/");
+    const visitorSubtext = html.match(/<p data-caret="hero\.subtext"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? "";
+    expect(visitorSubtext).toContain("Visitors see this.");
+    expect(visitorSubtext).toMatch(/<code[^>]*>data-caret<\/code>/);
+  });
+
   test("an emptied field stays visible and clickable", async ({ page }) => {
     await loginAsEditor(page);
     await page.goto("/");

@@ -97,23 +97,23 @@ describe('smoke: full attribute-first CMS flow', () => {
     expect(result).not.toContain('src="/images/default-hero.jpg"');
   });
 
-  it('nested markup is preserved and not rewritten', async () => {
+  it('inline formatting renders the stored value as sanitized rich text', async () => {
     const adapter = new InMemoryAdapter();
 
-    // Even if we save a value for the bad_field, it should NOT be used
     await executeMutation(adapter, {
       type: 'save_field',
       collection: 'pages',
       id: 'about',
       field: 'bad_field',
-      value: 'This should not appear',
+      value: 'Saved <em>rich</em> copy<img src=x onerror=alert(1)>',
     });
 
     const result = await rewriteCaretAttributes(SMOKE_HTML, adapter);
 
-    // The original nested markup should be intact
-    expect(result).toContain('<strong>Bold</strong> and <em>italic</em> text');
-    expect(result).not.toContain('This should not appear');
+    expect(result).toContain('Saved <em>rich</em> copy');
+    expect(result).not.toContain('<strong>Bold</strong> and <em>italic</em> text');
+    expect(result).not.toContain('onerror');
+    expect(result).not.toContain('<img src=x');
   });
 
   it('orphan field without scope is not rewritten', async () => {

@@ -148,15 +148,28 @@ describe('rewriteCaretAttributes', () => {
     expect(result).not.toContain('Stored First Title');
   });
 
-  it('skips elements with nested child markup', async () => {
+  it('renders stored rich text for elements whose child markup is inline formatting', async () => {
+    const adapter = makeAdapter({
+      pages: { about: { intro: 'New <em>copy</em> <script>x()</script>' } },
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const html = '<p data-caret="pages::about::intro"><strong>Bold</strong> text</p>';
+    const result = await rewriteCaretAttributes(html, adapter);
+    expect(result).toContain('New <em>copy</em>');
+    expect(result).not.toContain('<strong>Bold</strong>');
+    expect(result).not.toContain('<script>');
+  });
+
+  it('skips elements with other child markup', async () => {
     const adapter = makeAdapter({
       pages: { about: { bad: 'Stored' } },
     });
     await new Promise((r) => setTimeout(r, 10));
 
-    const html = '<p data-caret="pages::about::bad"><strong>Bold</strong> text</p>';
+    const html = '<p data-caret="pages::about::bad"><img src="/a.png" alt=""> text</p>';
     const result = await rewriteCaretAttributes(html, adapter);
-    expect(result).toContain('<strong>Bold</strong> text');
+    expect(result).toContain('<img src="/a.png" alt=""> text');
     expect(result).not.toContain('Stored');
   });
 

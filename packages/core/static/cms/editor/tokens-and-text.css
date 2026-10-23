@@ -177,6 +177,13 @@ body.cms-preview-mode .cms-link-follow {
   pointer-events: none;
 }
 
+/* Bound text whose markup can't be edited on the page. */
+.cms-edit-mode .cms-locked { cursor: help; }
+.cms-highlight-all .cms-locked {
+  outline: 2px dotted rgba(148, 163, 184, 0.6);
+  outline-offset: 4px;
+}
+
 /* Text kept on the page after a failed save, waiting to be saved again. */
 .cms-editable.cms-unsaved {
   outline: 2px dashed var(--cms-amber, #eab308) !important;

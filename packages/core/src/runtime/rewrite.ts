@@ -6,7 +6,8 @@
  * element content (text) or src (images) with stored values.
  *
  * v1 scope: text-only leaf nodes + <img> src swaps.
- * Elements with nested child markup are skipped (editor warns at runtime).
+ * Child markup within the rich allowlist is rendered as rich text; any other
+ * child markup is skipped, and the editor keeps such elements read-only.
  */
 
 import type { StorageAdapter, EntryData } from "../types.js";
@@ -14,6 +15,7 @@ import { BODY_OVERLAY_KEY, parseMdBinding, formatMdSrc, BLOCK_PATH_RE, type MdSr
 import { sanitizeHtml } from "./sanitize-html.js";
 import { getNestedValue } from "./utils.js";
 import { scanHtmlTags, type HtmlTag } from "./html-tokens.js";
+import { RICH_ALLOWED_TAGS } from "./rich-allowlist.js";
 
 // --- Types ---
 
@@ -150,7 +152,15 @@ export async function rewriteCaretAttributes(
         frame.binding.fullMatch = html.slice(frame.tag.start, tag.end);
         frame.binding.contentEnd = tag.end;
         frame.binding.closingStart = tag.start - frame.tag.start;
-        frame.binding.hasChildMarkup = frame.binding.mdBlockPath === undefined && hasChildMarkup(html.slice(frame.tag.end, tag.start));
+        const inner = html.slice(frame.tag.end, tag.start);
+        frame.binding.hasChildMarkup = frame.binding.mdBlockPath === undefined && hasChildMarkup(inner);
+        // Inline formatting the rich allowlist covers (a <code> or <strong>
+        // inside a paragraph) is edited and stored as rich text, so render it
+        // that way; other child markup stays untouched.
+        if (frame.binding.hasChildMarkup && !frame.binding.isRich &&
+            [...scanHtmlTags(inner)].every((child) => RICH_ALLOWED_TAGS.has(child.name))) {
+          frame.binding.isRich = true;
+        }
         bindings.push(frame.binding);
       }
       continue;

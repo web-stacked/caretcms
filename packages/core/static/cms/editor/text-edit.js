@@ -1,6 +1,6 @@
 import { createTextLinkInteractions } from './text-link-interactions.js';
 import { resolveBinding } from './helpers.js';
-import { sanitizeHtml } from './sanitize.js';
+import { ALLOWED_TAGS, sanitizeHtml } from './sanitize.js';
 import { SESSION_RESTORED_EVENT } from './session-recovery.js';
 
 /** @typedef {HTMLElement & { _caretSkipSave?: boolean }} EditableElement */
@@ -129,6 +129,20 @@ export function mountTextEditors({
 
     const attr = el.getAttribute('data-caret');
     if (!attr) return;
+    // A plain binding with formatting inside: when the rich allowlist covers
+    // every tag, edit it as rich text (the server renders it the same way);
+    // otherwise saving would flatten markup the page never shows, so keep it
+    // read-only and say why.
+    if (!el.hasAttribute('data-caret-rich') && !el.hasAttribute('data-caret-raw') && el.children.length > 0) {
+      const tags = [...el.querySelectorAll('*')].map((child) => child.tagName.toLowerCase());
+      if (tags.every((tag) => ALLOWED_TAGS.has(tag))) {
+        el.setAttribute('data-caret-rich', '');
+      } else {
+        el.classList.add('cms-locked');
+        el.title = "This text includes layout that can't be edited on the page.";
+        return;
+      }
+    }
     const isRich = el.hasAttribute('data-caret-rich');
     const isLinkable = !isRich && el.hasAttribute('data-caret-raw');
 
