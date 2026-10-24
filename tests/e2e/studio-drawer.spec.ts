@@ -113,13 +113,19 @@ test("toolbar buttons stay under the pointer when the status changes or the draw
 
   const signOut = page.locator(".cms-exit-btn");
   const before = await signOut.boundingBox();
+  const resting = await page.locator(".cms-status-text").textContent();
   await page.evaluate(() => {
     const text = document.querySelector(".cms-status-text");
-    if (text) text.textContent = "Published, deploy failed";
+    if (text) text.textContent = "Published, site not updated";
   });
   await page.waitForTimeout(700);
   // The bar grows leftward; buttons to the right of the status stay put.
   expect((await signOut.boundingBox())?.x).toBe(before?.x);
+  await page.evaluate((text) => {
+    const status = document.querySelector(".cms-status-text");
+    if (status) status.textContent = text;
+  }, resting);
+  await page.waitForTimeout(700);
 
   await page.mouse.click(x, y);
   await expect(studioButton).toHaveAttribute("aria-expanded", "true");

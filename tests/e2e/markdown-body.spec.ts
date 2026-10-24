@@ -146,7 +146,7 @@ test("edits rendered Markdown, publishes through the toolbar, and renders after 
   );
   await page.locator(".cms-publish-btn").click();
   const dialog = page.getByRole("dialog", { name: "Publish drafts?" });
-  await expect(dialog).toContainText("This publishes 1 unpublished change to the live site.");
+  await expect(dialog).toContainText("This publishes 1 unpublished change.");
   await dialog.getByRole("button", { name: "Publish", exact: true }).click();
   const publish = await publishPromise;
   expect(publish.ok()).toBeTruthy();
@@ -154,7 +154,7 @@ test("edits rendered Markdown, publishes through the toolbar, and renders after 
   // The page reloads and still says what happened: Markdown renders at build
   // time, so a production server shows it after the rebuild.
   await expect(page.locator(".cms-toast-success .cms-toast-msg")).toHaveText(
-    "Published 1 change — rebuild and deploy to update visitors",
+    "Published 1 change. Visitors see it the next time the site updates.",
   );
   await expect(page.locator(".cms-draft-controls")).toBeHidden();
 
@@ -345,7 +345,7 @@ test("rich toolbar creates a Markdown link without an early draft save", async (
   await block.evaluate((element) => (element as HTMLElement).blur());
   expect((await save).ok()).toBeTruthy();
   expect(mutationCount).toBe(1);
-  await expect(page.getByText("Draft saved — publish to update the page")).toBeVisible();
+  await expect(page.getByText("Draft saved. Publish to show it to visitors.")).toBeVisible();
 });
 
 test("exposes only collection operations the example implements", async ({ page }) => {
@@ -423,8 +423,8 @@ test("recovers a Markdown publish after history storage fails", async ({ page })
     await page.locator(".cms-publish-btn").click();
     await page.getByRole("dialog", { name: "Publish drafts?" }).getByRole("button", { name: "Publish", exact: true }).click();
     const failed = await (await pending).json();
-    expect(failed.failed).toEqual([{ collection: "blog", id: "ship-something-real", reason: "storage_error" }]);
-    await expect(page.locator(".cms-status-text")).toHaveText("Publish needs recovery");
+    expect(failed.failed).toEqual([{ collection: "blog", id: "ship-something-real", reason: "storage_error", title: "Ship something real" }]);
+    await expect(page.locator(".cms-status-text")).toHaveText("Publish didn’t finish");
     expect(readFileSync(POST, "utf8")).toContain("Recovered after a history storage failure.");
     rmSync(historyPath, { recursive: true });
     const retry = await page.request.post("/api/cms/publish", { headers: { "x-caret-request": "1" }, data: {} });
@@ -916,7 +916,7 @@ test("a body draft taken back with Undo leaves nothing to publish", async ({ pag
   expect(save.ok(), await save.text()).toBeTruthy();
   // A production server renders Markdown at build time: the body stays a draft.
   const toast = page.locator(".cms-toast-success").filter({ hasText: "Draft saved" });
-  await expect(toast.locator(".cms-toast-msg")).toHaveText("Draft saved — publish to update the page");
+  await expect(toast.locator(".cms-toast-msg")).toHaveText("Draft saved. Publish to show it to visitors.");
   await expect(page.locator(".cms-publish-btn")).toHaveText("Publish 1");
 
   const [undo] = await Promise.all([

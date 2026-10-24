@@ -431,7 +431,7 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
       editSaved = false;
       showToast.saved({
         // Body drafts publish with the rest; fields here may have saved live.
-        message: editLive ? 'Saved' : 'Draft saved — publish to update the page',
+        message: editLive ? 'Saved' : 'Draft saved. Publish to show it to visitors.',
         action: { label: 'Undo', onClick: undoLastEdit },
       });
     };

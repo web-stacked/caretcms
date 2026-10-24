@@ -44,17 +44,17 @@ export function createDeploymentStatusPoller(options) {
       if (!data.configured || !data.target) return;
       options.setBuildId(typeof data.buildId === 'string' ? data.buildId : null);
       if (data.state === 'deploying') {
-        options.setStatus('saving', 'Deploying…');
+        options.setStatus('saving', 'Updating site…');
         schedule();
       } else if (data.state === 'live') {
         stop();
         options.setStatus('idle', 'Live');
       } else if (data.state === 'failed') {
         stop();
-        options.setStatus('error', 'Deploy failed');
+        options.setStatus('error', 'Site update failed');
       } else {
         stop();
-        options.setStatus('error', 'Deploy status unknown');
+        options.setStatus('error', 'Site update status unknown');
       }
     } catch {
       // A transient status lookup must not turn a successful content save into

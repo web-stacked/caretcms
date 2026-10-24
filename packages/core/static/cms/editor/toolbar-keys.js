@@ -61,7 +61,7 @@ export function mountToolbarKeys(bar, { skipLabel }) {
     controls[next].focus();
   });
 
-  // Controls appear and disappear (Publish, Retry deploy); keep one tabbable.
+  // Controls appear and disappear (Publish, Retry update); keep one tabbable.
   new MutationObserver(settle).observe(bar, { subtree: true, attributes: true, attributeFilter: ['hidden', 'disabled'] });
   settle();
 

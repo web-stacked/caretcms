@@ -257,8 +257,8 @@ test("rejects an older editor draft and keeps Publish above the Astro toolbar", 
     const result = pages[0].waitForResponse(response => response.url().includes("/api/cms/publish"));
     await pages[0].locator(".cms-publish-btn").click();
     await pages[0].getByRole("dialog", { name: "Publish drafts?" }).getByRole("button", { name: "Publish", exact: true }).click();
-    expect((await (await result).json()).conflicts).toEqual([{ collection: "pages", id: "home", reason: "stale_entry" }]);
-    await expect(pages[0].locator(".cms-status-text")).toHaveText("Draft conflict");
+    expect((await (await result).json()).conflicts).toEqual([{ collection: "pages", id: "home", reason: "stale_entry", title: "Older draft" }]);
+    await expect(pages[0].locator(".cms-status-text")).toHaveText("Not published");
     expect(JSON.parse(readFileSync(resolve(FIXTURE, ".caret/data/pages/home.json"), "utf8")).headline).toBe("Newer published draft");
     expect((await (await pages[0].request.get("/api/cms/draft")).json()).count).toBe(1);
   } finally {
@@ -312,12 +312,12 @@ test("discards a draft and retries a failed deploy through toolbar requests", as
       rebuild: { triggered: true, ok: false, status: 503 },
       retryAvailable: true,
     });
-    await expect(page.locator(".cms-status-text")).toHaveText("Published, deploy failed");
+    await expect(page.locator(".cms-status-text")).toHaveText("Published, site not updated");
     await expect(page.locator(".cms-retry-rebuild-btn")).toBeVisible();
-    // Back on the page later, the failed deploy still outranks "Live", and
+    // Back on the page later, the failed update still outranks "Live", and
     // there are no drafts left to publish.
     await page.reload();
-    await expect(page.locator(".cms-status-text")).toHaveText("Deploy failed");
+    await expect(page.locator(".cms-status-text")).toHaveText("Published, site not updated");
     await expect(page.locator(".cms-retry-rebuild-btn")).toBeVisible();
     await expect(page.locator(".cms-draft-controls")).toBeHidden();
 
@@ -330,7 +330,7 @@ test("discards a draft and retries a failed deploy through toolbar requests", as
       retryAvailable: false,
     });
     await expect(page.locator(".cms-retry-rebuild-btn")).toBeHidden();
-    await expect(page.locator(".cms-status-text")).toHaveText("Deploying…");
+    await expect(page.locator(".cms-status-text")).toHaveText("Updating site…");
   } finally {
     rmSync(resolve(FIXTURE, ".caret"), { recursive: true, force: true });
     rmSync(resolve(FIXTURE, ".caretcms"), { recursive: true, force: true });
@@ -376,7 +376,7 @@ test("publishes an authored draft into the next static build", async ({ page }) 
   }));
 
   await page.reload();
-  await expect(page.locator(".cms-status-text")).toHaveText("Deploying…");
+  await expect(page.locator(".cms-status-text")).toHaveText("Updating site…");
   await expect(page.locator(".cms-status-text")).toHaveText("Live", { timeout: 8_000 });
   await page.locator(".cms-status-pill").click();
   await expect(page.getByRole("dialog", { name: "Save status" })).toContainText(/Build simulated-/);
@@ -442,8 +442,8 @@ test("shows a provider-confirmed deployment failure", async ({ page }) => {
   expect((await publish.json()).deploymentTracked).toBe(true);
 
   await page.reload();
-  await expect(page.locator(".cms-status-text")).toHaveText("Deploying…");
-  await expect(page.locator(".cms-status-text")).toHaveText("Deploy failed", { timeout: 8_000 });
+  await expect(page.locator(".cms-status-text")).toHaveText("Updating site…");
+  await expect(page.locator(".cms-status-text")).toHaveText("Site update failed", { timeout: 8_000 });
   expect(await (await page.request.get("/api/cms/deployment")).json()).toMatchObject({
     configured: true,
     state: "failed",

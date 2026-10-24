@@ -5,17 +5,17 @@ describe("browser publish result presentation", () => {
   it("keeps recovery-required drafts visible", () => {
     expect(presentPublishResult({
       published: [{ collection: "pages", id: "home" }],
-      failed: [{ collection: "posts", id: "broken" }],
+      failed: [{ collection: "posts", id: "broken", title: "Broken post" }],
       conflicts: [],
       retryAvailable: false,
     })).toEqual({
       completed: false,
       reload: false,
       retryAvailable: false,
-      status: { state: "error", text: "Publish needs recovery" },
+      status: { state: "error", text: "Publish didn’t finish" },
       toast: {
         kind: "error",
-        message: "Finished 1 change; 1 need recovery. Some content may already be published. Retry Publish after checking storage. Drafts are kept.",
+        message: "“Broken post” couldn’t be published (1 change went through). Your drafts are kept. Try Publish again.",
       },
     });
   });
@@ -25,17 +25,20 @@ describe("browser publish result presentation", () => {
       published: [],
       failed: [],
       conflicts: [
-        { collection: "pages", id: "home" },
-        { collection: "posts", id: "hello" },
+        { collection: "pages", id: "home", title: "Home" },
+        { collection: "posts", id: "hello", title: "Hello world" },
+        { collection: "posts", id: "two", title: "Two" },
       ],
     });
     expect(result).toMatchObject({
       completed: false,
       reload: false,
-      status: { state: "error", text: "Draft conflict" },
+      status: { state: "error", text: "Not published" },
       toast: { kind: "error" },
     });
-    expect(result.toast.message).toContain("pages/home, posts/hello");
+    // Named as the Studio names them, never by storage keys.
+    expect(result.toast.message).toMatch(/^“Home”, “Hello world” and 1 more changed on the site/);
+    expect(result.toast.message).not.toContain("pages/home");
   });
 
   it("surfaces a failed rebuild webhook and preserves its retry action", () => {
@@ -49,8 +52,8 @@ describe("browser publish result presentation", () => {
       completed: false,
       reload: false,
       retryAvailable: true,
-      status: { state: "error", text: "Published, deploy failed" },
-      toast: { kind: "error", message: expect.stringContaining("deploy webhook failed") },
+      status: { state: "error", text: "Published, site not updated" },
+      toast: { kind: "error", message: expect.stringContaining("couldn’t start updating") },
     });
   });
 
@@ -60,20 +63,20 @@ describe("browser publish result presentation", () => {
       failed: [], conflicts: [], rebuild: { triggered: true, ok: true },
     })).toMatchObject({
       completed: true, reload: true,
-      toast: { kind: "success", message: "Published 1 change — rebuild started" },
+      toast: { kind: "success", message: "Published 1 change. The site is updating; visitors see it in a few minutes." },
     });
     expect(presentPublishResult({
       published: [{ collection: "pages", id: "home" }, { collection: "pages", id: "about" }],
       failed: [], conflicts: [], rebuild: { triggered: false, ok: true }, needsRebuild: true,
-    }).toast.message).toBe("Published 2 changes — rebuild and deploy to update visitors");
+    }).toast.message).toBe("Published 2 changes. Visitors see them the next time the site updates.");
     // Content that's live as soon as it's published: no rebuild to mention.
     expect(presentPublishResult({
       published: [{ collection: "pages", id: "home" }],
       failed: [], conflicts: [], rebuild: { triggered: false, ok: true },
-    }).toast.message).toBe("Published 1 change");
+    }).toast.message).toBe("Published 1 change. Visitors see it now.");
     expect(presentPublishResult({
       published: [], failed: [], conflicts: [], rebuild: { triggered: false, ok: true },
-    }).toast.message).toBe("Already up to date");
+    }).toast.message).toBe("Nothing to publish");
   });
 
   it("handles malformed optional arrays without throwing", () => {
@@ -81,7 +84,7 @@ describe("browser publish result presentation", () => {
       completed: true,
       reload: true,
       retryAvailable: false,
-      toast: { message: "Already up to date" },
+      toast: { message: "Nothing to publish" },
     });
   });
 });

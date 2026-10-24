@@ -26,8 +26,16 @@ function changes(count) {
   return count === 1 ? '1 change' : `${count} changes`;
 }
 
+/** Entry names for a message: “Mara Ellison”, “About” and 2 more. @param {Record<string, unknown>[]} list */
+function names(list) {
+  const titles = list.map(entry => typeof entry.title === 'string' && entry.title ? `“${entry.title}”` : 'an entry');
+  const text = titles.length <= 2 ? titles.join(' and ') : `${titles.slice(0, 2).join(', ')} and ${titles.length - 2} more`;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /**
- * Turn the publish API's mutually exclusive outcomes into one toolbar action.
+ * Turn the publish API's mutually exclusive outcomes into one toolbar action,
+ * worded for editors: what happened, when visitors see it, what to do next.
  * Keeping this pure makes recovery/conflict/deploy wording testable without DOM.
  *
  * @param {unknown} input
@@ -46,28 +54,23 @@ export function presentPublishResult(input) {
       completed: false,
       reload: false,
       retryAvailable,
-      status: { state: 'error', text: 'Publish needs recovery' },
+      status: { state: 'error', text: 'Publish didn’t finish' },
       toast: {
         kind: 'error',
-        message: `Finished ${changes(published.length)}; ${failed.length} need recovery. Some content may already be published. Retry Publish after checking storage. Drafts are kept.`,
+        message: `${names(failed)} couldn’t be published${published.length > 0 ? ` (${changes(published.length)} went through)` : ''}. Your drafts are kept. Try Publish again.`,
       },
     };
   }
 
   if (conflicts.length > 0) {
-    const labels = conflicts.map(entry => {
-      const collection = typeof entry.collection === 'string' ? entry.collection : 'unknown';
-      const id = typeof entry.id === 'string' ? entry.id : 'unknown';
-      return `${collection}/${id}`;
-    }).join(', ');
     return {
       completed: false,
       reload: false,
       retryAvailable,
-      status: { state: 'error', text: 'Draft conflict' },
+      status: { state: 'error', text: 'Not published' },
       toast: {
         kind: 'error',
-        message: `Drafts kept for ${labels}. Published content changed, or the draft predates conflict tracking. Copy your edits before using Discard (which removes all your drafts), then reload and reapply them.`,
+        message: `${names(conflicts)} changed on the site since you started editing, so ${conflicts.length === 1 ? 'it wasn’t' : 'they weren’t'} published. Your draft is kept: copy your edits, reload the page, and make them again.`,
       },
     };
   }
@@ -77,10 +80,10 @@ export function presentPublishResult(input) {
       completed: false,
       reload: false,
       retryAvailable,
-      status: { state: 'error', text: 'Published, deploy failed' },
+      status: { state: 'error', text: 'Published, site not updated' },
       toast: {
         kind: 'error',
-        message: 'Changes are published, but the deploy webhook failed. Check your CI settings.',
+        message: 'Your changes are published, but the site couldn’t start updating. Use Retry update, or ask your developer to check how the site is deployed.',
       },
     };
   }
@@ -89,11 +92,13 @@ export function presentPublishResult(input) {
     return {
       completed: true, reload: true, retryAvailable,
       status: { state: 'error', text: 'Published, Git history pending' },
-      toast: { kind: 'error', message: 'Changes are published, but Git history is pending. Use Retry Git history after checking the repository.' },
+      toast: { kind: 'error', message: 'Your changes are published. Their Git history is still pending; use Retry Git history, or ask your developer.' },
     };
   }
 
   const rebuildTriggered = rebuild.triggered === true;
+  const count = changes(published.length);
+  const them = published.length === 1 ? 'it' : 'them';
   return {
     completed: true,
     reload: true,
@@ -101,15 +106,13 @@ export function presentPublishResult(input) {
     status: null,
     toast: {
       kind: 'success',
-      message: rebuildTriggered
-        ? published.length > 0
-          ? `Published ${changes(published.length)} — rebuild started`
-          : 'Your site is rebuilding'
-        : published.length > 0
-          ? data.needsRebuild === true
-            ? `Published ${changes(published.length)} — rebuild and deploy to update visitors`
-            : `Published ${changes(published.length)}`
-          : 'Already up to date',
+      message: published.length === 0
+        ? rebuildTriggered ? 'The site is updating' : 'Nothing to publish'
+        : rebuildTriggered
+          ? `Published ${count}. The site is updating; visitors see ${them} in a few minutes.`
+          : data.needsRebuild === true
+            ? `Published ${count}. Visitors see ${them} the next time the site updates.`
+            : `Published ${count}. Visitors see ${them} now.`,
     },
   };
 }

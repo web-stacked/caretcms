@@ -11,10 +11,28 @@ import { isGitRepo, getGitJournalTarget } from "../git-journal.js";
 import { triggerRebuildWebhook } from "../rebuild-webhook.js";
 import { json, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
 import { waitForSelfWriteReload } from "../self-writes.js";
+import { entryDisplayTitle } from "../entry-title.js";
+import { resolveCollectionStudioConfig } from "../schema-registry.js";
 
 declare const __ASTRO_CARET_DEV__: boolean | undefined;
 const isDev = typeof __ASTRO_CARET_DEV__ === "boolean" && __ASTRO_CARET_DEV__;
 import type { DeploymentTarget, RebuildReceipt, StorageAdapter } from "../../types.js";
+
+/** Name entries the editor must act on (conflicts, failures) as the Studio does. */
+async function withTitles<T extends { collection: string; id: string }>(
+  base: StorageAdapter,
+  overlay: StorageAdapter,
+  entries: T[],
+): Promise<Array<T & { title: string }>> {
+  return Promise.all(entries.map(async (entry) => {
+    const [config, stored] = await Promise.all([
+      resolveCollectionStudioConfig(base, entry.collection),
+      overlay.getEntry(entry.collection, entry.id).catch(() => null)
+        .then((draft) => draft ?? base.getEntry(entry.collection, entry.id).catch(() => null)),
+    ]);
+    return { ...entry, title: entryDisplayTitle(entry.collection, entry.id, stored?.data, config) };
+  }));
+}
 
 function commitMessage(scope: PublishScope, count: number): string {
   if (scope.collection && scope.id) return `publish ${scope.collection}/${scope.id}`;
@@ -185,7 +203,10 @@ export async function POST(context: APIContext): Promise<Response> {
       // those at build time).
       const needsRebuild = published.length > 0 &&
         (services.delivery.mode === "static" || (!isDev && sourceChanged));
-      return json({ ok: true, published, conflicts, failed, commit, rebuild, needsRebuild,
+      return json({ ok: true, published,
+        conflicts: await withTitles(base, overlay, conflicts),
+        failed: await withTitles(base, overlay, failed),
+        commit, rebuild, needsRebuild,
         deploymentTracked,
         ...(journal ? { journal, journalRetryAvailable: journal.pending > 0 } : {}),
         retryAvailable: !rebuild.ok && !receiptError && Boolean(overlay.setRebuildReceipt), receiptError });

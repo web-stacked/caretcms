@@ -17,9 +17,9 @@ function renderDraftControls(staticDelivery) {
   // Shown only while drafts are pending, in every mode (toggled by
   // refreshDraftControls): static delivery and policies always draft, and
   // server delivery drafts inline body-block edits until they're published.
-  const publishTitle = isPolicyDraftMode() ? 'Publish private drafts to shared content' : staticDelivery
-    ? 'Publish drafts; static visitors update after rebuild and deploy'
-    : 'Publish your body-block drafts into the source files';
+  const publishTitle = staticDelivery
+    ? 'Publish your drafts; visitors see them the next time the site updates'
+    : 'Publish your drafts so visitors see them';
   return `
         <span class="cms-draft-controls" hidden>
           <button class="cms-publish-btn cms-go-live-btn" type="button" title="${publishTitle}">
@@ -36,9 +36,11 @@ function renderDraftControls(staticDelivery) {
 /** @param {boolean} staticDelivery */
 function renderToolbar(staticDelivery) {
   const badgeLabel = staticDelivery || isPolicyDraftMode() ? 'Draft' : 'Live';
-  const badgeHint = isPolicyDraftMode() ? 'Changes save to your private draft; publishing requires permission' : staticDelivery
-    ? 'Draft preview; visitors update after publish, rebuild, and deploy'
-    : 'Changes save directly to your site';
+  const badgeHint = staticDelivery
+    ? 'Your changes are a draft. Visitors see them after you publish and the site updates.'
+    : isPolicyDraftMode()
+      ? 'Your changes are a private draft until they’re published.'
+      : 'Changes save directly to your site.';
 
   const toolbar = document.createElement('div');
   toolbar.className = 'cms-toolbar';
@@ -54,7 +56,7 @@ function renderToolbar(staticDelivery) {
       </div>
       <div class="cms-toolbar-right">
         ${renderDraftControls(staticDelivery)}
-        <button type="button" class="cms-retry-rebuild-btn" hidden>Retry deploy</button>
+        <button type="button" class="cms-retry-rebuild-btn" hidden>Retry update</button>
         <button type="button" class="cms-retry-journal-btn" hidden>Retry Git history</button>
         <div class="cms-mode-switch" role="group" aria-label="Page mode">
           <button type="button" class="cms-mode-edit" aria-pressed="true">Edit</button>
@@ -292,7 +294,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
         headers: { 'x-caret-request': '1' },
       }),
     setStatus: (state, text) => (rebuildPending && state === 'idle'
-      ? setStatus('error', 'Deploy failed')
+      ? setStatus('error', 'Site update failed')
       : setStatus(state, text)),
     setBuildId(buildId) {
       buildLabel = buildId ? `Build ${buildId}` : '';
@@ -448,7 +450,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       if (publishButton) publishButton.hidden = !data.canPublish;
       if (retryRebuildButton) retryRebuildButton.hidden = !data.retryRebuild || !data.canPublish;
       rebuildPending = data.retryRebuild && data.canPublish;
-      if (rebuildPending && current.state === 'idle') setStatus('error', 'Deploy failed');
+      if (rebuildPending && current.state === 'idle') setStatus('error', 'Published, site not updated');
       draftCount = data.count;
       return data.count;
     } catch {
@@ -523,9 +525,11 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     const changes = changeCount(draftCount);
     if (!(await confirmToolbarAction({
       title: 'Publish drafts?',
+      // When visitors see it depends on the server (a Markdown source can need
+      // a rebuild), so only static delivery says it here; the result says it.
       copy: staticDelivery
-        ? `This publishes ${changes}. Static visitors update after rebuild and deploy.`
-        : `This publishes ${changes} to the live site.`,
+        ? `This publishes ${changes}. Visitors see ${draftCount === 1 ? 'it' : 'them'} the next time the site updates.`
+        : `This publishes ${changes}.`,
       confirmLabel: 'Publish',
       restoreFocus: publishBtn,
     }))) return;
@@ -569,16 +573,16 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   });
   retryRebuildButton?.addEventListener('click', async () => {
     retryRebuildButton.disabled = true;
-    setStatus('saving', 'Retrying deploy…');
+    setStatus('saving', 'Retrying update…');
     try {
       const data = await draftClient.retryDeployment();
       retryRebuildButton.hidden = true;
-      setStatus(data.deploymentTracked ? 'saving' : 'idle', data.deploymentTracked ? 'Deploying…' : 'Deploy requested');
-      showToast('Deploy requested. Your published content is unchanged.', 'success');
+      setStatus(data.deploymentTracked ? 'saving' : 'idle', data.deploymentTracked ? 'Updating site…' : 'Site update requested');
+      showToast('Site update requested. Your published content is unchanged.', 'success');
       if (data.deploymentTracked) deploymentStatus.schedule();
     } catch {
-      setStatus('error', 'Published, deploy failed');
-      showToast('The deploy hook failed. Check its configuration and retry.', 'error');
+      setStatus('error', 'Published, site not updated');
+      showToast('The site still couldn’t start updating. Try again later, or ask your developer to check how the site is deployed.', 'error');
     } finally { retryRebuildButton.disabled = false; }
   });
 
