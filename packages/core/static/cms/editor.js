@@ -16,7 +16,7 @@ import { createSaveField } from './editor/save-queue.js';
 import { compressImage, updateEmblaCarousel } from './editor/image-utils.js';
 import { createToast } from './editor/toast.js';
 import { mountEditorGuards } from './editor/guards.js';
-import { mountToolbar, normalizePreviewForDelivery } from './editor/toolbar.js';
+import { mountToolbar } from './editor/toolbar.js';
 import { mountStudioPanel } from './editor/panel.js';
 import { pageEntryRoute } from './editor/panel-route.js';
 import { anchorToolbar } from './editor/toolbar-anchor.js';
@@ -52,8 +52,6 @@ function createObservedSet(onChange) {
 }
 
 function boot() {
-  if (normalizePreviewForDelivery()) return;
-
   /** @type {(unsaved: boolean) => void} */
   let reportUnsaved = () => {};
   // Unsaved text on the page or in the Studio drawer both show on the status.

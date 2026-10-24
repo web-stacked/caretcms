@@ -38,8 +38,6 @@ function warnMissingOverlay(): void {
   );
 }
 
-const PREVIEW_COOKIE = "caret_preview";
-
 /** Is this request for a CMS-owned route (Studio, API, or editor assets)? Those
  *  pages are infrastructure, so the authed empty-state hint must never show on
  *  them — only on the live site. Conservative: if the path can't be read, treat
@@ -80,13 +78,6 @@ function injectSigninHint(html: string, mountPath: string): string {
   const closeBody = html.toLowerCase().lastIndexOf("</body>");
   if (closeBody === -1) return html + snippet;
   return html.slice(0, closeBody) + snippet + html.slice(closeBody);
-}
-
-/** Whether this request opted into draft preview (the editor toggles a cookie).
- *  Only meaningful for an authenticated editor — the overlay install also
- *  requires a valid editor id. */
-function isPreviewRequest(context: Pick<MiddlewareContext, "cookies">): boolean {
-  return context.cookies?.get(PREVIEW_COOKIE)?.value === "1";
 }
 
 async function resolveRuntimeEnv(): Promise<Record<string, unknown> | null> {
@@ -187,12 +178,12 @@ async function prepareRequest(
     if (services.uploadHandler.makeSessionWrapper) {
       uploadHandler = await services.uploadHandler.makeSessionWrapper(sessionId);
     }
-  } else if ((isPreviewRequest(authContext) || policyActive) && services.adapter.makeEditorOverlay) {
-    // Draft/preview mode: an authenticated editor opting into preview reads and
-    // writes through their per-editor overlay (the public site keeps seeing the
-    // base). Keyed by the editor id from the session cookie; absent that (an
-    // unauthenticated preview request), there's no editor session so we leave the
-    // base adapter in place. Publish later flushes the overlay back to the base.
+  } else if ((services.delivery.mode === "static" || policyActive) && services.adapter.makeEditorOverlay) {
+    // Draft modes: with static delivery or an authorization policy, an
+    // authenticated editor reads and writes through their per-editor overlay
+    // on every route, the Studio included, while the public site keeps seeing
+    // the base. Keyed by the editor id from the session; without one there is
+    // no editor, so the base adapter stays. Publish flushes the overlay.
     const id = identity?.id
       ?? (services.identityAdapter ? null : getEditorId(authContext));
     if (id) {

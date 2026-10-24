@@ -97,19 +97,6 @@ test.afterAll(() => {
   webhookServer?.close();
 });
 
-test("automatically enables preview mode before mounting the static editor", async ({ page }) => {
-  await page.request.post("/api/cms/auth/login", {
-    data: { password: EDIT_PASSWORD },
-    headers: { Accept: "application/json" },
-  });
-  await page.goto("/");
-
-  await expect(page.locator(".cms-toolbar")).toBeVisible();
-  await expect.poll(async () => (await page.context().cookies(ORIGIN))
-    .find(cookie => cookie.name === "caret_preview")?.value).toBe("1");
-  await expect(page.locator(".cms-toolbar")).toHaveAttribute("data-delivery", "static");
-});
-
 test("keeps a saved draft on reload without exposing it to other visitors", async ({ page, browser }) => {
   const headline = "Only this editor sees the reloaded draft";
   await page.request.post("/api/cms/auth/login", {
@@ -155,7 +142,6 @@ test("keeps drafts for the next sign-in in the same browser", async ({ page }) =
     data: { password: EDIT_PASSWORD },
     headers: { Accept: "application/json" },
   });
-  await page.context().addCookies([{ name: "caret_preview", value: "1", url: ORIGIN }]);
   await page.goto("/");
   const save = await page.request.post("/api/cms/mutate", {
     headers: { "x-caret-request": "1" },
@@ -186,7 +172,6 @@ test("rejects an older editor draft and keeps Publish above the Astro toolbar", 
     const pages = await Promise.all(contexts.map(context => context.newPage()));
     for (const page of pages) {
       await page.request.post("/api/cms/auth/login", { data: { password: EDIT_PASSWORD }, headers: { Accept: "application/json" } });
-      await page.context().addCookies([{ name: "caret_preview", value: "1", url: ORIGIN }]);
       await page.goto("/");
     }
     for (let i = 0; i < pages.length; i++) {
@@ -225,7 +210,6 @@ test("discards a draft and retries a failed deploy through toolbar requests", as
       headers: { Accept: "application/json" },
     });
     expect(login.ok(), await login.text()).toBeTruthy();
-    await page.context().addCookies([{ name: "caret_preview", value: "1", url: ORIGIN }]);
     await page.goto("/");
 
     // Drafts saved elsewhere (here: the API); the toolbar recounts when the
@@ -295,9 +279,6 @@ test("publishes an authored draft into the next static build", async ({ page }) 
   });
   expect(login.ok(), await login.text()).toBeTruthy();
 
-  await page.context().addCookies([
-    { name: "caret_preview", value: "1", url: ORIGIN },
-  ]);
   await page.goto("/");
   await expect(page.locator("h1")).toHaveText(PUBLISHED_HEADLINE);
 
@@ -375,7 +356,6 @@ test("shows a provider-confirmed deployment failure", async ({ page }) => {
     headers: { Accept: "application/json" },
   });
   expect(login.ok(), await login.text()).toBeTruthy();
-  await page.context().addCookies([{ name: "caret_preview", value: "1", url: ORIGIN }]);
   await page.goto("/");
 
   const save = await page.request.post("/api/cms/mutate", {

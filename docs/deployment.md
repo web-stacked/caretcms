@@ -99,7 +99,7 @@ caret({
 | `CARET_SESSION_SECRET` | HMAC secret for session cookies (**required in production**) |
 | `CARET_GIT_ON_PUBLISH=true` | commit published content to git (filesystem + git repo only) |
 | `CARET_DEMO_MODE=true` | per-visitor sandbox overlays (needs an adapter with `makeSessionOverlay`) |
-| `caret_preview` cookie | per-editor **draft preview**: read/write the draft overlay; toggled by the editor toolbar's Preview button |
+| `delivery: "static"` or an authorization policy | signed-in editors read and write their own draft overlay everywhere (site, Studio, API) until they publish |
 | `caret({ delivery: { publish: { webhookUrl }}})` | POST/PUT rebuild hook after publish (static delivery CI) |
 | `caret({ deployment })` | Provider-backed build identity and completion status for authenticated editors |
 

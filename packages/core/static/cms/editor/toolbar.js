@@ -4,25 +4,6 @@ import { buildCmsUrl, isStaticDelivery } from './config.js';
 import { createDeploymentStatusPoller } from './deployment-status.js';
 import { presentPublishResult } from './publish-result.js';
 import { createDraftClient } from './draft-client.js';
-import { createPreviewModeController } from './preview-mode.js';
-
-const previewMode = createPreviewModeController({
-  isStaticDelivery,
-  isPolicyDraftMode,
-  documentRef: document,
-  reload: () => window.location.reload(),
-});
-
-/** Static delivery always drafts — turn preview on once so saves stay unpublished. */
-export function ensureStaticPreviewMode() {
-  return previewMode.ensureStaticPreviewMode();
-}
-
-/** Align preview cookie with delivery mode (static on, server off). */
-export function normalizePreviewForDelivery() {
-  return previewMode.normalizePreviewForDelivery();
-}
-
 /** @typedef {'saving' | 'idle' | 'error'} ToolbarStatusState */
 
 /** @param {number} count */

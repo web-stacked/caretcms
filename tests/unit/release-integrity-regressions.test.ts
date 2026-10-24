@@ -22,9 +22,9 @@ vi.mock("../../packages/core/src/runtime/config.js", () => ({ getRuntimeConfig: 
 const roots: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllEnvs(); __setRuntimeServicesForTests(null); for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 async function temp() { const root = await mkdtemp(join(tmpdir(), "caret-integrity-")); roots.push(root); return root; }
-function session(preview = false) {
+function session() {
   const token = decodeURIComponent(issueEditorSessionCookies()[0].split(";")[0].split("=")[1]);
-  return { get(name: string) { return name === "caret_session" ? { value: token } : name === "caret_preview" && preview ? { value: "1" } : undefined; } };
+  return { get(name: string) { return name === "caret_session" ? { value: token } : undefined; } };
 }
 async function route(handler: (ctx: any) => Promise<Response>, cookies: ReturnType<typeof session>, path: string, body?: unknown) {
   const url = new URL(path, "http://localhost");
@@ -32,7 +32,8 @@ async function route(handler: (ctx: any) => Promise<Response>, cookies: ReturnTy
   const context = { request, url, cookies, locals: {} };
   return onRequest(context, () => handler(context));
 }
-function services(adapter: any) { __setRuntimeServicesForTests({ adapter, uploadHandler: { upload: vi.fn() } }); }
+/** `drafts` serves the editor through their draft overlay, as static delivery does. */
+function services(adapter: any, drafts = false) { __setRuntimeServicesForTests({ adapter, uploadHandler: { upload: vi.fn() }, ...(drafts ? { delivery: { mode: "static", bake: true, publish: { webhookUrl: null, method: "POST", headers: {} } } } : {}) }); }
 
 it("accepts later schema alternatives, resolves references, and enforces oneOf and siblings", () => {
   const schema = { $defs: { a: { type: "object", properties: { kind: { const: "a" } } }, b: { type: "object", properties: { kind: { const: "b" } } } }, anyOf: [{ $ref: "#/$defs/a" }, { $ref: "#/$defs/b" }] };
@@ -62,7 +63,7 @@ it("rejects invalid layout updates without changing entry, revision, or history"
 });
 
 it("performs real-editor collection management on base even in preview", async () => {
-  const base = new InMemoryAdapter(); services(base); const cookies = session(true);
+  const base = new InMemoryAdapter(); services(base, true); const cookies = session();
   await base.writeEntry("release-old", "one", { title: "One" });
   expect((await route(mutate, cookies, "/api/cms/mutate", { type: "delete_collection", id: "release-old" })).status).toBe(200);
   expect(await base.isKnownCollection("release-old")).toBe(false);
@@ -78,7 +79,7 @@ it("scoped publish journals only the approved source and preserves unrelated sta
   for (const id of ["one", "two"]) await writeFile(join(contentRoot, "posts", `${id}.md`), `---\ntitle: ${id}\n---\nBody`);
   const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
   git("init", "-q"); git("config", "user.name", "Review"); git("config", "user.email", "review@example.invalid"); git("add", "content"); git("commit", "-qm", "seed");
-  const base = new MarkdownAdapter({ contentRoot, metaRoot: join(root, "meta"), draftsRoot: join(root, "drafts") }); services(base); const cookies = session(true);
+  const base = new MarkdownAdapter({ contentRoot, metaRoot: join(root, "meta"), draftsRoot: join(root, "drafts") }); services(base, true); const cookies = session();
   expect((await route(mutate, cookies, "/api/cms/mutate", { type: "save_field", collection: "posts", id: "one", field: "title", value: "Approved" })).status).toBe(200);
   await writeFile(join(contentRoot, "posts", "two.md"), "---\ntitle: Unapproved\n---\nBody"); git("add", "content/posts/two.md");
   vi.stubEnv("CARET_GIT_ON_PUBLISH", "true");
@@ -167,7 +168,7 @@ it("the publish route commits approved bytes after the same file changes at draf
   const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8" });
   git("init", "-q"); git("config", "user.name", "Review"); git("config", "user.email", "review@example.invalid"); git("add", "content"); git("commit", "-qm", "seed");
   const base = new MarkdownAdapter({ contentRoot, metaRoot: join(root, "meta"), draftsRoot: join(root, "drafts") });
-  services(base); const cookies = session(true);
+  services(base, true); const cookies = session();
   const overlay = await base.makeEditorOverlay(getEditorId({ cookies })!);
   const deletion = overlay.deleteEntry.bind(overlay);
   const make = base.makeEditorOverlay.bind(base);

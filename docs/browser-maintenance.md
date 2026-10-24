@@ -81,11 +81,10 @@ publish, discard, and deployment retry. It validates HTTP and webhook-level
 failures and normalizes the small draft-state response before the toolbar changes
 control visibility.
 
-Preview-cookie transitions live in `static/cms/editor/preview-mode.js`. The typed
-controller enables preview before mounting a static editor, removes a stale
-preview cookie in server delivery, and leaves policy-managed draft sessions
-alone. Its injected document and reload boundary keeps the behavior testable
-without moving DOM ownership out of the toolbar.
+Whether an editor works on drafts is decided by the server, not the browser:
+with static delivery or an authorization policy, the middleware serves every
+authenticated editor request (pages, Studio and API) through that editor's
+draft overlay. The browser never toggles it.
 
 The inline `static/cms/editor/toolbar.js` orchestrator and its configuration and
 highlight dependencies are strictly checked. Runtime configuration normalizes

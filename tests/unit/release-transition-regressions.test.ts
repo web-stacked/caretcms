@@ -29,11 +29,12 @@ function put(collection: string, data: Record<string, unknown>, revision = 0, ba
     ...(baseRevision !== undefined ? { expectedBaseRevision: baseRevision } : {}) };
 }
 async function route(base: InMemoryAdapter, handler: (ctx: any) => Promise<Response>, path: string, body?: unknown, preview = false) {
-  __setRuntimeServicesForTests({ adapter: base, uploadHandler: { upload: vi.fn() } });
+  // `preview` serves the editor through their draft overlay, as static delivery does.
+  __setRuntimeServicesForTests({ adapter: base, uploadHandler: { upload: vi.fn() }, ...(preview ? { delivery: { mode: "static", bake: true, publish: { webhookUrl: null, method: "POST", headers: {} } } } : {}) });
   const token = decodeURIComponent(issueEditorSessionCookies()[0].split(";")[0].split("=")[1]);
   const url = new URL(path, "http://localhost");
   const request = new Request(url, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json", "x-caret-request": "1" }, body: JSON.stringify(body) });
-  const context = { request, url, locals: {}, cookies: { get(name: string) { return name === "caret_session" ? { value: token } : preview && name === "caret_preview" ? { value: "1" } : undefined; } } };
+  const context = { request, url, locals: {}, cookies: { get(name: string) { return name === "caret_session" ? { value: token } : undefined; } } };
   return onRequest(context, () => handler(context));
 }
 

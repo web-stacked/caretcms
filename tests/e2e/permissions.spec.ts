@@ -171,3 +171,53 @@ test("Studio tells a draft's visibility apart from what visitors see", async ({ 
     await anonymous.close();
   }
 });
+
+test("Studio rejects a stale first draft and refreshes its base version for an explicit retry", async ({ browser }) => {
+  const mine = await identityContext(browser, "admin");
+  const remote = await identityContext(browser, "reviewer");
+  // In a draft mode, content reaches what visitors see only by publishing.
+  const publishTitle = async (context: BrowserContext, title: string) => {
+    const write = await context.request.post("/api/cms/mutate", {
+      headers: { "x-caret-request": "1" },
+      data: { type: "put_entry", collection: "studio-fixture", id: "version-conflict", data: { title, website: "", published: false } },
+    });
+    expect(write.ok(), await write.text()).toBe(true);
+    const publish = await context.request.post("/api/cms/publish", {
+      headers: { "x-caret-request": "1" },
+      data: { collection: "studio-fixture", id: "version-conflict" },
+    });
+    expect(publish.ok(), await publish.text()).toBe(true);
+  };
+  try {
+    // The other editor publishes both versions, so this one's draft is its first.
+    await publishTitle(remote, "Original");
+    const page = await mine.newPage();
+    await page.goto("/admin/cms/studio-fixture/version-conflict");
+    await expect(page.locator('[name="title"]')).toHaveValue("Original");
+    await page.locator('[name="website"]').fill("https://example.invalid/mine");
+
+    await publishTitle(remote, "Other editor");
+    const saved = page.waitForResponse(response => response.url().includes("/api/cms/mutate") && response.request().method() === "POST");
+    await page.locator("#btn-save").click();
+    const conflict = await saved;
+    expect(conflict.status()).toBe(409);
+    const firstBase = (conflict.request().postDataJSON() as { expectedBaseRevision: number }).expectedBaseRevision;
+    expect(conflict.request().postDataJSON()).toMatchObject({ expectedRevision: 0 });
+    expect(await conflict.json()).toMatchObject({ currentRevision: 0, currentBaseRevision: firstBase + 1 });
+
+    await expect(page.locator("#conflict-dialog")).toBeVisible();
+    await page.locator("#btn-conflict-keep").click();
+    const retry = page.waitForResponse(response => response.url().includes("/api/cms/mutate") && response.request().method() === "POST");
+    await page.locator("#btn-save").click();
+    const result = await retry;
+    expect(result.status()).toBe(200);
+    expect(result.request().postDataJSON()).toMatchObject({ expectedRevision: 0, expectedBaseRevision: firstBase + 1 });
+    const draft = await page.request.get("/api/cms/entries?collection=studio-fixture&id=version-conflict");
+    // Keep my edits applies only this form's change (website) on top of the
+    // newer base, so the other editor's title is not reverted.
+    expect((await draft.json()).entries[0].data).toMatchObject({ title: "Other editor", website: "https://example.invalid/mine" });
+  } finally {
+    await mine.close();
+    await remote.close();
+  }
+});

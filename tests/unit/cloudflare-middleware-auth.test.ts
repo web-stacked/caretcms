@@ -11,18 +11,18 @@ import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memo
 
 afterEach(() => { __setRuntimeServicesForTests(null); vi.unstubAllEnvs(); });
 
-it("verifies Worker-only session secrets before selecting editor drafts and rejects forged preview cookies", async () => {
+it("verifies Worker-only session secrets before selecting editor drafts and rejects forged sessions", async () => {
   vi.stubEnv("NODE_ENV", "production");
   vi.stubEnv("CARET_SESSION_SECRET", "");
   const base = new InMemoryAdapter();
   const uploadHandler = { upload: vi.fn() };
-  __setRuntimeServicesForTests({ adapter: base, uploadHandler });
+  __setRuntimeServicesForTests({ adapter: base, uploadHandler, delivery: { mode: "static", bake: true, publish: { webhookUrl: null, method: "POST", headers: {} } } });
   await base.writeEntry("pages", "home", { title: "Published" });
   const seed = { adapter: base, uploadHandler, sessionId: null, demoMode: false, runtimeEnv: env };
   const token = await runWithRequestContext(seed, async () => issueEditorSessionCookies("/", new Request("https://worker.test"))[0]
     .split(";")[0].slice("caret_session=".length));
   const preview = async (session: string) => onRequest({ locals: {}, request: new Request("https://worker.test"),
-    cookies: { get: name => name === "caret_preview" ? { value: "1" } : name === "caret_session" ? { value: session } : undefined } },
+    cookies: { get: name => name === "caret_session" ? { value: session } : undefined } },
   async () => {
     const scope = getRequestContext()!;
     if (scope.overlayActive) await scope.adapter.writeEntry("pages", "home", { title: "Private" });

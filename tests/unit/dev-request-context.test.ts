@@ -56,8 +56,8 @@ describe("static dev request identity", () => {
     expect(getDevAuthContext(pageRequest(), true)).toBeUndefined();
   });
 
-  it.each(["caret_preview=1", "caret_preview=1; caret_session=invalid", "caret_session=%invalid"])(
-    "does not authenticate a preview marker or invalid cookie: %s", async cookie => {
+  it.each(["caret_session=invalid", "caret_session=%invalid"])(
+    "does not authenticate an invalid session cookie: %s", async cookie => {
       const ctx = context();
       const response = await withDevRequest({ headers: { cookie } }, () => onRequest(ctx, next));
       expect(ctx.locals.isEditor).toBe(false);
