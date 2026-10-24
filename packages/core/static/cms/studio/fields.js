@@ -67,6 +67,8 @@ export function createFieldRenderer({ updateField, buildSingleImage, buildImageG
   /** @param {HTMLElement} group @param {Schema} prop @param {string} path */
   function appendFieldDescription(group, prop, path) {
     if (typeof prop.description !== "string" || !prop.description.trim()) return;
+    // Help that only repeats the label adds nothing.
+    if (typeof prop.title === "string" && prop.title.trim().toLowerCase() === prop.description.trim().toLowerCase()) return;
     var help = document.createElement("p");
     help.className = "caret-field-help caret-field-description";
     help.id = fieldIdFromPath(path) + "-help";

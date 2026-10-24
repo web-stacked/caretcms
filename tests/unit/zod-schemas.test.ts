@@ -16,6 +16,8 @@ describe("schemaFromZod", () => {
     expect(s.type).toBe("object");
     expect(props(s).title).toMatchObject({ type: "string", title: "Title" });
     expect(props(s).excerpt.title).toBe("Excerpt");
+    // The label isn't repeated underneath as help text.
+    expect(props(s).title.description).toBeUndefined();
   });
 
   it("represents dates as string + format:date (raw z.toJSONSchema throws here)", () => {
@@ -56,6 +58,8 @@ describe("schemaFromZod", () => {
   it("lets an explicit .meta({ title }) win over the description", () => {
     const s = schemaFromZod(z.object({ a: z.string().describe("desc").meta({ title: "Explicit" }) }));
     expect(props(s).a.title).toBe("Explicit");
+    // Paired with an explicit title, the description stays as help text.
+    expect(props(s).a.description).toBe("desc");
   });
 
   it("drops the $schema preamble", () => {

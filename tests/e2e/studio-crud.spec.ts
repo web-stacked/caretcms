@@ -843,3 +843,17 @@ test("leaving the list during the Undo window still deletes the entry", async ({
   await sent;
   await expect.poll(async () => (await (await page.request.get("/api/cms/entries?collection=studio-fixture&id=seed-entry")).json()).entries.length).toBe(0);
 });
+
+test("help text that only repeats a field's label isn't shown", async ({ page }) => {
+  await page.route("**/api/cms/schema**", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json() as { schema: { properties: Record<string, { title?: string; description?: string }> } };
+    body.schema.properties.title.description = "title";
+    body.schema.properties.website.description = "Where to find them online";
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto("/admin/cms/studio-fixture/seed-entry");
+  await expect(page.locator("#editor")).toBeVisible();
+  await expect(page.locator('[data-field-path="title"] .caret-field-help')).toHaveCount(0);
+  await expect(page.locator('[data-field-path="website"] .caret-field-help')).toHaveText("Where to find them online");
+});
