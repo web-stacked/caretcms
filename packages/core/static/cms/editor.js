@@ -80,7 +80,7 @@ function boot() {
 
   const showToast = createToast();
 
-  const { studioButton, mapButton, editModeButton, previewModeButton, setStatus, setUnsaved, reportProblem } = mountToolbar({
+  const { studioButton, mapButton, editModeButton, previewModeButton, setStatus, setUnsaved, reportProblem, toolbarTabStop } = mountToolbar({
     showToast,
     clearDirty: () => {
       state.dirtyEls.clear();
@@ -114,6 +114,7 @@ function boot() {
   const { iframe: studioIframe, placeOpposite, openAt } = mountStudioPanel({
     studioButton,
     toolbar: toolbarElement instanceof HTMLElement ? toolbarElement : null,
+    toolbarTabStop,
     onLayoutChange: toolbarAnchor?.setDrawer,
     isStudioDirty: () => studioUnsaved,
   });

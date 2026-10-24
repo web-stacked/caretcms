@@ -4,6 +4,7 @@ import { buildCmsUrl, isStaticDelivery } from './config.js';
 import { createDeploymentStatusPoller } from './deployment-status.js';
 import { presentPublishResult } from './publish-result.js';
 import { createDraftClient } from './draft-client.js';
+import { mountToolbarKeys } from './toolbar-keys.js';
 /** @typedef {'saving' | 'idle' | 'error'} ToolbarStatusState */
 
 /** @param {number} count */
@@ -43,7 +44,7 @@ function renderToolbar(staticDelivery) {
   toolbar.className = 'cms-toolbar';
   toolbar.dataset.delivery = staticDelivery ? 'static' : 'server';
   toolbar.innerHTML = `
-    <div class="cms-toolbar-inner">
+    <div class="cms-toolbar-inner" role="toolbar" aria-label="Site editor">
       <div class="cms-toolbar-left">
         <button type="button" class="cms-status-pill" data-mode="${badgeLabel.toLowerCase()}" aria-haspopup="dialog" aria-expanded="false" aria-controls="cms-status-panel">
           <span class="cms-status-dot cms-status-idle" aria-hidden="true"></span>
@@ -605,12 +606,14 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
 
   void deploymentStatus.refresh();
 
+  const keys = mountToolbarKeys(/** @type {HTMLElement} */ (toolbar.querySelector('.cms-toolbar-inner')), { skipLabel: 'Skip to editor toolbar' });
   const studioButton = toolbar.querySelector('.cms-studio-btn');
   const mapButton = toolbar.querySelector('.cms-map-btn');
   const editModeButton = toolbar.querySelector('.cms-mode-edit');
   const previewModeButton = toolbar.querySelector('.cms-mode-preview');
   return {
     toolbar,
+    toolbarTabStop: keys.tabStop,
     studioButton,
     mapButton,
     editModeButton,

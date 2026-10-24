@@ -43,6 +43,8 @@ export type StudioLayoutOptions = {
   extraStyles?: string;
   /** Inline <script> body executed at end of <body>. */
   inlineScript?: string;
+  /** The page's first Tab stop; defaults to skipping to the main content. */
+  skipLink?: { label: string; href: string };
 };
 
 export function humanizeCollection(name: string): string {
@@ -168,6 +170,7 @@ function renderPalette(runtime: CaretRuntimeConfig): string {
 
 export function renderStudioPage(opts: StudioLayoutOptions): string {
   const { runtime, title, breadcrumb = [], navigation = [], body, extraStyles = "", inlineScript = "" } = opts;
+  const skipLink = opts.skipLink ?? { label: runtime.messages["nav.skipToContent"], href: "#studio-main" };
   const brand = runtime.brand;
   const m = runtime.messages;
   const themeCss = `${runtime.apiBasePath}/theme.css`;
@@ -199,6 +202,7 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
     ${extraStyles ? `<style>${extraStyles}</style>` : ""}
   </head>
   <body>
+    <a class="studio-skip-link" href="${escapeHtml(skipLink.href)}">${escapeHtml(skipLink.label)}</a>
     <div class="studio-app">
       ${renderSidebar(runtime, navigation, overviewActive)}
       <div class="studio-sidebar-scrim" id="studio-sidebar-scrim" hidden></div>
@@ -210,7 +214,7 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
             ${renderIcon("search")}<span>${escapeHtml(m["nav.search"])}</span><kbd>⌘K</kbd>
           </button>
         </header>
-        <main class="studio-main studio-scroll">
+        <main id="studio-main" class="studio-main studio-scroll" tabindex="-1">
           ${body}
         </main>
       </div>

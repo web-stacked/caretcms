@@ -94,3 +94,55 @@ for (const colorScheme of ["light", "dark"] as const) test(`login, collection li
     "Upload replacement image",
   );
 });
+
+test("the editor toolbar is one labeled Tab stop that a skip link reaches first", async ({ page }) => {
+  resetCmsStorage();
+  await loginAsEditor(page);
+  await page.goto("/");
+  const toolbar = page.getByRole("toolbar", { name: "Site editor" });
+  await expect(toolbar).toBeVisible();
+
+  await page.keyboard.press("Tab");
+  const skip = page.getByRole("link", { name: "Skip to editor toolbar" });
+  await expect(skip).toBeFocused();
+  await page.keyboard.press("Enter");
+  const pill = page.locator(".cms-status-pill");
+  await expect(pill).toBeFocused();
+
+  // Arrow keys move inside the bar and wrap; the bar keeps one Tab stop.
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await expect(pill).toBeFocused();
+  expect(await toolbar.locator('[tabindex="0"]').count()).toBe(1);
+
+  // Tab returns to the control used last.
+  await page.keyboard.press("End");
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeFocused();
+});
+
+test("Studio pages start with a skip link to the content or the form", async ({ page }) => {
+  resetCmsStorage();
+  await loginAsEditor(page);
+  const seed = await page.request.post("/api/cms/mutate", {
+    headers: { "x-caret-request": "1" },
+    data: { type: "put_entry", collection: "studio-fixture", id: "skip-entry", data: { title: "Skip fixture", published: false } },
+  });
+  expect(seed.ok(), await seed.text()).toBe(true);
+  await page.goto("/admin/cms/studio-fixture/skip-entry");
+  await expect(page.locator("#editor")).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Skip to form" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await expect(page.locator("#fields")).toContainText("Title");
+  expect(await page.evaluate(() => Boolean(document.activeElement?.closest("#fields")))).toBe(true);
+
+  await page.goto("/admin/cms");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
+});

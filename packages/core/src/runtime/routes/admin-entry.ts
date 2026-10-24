@@ -324,7 +324,7 @@ export async function GET(context: APIContext): Promise<Response> {
         </div>
       </div>
 
-      <div id="fields"></div>
+      <div id="fields" tabindex="-1"></div>
     </div>
   </div>
 
@@ -364,6 +364,7 @@ export async function GET(context: APIContext): Promise<Response> {
         { label: id },
       ],
       navigation,
+      skipLink: { label: messages["entry.skipToForm"], href: "#fields" },
       body,
       extraStyles,
     }),

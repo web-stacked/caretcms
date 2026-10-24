@@ -584,3 +584,24 @@ body:has(.cms-toolbar) #back-to-top {
 body:has(astro-dev-toolbar) .cms-toolbar {
   bottom: 72px;
 }
+
+/* The first Tab stop on an editable page jumps to the toolbar (toolbar-keys.js). */
+.cms-skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100001;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--cms-surface);
+  color: #fff;
+  font: 600 13px/1.2 var(--cms-font);
+  text-decoration: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  transform: translateY(-200%);
+}
+.cms-skip-link:focus {
+  transform: none;
+  outline: 2px solid var(--cms-accent, #3b82f6);
+  outline-offset: 2px;
+}

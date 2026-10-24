@@ -32,11 +32,12 @@ function focusables(root) {
  * @param {{
  *   studioButton: Element | null,
  *   toolbar: HTMLElement | null,
+ *   toolbarTabStop?: () => HTMLElement | null,
  *   onLayoutChange?: (drawer: { side: 'left' | 'right', width: number } | null) => void,
  *   isStudioDirty?: () => boolean,
  * }} options
  */
-export function mountStudioPanel({ studioButton, toolbar, onLayoutChange, isStudioDirty = () => false }) {
+export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () => null, onLayoutChange, isStudioDirty = () => false }) {
   if (!STUDIO_PATH) {
     studioButton?.setAttribute('hidden', 'hidden');
     studioButton?.setAttribute('aria-hidden', 'true');
@@ -135,11 +136,6 @@ export function mountStudioPanel({ studioButton, toolbar, onLayoutChange, isStud
     iframe.focus({ preventScroll: true });
   }
 
-  /** @returns {HTMLElement[]} */
-  function toolbarControls() {
-    return toolbar ? focusables(toolbar) : [];
-  }
-
   function focusDrawerStart() {
     focusables(panelHeader)[0]?.focus();
   }
@@ -155,17 +151,16 @@ export function mountStudioPanel({ studioButton, toolbar, onLayoutChange, isStud
     iframe.focus();
   }
 
-  endGuard.addEventListener('focus', () => (toolbarControls()[0] ?? focusables(panelHeader)[0])?.focus());
+  // The toolbar is a single Tab stop (arrow keys move inside it).
+  endGuard.addEventListener('focus', () => (toolbarTabStop() ?? focusables(panelHeader)[0])?.focus());
   startGuard.addEventListener('focus', () => {
-    const controls = toolbarControls();
-    if (controls.length) controls[controls.length - 1].focus();
+    const stop = toolbarTabStop();
+    if (stop) stop.focus();
     else focusDrawerEnd();
   });
   toolbar?.addEventListener('keydown', (event) => {
     if (event.key !== 'Tab' || !panel.classList.contains('open')) return;
-    const controls = toolbarControls();
-    const edge = event.shiftKey ? controls[0] : controls[controls.length - 1];
-    if (event.target !== edge) return;
+    if (event.target instanceof Element && event.target.closest('.cms-tools-popover')) return;
     event.preventDefault();
     if (event.shiftKey) focusDrawerEnd();
     else focusDrawerStart();
