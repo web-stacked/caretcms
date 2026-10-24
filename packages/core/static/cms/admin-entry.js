@@ -6,6 +6,7 @@ import { createStudioUploadClient, isSupportedImage } from './studio/upload-clie
 import { createStudioEntryLoader } from './studio/entry-loader.js';
 import { createStudioSync } from './studio/sync-client.js';
 import { rebaseEdits } from './studio/merge.js';
+import { historyChanges, relativeTime } from './studio/history-view.js';
 
 /** @typedef {import('../../src/schema-utils.js').JsonSchemaNode} Schema */
 /** @typedef {{ path: string, message: string }} ValidationIssue */
@@ -1253,30 +1254,39 @@ import { rebaseEdits } from './studio/merge.js';
   }
 
   /* ─── History ───────────────────────────────────────────────────── */
-  /** @param {unknown} value */
-  function historyValue(value) {
-    if (typeof value === "string") return value.length > 100 ? value.slice(0, 97) + "…" : (value || "Empty");
-    if (typeof value === "boolean") return value ? "Yes" : "No";
-    if (typeof value === "number") return String(value);
-    if (Array.isArray(value)) return value.length + (value.length === 1 ? " item" : " items");
-    if (value && typeof value === "object") return Object.keys(value).length + " fields";
-    return "Empty";
-  }
-
-  /** @param {Record<string, unknown> | undefined} snapshot */
-  function changedHistoryFields(snapshot) {
-    if (!snapshot || !entryData) return [];
-    return Array.from(new Set(Object.keys(snapshot).concat(Object.keys(entryData)))).filter(function (key) {
-      return JSON.stringify(snapshot[key]) !== JSON.stringify(entryData && entryData[key]);
-    });
-  }
-
   /** @param {string} action */
   function historyActionLabel(action) {
-    if (action === "restore") return "Restored";
-    if (action === "delete") return "Deleted";
-    if (action === "publish") return "Published";
-    return "Saved";
+    if (action === "restore") return msg("history.restored", "Restored");
+    if (action === "delete") return msg("history.deleted", "Deleted");
+    if (action === "publish") return msg("history.published", "Published");
+    if (action === "reorder") return msg("history.reordered", "Reordered");
+    return msg("history.saved", "Saved");
+  }
+
+  var HISTORY_SHOWN_CHANGES = 4;
+
+  /**
+   * One change: "Intro label  Studio of two → A studio of two people".
+   * @param {import('./studio/history-view.js').HistoryChange} change
+   */
+  function historyChangeItem(change) {
+    var item = document.createElement("li");
+    var label = document.createElement("span");
+    label.className = "caret-history-field";
+    label.textContent = change.label;
+    var before = document.createElement("del");
+    before.textContent = change.before;
+    var arrow = document.createElement("span");
+    arrow.className = "caret-history-arrow";
+    arrow.setAttribute("aria-hidden", "true");
+    arrow.textContent = "→";
+    var after = document.createElement("ins");
+    after.textContent = change.after;
+    item.appendChild(label);
+    item.appendChild(before);
+    item.appendChild(arrow);
+    item.appendChild(after);
+    return item;
   }
 
   function loadHistory() {
@@ -1296,11 +1306,17 @@ import { rebaseEdits } from './studio/merge.js';
         return;
       }
       historyList.innerHTML = "";
-      items.forEach(function (item) {
+      // Each snapshot is the entry as it was before a change. What the change
+      // made is the next newer snapshot, or the saved entry for the newest.
+      var saved = /** @type {Record<string, unknown>} */ (JSON.parse(originalJson || "{}"));
+      var now = Date.now();
+      var empty = msg("history.empty", "Empty");
+      items.forEach(function (item, index) {
+        var afterChange = index === 0 ? saved : items[index - 1].data;
         var row = document.createElement("div");
         row.className = "caret-history-row";
-        var date = new Date(item.ts);
-        var timeStr = date.toLocaleString();
+        var fullTime = new Date(item.ts).toLocaleString(document.documentElement.lang || undefined);
+        var when = relativeTime(item.ts, now, document.documentElement.lang || undefined);
 
         var summary = document.createElement("div");
         summary.className = "caret-history-summary";
@@ -1312,15 +1328,17 @@ import { rebaseEdits } from './studio/merge.js';
         actionSpan.dataset.action = item.action || "save";
         actionSpan.textContent = historyActionLabel(item.action || "save");
 
-        var timeSpan = document.createElement("span");
-        timeSpan.style.cssText = "font-size:0.75rem;color:var(--studio-text-muted);";
-        timeSpan.textContent = timeStr;
+        var timeEl = document.createElement("time");
+        timeEl.className = "caret-history-time";
+        timeEl.dateTime = new Date(item.ts).toISOString();
+        timeEl.title = fullTime;
+        timeEl.textContent = when;
 
         info.appendChild(actionSpan);
-        info.appendChild(timeSpan);
+        info.appendChild(timeEl);
         if (item.editor && typeof item.editor.id === "string") {
           var editorSpan = document.createElement("span");
-          editorSpan.style.cssText = "font-size:0.7rem;color:var(--studio-text-dim);";
+          editorSpan.className = "caret-history-editor";
           editorSpan.textContent = item.editor.name || item.editor.email
             // Password sessions carry only an id, renewed at each sign-in, so a
             // different id is an earlier session, not necessarily another person.
@@ -1330,39 +1348,38 @@ import { rebaseEdits } from './studio/merge.js';
         }
         summary.appendChild(info);
 
-        var changed = changedHistoryFields(item.data);
-        var changes = document.createElement("p");
-        changes.className = "caret-history-changes";
-        changes.textContent = changed.length > 0
-          ? "Differs in " + changed.slice(0, 4).map(humanizeKey).join(", ") + (changed.length > 4 ? " and " + (changed.length - 4) + " more" : "")
-          : "Matches the current version";
-        summary.appendChild(changes);
-
-        if (item.data) {
-          var preview = document.createElement("details");
-          preview.className = "caret-history-preview";
-          var previewSummary = document.createElement("summary");
-          previewSummary.textContent = "Review version";
-          preview.appendChild(previewSummary);
-          var values = document.createElement("dl");
-          Object.keys(item.data).slice(0, 8).forEach(function (key) {
-            var term = document.createElement("dt");
-            term.textContent = humanizeKey(key);
-            var description = document.createElement("dd");
-            description.textContent = historyValue(item.data && item.data[key]);
-            values.appendChild(term);
-            values.appendChild(description);
-          });
-          preview.appendChild(values);
-          summary.appendChild(preview);
+        var changes = item.data ? historyChanges(item.data, afterChange, entrySchema, empty) : [];
+        if (changes.length === 0) {
+          var none = document.createElement("p");
+          none.className = "caret-history-changes";
+          none.textContent = msg("history.noFieldChanges", "No field changes");
+          summary.appendChild(none);
+        } else {
+          var list = document.createElement("ul");
+          list.className = "caret-history-diff";
+          changes.slice(0, HISTORY_SHOWN_CHANGES).forEach(function (change) { list.appendChild(historyChangeItem(change)); });
+          summary.appendChild(list);
+          if (changes.length > HISTORY_SHOWN_CHANGES) {
+            var more = document.createElement("details");
+            more.className = "caret-history-more";
+            var moreSummary = document.createElement("summary");
+            var hidden = changes.length - HISTORY_SHOWN_CHANGES;
+            moreSummary.textContent = msg(hidden === 1 ? "history.moreChangesOne" : "history.moreChanges", "{count} more changes").replace("{count}", String(hidden));
+            var moreList = document.createElement("ul");
+            moreList.className = "caret-history-diff";
+            changes.slice(HISTORY_SHOWN_CHANGES).forEach(function (change) { moreList.appendChild(historyChangeItem(change)); });
+            more.appendChild(moreSummary);
+            more.appendChild(moreList);
+            summary.appendChild(more);
+          }
         }
         row.appendChild(summary);
 
         var restoreBtn = document.createElement("button");
         restoreBtn.type = "button";
         restoreBtn.className = "studio-btn-ghost";
-        restoreBtn.textContent = "Restore";
-        restoreBtn.setAttribute("aria-label", "Restore version from " + timeStr);
+        restoreBtn.textContent = msg("history.restoreBefore", "Restore earlier version");
+        restoreBtn.setAttribute("aria-label", msg("history.restoreBeforeLabel", "Restore the version from before the change {time}").replace("{time}", when));
         restoreBtn.addEventListener("click", function () { restoreSnapshot(item.ts); });
         row.appendChild(restoreBtn);
 
@@ -1377,15 +1394,14 @@ import { rebaseEdits } from './studio/merge.js';
     historyPanel.hidden = true;
     historyBtn.setAttribute("aria-expanded", "false");
     historyList.innerHTML = "";
-    var moreSummary = document.querySelector("#entry-more > summary");
-    if (moreSummary instanceof HTMLElement) moreSummary.focus();
+    historyBtn.focus();
   }
 
   /** @param {number} ts */
   async function restoreSnapshot(ts) {
     if (!(await confirmAction({
-      title: msg("entry.restoreTitle", "Restore this version?"),
-      copy: msg("entry.restoreCopy", "The current version will remain in History so you can restore it again."),
+      title: msg("entry.restoreTitle", "Go back to before this change?"),
+      copy: msg("entry.restoreCopy", "The fields return to how they were before this change, which also undoes any later changes. The current version stays in History, so you can come back to it."),
       action: msg("entry.restore", "Restore"),
     }))) return;
     historyClient.restore({ collection: COLLECTION, id: ID, ts: ts }).then(function (result) {

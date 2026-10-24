@@ -284,6 +284,7 @@ export async function GET(context: APIContext): Promise<Response> {
           ${publicationFieldName ? `<span id="visibility-status" class="entry-visibility" aria-live="polite"></span>` : ""}
         </div>
         <div class="editor-actions">
+          <button id="btn-history" ${canRestore ? "" : "hidden"} type="button" class="studio-btn-ghost" aria-controls="history-panel" aria-expanded="false">${escapeHtml(messages["entry.history"])}</button>
           <details id="entry-more" class="editor-more">
             <summary class="studio-btn-ghost">${escapeHtml(messages["common.more"])}</summary>
             <div class="editor-more-menu">
@@ -292,7 +293,6 @@ export async function GET(context: APIContext): Promise<Response> {
                 <span id="save-target">${escapeHtml(savingToPreview ? messages["entry.savingPreview"] : messages["entry.savingLive"])}</span>
               </div>
               ${previewPath ? `<a id="btn-preview" class="studio-btn-ghost" href="${escapeHtml(previewPath)}" target="_blank" rel="noopener">${escapeHtml(messages["entry.preview"])}</a>` : ""}
-              <button id="btn-history" ${canRestore ? "" : "hidden"} type="button" class="studio-btn-ghost" aria-controls="history-panel" aria-expanded="false">${escapeHtml(messages["entry.history"])}</button>
               ${deletable ? `<button id="btn-delete" type="button" class="studio-btn-danger">${escapeHtml(messages["entry.delete"])}</button>` : ""}
             </div>
           </details>

@@ -513,23 +513,40 @@
   color: var(--studio-text-muted);
   font-size: 0.75rem;
 }
-.caret-history-preview {
-  margin-top: 0.45rem;
-  font-size: 0.75rem;
+.caret-history-time { color: var(--studio-text-muted); font-size: 0.75rem; }
+.caret-history-editor { color: var(--studio-text-dim); font-size: 0.7rem; }
+/* What a change did: "Field  before → after", only the fields it touched. */
+.caret-history-diff {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+  line-height: 1.4;
 }
-.caret-history-preview summary {
+.caret-history-diff li { overflow-wrap: anywhere; }
+.caret-history-field {
+  margin-right: 0.45rem;
+  color: var(--studio-text-muted);
+  font-weight: 600;
+}
+.caret-history-diff del {
+  color: var(--studio-text-dim);
+  text-decoration-color: color-mix(in srgb, var(--studio-red) 60%, transparent);
+}
+.caret-history-diff ins {
+  color: var(--studio-text);
+  text-decoration: none;
+}
+.caret-history-arrow { margin: 0 0.35rem; color: var(--studio-text-dim); }
+.caret-history-more { margin-top: 0.35rem; font-size: 0.75rem; }
+.caret-history-more summary {
   width: fit-content;
   color: var(--studio-accent);
   cursor: pointer;
 }
-.caret-history-preview dl {
-  display: grid;
-  grid-template-columns: minmax(6rem, auto) minmax(0, 1fr);
-  gap: 0.35rem 0.75rem;
-  margin: 0.55rem 0 0;
-}
-.caret-history-preview dt { color: var(--studio-text-muted); }
-.caret-history-preview dd { margin: 0; overflow-wrap: anywhere; }
+.caret-history-row > .studio-btn-ghost { flex-shrink: 0; }
 .conflict-fields {
   max-height: 12rem;
   text-align: left;

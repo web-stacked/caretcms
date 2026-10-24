@@ -78,7 +78,6 @@ for (const colorScheme of ["light", "dark"] as const) test(`login, collection li
   await page.goto("/admin/cms/studio-fixture/axe-entry");
   await expect(page.locator("#editor")).toBeVisible();
 
-  await page.locator("#entry-more > summary").click();
   await page.locator("#btn-history").click();
   await expect(page.getByRole("region", { name: "Version history" })).toBeVisible();
   await expect(page.locator("#btn-history-close")).toBeFocused();

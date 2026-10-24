@@ -16,8 +16,12 @@ orchestrator retains confirmations, field-error DOM, status text, and navigation
 Studio history reads and restores live in `static/cms/studio/history-client.js`.
 The client owns query encoding, restore request headers and payloads,
 authentication detection, response validation, and normalization of history
-rows. The orchestrator still owns confirmation, history markup, form rerendering,
-and preview announcements.
+rows. `static/cms/studio/history-view.js` turns rows into what each change did:
+every snapshot is the entry as it was before a change, so a row compares its
+snapshot with the next newer one (or the saved entry, for the newest) and lists
+only the leaf fields that differ, labeled with the form's field titles, plus
+relative times. The orchestrator still owns confirmation, history markup, form
+rerendering, and preview announcements.
 
 The Studio delete confirmation is a named modal dialog. It focuses Cancel when
 opened, contains Tab traversal, and restores the invoking Delete button when it
@@ -26,9 +30,10 @@ does not also close a parent inline-editor Studio drawer. The open dialog passes
 axe with sequential heading structure and sufficient contrast for its
 destructive confirmation action.
 
-Studio history is a named disclosure region connected to its History button.
-Opening focuses the panel's Close action; close, Escape, and successful restore
-collapse the region, update expanded state, and return focus. The open region
+Studio history is a named disclosure region connected to its History button,
+which sits beside More actions. Opening focuses the panel's Close action; close,
+Escape, and successful restore collapse the region, update expanded state, and
+return focus to the History button. The open region
 passes axe, and embedded Escape is contained before the parent drawer listener.
 
 Studio entry creation uses a named modal dialog with the entry-ID guidance as

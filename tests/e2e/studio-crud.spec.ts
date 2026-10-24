@@ -307,7 +307,6 @@ test("embedded Studio Escape closes local overlays before the Studio drawer", as
   await expect(studio.locator("#editor")).toBeVisible();
 
   const historyButton = studio.locator("#btn-history");
-  await studio.locator("#entry-more > summary").click();
   await historyButton.click();
   const historyPanel = studio.getByRole("region", { name: "Version history" });
   const historyClose = studio.locator("#btn-history-close");
@@ -316,7 +315,7 @@ test("embedded Studio Escape closes local overlays before the Studio drawer", as
   await historyClose.press("Escape");
 
   await expect(historyPanel).toBeHidden();
-  await expect(studio.locator("#entry-more > summary")).toBeFocused();
+  await expect(historyButton).toBeFocused();
   await expect(panel).toBeVisible();
 
   await iframe.evaluate((element) => {
@@ -524,8 +523,9 @@ test("Studio history restores the previous entry and keeps the replaced state un
   await page.locator("#btn-save").click();
   expect((await save).ok()).toBeTruthy();
 
+  // History sits beside More actions, not inside it.
   const historyButton = page.locator("#btn-history");
-  await page.locator("#entry-more > summary").click();
+  await expect(historyButton).toBeVisible();
   await expect(historyButton).toHaveAttribute("aria-controls", "history-panel");
   await expect(historyButton).toHaveAttribute("aria-expanded", "false");
   await historyButton.click();
@@ -536,28 +536,30 @@ test("Studio history restores the previous entry and keeps the replaced state un
   await page.locator("#btn-history-close").press("Escape");
   await expect(historyPanel).toBeHidden();
   await expect(historyButton).toHaveAttribute("aria-expanded", "false");
-  await expect(page.locator("#entry-more > summary")).toBeFocused();
+  await expect(historyButton).toBeFocused();
 
-  await page.locator("#entry-more > summary").click();
   await historyButton.click();
   const historyRows = page.locator(".caret-history-row");
   await expect(historyRows).toHaveCount(1);
   await expect(historyRows.first().locator(".caret-history-action")).toHaveText("Saved");
-  await expect(historyRows.first().locator(".caret-history-changes")).toContainText("Title");
-  await historyRows.first().getByText("Review version").click();
-  await expect(historyRows.first().locator(".caret-history-preview")).toContainText("Seed entry");
+  await expect(historyRows.first().locator(".caret-history-time")).toHaveText(/now|seconds? ago/);
+  // The row says what that save changed: the one field, before and after.
+  const changes = historyRows.first().locator(".caret-history-diff li");
+  await expect(changes).toHaveCount(1);
+  await expect(changes.first().locator(".caret-history-field")).toHaveText("Title");
+  await expect(changes.first().locator("del")).toHaveText("Seed entry");
+  await expect(changes.first().locator("ins")).toHaveText("Changed after the snapshot");
 
   const restore = page.waitForResponse((response) =>
     response.url().includes("/api/cms/history") && response.request().method() === "POST",
   );
   await historyRows.first().getByRole("button", { name: "Restore" }).click();
-  await page.getByRole("dialog", { name: "Restore this version?" }).getByRole("button", { name: "Restore" }).click();
+  await page.getByRole("dialog", { name: "Go back to before this change?" }).getByRole("button", { name: "Restore" }).click();
   expect((await restore).ok()).toBeTruthy();
 
   await expect(title).toHaveValue("Seed entry");
   await expect(page.locator("#status-msg")).toHaveText("Restored");
 
-  await page.locator("#entry-more > summary").click();
   await historyButton.click();
   await expect(page.locator(".caret-history-row")).toHaveCount(2);
   await expect(page.locator(".caret-history-row").first().locator(".caret-history-action"))
