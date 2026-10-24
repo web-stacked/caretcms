@@ -7,6 +7,7 @@ import { createStudioEntryLoader } from './studio/entry-loader.js';
 import { createStudioSync } from './studio/sync-client.js';
 import { rebaseEdits } from './studio/merge.js';
 import { historyChanges, relativeTime } from './studio/history-view.js';
+import { presentPublishResult } from './editor/publish-result.js';
 
 /** @typedef {import('../../src/schema-utils.js').JsonSchemaNode} Schema */
 /** @typedef {{ path: string, message: string }} ValidationIssue */
@@ -124,6 +125,9 @@ import { historyChanges, relativeTime } from './studio/history-view.js';
   var validationWarningEl = /** @type {HTMLElement | null} */ (document.getElementById("validation-warning"));
   var saveBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-save"));
   var deleteBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-delete"));
+  var publishBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-publish"));
+  var discardDraftBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-discard-draft"));
+  var draftChangesEl = /** @type {HTMLDetailsElement | null} */ (document.getElementById("draft-changes"));
   var historyBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-history"));
   var historyPanel = /** @type {HTMLElement} */ (document.getElementById("history-panel"));
   var historyList = /** @type {HTMLElement} */ (document.getElementById("history-list"));
@@ -259,6 +263,100 @@ import { historyChanges, relativeTime } from './studio/history-view.js';
     visibilityEl.dataset.visible = visible ? "true" : "false";
   }
 
+  // Draft modes: what this entry's draft changes compared with what visitors
+  // see, and the Publish and Discard actions for it.
+  var canPublish = true;
+  var publishing = false;
+
+  function updateDraftUi() {
+    if (!draftChangesEl || SAVE_TARGET !== "preview" || liveData === undefined || !entryData || creating) return;
+    var saved = /** @type {Record<string, unknown>} */ (JSON.parse(originalJson || "{}"));
+    var unpublished = hasUnpublishedDraft();
+    var title = /** @type {HTMLElement} */ (document.getElementById("draft-changes-title"));
+    var list = /** @type {HTMLElement} */ (document.getElementById("draft-changes-list"));
+    list.innerHTML = "";
+    if (unpublished) {
+      if (liveData === null) {
+        title.textContent = msg("entry.newNotPublished", "New, not published yet");
+      } else {
+        var changes = historyChanges(fillDefaults(deepClone(liveData), entrySchema), saved, entrySchema, msg("history.empty", "Empty"));
+        title.textContent = changes.length === 1
+          ? msg("entry.draftChangesOne", "1 change not published yet")
+          : msg("entry.draftChanges", "{count} changes not published yet").replace("{count}", String(changes.length));
+        changes.forEach(function (change) { list.appendChild(historyChangeItem(change)); });
+      }
+    }
+    draftChangesEl.hidden = !unpublished;
+    if (publishBtn) {
+      publishBtn.hidden = !unpublished || !canPublish;
+      publishBtn.disabled = publishing || isDirty() || saving;
+    }
+    if (discardDraftBtn) discardDraftBtn.hidden = !unpublished;
+  }
+
+  function publishEntry() {
+    if (!publishBtn || publishing) return;
+    publishing = true;
+    publishBtn.textContent = msg("entry.publishing", "Publishing…");
+    updateDraftUi();
+    showStatus("saving", msg("entry.publishing", "Publishing…"));
+    fetch(API + "/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-caret-request": "1" },
+      credentials: "same-origin",
+      body: JSON.stringify({ collection: COLLECTION, id: ID }),
+    }).then(function (response) {
+      if (response.status === 401) { loginRedirect(); return; }
+      return response.json().catch(function () { return {}; }).then(function (body) {
+        if (!response.ok) {
+          showStatus("error", typeof body.error === "string" ? body.error : msg("common.error", "Error"));
+          return;
+        }
+        var result = presentPublishResult(body);
+        showStatus(result.toast.kind === "error" ? "error" : "saved", result.toast.message);
+        studioSync.announceChange("cms:published", entryData);
+        // Publishing moves the draft into what visitors see, which changes this
+        // entry's versions: take the new ones so the next save isn't stale.
+        return entryLoader.load({ collection: COLLECTION, id: ID, isNew: false, initializeIfMissing: false }).then(function (latest) {
+          if (latest.kind !== "ready") return;
+          entryRevision = latest.revision;
+          entryBaseRevision = latest.baseRevision;
+          liveData = latest.live;
+        });
+      });
+    }).catch(function () {
+      showStatus("error", msg("common.error", "Error"));
+    }).then(function () {
+      publishing = false;
+      if (publishBtn) publishBtn.textContent = msg("entry.publish", "Publish");
+      updateVisibility();
+      updateDraftUi();
+    });
+  }
+
+  async function discardEntryDraft() {
+    var moreMenu = document.getElementById("entry-more");
+    if (moreMenu) moreMenu.removeAttribute("open");
+    if (!(await confirmAction({
+      title: msg("entry.discardTitle", "Discard your draft?"),
+      copy: msg("entry.discardCopy", "This entry goes back to what visitors see now, and your unpublished changes are removed."),
+      action: msg("entry.discardDraft", "Discard draft"),
+    }))) return;
+    var response = await fetch(API + "/draft?collection=" + encodeURIComponent(COLLECTION) + "&id=" + encodeURIComponent(ID), {
+      method: "DELETE",
+      headers: { "x-caret-request": "1" },
+      credentials: "same-origin",
+    }).catch(function () { return null; });
+    if (response && response.status === 401) { loginRedirect(); return; }
+    if (!response || !response.ok) {
+      var body = response ? await response.json().catch(function () { return {}; }) : {};
+      showStatus("error", typeof body.error === "string" ? body.error : msg("common.error", "Error"));
+      return;
+    }
+    // The entry is now what visitors see; load it fresh.
+    window.location.reload();
+  }
+
   /** @param {boolean} [preserveStatus] */
   function updateSaveButton(preserveStatus) {
     var dirty = isDirty();
@@ -270,6 +368,7 @@ import { historyChanges, relativeTime } from './studio/history-view.js';
       : (SAVE_TARGET === "preview" ? msg("entry.saveDraft", "Save draft") : msg("entry.saveLive", "Save live"));
     updateDisplayedTitle();
     updateVisibility();
+    updateDraftUi();
     studioSync.announceStatus(dirty);
     if (entryData !== null && !preserveStatus) {
       if (saving) showStatus("saving", SAVE_TARGET === "preview" ? msg("entry.savingDraft", "Saving draft…") : msg("entry.savingLiveChanges", "Saving live changes…"));
@@ -1442,6 +1541,16 @@ import { historyChanges, relativeTime } from './studio/history-view.js';
   /* ─── Wire events ───────────────────────────────────────────────── */
   saveBtn.addEventListener("click", save);
   if (deleteBtn) deleteBtn.addEventListener("click", deleteEntry);
+  if (publishBtn) publishBtn.addEventListener("click", publishEntry);
+  if (discardDraftBtn) discardDraftBtn.addEventListener("click", discardEntryDraft);
+  // With an authorization policy, Publish appears only for editors allowed to publish.
+  if (publishBtn) {
+    fetch(API + "/draft", { headers: { "x-caret-request": "1" }, credentials: "same-origin" })
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (body) {
+        if (body && body.canPublish === false) { canPublish = false; updateDraftUi(); }
+      }).catch(function () {});
+  }
   historyBtn.addEventListener("click", loadHistory);
   // The ⌘K palette offers this entry's history.
   var studioWindow = /** @type {Window & { caretStudioActions?: Array<{ label: string, keywords: string, run: () => void }> }} */ (window);

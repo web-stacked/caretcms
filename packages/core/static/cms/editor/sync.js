@@ -34,7 +34,7 @@ const PENDING_SELECTION_KEY = 'caretcms:pending-preview-selection';
  */
 /**
  * @typedef {object} ChangeMessage
- * @property {'cms:preview' | 'cms:saved' | 'cms:created' | 'cms:deleted'} type
+ * @property {'cms:preview' | 'cms:saved' | 'cms:created' | 'cms:deleted' | 'cms:published'} type
  * @property {string} collection
  * @property {string} id
  * @property {Record<string, unknown> | null} [data]
@@ -90,7 +90,7 @@ export function normalizeSyncMessage(value) {
   }
   if (value.type === 'cms:entry-ready') return { ...common, type: value.type };
   if (value.type === 'cms:status') return typeof value.dirty === 'boolean' ? { ...common, type: value.type, dirty: value.dirty } : null;
-  if (!['cms:preview', 'cms:saved', 'cms:created', 'cms:deleted'].includes(value.type)) return null;
+  if (!['cms:preview', 'cms:saved', 'cms:created', 'cms:deleted', 'cms:published'].includes(value.type)) return null;
   if (value.data !== undefined && value.data !== null && !isRecord(value.data)) return null;
   return {
     ...common,
@@ -443,7 +443,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
       return;
     }
 
-    if (['cms:saved', 'cms:created', 'cms:deleted'].includes(msg.type)) noteStudioChange();
+    if (['cms:saved', 'cms:created', 'cms:deleted', 'cms:published'].includes(msg.type)) noteStudioChange();
 
     if (msg.type === 'cms:saved') {
       applySavedMessage(msg);

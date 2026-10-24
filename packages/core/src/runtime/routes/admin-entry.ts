@@ -293,9 +293,11 @@ export async function GET(context: APIContext): Promise<Response> {
                 <span id="save-target">${escapeHtml(savingToPreview ? messages["entry.savingPreview"] : messages["entry.savingLive"])}</span>
               </div>
               ${previewPath ? `<a id="btn-preview" class="studio-btn-ghost" href="${escapeHtml(previewPath)}" target="_blank" rel="noopener">${escapeHtml(messages["entry.preview"])}</a>` : ""}
+              ${savingToPreview && editable ? `<button id="btn-discard-draft" type="button" class="studio-btn-ghost" hidden>${escapeHtml(messages["entry.discardDraft"])}</button>` : ""}
               ${deletable ? `<button id="btn-delete" type="button" class="studio-btn-danger">${escapeHtml(messages["entry.delete"])}</button>` : ""}
             </div>
           </details>
+          ${savingToPreview && editable ? `<button id="btn-publish" type="button" class="studio-btn-primary" hidden>${escapeHtml(messages["entry.publish"])}</button>` : ""}
           <button id="btn-save" ${editable ? "" : "hidden"} type="button" class="studio-save-clean" disabled>${escapeHtml(savingToPreview ? messages["entry.saveDraft"] : messages["entry.saveLive"])}</button>
         </div>
       </div>
@@ -304,6 +306,11 @@ export async function GET(context: APIContext): Promise<Response> {
         <summary id="editor-guide-title">${escapeHtml(messages["entry.guideTitle"])}</summary>
         <p id="editor-guide-copy">${escapeHtml(messages["entry.guideCopy"])}</p>
       </details>
+
+      ${savingToPreview ? `<details id="draft-changes" class="draft-changes" hidden>
+        <summary id="draft-changes-title"></summary>
+        <ul id="draft-changes-list" class="caret-history-diff"></ul>
+      </details>` : ""}
 
       <div id="validation-warning" role="alert" hidden style="margin-bottom:1.25rem;padding:1rem;border:1px solid var(--studio-red);border-radius:var(--radius-theme-md);background:var(--studio-red-soft);color:var(--studio-text);font-size:0.85rem;"></div>
 

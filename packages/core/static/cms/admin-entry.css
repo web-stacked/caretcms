@@ -579,3 +579,20 @@
   background: var(--studio-accent-soft);
   box-shadow: inset 3px 0 0 var(--studio-accent);
 }
+
+/* Draft modes: what this entry's draft changes compared with what visitors see. */
+.draft-changes {
+  margin-bottom: 1.25rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--studio-border);
+  border-left: 3px solid var(--studio-yellow);
+  border-radius: var(--radius-theme-md);
+  background: var(--studio-surface);
+  font-size: 0.82rem;
+}
+.draft-changes summary {
+  color: var(--studio-text);
+  font-weight: 600;
+  cursor: pointer;
+}
+.draft-changes .caret-history-diff:empty { display: none; }

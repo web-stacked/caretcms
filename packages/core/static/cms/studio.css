@@ -344,6 +344,17 @@ h1[tabindex="-1"]:focus { outline: none; }
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+.studio-home-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-theme-md);
+  margin-bottom: var(--space-theme-md);
+}
+.studio-home-section-header .studio-home-section-title { margin: 0; }
+.studio-home-publish-status { margin: 0 0 var(--space-theme-md); color: var(--studio-text-muted); font-size: 0.85rem; }
+.studio-home-publish-status:empty { display: none; }
+.studio-home-publish-status[data-kind="error"] { color: var(--studio-red); }
 .studio-card-interactive.studio-collection-card.studio-page-entry { min-height: 0; flex-direction: row; align-items: center; }
 .studio-embedded .studio-home-section + .studio-home-section { margin-top: var(--space-theme-lg); }
 /* The on-page drawer is narrow: collection cards become compact rows. */

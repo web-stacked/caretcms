@@ -2,6 +2,7 @@ export const prerender = false;
 
 import type { APIContext } from "astro";
 import { matchEntry } from "../entry-search.js";
+import { unpublishedEntries } from "../unpublished.js";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { parseCollectionName, parseEntryId } from "../mutations/contracts.js";
 import { stripBodyOverlay } from "../utils.js";
@@ -21,6 +22,8 @@ type CmsEntryResponse = {
   readError?: { code: string; error: string };
   /** For a search hit inside a field rather than the title: where, and the words around it. */
   match?: { field: string; snippet: string };
+  /** In draft modes: this entry has changes visitors don't see yet. */
+  draft?: true;
 };
 
 /**
@@ -212,11 +215,16 @@ export async function GET(context: APIContext): Promise<Response> {
     const effectivePage = totalPages === 0 ? 1 : Math.min(page, totalPages);
     const start = (effectivePage - 1) * pageSize;
     const pageIds = filteredIds.slice(start, start + pageSize);
+    const unpublished = new Set((await unpublishedEntries(collection)).map((entry) => entry.id));
     const entries = (await readBatch(pageIds))
       .filter((entry): entry is CmsEntryResponse => entry !== null)
       .map((entry) => {
         const match = fieldMatches.get(entry.id);
-        return match ? { ...entry, match } : entry;
+        return {
+          ...entry,
+          ...(match ? { match } : {}),
+          ...(unpublished.has(entry.id) ? { draft: true as const } : {}),
+        };
       });
 
     return json({

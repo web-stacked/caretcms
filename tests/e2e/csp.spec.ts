@@ -94,7 +94,7 @@ test("Studio modules load and save under a script CSP with hashes", async ({ pag
   });
   const modules = new Set<string>();
   page.on("response", response => {
-    if (response.ok() && (response.url().includes("/__caret/studio/") || response.url().includes("/__caret/editor/sanitize.js"))) {
+    if (response.ok() && (response.url().includes("/__caret/studio/") || response.url().includes("/__caret/editor/sanitize.js") || response.url().includes("/__caret/editor/publish-result.js"))) {
       modules.add(new URL(response.url()).pathname);
     }
   });
@@ -117,6 +117,7 @@ test("Studio modules load and save under a script CSP with hashes", async ({ pag
     "/__caret/studio/mutation-client.js",
     "/__caret/studio/sync-client.js",
     "/__caret/studio/upload-client.js",
+    "/__caret/editor/publish-result.js",
     "/__caret/editor/sanitize.js",
   ]));
   await expect(page.locator("html")).not.toHaveAttribute("data-csp-violation");

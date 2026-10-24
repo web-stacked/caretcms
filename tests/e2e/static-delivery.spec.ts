@@ -11,6 +11,7 @@ const REPO_ROOT = process.cwd();
 const FIXTURE = resolve(REPO_ROOT, "tests/e2e/fixtures/static-site");
 const PUBLISHED_HEADLINE = "Initial published headline";
 const EDITED_HEADLINE = "Published into the static build";
+const EDITED_HEADLINE_FROM_STUDIO = "Published from the Studio";
 const WEBHOOK_PORT = Number(process.env.STATIC_E2E_WEBHOOK_PORT ?? "4404");
 let webhookServer: Server;
 let nextWebhookStatus = 202;
@@ -95,6 +96,72 @@ test.afterAll(() => {
   stopDevServer();
   resetFixture();
   webhookServer?.close();
+});
+
+test("a Studio-only editor drafts, sees what isn't published, and publishes from the Studio", async ({ page }) => {
+  await page.request.post("/api/cms/auth/login", {
+    data: { password: EDIT_PASSWORD },
+    headers: { Accept: "application/json" },
+  });
+  // Never visits the site: the Studio alone works on drafts in static delivery.
+  await page.goto("/admin/cms/pages/home");
+  const headline = page.getByRole("textbox", { name: /^Headline/ });
+  await expect(headline).toHaveValue(PUBLISHED_HEADLINE);
+  await headline.fill("Drafted in the Studio");
+  await page.locator("#btn-save").click();
+  await expect(page.locator("#status-msg")).toHaveText("Draft saved");
+  expect(await (await fetch(ORIGIN)).text()).toContain(PUBLISHED_HEADLINE);
+
+  const changes = page.locator("#draft-changes");
+  await expect(changes.locator("summary")).toHaveText("1 change not published yet");
+  await changes.locator("summary").click();
+  await expect(changes.locator("del")).toHaveText(PUBLISHED_HEADLINE);
+  await expect(changes.locator("ins")).toHaveText("Drafted in the Studio");
+
+  await page.goto("/admin/cms/pages");
+  await expect(page.locator(".entry-card-draft")).toHaveText("Not published");
+  await page.goto("/admin/cms");
+  const notPublished = page.getByRole("region", { name: "Not published yet" });
+  await expect(notPublished.locator(".studio-page-entry")).toHaveCount(1);
+
+  // Publishing one entry from its page.
+  await page.goto("/admin/cms/pages/home");
+  const publish = page.waitForResponse(response => response.url().includes("/api/cms/publish") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  expect((await publish).ok()).toBe(true);
+  await expect(page.locator("#status-msg")).toContainText("Published 1 change");
+  await expect(changes).toBeHidden();
+  await expect(page.getByRole("button", { name: "Publish", exact: true })).toBeHidden();
+  expect(await (await fetch(ORIGIN)).text()).toContain("Drafted in the Studio");
+
+  // Discarding a draft returns the entry to what visitors see.
+  await headline.fill("Thrown away");
+  await page.locator("#btn-save").click();
+  await expect(page.locator("#status-msg")).toHaveText("Draft saved");
+  await page.locator("#entry-more > summary").click();
+  await page.getByRole("button", { name: "Discard draft" }).click();
+  await page.getByRole("dialog", { name: "Discard your draft?" }).getByRole("button", { name: "Discard draft" }).click();
+  await expect(page.getByRole("textbox", { name: /^Headline/ })).toHaveValue("Drafted in the Studio");
+  await expect(changes).toBeHidden();
+
+  // Publish all from the overview.
+  await page.getByRole("textbox", { name: /^Headline/ }).fill(EDITED_HEADLINE_FROM_STUDIO);
+  await page.locator("#btn-save").click();
+  await expect(page.locator("#status-msg")).toHaveText("Draft saved");
+  await page.goto("/admin/cms");
+  await page.getByRole("button", { name: "Publish all" }).click();
+  await expect(page.locator("#studio-publish-status")).toContainText("Published 1 change");
+  await expect(page.locator("#studio-not-published")).toHaveText("Everything is published");
+  expect(await (await fetch(ORIGIN)).text()).toContain(EDITED_HEADLINE_FROM_STUDIO);
+
+  // Later tests start from the original published headline.
+  const restore = await page.request.post("/api/cms/mutate", {
+    headers: { "x-caret-request": "1" },
+    data: { type: "put_entry", collection: "pages", id: "home", data: { headline: PUBLISHED_HEADLINE } },
+  });
+  expect(restore.ok()).toBe(true);
+  expect((await page.request.post("/api/cms/publish", { headers: { "x-caret-request": "1" }, data: {} })).ok()).toBe(true);
+  expect(await (await fetch(ORIGIN)).text()).toContain(PUBLISHED_HEADLINE);
 });
 
 test("keeps a saved draft on reload without exposing it to other visitors", async ({ page, browser }) => {

@@ -105,6 +105,7 @@ export async function GET(context: APIContext): Promise<Response> {
     .studio-chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
     .studio-chip.success { background: var(--studio-green-soft); color: var(--studio-green); }
     .studio-chip.danger { background: var(--studio-red-soft); color: var(--studio-red); }
+    .studio-chip.warning { background: var(--studio-yellow-soft); color: var(--studio-yellow); }
     .entries-grid[data-view="list"] { grid-template-columns: 1fr; gap: 0; border: 1px solid var(--studio-border); border-radius: var(--radius-theme-md); overflow: hidden; background: var(--studio-surface); }
     .entries-grid[data-view="list"] .entry-card { flex-direction: row; align-items: center; border: none; border-radius: 0; border-bottom: 1px solid var(--studio-border); }
     .entries-grid[data-view="list"] .entry-card:last-child { border-bottom: none; }
@@ -414,6 +415,10 @@ export async function GET(context: APIContext): Promise<Response> {
             ? '<span class="entry-card-status studio-chip success">' + htmlEsc(MSG['collection.published']) + '</span>'
             : '<span class="entry-card-status studio-chip">' + htmlEsc(MSG['collection.unpublished']) + '</span>')
           : '';
+        // Draft modes: changes visitors won't see until they're published.
+        var draft = entry.draft === true
+          ? '<span class="entry-card-draft studio-chip warning">' + htmlEsc(MSG['collection.draft']) + '</span>'
+          : '';
         var invalid = Array.isArray(entry.validationIssues) && entry.validationIssues.length
           ? '<span class="studio-chip danger">' + htmlEsc(MSG['collection.invalid']) + '</span>'
           : '';
@@ -430,7 +435,7 @@ export async function GET(context: APIContext): Promise<Response> {
               (subtitle ? '<p class="entry-card-subtitle">' + htmlEsc(subtitle) + '</p>' : '') +
               (entry.readError ? '<p role="note" class="entry-card-subtitle">' + htmlEsc(MSG['collection.unreadable']) + '</p>' : '') +
             '</div>' +
-            '<div class="entry-card-meta">' + invalid + publication +
+            '<div class="entry-card-meta">' + invalid + draft + publication +
               '<p class="entry-card-id">' + htmlEsc(entry.id) + '</p>' +
             '</div>' +
           '</div>';

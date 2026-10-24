@@ -38,7 +38,7 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   await page.goto("/admin/cms/studio-fixture");
 
   await expect(page.locator(".entry-thumb img")).toHaveAttribute("src", "/initial.png");
-  await expect(page.getByText("Unpublished")).toBeVisible();
+  await expect(page.locator(".entry-card-status")).toHaveText("Hidden");
   await expect(page.getByRole("navigation", { name: "Collections" }).getByRole("link", { name: "Studio Fixture" }))
     .toHaveAttribute("aria-current", "page");
 

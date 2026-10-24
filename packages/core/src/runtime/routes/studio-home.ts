@@ -10,6 +10,7 @@ import {
 } from "../schema-registry.js";
 import { COLLECTION_NAME_RE, ENTRY_ID_RE } from "../storage/id-contracts.js";
 import type { StorageAdapter } from "../../types.js";
+import { allUnpublishedEntries } from "../unpublished.js";
 import {
   escapeHtml,
   htmlResponse,
@@ -100,6 +101,30 @@ export async function GET(context: APIContext): Promise<Response> {
       <div class="studio-home-grid">${pageEntries.join("")}</div>
     </section>`;
 
+  // Draft modes: everything this editor hasn't published yet, with Publish all.
+  const unpublished = await allUnpublishedEntries();
+  const unpublishedCards = await Promise.all(unpublished.map(async ({ collection, id, deleted }) => {
+    const { title, collectionLabel, icon } = await describePageEntry(adapter, collection, id);
+    const detail = deleted ? `${collectionLabel} · ${runtime.messages["entry.deleteNotPublished"]}` : collectionLabel;
+    const card = `<span class="studio-collection-icon">${renderCollectionIcon(icon, collection)}</span>
+        <span class="studio-collection-body">
+          <h3 class="studio-collection-name">${escapeHtml(title)}</h3>
+          <p class="studio-collection-description">${escapeHtml(detail)}</p>
+        </span>`;
+    // A deleted entry has no page to open.
+    return deleted
+      ? `<div class="studio-card studio-collection-card studio-page-entry" data-entry="${escapeHtml(`${collection}::${id}`)}">${card}</div>`
+      : `<a href="${escapeHtml(`${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`)}" class="studio-card-interactive studio-collection-card studio-page-entry" data-entry="${escapeHtml(`${collection}::${id}`)}">${card}</a>`;
+  }));
+  const notPublished = unpublishedCards.length === 0 ? "" : `<section class="studio-home-section" aria-labelledby="studio-not-published">
+      <div class="studio-home-section-header">
+        <h2 id="studio-not-published" class="studio-home-section-title">${escapeHtml(runtime.messages["home.notPublished"])}</h2>
+        <button type="button" id="studio-publish-all" class="studio-btn-primary" hidden>${escapeHtml(runtime.messages["home.publishAll"])}</button>
+      </div>
+      <p id="studio-publish-status" class="studio-home-publish-status" role="status" aria-live="polite"></p>
+      <div class="studio-home-grid">${unpublishedCards.join("")}</div>
+    </section>`;
+
   const cards = configuredCollections
     .map(({ name, config }, index) => {
       const { label, href } = navigation[index];
@@ -127,11 +152,12 @@ export async function GET(context: APIContext): Promise<Response> {
       </div>
     </header>
 
+    ${notPublished}
     ${onThisPage}
     ${
       configuredCollections.length === 0
         ? emptyState
-        : onThisPage
+        : onThisPage || notPublished
           ? `<section class="studio-home-section" aria-labelledby="studio-all-collections">
       <h2 id="studio-all-collections" class="studio-home-section-title">${escapeHtml(runtime.messages["nav.collections"])}</h2>
       <div class="studio-home-grid">${cards}</div>
@@ -144,6 +170,46 @@ export async function GET(context: APIContext): Promise<Response> {
   const inlineScript = `(function(){
     var apiBase = ${serializeJsonForScript(runtime.apiBasePath)};
     var messages = ${serializeJsonForScript(runtime.messages)};
+
+    // Publish all: everything this editor hasn't published yet. With an
+    // authorization policy the button shows only for editors who may publish.
+    var publishAll = document.getElementById('studio-publish-all');
+    var publishStatus = document.getElementById('studio-publish-status');
+    if (publishAll && publishStatus) {
+      fetch(apiBase + '/draft', { headers: { 'x-caret-request': '1' }, credentials: 'same-origin' })
+        .then(function (res) { return res.ok ? res.json() : null; })
+        .then(function (body) { publishAll.hidden = Boolean(body && body.canPublish === false); })
+        .catch(function () { publishAll.hidden = false; });
+      publishAll.addEventListener('click', function () {
+        publishAll.disabled = true;
+        publishStatus.textContent = messages['entry.publishing'];
+        Promise.all([
+          fetch(apiBase + '/publish', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-caret-request': '1' }, credentials: 'same-origin', body: '{}' })
+            .then(function (res) { return res.json().catch(function () { return {}; }).then(function (body) { return { ok: res.ok, body: body }; }); }),
+          import('/__caret/editor/publish-result.js'),
+        ]).then(function (done) {
+          var response = done[0];
+          if (!response.ok) throw new Error(typeof response.body.error === 'string' ? response.body.error : messages['common.error']);
+          var result = done[1].presentPublishResult(response.body);
+          publishStatus.textContent = result.toast.message;
+          publishStatus.dataset.kind = result.toast.kind;
+          if (result.completed) {
+            var section = publishAll.closest('section');
+            var grid = section && section.querySelector('.studio-home-grid');
+            var heading = document.getElementById('studio-not-published');
+            if (grid) grid.remove();
+            if (heading) heading.textContent = messages['home.allPublished'];
+            publishAll.hidden = true;
+          } else {
+            publishAll.disabled = false;
+          }
+        }).catch(function (error) {
+          publishStatus.textContent = error && error.message ? error.message : messages['common.error'];
+          publishStatus.dataset.kind = 'error';
+          publishAll.disabled = false;
+        });
+      });
+    }
     var labels = document.querySelectorAll('.studio-count-label');
     labels.forEach(function (el) {
       var collection = el.getAttribute('data-collection');

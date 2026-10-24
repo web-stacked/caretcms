@@ -145,6 +145,16 @@ export class SessionOverlayAdapter implements StorageAdapter {
     return overlaid ? { ...overlaid, data: contentWithoutState(overlaid.data) } : null;
   }
 
+  /** Ids this session holds its own copy of (edited or deleted), whether or not it still differs from base. */
+  draftIds(collection: string): Promise<string[]> {
+    return this.overlay.listEntryIds(collection);
+  }
+
+  /** Collections this session holds its own copies in. */
+  draftCollections(): Promise<string[]> {
+    return this.overlay.discoverCollections();
+  }
+
   async listEntryIds(collection: string): Promise<string[]> {
     const [baseIds, overlayIds] = await Promise.all([
       this.base.listEntryIds(collection),
