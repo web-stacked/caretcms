@@ -92,10 +92,7 @@ export async function GET(context: APIContext): Promise<Response> {
       font-size: 0.8rem; text-overflow: ellipsis; white-space: nowrap;
     }
     .entry-card-meta { display: flex; align-items: center; gap: 0.5rem; margin-top: auto; padding-top: 0.35rem; min-width: 0; }
-    .entry-card-id {
-      margin: 0; overflow: hidden; color: var(--studio-text-dim); font: 0.72rem/1.4 var(--studio-font-mono);
-      text-overflow: ellipsis; white-space: nowrap;
-    }
+    .entry-card-meta:empty { display: none; }
     .studio-chip {
       display: inline-flex; align-items: center; gap: 0.35rem; flex-shrink: 0;
       padding: 0.12rem 0.5rem; border-radius: 999px;
@@ -114,7 +111,6 @@ export async function GET(context: APIContext): Promise<Response> {
     .entries-grid[data-view="list"] .entry-card-body { flex-direction: row; align-items: center; gap: 1rem; padding: 0.75rem 1rem; }
     .entries-grid[data-view="list"] .entry-card-text { flex: 1; min-width: 0; }
     .entries-grid[data-view="list"] .entry-card-meta { margin: 0; padding: 0; flex-shrink: 0; }
-    .entries-grid[data-view="list"] .entry-card-id { max-width: 14rem; }
     .collection-heading-bar { margin-bottom: 1.5rem; }
     .collection-actions {
       display: flex; align-items: center; justify-content: flex-end; gap: 0.6rem; flex: 0 0 auto;
@@ -349,16 +345,6 @@ export async function GET(context: APIContext): Promise<Response> {
         return value && typeof value === 'object' ? value[key] : undefined;
       }, data);
     }
-    function getTitle(d) {
-      if (!d) return MSG['collection.untitled'];
-      var configured = fieldValue(d, TITLE_FIELD);
-      if (typeof configured === 'string' && configured.trim()) return configured;
-      for (var i = 0; i < ['name','title','question','company_name','headline','label'].length; i++) {
-        var k = ['name','title','question','company_name','headline','label'][i];
-        if (typeof d[k] === 'string' && d[k]) return d[k];
-      }
-      return MSG['collection.untitled'];
-    }
     function getThumb(d) {
       if (!d) return null;
       var configured = fieldValue(d, THUMBNAIL_FIELD);
@@ -386,11 +372,6 @@ export async function GET(context: APIContext): Promise<Response> {
       return '';
     }
 
-    function humanizeId(id) {
-      var text = String(id || '').replace(/[-_]+/g, ' ').trim();
-      return text ? text.charAt(0).toUpperCase() + text.slice(1) : MSG['collection.untitled'];
-    }
-
     function renderEntries(entries) {
       grid.innerHTML = '';
       if (entries.length === 0) {
@@ -404,9 +385,8 @@ export async function GET(context: APIContext): Promise<Response> {
       var anyThumb = entries.some(function (entry) { return !entry.readError && getThumb(entry.data); });
       for (var i = 0; i < entries.length; i++) {
         var entry = entries[i];
-        var title = entry.readError ? entry.id : getTitle(entry.data);
-        // Entries without a title field (fixed pages, settings) read better by id.
-        if (title === MSG['collection.untitled']) title = humanizeId(entry.id);
+        // The server names entries the same way on every screen.
+        var title = typeof entry.title === 'string' ? entry.title : entry.id;
         var thumb = getThumb(entry.data);
         // A search hit inside a field shows the words it matched instead.
         var subtitle = entry.match && typeof entry.match.snippet === 'string' ? entry.match.snippet : getSubtitle(entry.data);
@@ -435,9 +415,7 @@ export async function GET(context: APIContext): Promise<Response> {
               (subtitle ? '<p class="entry-card-subtitle">' + htmlEsc(subtitle) + '</p>' : '') +
               (entry.readError ? '<p role="note" class="entry-card-subtitle">' + htmlEsc(MSG['collection.unreadable']) + '</p>' : '') +
             '</div>' +
-            '<div class="entry-card-meta">' + invalid + draft + publication +
-              '<p class="entry-card-id">' + htmlEsc(entry.id) + '</p>' +
-            '</div>' +
+            '<div class="entry-card-meta">' + invalid + draft + publication + '</div>' +
           '</div>';
         grid.appendChild(card);
       }
@@ -760,7 +738,7 @@ export async function GET(context: APIContext): Promise<Response> {
         item.setAttribute('role', 'listitem');
         item.draggable = true;
         item.dataset.idx = String(idx);
-        var title = getTitle(entry.data);
+        var title = typeof entry.title === 'string' ? entry.title : entry.id;
         item.innerHTML =
           '<span class="reorder-handle" aria-hidden="true">&#9776;</span>' +
           '<span class="reorder-label">' + htmlEsc(title) + '</span>' +

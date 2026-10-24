@@ -6,7 +6,7 @@ import { createStudioUploadClient, isSupportedImage } from './studio/upload-clie
 import { createStudioEntryLoader } from './studio/entry-loader.js';
 import { createStudioSync } from './studio/sync-client.js';
 import { rebaseEdits } from './studio/merge.js';
-import { historyChanges, relativeTime } from './studio/history-view.js';
+import { historyChanges, historyFieldLabel, relativeTime } from './studio/history-view.js';
 import { presentPublishResult } from './editor/publish-result.js';
 
 /** @typedef {import('../../src/schema-utils.js').JsonSchemaNode} Schema */
@@ -207,17 +207,20 @@ import { presentPublishResult } from './editor/publish-result.js';
     });
   }
 
-  /** @param {Record<string, unknown> | null} data */
+  /** Text a reader sees in a title value. @param {unknown} value */
+  function titleText(value) {
+    return typeof value === "string" ? value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() : "";
+  }
+
+  /** Mirrors the server's entryDisplayTitle, kept current as fields change. @param {Record<string, unknown> | null} data */
   function displayTitle(data) {
-    if (data && CFG.titleField) {
-      var configured = getNestedValue(data, CFG.titleField);
-      if (typeof configured === "string" && configured.trim()) return configured;
-    }
-    var inferred = getTitle(data);
-    if (inferred !== "Untitled") return inferred;
-    if (CFG.fallbackTitle) return CFG.fallbackTitle;
-    // Entries without a title field (fixed pages, settings) read better by id.
-    return !IS_NEW && ID ? humanizeKey(ID.replace(/-/g, "_")) : inferred;
+    // A singleton (site settings) is named by its collection, as on the server.
+    if (INITIALIZE_IF_MISSING && CFG.fallbackTitle) return CFG.fallbackTitle;
+    var configured = data && CFG.titleField ? titleText(getNestedValue(data, CFG.titleField)) : "";
+    if (configured) return configured;
+    var inferred = titleText(getTitle(data));
+    if (inferred && inferred !== "Untitled") return inferred;
+    return CFG.fallbackTitle || (IS_NEW ? inferred : ID);
   }
 
   function updateDisplayedTitle() {
@@ -456,9 +459,9 @@ import { presentPublishResult } from './editor/publish-result.js';
     });
   }
 
-  /** @param {string} path */
+  /** A field as the form labels it, e.g. "Team › #2 › Name". @param {string} path */
   function humanizePath(path) {
-    return path.split(".").filter(function (part) { return !/^\d+$/.test(part); }).map(humanizeKey).join(" › ");
+    return historyFieldLabel(path, entrySchema);
   }
 
   /** @param {string[]} theirChanges @param {string[]} overlapping */
@@ -884,7 +887,7 @@ import { presentPublishResult } from './editor/publish-result.js';
       fileInput.type = "file";
       fileInput.multiple = true;
       fileInput.accept = "image/jpeg,image/png,image/webp,image/avif";
-      fileInput.setAttribute("aria-label", "Upload images for " + humanizeKey(path.split(".").pop() || "images"));
+      fileInput.setAttribute("aria-label", "Upload images for " + historyFieldLabel(path, entrySchema));
       fileInput.style.display = "none";
 
       /** @param {ArrayLike<File>} files */

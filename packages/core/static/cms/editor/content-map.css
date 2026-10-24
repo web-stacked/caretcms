@@ -84,31 +84,26 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 10px 4px;
-  font-size: 11px;
+  padding: 10px 10px 4px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.86);
 }
 
-.cms-content-map-group-title code {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font: 400 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: 0;
-  text-transform: none;
-  color: rgba(255, 255, 255, 0.4);
+.cms-content-map-kind {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
 }
 
+/* A field: the form's label above the value the page shows now. */
 .cms-content-map-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
   width: 100%;
-  min-height: 32px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -126,37 +121,21 @@
   outline: none;
 }
 
-.cms-content-map-field {
+.cms-content-map-field,
+.cms-content-map-value {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: rgba(255, 255, 255, 0.86);
 }
 
-.cms-content-map-tags {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  flex-shrink: 0;
+.cms-content-map-field {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
 }
 
-.cms-map-status,
-.cms-map-type {
-  font-size: 10px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  font-weight: 600;
-}
-
-.cms-map-default {
-  background: rgba(234, 179, 8, 0.15);
-  color: #facc15;
-}
-
-.cms-map-type {
-  background: rgba(59, 130, 246, 0.16);
-  color: #93c5fd;
+.cms-content-map-value {
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .cms-map-highlight {

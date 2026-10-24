@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { readOverrideData } from "../../packages/core/static/cms/editor/content-map.js";
+import { readEntryTitle } from "../../packages/core/static/cms/editor/content-map.js";
 
-describe("inline content map response boundary", () => {
-  it("returns only object entry data", () => {
-    expect(readOverrideData({ entries: [{ data: { hero: { headline: "Saved" } } }] }))
-      .toEqual({ hero: { headline: "Saved" } });
-    expect(readOverrideData({ entries: [{ data: [] }] })).toBeNull();
-    expect(readOverrideData({ entries: [] })).toBeNull();
-    expect(readOverrideData({ entries: "invalid" })).toBeNull();
-    expect(readOverrideData(null)).toBeNull();
+describe("content map", () => {
+  it("reads the display title the entries API sends and ignores malformed payloads", () => {
+    expect(readEntryTitle({ entries: [{ id: "01-mara", title: "Mara Ellison", data: {} }] })).toBe("Mara Ellison");
+    expect(readEntryTitle({ entries: [{ id: "x", title: "" }] })).toBeNull();
+    expect(readEntryTitle({ entries: [] })).toBeNull();
+    expect(readEntryTitle({ entries: "invalid" })).toBeNull();
+    expect(readEntryTitle(null)).toBeNull();
   });
 });

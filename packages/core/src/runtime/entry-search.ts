@@ -11,7 +11,7 @@ export type EntryMatch =
   | { kind: "field"; field: string; snippet: string };
 
 /** Readable text of a stored value: tags dropped, entities decoded, whitespace collapsed. */
-function plainText(value: string): string {
+export function plainText(value: string): string {
   return decodeHtmlEntities(value.replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
 }
 

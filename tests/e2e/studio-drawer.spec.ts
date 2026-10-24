@@ -21,12 +21,12 @@ test("the drawer opens the entry for the page you're on and stays where you leav
   await page.goto("/");
   await page.getByRole("button", { name: "Studio", exact: true }).click();
   await expect(drawerFrame(page)).toHaveAttribute("src", "/admin/cms/pages/home");
-  await expect(page.locator(".cms-panel-title")).toHaveText("Edit home");
+  await expect(page.locator(".cms-panel-title")).toHaveText("Edit Home");
 
   // Another page doesn't inherit the home page's entry.
   await page.goto("/about");
   await expect(drawerFrame(page)).toHaveAttribute("src", "/admin/cms/pages/about");
-  await expect(page.locator(".cms-panel-title")).toHaveText("Edit about");
+  await expect(page.locator(".cms-panel-title")).toHaveText("Edit About");
 
   // A route chosen in the drawer survives a reload of the same page.
   await drawerFrame(page).evaluate((frame) => { (frame as HTMLIFrameElement).contentWindow?.location.assign("/admin/cms"); });
@@ -77,7 +77,7 @@ test("Tab cycles through the drawer and the toolbar, never the page behind", asy
   const studioButton = page.getByRole("button", { name: "Studio", exact: true });
   await studioButton.focus();
   await page.keyboard.press("Enter");
-  await expect(page.locator(".cms-panel-title")).toHaveText("Edit home");
+  await expect(page.locator(".cms-panel-title")).toHaveText("Edit Home");
 
   const forward = new Set<string>();
   for (let i = 0; i < 60; i++) {

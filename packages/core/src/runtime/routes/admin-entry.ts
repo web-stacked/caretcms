@@ -19,6 +19,7 @@ import {
   renderStudioPage,
 } from "../views/studio-layout.js";
 import { studioNavigation } from "../views/studio-navigation.js";
+import { entryDisplayTitle, humanizeEntryId } from "../entry-title.js";
 
 export async function GET(context: APIContext): Promise<Response> {
   const runtime = getRuntimeConfig();
@@ -55,6 +56,9 @@ export async function GET(context: APIContext): Promise<Response> {
   const publicationFieldName = publicationField(collectionConfig);
   const messages = runtime.messages;
   const isNew = context.url.searchParams.get("new") === "1";
+  // Named as on every other screen; the page keeps it current as fields change.
+  const stored = isNew ? null : await adapter.getEntry(collection, id).catch(() => null);
+  const entryTitle = entryDisplayTitle(collection, id, stored?.data, collectionConfig);
 
   const config = {
     apiBasePath: runtime.apiBasePath,
@@ -68,7 +72,7 @@ export async function GET(context: APIContext): Promise<Response> {
     saveTarget: savingToPreview ? "preview" : "live",
     previewPath,
     titleField: collectionConfig.titleField ?? null,
-    fallbackTitle: collectionConfig.singletonId ? label : null,
+    fallbackTitle: collectionConfig.singletonId ? label : humanizeEntryId(id),
     publicationField: publicationFieldName,
     messages,
   };
@@ -278,7 +282,7 @@ export async function GET(context: APIContext): Promise<Response> {
     <div id="editor" hidden>
       <div class="editor-action-bar">
         <div class="editor-heading">
-          <h1 id="entry-title">…</h1>
+          <h1 id="entry-title">${escapeHtml(entryTitle)}</h1>
           <span id="status-msg" hidden></span>
           <button id="btn-undo" type="button" class="studio-btn-ghost entry-undo" hidden>${escapeHtml(messages["entry.undo"])}</button>
           ${publicationFieldName ? `<span id="visibility-status" class="entry-visibility" aria-live="polite"></span>` : ""}
@@ -358,10 +362,10 @@ export async function GET(context: APIContext): Promise<Response> {
   return htmlResponse(
     renderStudioPage({
       runtime,
-      title: `Edit ${id}`,
+      title: `Edit ${entryTitle}`,
       breadcrumb: [
         { label, href: `${runtime.mountPath}/cms/${encodeURIComponent(collection)}` },
-        { label: id },
+        { label: entryTitle },
       ],
       navigation,
       skipLink: { label: messages["entry.skipToForm"], href: "#fields" },

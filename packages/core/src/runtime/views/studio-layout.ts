@@ -228,7 +228,7 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
         var messages = ${serializeJsonForScript({
           system: m["theme.system"], light: m["theme.light"], dark: m["theme.dark"], label: m["theme.label"],
           empty: m["nav.searchEmpty"], collections: m["nav.collections"], entries: m["nav.searchEntries"],
-          overview: m["nav.overview"], untitled: m["collection.untitled"],
+          overview: m["nav.overview"],
           draftsTitle: m["signOut.draftsTitle"], draftsCopyOne: m["signOut.draftsCopyOne"],
           draftsCopyOther: m["signOut.draftsCopyOther"], cancel: m["common.cancel"],
           signOutAnyway: m["signOut.anyway"], openSite: m["signOut.openSite"],
@@ -451,11 +451,6 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           var current = document.getElementById('studio-palette-option-' + active);
           if (current) current.scrollIntoView({ block: 'nearest' });
         }
-        function entryTitle(data, id) {
-          var keys = ['title', 'name', 'headline', 'question', 'label', 'company_name'];
-          for (var i = 0; i < keys.length; i++) if (data && typeof data[keys[i]] === 'string' && data[keys[i]]) return data[keys[i]];
-          return id || messages.untitled;
-        }
         function search(query) {
           results = staticResults(query);
           active = 0;
@@ -471,7 +466,9 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
                   var entries = body && Array.isArray(body.entries) ? body.entries : [];
                   return entries.map(function (entry) {
                     var snippet = entry.match && typeof entry.match.snippet === 'string' ? entry.match.snippet : '';
-                    return { group: messages.entries, label: entryTitle(entry.data, entry.id), detail: item.label, snippet: snippet, href: mountPath + '/cms/' + encodeURIComponent(item.name) + '/' + encodeURIComponent(entry.id) };
+                    var title = typeof entry.title === 'string' ? entry.title : entry.id;
+                    // A singleton is named by its collection already.
+                    return { group: messages.entries, label: title, detail: title === item.label ? '' : item.label, snippet: snippet, href: mountPath + '/cms/' + encodeURIComponent(item.name) + '/' + encodeURIComponent(entry.id) };
                   });
                 }).catch(function () { return []; });
             })).then(function (groups) {

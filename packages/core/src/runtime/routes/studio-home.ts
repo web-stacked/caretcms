@@ -11,6 +11,7 @@ import {
 import { COLLECTION_NAME_RE, ENTRY_ID_RE } from "../storage/id-contracts.js";
 import type { StorageAdapter } from "../../types.js";
 import { allUnpublishedEntries } from "../unpublished.js";
+import { entryDisplayTitle } from "../entry-title.js";
 import {
   escapeHtml,
   htmlResponse,
@@ -24,13 +25,6 @@ import { studioNavigation } from "../views/studio-navigation.js";
 
 /** The on-page drawer lists at most this many entries from the page it covers. */
 const MAX_PAGE_ENTRIES = 8;
-const TITLE_KEYS = ["title", "name", "headline", "label", "question"];
-
-/** "about-us" -> "About us". */
-function humanizeId(id: string): string {
-  const text = id.replace(/[-_]+/g, " ").trim();
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
 
 /**
  * The entries the on-page drawer found on the page it covers, passed as
@@ -61,11 +55,8 @@ async function describePageEntry(
     resolveCollectionStudioConfig(adapter, collection),
     adapter.getEntry(collection, id).catch(() => null),
   ]);
-  const data = entry?.data ?? {};
-  const titleKeys = config.titleField ? [config.titleField, ...TITLE_KEYS] : TITLE_KEYS;
-  const titleKey = titleKeys.find((key) => typeof data[key] === "string" && String(data[key]).trim());
   return {
-    title: titleKey ? String(data[titleKey]).trim() : humanizeId(id),
+    title: entryDisplayTitle(collection, id, entry?.data, config),
     collectionLabel: config.label || humanizeCollection(collection),
     icon: config.icon,
   };

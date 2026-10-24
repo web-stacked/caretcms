@@ -3,6 +3,7 @@ export const prerender = false;
 import type { APIContext } from "astro";
 import { matchEntry } from "../entry-search.js";
 import { unpublishedEntries } from "../unpublished.js";
+import { entryDisplayTitle } from "../entry-title.js";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { parseCollectionName, parseEntryId } from "../mutations/contracts.js";
 import { stripBodyOverlay } from "../utils.js";
@@ -24,6 +25,8 @@ type CmsEntryResponse = {
   match?: { field: string; snippet: string };
   /** In draft modes: this entry has changes visitors don't see yet. */
   draft?: true;
+  /** What editors call this entry (see entryDisplayTitle). */
+  title?: string;
 };
 
 /**
@@ -124,11 +127,14 @@ export async function GET(context: APIContext): Promise<Response> {
   try {
     const adapter = await resolveAdapter();
     const { collection, id: singleId, page, pageSize, q } = query;
+    const collectionConfig = await resolveCollectionStudioConfig(adapter, collection);
+    const titled = (entry: CmsEntryResponse): CmsEntryResponse =>
+      ({ ...entry, title: entryDisplayTitle(collection, entry.id, entry.readError ? null : entry.data, collectionConfig) });
 
     if (singleId) {
       const { entry, revision, baseRevision } = await readEntrySnapshot(adapter, collection, singleId);
       const entries: CmsEntryResponse[] = entry
-        ? [withValidation(collection, entry, revision, baseRevision)]
+        ? [titled(withValidation(collection, entry, revision, baseRevision))]
         : [];
       // With a private draft overlay, also return what visitors see, so the
       // Studio can say whether this entry has unpublished changes and what
@@ -202,7 +208,7 @@ export async function GET(context: APIContext): Promise<Response> {
       }
       // Entries named by the query come before ones that only mention it.
       filteredIds.push(...titleHits, ...fieldHits);
-    } else if ((await resolveCollectionStudioConfig(adapter, collection)).orderable !== false) {
+    } else if (collectionConfig.orderable !== false) {
       // An arrangeable collection lists in its arranged order on every page.
       const listed: CmsEntryResponse[] = [];
       for (let offset = 0; offset < allIds.length; offset += 20) {
@@ -221,7 +227,7 @@ export async function GET(context: APIContext): Promise<Response> {
       .map((entry) => {
         const match = fieldMatches.get(entry.id);
         return {
-          ...entry,
+          ...titled(entry),
           ...(match ? { match } : {}),
           ...(unpublished.has(entry.id) ? { draft: true as const } : {}),
         };

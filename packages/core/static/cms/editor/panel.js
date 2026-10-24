@@ -103,8 +103,11 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
       const iframeWindow = iframe.contentWindow;
       if (!iframeWindow) return;
       rememberPanelRoute(`${iframeWindow.location.pathname}${iframeWindow.location.search}`);
-      const documentTitle = iframeWindow.document.title.split(' — ')[0]?.trim();
-      titleElement.textContent = documentTitle || 'Studio';
+      // The Studio keeps its <title> current as the entry's title field changes.
+      const showTitle = () => { titleElement.textContent = iframeWindow.document.title.split(' — ')[0]?.trim() || 'Studio'; };
+      showTitle();
+      const titleNode = iframeWindow.document.querySelector('title');
+      if (titleNode) new MutationObserver(showTitle).observe(titleNode, { childList: true, characterData: true, subtree: true });
       backButton.disabled = iframeWindow.location.pathname === studioPath;
       iframeWindow.document.addEventListener('keydown', handleEscape);
       // After navigating inside the drawer, start the next Tab at the new
