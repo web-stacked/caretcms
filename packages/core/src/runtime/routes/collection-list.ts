@@ -710,11 +710,8 @@ export async function GET(context: APIContext): Promise<Response> {
       reorderTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : reorderBtn;
       pagination.hidden = true;
       reorderMode = true;
-      ordered = allEntries.slice().sort(function (a, b) {
-        var ao = (a.data && typeof a.data.order === 'number') ? a.data.order : 0;
-        var bo = (b.data && typeof b.data.order === 'number') ? b.data.order : 0;
-        return ao - bo;
-      });
+      // The list already arrives in arranged order.
+      ordered = allEntries.slice();
       grid.hidden = true; empty.hidden = true;
       searchInput.style.display = 'none'; if (newBtn) newBtn.style.display = 'none';
       reorderBtn.textContent = MSG['collection.reordering']; reorderBtn.disabled = true;

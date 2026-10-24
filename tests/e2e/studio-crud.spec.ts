@@ -601,24 +601,25 @@ test("collection reordering is keyboard operable and restores mode focus", async
   await reorderButton.click();
 
   const reorderRegion = page.getByRole("region", { name: "Arrange entries" });
-  const moveSeedDown = page.getByRole("button", { name: "Move down Seed entry" });
+  // Seed entry has no order yet, so it sorts last, as on the site.
+  const moveSecondDown = page.getByRole("button", { name: "Move down Second entry" });
   await expect(reorderRegion).toBeVisible();
   await expect(reorderButton).toHaveAttribute("aria-expanded", "true");
-  await expect(moveSeedDown).toBeFocused();
-  await moveSeedDown.click();
+  await expect(moveSecondDown).toBeFocused();
+  await moveSecondDown.click();
   await expect(page.locator(".reorder-label")).toHaveText([
+    "Third entry",
     "Second entry",
     "Seed entry",
-    "Third entry",
   ]);
   const dragData = await page.evaluateHandle(() => new DataTransfer());
   await page.locator(".reorder-item").nth(2).dispatchEvent("dragstart", { dataTransfer: dragData });
   await page.locator(".reorder-item").nth(0).dispatchEvent("dragover", { dataTransfer: dragData });
   await page.locator(".reorder-item").nth(0).dispatchEvent("drop", { dataTransfer: dragData });
   await expect(page.locator(".reorder-label")).toHaveText([
+    "Seed entry",
     "Third entry",
     "Second entry",
-    "Seed entry",
   ]);
 
   await page.keyboard.press("Escape");
@@ -627,7 +628,7 @@ test("collection reordering is keyboard operable and restores mode focus", async
   await expect(reorderButton).toBeFocused();
 
   await reorderButton.click();
-  await page.getByRole("button", { name: "Move down Seed entry" }).click();
+  await page.getByRole("button", { name: "Move down Second entry" }).click();
   const saveResponse = page.waitForResponse((response) =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
@@ -639,7 +640,9 @@ test("collection reordering is keyboard operable and restores mode focus", async
     "/api/cms/entries?collection=studio-fixture&pageSize=24",
   )).json() as { entries: Array<{ id: string; data: { order?: number } }> };
   expect(Object.fromEntries(stored.entries.map((entry) => [entry.id, entry.data.order])))
-    .toMatchObject({ "second-entry": 0, "seed-entry": 1, "third-entry": 2 });
+    .toMatchObject({ "third-entry": 0, "second-entry": 1, "seed-entry": 2 });
+  // The grid shows the saved arrangement, as the site does.
+  await expect(page.locator(".entry-card-title")).toHaveText(["Third entry", "Second entry", "Seed entry"]);
 
   const reorderOnlyRoot = resolve(
     process.cwd(),

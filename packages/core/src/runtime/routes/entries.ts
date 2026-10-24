@@ -5,7 +5,7 @@ import { matchEntry } from "../entry-search.js";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { parseCollectionName, parseEntryId } from "../mutations/contracts.js";
 import { stripBodyOverlay } from "../utils.js";
-import { getRegisteredSchema } from "../schema-registry.js";
+import { getRegisteredSchema, resolveCollectionStudioConfig } from "../schema-registry.js";
 import { validateJsonSchema, type JsonSchemaValidationIssue } from "../../schema-utils.js";
 import { contentReadFailure } from "../content-errors.js";
 import { json, resolveAdapter } from "./_helpers.js";
@@ -22,6 +22,16 @@ type CmsEntryResponse = {
   /** For a search hit inside a field rather than the title: where, and the words around it. */
   match?: { field: string; snippet: string };
 };
+
+/**
+ * Arranged order, as Save order writes it and sites read it: a numeric
+ * `order` ascending, entries without one last, ties by id.
+ */
+function compareArrangedOrder(a: CmsEntryResponse, b: CmsEntryResponse): number {
+  const aOrder = typeof a.data.order === "number" ? a.data.order : Number.MAX_SAFE_INTEGER;
+  const bOrder = typeof b.data.order === "number" ? b.data.order : Number.MAX_SAFE_INTEGER;
+  return aOrder - bOrder || a.id.localeCompare(b.id);
+}
 
 function withValidation(
   collection: string,
@@ -189,6 +199,13 @@ export async function GET(context: APIContext): Promise<Response> {
       }
       // Entries named by the query come before ones that only mention it.
       filteredIds.push(...titleHits, ...fieldHits);
+    } else if ((await resolveCollectionStudioConfig(adapter, collection)).orderable !== false) {
+      // An arrangeable collection lists in its arranged order on every page.
+      const listed: CmsEntryResponse[] = [];
+      for (let offset = 0; offset < allIds.length; offset += 20) {
+        for (const entry of await readBatch(allIds.slice(offset, offset + 20))) if (entry) listed.push(entry);
+      }
+      filteredIds.push(...listed.sort(compareArrangedOrder).map((entry) => entry.id));
     } else filteredIds.push(...allIds);
     const total = filteredIds.length;
     const totalPages = total > 0 ? Math.ceil(total / pageSize) : 0;
