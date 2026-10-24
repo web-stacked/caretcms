@@ -3,7 +3,7 @@ export const prerender = false;
 
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
-import { UploadError } from "../storage/image-validation.js";
+import { UPLOAD_MESSAGES, UploadError } from "../storage/image-validation.js";
 import {
   json,
   getUploadHandler,
@@ -29,7 +29,9 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   const parsed = await readFormBody(context.request, MAX_UPLOAD_BODY_BYTES);
-  if (!parsed.ok) return parsed.response;
+  if (!parsed.ok) {
+    return parsed.response.status === 413 ? json({ error: UPLOAD_MESSAGES.size }, 413) : parsed.response;
+  }
   const formData = parsed.value;
 
   const file = formData.get("file");

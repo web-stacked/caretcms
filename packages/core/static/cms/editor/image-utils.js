@@ -7,7 +7,14 @@
 export async function compressImage(file, maxWidth = 1600, quality = 0.82) {
   if (file.size < 200000 && file.type === 'image/webp') return file;
 
-  const bitmap = await createImageBitmap(file);
+  /** @type {ImageBitmap} */
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    // Not decodable here: send it as it is and let the server say why.
+    return file;
+  }
   let width = bitmap.width;
   let height = bitmap.height;
 

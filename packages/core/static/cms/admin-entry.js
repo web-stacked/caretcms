@@ -2,7 +2,7 @@ import { deepClone, fillDefaults, templateFromSchema, generatedId, friendlyFileT
 import { createFieldGroup, createFieldRenderer } from './studio/fields.js';
 import { createStudioMutationClient } from './studio/mutation-client.js';
 import { createStudioHistoryClient } from './studio/history-client.js';
-import { createStudioUploadClient, isSupportedImage } from './studio/upload-client.js';
+import { createStudioUploadClient } from './studio/upload-client.js';
 import { createStudioEntryLoader } from './studio/entry-loader.js';
 import { createStudioSync } from './studio/sync-client.js';
 import { rebaseEdits } from './studio/merge.js';
@@ -818,10 +818,17 @@ import { presentPublishResult } from './editor/publish-result.js';
     savesDraft: SAVE_TARGET === "preview",
   });
 
+  /** Why an upload was refused, as the server explains it to editors. @param {unknown} error */
+  function uploadErrorMessage(error) {
+    var reason = error && typeof error === "object" && "reason" in error ? /** @type {{ reason: unknown }} */ (error).reason : null;
+    return typeof reason === "string" && reason ? reason : msg("field.uploadFailed", "The image couldn't be uploaded. Try again.");
+  }
+
   /* ─── Image gallery ─────────────────────────────────────────────── */
   /** @param {unknown} images @param {string} path */
   function buildImageGallery(images, path) {
     var wrapper = document.createElement("div");
+    var galleryError = "";
 
     function rerender() {
       wrapper.innerHTML = "";
@@ -892,10 +899,10 @@ import { presentPublishResult } from './editor/publish-result.js';
 
       /** @param {ArrayLike<File>} files */
       function handleFiles(files) {
-        var valid = Array.from(files).filter(function (f) {
-          return isSupportedImage(f);
-        });
+        // Every file goes to the server, which says why any is refused.
+        var valid = Array.from(files);
         if (!valid.length) return;
+        galleryError = "";
         dropzone.innerHTML =
           '<div class="studio-spinner" style="margin-bottom:0.5rem;"></div>' +
           '<p style="margin:0;font-size:0.75rem;color:var(--studio-text-muted);">Uploading ' + valid.length + " image" + (valid.length > 1 ? "s" : "") + "…</p>";
@@ -906,7 +913,13 @@ import { presentPublishResult } from './editor/publish-result.js';
           ? existingImages.filter(function (value) { return typeof value === "string"; })
           : [];
         Promise.allSettled(valid.map(function (f) { return uploadClient.upload(f); })).then(function (results) {
-          results.forEach(function (r) { if (r.status === "fulfilled") imgs.push(r.value); });
+          /** @type {string[]} */
+          var refused = [];
+          results.forEach(function (r, index) {
+            if (r.status === "fulfilled") imgs.push(r.value);
+            else refused.push(valid[index].name + ": " + uploadErrorMessage(r.reason));
+          });
+          galleryError = refused.join(" ");
           updateField(path, imgs);
           rerender();
         });
@@ -928,6 +941,13 @@ import { presentPublishResult } from './editor/publish-result.js';
 
       wrapper.appendChild(dropzone);
       wrapper.appendChild(fileInput);
+      if (galleryError) {
+        var refusedNote = document.createElement("p");
+        refusedNote.className = "caret-image-help is-error";
+        refusedNote.setAttribute("role", "status");
+        refusedNote.textContent = galleryError;
+        wrapper.appendChild(refusedNote);
+      }
     }
 
     rerender();
@@ -1019,8 +1039,8 @@ import { presentPublishResult } from './editor/publish-result.js';
           updateField(path, results[0]);
           populateImageObject(path, selectedFile, results[1]);
           rerender();
-        }).catch(function () {
-          errorMessage = msg("field.uploadFailed", "Upload failed. Check the image type and try again.");
+        }).catch(function (error) {
+          errorMessage = uploadErrorMessage(error);
           rerender();
         });
         fileInput.value = "";

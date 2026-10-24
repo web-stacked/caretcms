@@ -64,9 +64,13 @@ describe("R2UploadHandler URL contract", () => {
   });
 
   it("rejects before writing when no servable URL is configured", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    // The editor is told whom to ask; the developer's fix goes to the log.
     await expect(new R2UploadHandler().upload(await pngFile())).rejects.toThrow(
-      "R2 uploads require publicBaseUrl or R2_PUBLIC_DOMAIN",
+      "Uploads aren't set up on this site yet. Ask your developer.",
     );
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("R2 uploads require publicBaseUrl or R2_PUBLIC_DOMAIN"));
     expect(bucket.puts).toHaveLength(0);
+    logged.mockRestore();
   });
 });

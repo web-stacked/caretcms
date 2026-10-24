@@ -3,6 +3,7 @@ import {
   IMAGE_KIND_TO_EXT,
   QuotaUploadHandler,
   UploadError,
+  UPLOAD_MESSAGES,
   readAndValidateImage,
   sanitizeImageBaseName,
 } from "@caretcms/core/runtime";
@@ -146,10 +147,12 @@ export class R2UploadHandler implements UploadHandler {
     const publicBaseUrl = await resolvePublicBaseUrl(this.publicBaseUrl);
     const servedBaseUrl = publicBaseUrl ?? this.devServePath;
     if (!servedBaseUrl) {
-      throw new UploadError(
-        "R2 uploads require publicBaseUrl or R2_PUBLIC_DOMAIN. " +
+      // The fix is the developer's; the editor is told whom to ask.
+      console.error(
+        "[caretcms] R2 uploads require publicBaseUrl or R2_PUBLIC_DOMAIN. " +
           "For a custom local proxy, configure devServePath explicitly.",
       );
+      throw new UploadError(UPLOAD_MESSAGES.notConfigured);
     }
 
     const bucket = await getBucket(this.binding);

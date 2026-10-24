@@ -857,3 +857,17 @@ test("help text that only repeats a field's label isn't shown", async ({ page })
   await expect(page.locator('[data-field-path="title"] .caret-field-help')).toHaveCount(0);
   await expect(page.locator('[data-field-path="website"] .caret-field-help')).toHaveText("Where to find them online");
 });
+
+test("an image upload the server refuses says why", async ({ page }) => {
+  await page.route("**/api/cms/upload", (route) => route.fulfill({
+    status: 400,
+    json: { error: "This image is larger than 10 MB. Use a smaller image." },
+  }));
+  await page.goto("/admin/cms/studio-fixture/seed-entry");
+  await expect(page.locator("#editor")).toBeVisible();
+  await page.locator('[data-field-path="images"] input[type=file]').setInputFiles({
+    name: "huge.png", mimeType: "image/png", buffer: Buffer.from("not decoded in this test"),
+  });
+  await expect(page.locator('[data-field-path="images"] .caret-image-help.is-error'))
+    .toHaveText("This image is larger than 10 MB. Use a smaller image.");
+});

@@ -65,14 +65,14 @@ export class QuotaUploadHandler implements UploadHandler {
 
     if (file.size > this.perFileBytes) {
       const limitMb = Math.floor(this.perFileBytes / (1024 * 1024));
-      throw new UploadError(`File too large (${limitMb}MB max in sandbox)`);
+      throw new UploadError(`This image is larger than ${limitMb} MB, the limit in this demo. Use a smaller image.`);
     }
 
     return this.withSessionLock(sessionId, async () => {
       const used = await this.counter.read(sessionId);
       if (used + file.size > this.perSessionBytes) {
         throw new UploadError(
-          "Sandbox storage full — close this tab to start a fresh session.",
+          "This demo has no room for more images. Close this tab to start a fresh session.",
         );
       }
 

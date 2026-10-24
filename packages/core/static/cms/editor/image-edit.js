@@ -260,9 +260,13 @@ export function mountImageEditors({
         onUnauthorized();
         return;
       }
-      if (!uploadRes.ok) throw new Error('Upload failed');
+      if (!uploadRes.ok) {
+        // The server explains a refusal (too large, not an image) for editors.
+        const body = await uploadRes.json().catch(() => null);
+        throw new Error(body && typeof body.error === 'string' ? body.error : '');
+      }
       const url = readUploadUrl(await uploadRes.json());
-      if (!url) throw new Error('Invalid upload response');
+      if (!url) throw new Error('');
 
       // Point at the durable uploaded URL now, so the shown image survives the
       // optimistic blob being revoked in `finally` (and any conflict prompt).
@@ -280,11 +284,12 @@ export function mountImageEditors({
       }
 
       flash(img, result.ok);
-    } catch {
+    } catch (error) {
       img.src = originalSrc;
       flash(img, false);
       setStatus('error', 'Upload failed');
-      showToast('Upload failed', 'error');
+      const reason = error instanceof Error && error.message ? error.message : '';
+      showToast(reason || 'The image couldn’t be uploaded. Try again.', 'error');
     } finally {
       URL.revokeObjectURL(previewUrl);
       uploading = false;
