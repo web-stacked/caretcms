@@ -613,8 +613,16 @@ test('pastes Unicode paragraphs, retains failed saves, and protects nested block
   await expect(quote).toHaveText(quoteText!);
   await expect(quote.locator('p, div, br')).toHaveCount(0);
 
-  const changed = ORIGINAL.replace('The fastest way', 'The slowest way');
-  writeFileSync(POST, changed);
+  // A page older than its source file: the server refuses its save. The block
+  // carries a stale source hash directly, because editing the file on disk
+  // makes the dev server refresh the page at a time of its choosing.
+  await group.evaluate(element => {
+    const src = element.getAttribute('data-caret-md-src') ?? '';
+    const stale = src.replace(/:[^:]+$/, ':00000000');
+    element.setAttribute('data-caret-md-src', stale);
+    const sources = element.getAttribute('data-caret-md-sources');
+    if (sources) element.setAttribute('data-caret-md-sources', sources.split(src).join(stale));
+  });
   await group.click();
   await page.keyboard.press('End');
   await page.keyboard.type(' changed');
@@ -623,6 +631,10 @@ test('pastes Unicode paragraphs, retains failed saves, and protects nested block
   expect((await saving).status()).toBe(409);
   await expect(group).toContainText('changed');
   await expect(page.getByText('This content changed. Copy your edits, then reload before saving.')).toBeVisible();
+
+  // The source changes under a saved draft: publishing keeps the file and the draft.
+  const changed = ORIGINAL.replace('The fastest way', 'The slowest way');
+  writeFileSync(POST, changed);
   const publish = await page.request.post('/api/cms/publish', { headers: { 'x-caret-request': '1' }, data: {} });
   expect((await publish.json()).conflicts).toHaveLength(1);
   expect(readFileSync(POST, 'utf8')).toBe(changed);
