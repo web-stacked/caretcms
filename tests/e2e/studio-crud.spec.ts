@@ -888,3 +888,33 @@ test("a new entry named like an existing one gets the next free address", async 
     page.locator("#create-title-input").press("Enter"),
   ]);
 });
+
+test("text fields wrap long text, and link fields take site paths", async ({ page }) => {
+  await page.setViewportSize({ width: 420, height: 800 });
+  await page.goto("/admin/cms/studio-fixture/seed-entry");
+  await expect(page.locator("#editor")).toBeVisible();
+
+  const title = page.locator('[name="title"]');
+  const oneLine = (await title.boundingBox())!.height;
+  await title.fill("A deliberately long title that cannot fit on a single line in a narrow drawer");
+  await expect.poll(async () => (await title.boundingBox())!.height).toBeGreaterThan(oneLine);
+  // Still a one-line value: Enter doesn't add a line break.
+  await title.press("End");
+  await title.press("Enter");
+  expect(await title.inputValue()).not.toMatch(/\n/);
+
+  const website = page.locator('[name="website"]');
+  for (const value of ["/work", "#contact", "mailto:hi@example.com", "https://example.com/a"]) {
+    await website.fill(value);
+    expect(await website.evaluate((input: HTMLInputElement) => input.validity.valid), value).toBe(true);
+  }
+  await website.fill("example dot com");
+  expect(await website.evaluate((input: HTMLInputElement) => input.validity.valid)).toBe(false);
+});
+
+test("the sign-in page focuses the password field", async ({ browser }) => {
+  const visitor = await browser.newPage();
+  await visitor.goto("/admin");
+  await expect(visitor.locator("#password")).toBeFocused();
+  await visitor.close();
+});

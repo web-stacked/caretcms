@@ -64,6 +64,62 @@ export function createFieldGroup(label, isRequired, inline) {
  * }} dependencies
  */
 export function createFieldRenderer({ updateField, buildSingleImage, buildImageGallery, buildObjectArray, buildTagList, getPublicationField, getMessage, savesDraft }) {
+  /**
+   * A text field that wraps and grows to fit instead of cutting long text off.
+   * It stays one line (Enter and pasted line breaks are dropped) unless the
+   * stored text already has line breaks.
+   * @param {string} value @param {(next: string) => void} onChange
+   */
+  function buildTextControl(value, onChange) {
+    var multiline = /[\r\n]/.test(value);
+    var area = document.createElement("textarea");
+    area.className = "studio-input studio-input-grow";
+    area.rows = multiline ? 4 : 1;
+    area.value = value;
+    function fit() {
+      area.style.height = "auto";
+      area.style.height = area.scrollHeight + "px";
+    }
+    area.addEventListener("keydown", function (event) {
+      if (!multiline && event.key === "Enter") event.preventDefault();
+    });
+    area.addEventListener("input", function () {
+      if (!multiline && /[\r\n]/.test(area.value)) area.value = area.value.replace(/\s*[\r\n]+\s*/g, " ");
+      fit();
+      onChange(area.value);
+    });
+    // Size once the field is in the page (and when the drawer resizes it).
+    requestAnimationFrame(fit);
+    var width = 0;
+    if (typeof ResizeObserver === "function") new ResizeObserver(function (entries) {
+      var next = entries[0] ? entries[0].contentRect.width : 0;
+      if (next !== width) { width = next; fit(); }
+    }).observe(area);
+    return area;
+  }
+
+  /** A link: a site path (/work), #anchor, mailto:, tel:, or a full http(s) address. */
+  var LINK_RE = /^(?:\/(?!\/)\S*|#\S*|\?\S*|mailto:\S+|tel:[+\d\s().-]+|https?:\/\/\S+)$/i;
+
+  /** @param {string} value @param {(next: string) => void} onChange */
+  function buildLinkControl(value, onChange) {
+    var link = document.createElement("input");
+    link.type = "text";
+    link.inputMode = "url";
+    link.autocomplete = "off";
+    link.spellcheck = false;
+    link.className = "studio-input";
+    link.value = value;
+    function check() {
+      var text = link.value.trim();
+      link.setCustomValidity(!text || LINK_RE.test(text) ? "" : getMessage("field.linkInvalid", "Use a site path such as /work, or a full address such as https://example.com."));
+    }
+    link.addEventListener("input", function () { check(); onChange(link.value); });
+    link.addEventListener("blur", function () { link.reportValidity(); });
+    check();
+    return link;
+  }
+
   /** @param {HTMLElement} group @param {Schema} prop @param {string} path */
   function appendFieldDescription(group, prop, path) {
     if (typeof prop.description !== "string" || !prop.description.trim()) return;
@@ -297,31 +353,23 @@ export function createFieldRenderer({ updateField, buildSingleImage, buildImageG
         ta.value = String(current || "");
         ta.addEventListener("input", function () { updateField(path, ta.value); });
         group.appendChild(ta);
-      } else if (prop.type === "string" && (prop.format === "email" || prop.format === "uri" || prop.format === "url")) {
+      } else if (prop.type === "string" && prop.format === "email") {
         group = createFieldGroup(label, isRequired);
         group.dataset.fieldPath = path;
         var emailInput = document.createElement("input");
-        emailInput.type = prop.format === "email" ? "email" : "url";
+        emailInput.type = "email";
         emailInput.className = "studio-input";
         emailInput.value = String(current || "");
         emailInput.addEventListener("input", function () { updateField(path, emailInput.value); });
         group.appendChild(emailInput);
+      } else if (prop.type === "string" && (prop.format === "uri" || prop.format === "url")) {
+        group = createFieldGroup(label, isRequired);
+        group.dataset.fieldPath = path;
+        group.appendChild(buildLinkControl(String(current || ""), function (next) { updateField(path, next); }));
       } else if (prop.type === "string") {
         group = createFieldGroup(label, isRequired);
         group.dataset.fieldPath = path;
-        /** @type {HTMLInputElement | HTMLTextAreaElement} */
-        var input;
-        if (typeof current === "string" && (current.length > 100 || /[\r\n]/.test(current))) {
-          input = document.createElement("textarea");
-          input.rows = 4;
-        } else {
-          input = document.createElement("input");
-          input.type = "text";
-        }
-        input.className = "studio-input";
-        input.value = String(current || "");
-        input.addEventListener("input", function () { updateField(path, input.value); });
-        group.appendChild(input);
+        group.appendChild(buildTextControl(String(current || ""), function (next) { updateField(path, next); }));
       } else if (prop.type === "number" || prop.type === "integer") {
         group = createFieldGroup(label, isRequired);
         group.dataset.fieldPath = path;
@@ -496,14 +544,7 @@ export function createFieldRenderer({ updateField, buildSingleImage, buildImageG
       if (typeof value === "string") {
         var g8 = createFieldGroup(label, false);
         g8.dataset.fieldPath = path;
-        /** @type {HTMLInputElement | HTMLTextAreaElement} */
-        var i;
-        if (value.length > 100 || /[\r\n]/.test(value)) { i = document.createElement("textarea"); i.rows = 4; }
-        else { i = document.createElement("input"); i.type = "text"; }
-        i.className = "studio-input";
-        i.value = value;
-        i.addEventListener("input", function () { updateField(path, i.value); });
-        g8.appendChild(i);
+        g8.appendChild(buildTextControl(value, function (next) { updateField(path, next); }));
         container.appendChild(g8);
         return;
       }

@@ -606,6 +606,15 @@ textarea.studio-input {
   resize: vertical;
   min-height: 80px;
 }
+/* Text fields wrap and grow to fit their content instead of cutting it off. */
+textarea.studio-input.studio-input-grow {
+  min-height: 0;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.45;
+}
+textarea.studio-input.studio-input-grow[rows="4"] { min-height: 80px; }
+.studio-input:user-invalid { border-color: var(--studio-red); }
 
 /* ─── Toggle switch ─────────────────────────────────────────────────── */
 
