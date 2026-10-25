@@ -310,6 +310,9 @@ test.describe("inline editor — click to edit", () => {
     const insertDialog = page.getByRole("dialog", { name: "Insert section" });
     await expect(insertDialog).toBeVisible();
     await expect(insertDialog.getByRole("button", { name: "Hero", exact: true })).toBeFocused();
+    // Only kinds this page has templates for, by readable names.
+    await expect(insertDialog.locator(".cms-section-add-option")).toHaveText(["Hero", "Features"]);
+    await expect(hero.locator(".cms-section-chip")).toHaveText("1. Hero");
     const [insertBox, toolbarBox] = await Promise.all([
       insertDialog.boundingBox(),
       page.locator(".cms-toolbar").boundingBox(),

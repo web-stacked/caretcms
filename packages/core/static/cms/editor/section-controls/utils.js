@@ -1,9 +1,9 @@
 import { SPACING_Y_VALUES } from './constants.js';
+import { humanizeKey } from '../../studio/field-model.js';
 
-/** @param {string} key @returns {string} */
+/** A section kind's name when its template gives none: "home.how_it_works" → "How it works". @param {string} key */
 export function humanizeSectionKey(key) {
-  const short = key.startsWith('home.') ? key.slice('home.'.length) : key;
-  return short.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return humanizeKey(key.split('.').pop() || key);
 }
 
 /** @param {unknown} value @returns {string | undefined} */

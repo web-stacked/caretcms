@@ -31,10 +31,14 @@
   outline-color: rgba(59, 130, 246, 0.35);
 }
 
+/* The controls and the name chip sit just above the section, so they never
+   cover its own content (sections often have no top padding). They touch its
+   edge, so moving the pointer up onto them keeps the section hovered. */
 .cms-section-controls {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 0;
+  right: 0;
+  translate: 0 -100%;
   z-index: 1200;
   display: flex;
   align-items: center;
@@ -60,8 +64,9 @@
 
 .cms-section-chip {
   position: absolute;
-  top: 12px;
-  left: 12px;
+  top: 0;
+  left: 0;
+  translate: 0 -100%;
   z-index: 1198;
   padding: 4px 8px;
   border-radius: 999px;

@@ -1,7 +1,5 @@
-import { HOME_SECTION_KEYS } from './constants.js';
 import {
   generateSectionId,
-  humanizeSectionKey,
   normalizeSpacingY,
 } from './utils.js';
 
@@ -15,6 +13,7 @@ import {
  *   sectionId: string,
  *   payload?: MutationPayload,
  *   applySpacing: (sectionId: string, spacingY: string | undefined) => boolean,
+ *   kinds: Map<string, string>,
  * }} options
  * @returns {{ ok: true, message: string, sections: Section[] } | { ok: false, message: string }}
  */
@@ -24,6 +23,7 @@ export function mutateSections({
   sectionId,
   payload,
   applySpacing,
+  kinds,
 }) {
   const index = sections.findIndex((section) => section.id === sectionId);
   if (index === -1) return { ok: false, message: 'Section not found' };
@@ -90,8 +90,9 @@ export function mutateSections({
 
   if (action === 'add') {
     const key = payload?.sectionKey;
-    if (typeof key !== 'string' || !HOME_SECTION_KEYS.includes(key)) {
-      return { ok: false, message: 'Invalid section key' };
+    // Only kinds this page has a template for can be inserted.
+    if (typeof key !== 'string' || !kinds.has(key)) {
+      return { ok: false, message: 'This kind of section can’t be added on this page' };
     }
     const inserted = {
       id: generateSectionId(key),
@@ -101,7 +102,7 @@ export function mutateSections({
     const next = [...sections.slice(0, index + 1), inserted, ...sections.slice(index + 1)];
     return {
       ok: true,
-      message: `Inserted ${humanizeSectionKey(key)}`,
+      message: `Inserted ${kinds.get(key)}`,
       sections: next,
     };
   }

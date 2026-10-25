@@ -102,6 +102,7 @@ export function humanizeKey(key) {
   return key
     .replace(/_/g, " ")
     .replace(/\bcta\b/gi, "call to action")
+    .replace(/\bfaq\b/gi, "FAQ")
     .replace(/\bseo\b/gi, "SEO")
     .replace(/\burl\b/gi, "URL")
     .replace(/\bid\b/gi, "ID")

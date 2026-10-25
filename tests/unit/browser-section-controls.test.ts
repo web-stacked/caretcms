@@ -13,20 +13,20 @@ describe("inline section layout model", () => {
   it("falls back when layout data is malformed", () => {
     expect(normalizeSectionsFromData(null, fallback)).toBe(fallback);
     expect(normalizeSectionsFromData({ layout: { sections: "invalid" } }, fallback)).toBe(fallback);
-    expect(normalizeSectionsFromData({ layout: { sections: [{ key: "unknown" }] } }, fallback))
+    expect(normalizeSectionsFromData({ layout: { sections: [{ key: "Not a key!" }, { key: 42 }] } }, fallback))
       .toBe(fallback);
   });
 
-  it("normalizes legacy keys and makes duplicate IDs unique", () => {
+  it("keeps the site's own section keys and makes duplicate IDs unique", () => {
     expect(normalizeSectionsFromData({
       layout: {
         sections: [
-          { id: "shared", key: "home.trust_badges", enabled: true },
+          { id: "shared", key: "about.team_grid", enabled: true },
           { id: "shared", key: "home.features", enabled: false, spacing_y: "spacious" },
         ],
       },
     }, fallback)).toEqual([
-      { id: "shared", key: "home.logo_bar", enabled: true, spacing_y: undefined },
+      { id: "shared", key: "about.team_grid", enabled: true, spacing_y: undefined },
       { id: "shared-2", key: "home.features", enabled: false, spacing_y: "spacious" },
     ]);
   });

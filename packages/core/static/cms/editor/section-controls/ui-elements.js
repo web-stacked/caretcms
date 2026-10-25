@@ -1,4 +1,4 @@
-import { spacingToken, humanizeSectionKey } from './utils.js';
+import { spacingToken } from './utils.js';
 
 /** @typedef {import('./model.js').Section} Section */
 
@@ -25,11 +25,11 @@ export function createSectionControlsElement() {
   return controls;
 }
 
-/** @param {Section} section @param {number} order @returns {HTMLDivElement} */
-export function createSectionBadge(section, order) {
+/** @param {number} order @param {string} name the section kind's name @returns {HTMLDivElement} */
+export function createSectionBadge(order, name) {
   const badge = document.createElement('div');
   badge.className = 'cms-section-chip';
-  badge.textContent = `${order}. ${humanizeSectionKey(section.key)}`;
+  badge.textContent = `${order}. ${name}`;
   return badge;
 }
 

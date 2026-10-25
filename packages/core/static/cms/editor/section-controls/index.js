@@ -1,4 +1,5 @@
 import {
+  humanizeSectionKey,
   normalizeSpacingY,
   spacingButtonLabel,
   spacingToken,
@@ -90,8 +91,8 @@ export function mountSectionControls({
 
   sectionNodes.forEach((sectionNode) => {
     if (!(sectionNode instanceof HTMLElement)) return;
-    const sectionKey = sectionNode.getAttribute('data-caret-section') || 'home.hero';
-    if (sectionTemplateByKey.has(sectionKey)) return;
+    const sectionKey = sectionNode.getAttribute('data-caret-section');
+    if (!sectionKey || sectionTemplateByKey.has(sectionKey)) return;
     const cloned = sectionNode.cloneNode(true);
     if (cloned instanceof HTMLElement) sectionTemplateByKey.set(sectionKey, cloned);
   });
@@ -111,7 +112,16 @@ export function mountSectionControls({
       if (cloned instanceof HTMLElement) sectionTemplateByKey.set(sectionKey, cloned);
     });
 
+  // Kinds of section this page can show, named by the template's
+  // data-caret-section-label or, failing that, its key made readable.
+  /** @type {Map<string, string>} */
+  const kinds = new Map([...sectionTemplateByKey].map(([key, template]) =>
+    [key, template.getAttribute('data-caret-section-label')?.trim() || humanizeSectionKey(key)]));
+  /** @param {string} key */
+  const kindName = (key) => kinds.get(key) ?? humanizeSectionKey(key);
+
   const addPicker = createAddPicker({
+    kinds,
     onPick: (sectionId, key) => {
       if (!canEditLayout()) return;
       const result = mutateSections('add', sectionId, { sectionKey: key });
@@ -267,7 +277,7 @@ export function mountSectionControls({
     const chip = node.querySelector('.cms-section-chip');
     if (chip instanceof HTMLElement) {
       const snapshot = getSectionSnapshot(sectionId, sectionKey);
-      const nextChip = createSectionBadge(snapshot, order);
+      const nextChip = createSectionBadge(order, kindName(snapshot.key));
       chip.textContent = nextChip.textContent;
     }
   }
@@ -278,7 +288,8 @@ export function mountSectionControls({
 
     const sectionId = sectionNode.getAttribute('data-caret-section-id');
     if (!sectionId) return;
-    const sectionKey = sectionNode.getAttribute('data-caret-section') || 'home.hero';
+    const sectionKey = sectionNode.getAttribute('data-caret-section');
+    if (!sectionKey) return;
     const sectionSnapshot = getSectionSnapshot(sectionId, sectionKey);
 
     sectionNodeById.set(sectionId, sectionNode);
@@ -290,7 +301,7 @@ export function mountSectionControls({
     }
 
     if (sectionNode.dataset.caretSectionControlsMounted !== 'true') {
-      const badge = createSectionBadge(sectionSnapshot, sectionIndex + 1);
+      const badge = createSectionBadge(sectionIndex + 1, kindName(sectionSnapshot.key));
       const controls = createSectionControlsElement();
 
       controls.addEventListener('click', (event) => {
@@ -562,6 +573,7 @@ export function mountSectionControls({
       sectionId,
       payload,
       applySpacing: (id, spacingY) => applySectionSpacing(id, spacingY),
+      kinds,
     });
     if (result.ok && Array.isArray(result.sections)) {
       sections = result.sections;

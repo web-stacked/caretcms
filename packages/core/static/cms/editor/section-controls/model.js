@@ -1,19 +1,13 @@
-import { HOME_SECTION_KEYS } from './constants.js';
 import { normalizeSpacingY, isRecord } from './utils.js';
 
 /** @typedef {{ id: string, key: string, enabled: boolean, spacing_y?: string }} Section */
 
-/** @type {Record<string, string>} */
-const LEGACY_SECTION_KEY_MAP = {
-  'home.trust_badges': 'home.logo_bar',
-  'home.featured': 'home.features',
-};
+/** A section kind is the site's own key, such as "home.hero" or "faq". */
+const SECTION_KEY_RE = /^[a-z][a-z0-9_-]*(?:\.[a-z0-9_-]+)*$/i;
 
 /** @param {unknown} rawKey @returns {string | null} */
 function normalizeSectionKey(rawKey) {
-  if (typeof rawKey !== 'string') return null;
-  const mapped = LEGACY_SECTION_KEY_MAP[rawKey] || rawKey;
-  return HOME_SECTION_KEYS.includes(mapped) ? mapped : null;
+  return typeof rawKey === 'string' && SECTION_KEY_RE.test(rawKey) ? rawKey : null;
 }
 
 /**
@@ -74,7 +68,7 @@ export function sectionsFromDom(sectionNodes) {
   const usedIds = new Set();
   return sectionNodes
     .map((el, index) => {
-      const rawKey = el.getAttribute('data-caret-section') || 'home.hero';
+      const rawKey = el.getAttribute('data-caret-section');
       const key = normalizeSectionKey(rawKey);
       if (!key) return null;
 
