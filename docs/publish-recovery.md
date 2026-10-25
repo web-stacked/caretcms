@@ -143,8 +143,10 @@ Existing recovery plans without receipts still finish through their original
 best-effort path. Default grouped Git commits remain unchanged; this opt-in mode
 uses a separate commit for each entry to permit independent recovery.
 
-After cleanup, a failed Git operation leaves its receipt pending. The editor
-shows **Retry Git history** independently of whether any drafts remain.
+After cleanup, a failed Git operation leaves its receipt pending. Editors see
+their changes as published; the pending record is for the developer. The
+server logs a warning, and in `astro dev` the CaretCMS dev toolbar app shows
+the pending count with **Retry Git history**.
 Authenticated, CSRF-protected `POST /api/cms/publish` with
 `{ "retryJournal": true }` retries this editor's records; optional `collection`
 and `id` scope the retry. This never republishes content, advances its revisions,

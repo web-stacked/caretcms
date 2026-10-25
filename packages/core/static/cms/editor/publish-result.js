@@ -88,14 +88,8 @@ export function presentPublishResult(input) {
     };
   }
 
-  if (data.journalRetryAvailable === true) {
-    return {
-      completed: true, reload: true, retryAvailable,
-      status: { state: 'error', text: 'Published, Git history pending' },
-      toast: { kind: 'error', message: 'Your changes are published. Their Git history is still pending; use Retry Git history, or ask your developer.' },
-    };
-  }
-
+  // A pending Git history record is the developer's to resolve (dev toolbar,
+  // server log); the editor's changes are published either way.
   const rebuildTriggered = rebuild.triggered === true;
   const count = changes(published.length);
   const them = published.length === 1 ? 'it' : 'them';

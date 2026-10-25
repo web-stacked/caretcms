@@ -137,6 +137,10 @@ export async function POST(context: APIContext): Promise<Response> {
         targetRepository ? { journal: { target: targetRepository, authorName: `CaretCMS editor ${editorId.slice(0, 8)}`,
           authorEmail: "editor@caretcms.local" } } : {});
       const journal = durableJournal ? await retryPublicationJournals(base, overlay, process.cwd(), scope) : null;
+      // The editor's changes are published; their Git record is the developer's to resolve.
+      if (journal && journal.pending > 0) {
+        console.warn(`[caretcms] Git history for ${journal.pending} published ${journal.pending === 1 ? "entry is" : "entries are"} pending${journal.blocked > 0 ? ` (${journal.blocked} need review)` : ""}. Each publish retries; you can also retry from the CaretCMS dev toolbar.`);
+      }
       if (devContentReady && published.length > 0) await devContentReady;
 
       // Best-effort git journal (opt-in via CARET_GIT_ON_PUBLISH): turn the publish

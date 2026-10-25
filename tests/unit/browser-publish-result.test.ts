@@ -89,8 +89,9 @@ describe("browser publish result presentation", () => {
   });
 });
 
-it("reports successful content publication separately from pending Git history", () => {
-  expect(presentPublishResult({ published: [{ collection: "blog", id: "hello" }], failed: [], conflicts: [],
-    rebuild: { triggered: false, ok: true }, journalRetryAvailable: true })).toMatchObject({ completed: true,
-    reload: true, status: { text: "Published, Git history pending" }, toast: { message: expect.stringContaining("Retry Git history") } });
+it("reports a publish with pending Git history as published; the record is the developer's", () => {
+  const result = presentPublishResult({ published: [{ collection: "blog", id: "hello" }], failed: [], conflicts: [],
+    rebuild: { triggered: false, ok: true }, journalRetryAvailable: true });
+  expect(result).toMatchObject({ completed: true, reload: true, status: null, toast: { kind: "success" } });
+  expect(result.toast.message).not.toMatch(/Git/);
 });

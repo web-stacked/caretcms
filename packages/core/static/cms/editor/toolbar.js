@@ -57,7 +57,6 @@ function renderToolbar(staticDelivery) {
       <div class="cms-toolbar-right">
         ${renderDraftControls(staticDelivery)}
         <button type="button" class="cms-retry-rebuild-btn" hidden>Retry update</button>
-        <button type="button" class="cms-retry-journal-btn" hidden>Retry Git history</button>
         <div class="cms-mode-switch" role="group" aria-label="Page mode">
           <button type="button" class="cms-mode-edit" aria-pressed="true">Edit</button>
           <button type="button" class="cms-mode-preview" aria-pressed="false">Preview</button>
@@ -436,16 +435,12 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   });
 
   let canPublishDrafts = true;
-  let pendingGitHistory = false;
   let draftCount = 0;
-  const retryJournalButton = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-retry-journal-btn'));
   const retryRebuildButton = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-retry-rebuild-btn'));
   async function fetchDraftCount() {
     try {
       const data = await draftClient.getState();
       canPublishDrafts = data.canPublish;
-      pendingGitHistory = data.journalPending > 0;
-      if (retryJournalButton) retryJournalButton.hidden = !data.retryJournal;
       const publishButton = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-publish-btn'));
       if (publishButton) publishButton.hidden = !data.canPublish;
       if (retryRebuildButton) retryRebuildButton.hidden = !data.retryRebuild || !data.canPublish;
@@ -508,14 +503,6 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       }
     }
 
-    // A password session receives a new editor ID on its next login. Private
-    // journal receipts remain on disk, but that new session cannot reopen them.
-    await fetchDraftCount();
-    if (pendingGitHistory && !(await draftsSurviveSignOut()) && !(await confirmToolbarAction({
-      title: 'Git history is pending',
-      copy: 'Your content is published. Pending Git records from this session cannot be reopened after signing out. Cancel to retry Git history, or sign out and leave the records for an operator to review.',
-      confirmLabel: 'Sign out',
-    }))) return;
     clearDirty();
     await onLogout();
   });
@@ -584,28 +571,6 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       setStatus('error', 'Published, site not updated');
       showToast('The site still couldn’t start updating. Try again later, or ask your developer to check how the site is deployed.', 'error');
     } finally { retryRebuildButton.disabled = false; }
-  });
-
-  retryJournalButton?.addEventListener('click', async () => {
-    retryJournalButton.disabled = true;
-    setStatus('saving', 'Recording Git history…');
-    try {
-      const data = await draftClient.retryJournal();
-      pendingGitHistory = data.pending > 0;
-      retryJournalButton.hidden = data.pending === 0;
-      if (data.pending > 0) {
-        setStatus('error', 'Git history pending');
-        showToast(data.blocked > 0
-          ? 'Some history records need review because published content has advanced. Your content is unchanged.'
-          : 'Git history could not finish. Check the repository and retry. Your content is unchanged.', 'error');
-      } else {
-        setStatus('idle', 'Git history recorded');
-        showToast('Git history recorded. Your published content is unchanged.', 'success');
-      }
-    } catch {
-      setStatus('error', 'Git history pending');
-      showToast('Git history could not finish. Check the repository and retry. Your content is unchanged.', 'error');
-    } finally { retryJournalButton.disabled = false; }
   });
 
   void deploymentStatus.refresh();

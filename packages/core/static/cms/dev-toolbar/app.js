@@ -266,8 +266,11 @@ export default defineToolbarApp({
       }
 
       if (!bindings.length && !orphans.length) {
-        html += `<div class="empty">No <code>data-caret</code> bindings found on this page.</div>`;
+        html += `<div class="empty">No <code>data-caret</code> bindings found on this page.<br />Run <code>npx @caretcms/caretize</code> to add some.</div>`;
       }
+      // Developer-only: published content whose Git record is pending. Editors
+      // aren't asked to fix this; each publish retries it.
+      html += `<div class="git-history" hidden></div>`;
 
       for (const [gk, rows] of groups) {
         const [collection, id] = gk.split("::");
@@ -286,8 +289,50 @@ export default defineToolbarApp({
 
       html += `</div>`;
       wrap.innerHTML = html;
+      void showGitHistory();
       const probs = scan.orphans.length + scan.duplicates.length;
       app.toggleNotification({ state: probs > 0, level: "warning" });
+    }
+
+    /** Pending Git history for the signed-in editor's publications, with Retry. */
+    async function showGitHistory(message = "") {
+      const box = wrap.querySelector(".git-history");
+      if (!(box instanceof HTMLElement)) return;
+      /** @type {{ journalPending?: unknown, retryJournal?: unknown } | null} */
+      let state = null;
+      try {
+        const res = await fetch(`${devConfig().apiBasePath}/draft`, { credentials: "same-origin", headers: { "x-caret-request": "1" } });
+        state = res.ok ? await res.json() : null;
+      } catch { state = null; }
+      const pending = state && typeof state.journalPending === "number" ? state.journalPending : 0;
+      box.hidden = pending === 0 && !message;
+      if (box.hidden) return;
+      box.className = pending > 0 ? "git-history problem" : "git-history note";
+      box.innerHTML = pending > 0
+        ? `<b>Git history pending</b> for ${pending} published ${pending === 1 ? "entry" : "entries"}. Each publish retries; check the repository, then retry here.${message ? ` ${esc(message)}` : ""}` +
+          (state && state.retryJournal === true ? ` <button type="button" class="btn" data-action="retry-git">Retry Git history</button>` : "")
+        : esc(message);
+    }
+
+    async function retryGitHistory() {
+      let message = "";
+      try {
+        const res = await fetch(`${devConfig().apiBasePath}/publish`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json", "x-caret-request": "1" },
+          body: JSON.stringify({ retryJournal: true }),
+        });
+        const body = res.ok ? await res.json() : null;
+        const journal = body && typeof body.journal === "object" ? body.journal : null;
+        message = !journal ? "Retry failed; see the server log."
+          : journal.pending === 0 ? "Git history recorded."
+          : journal.blocked > 0 ? "Some records need review: published content has moved on since."
+          : "Still pending; see the server log.";
+      } catch {
+        message = "Retry failed; see the server log.";
+      }
+      await showGitHistory(message);
     }
 
     /** @param {string | null} index */
@@ -309,6 +354,8 @@ export default defineToolbarApp({
         target.setAttribute("aria-pressed", String(highlightOn));
       } else if (action === "rescan") {
         render();
+      } else if (action === "retry-git") {
+        void retryGitHistory();
       } else if (action === "scroll") {
         const el = elementByIndex(target.getAttribute("data-index"));
         if (el) scrollTo(el);

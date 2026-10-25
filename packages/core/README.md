@@ -571,7 +571,8 @@ Draft migration, conflicts, interrupted publication, and deployment retries:
 
 File-backed Git history is opt-in with `CARET_GIT_ON_PUBLISH=true`. Add
 `CARET_GIT_JOURNAL_RETRY=true` to retain private retry records before draft
-cleanup and expose **Retry Git history** when needed. This mode uses per-entry
+cleanup; pending records are logged and, in `astro dev`, shown with **Retry
+Git history** in the CaretCMS dev toolbar app. This mode uses per-entry
 commits; retries leave published content and deployment hooks unchanged.
 See [durable Git retry](../../docs/publish-recovery.md#durable-git-history-retry-opt-in)
 for checkout requirements, permissions, and recovery limits.

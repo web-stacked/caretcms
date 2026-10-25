@@ -1,5 +1,8 @@
 export const prerender = false;
 
+declare const __ASTRO_CARET_DEV__: boolean | undefined;
+const isDev = typeof __ASTRO_CARET_DEV__ === "boolean" && __ASTRO_CARET_DEV__;
+
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { getRuntimeConfig } from "../config.js";
@@ -133,7 +136,8 @@ export async function GET(context: APIContext): Promise<Response> {
   // Adapter-agnostic copy: where entries live depends on the configured
   // storage (.caret/data for the filesystem adapter, src/content for markdown,
   // KV for Cloudflare) — naming one path here misleads every other setup.
-  const emptyState = `<div class="studio-card" style="padding:2rem;text-align:center;color:var(--studio-text-dim);font-size:0.85rem;">${escapeHtml(runtime.messages["home.empty"])}</div>`;
+  // Setting up content is a developer's job: the command shows only in dev.
+  const emptyState = `<div class="studio-card" style="padding:2rem;text-align:center;color:var(--studio-text-dim);font-size:0.85rem;">${escapeHtml(runtime.messages[isDev ? "home.emptyDev" : "home.empty"])}</div>`;
 
   const body = `<div class="studio-fade-in studio-page studio-home">
     <header class="studio-page-header">

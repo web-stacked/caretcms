@@ -72,8 +72,8 @@ function injectSigninHint(html: string, mountPath: string): string {
     `<link rel="stylesheet" href="/__caret/signin-hint.css">` +
     `<div class="caret-signin-hint" role="status">` +
     `<span class="caret-signin-hint__dot" aria-hidden="true"></span>` +
-    `<span class="caret-signin-hint__text">Signed in · no editable fields on this page. ` +
-    `Run <code>npx @caretcms/caretize</code> to add some, or <a href="${mountPath}/cms">open the Studio</a>.` +
+    `<span class="caret-signin-hint__text">Signed in · nothing on this page can be edited here. ` +
+    `<a href="${mountPath}/cms">Open the Studio</a>.` +
     `</span></div>`;
   const closeBody = html.toLowerCase().lastIndexOf("</body>");
   if (closeBody === -1) return html + snippet;
