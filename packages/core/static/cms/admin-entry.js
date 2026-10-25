@@ -1660,14 +1660,6 @@ import { presentPublishResult } from './editor/publish-result.js';
           validationWarningEl.hidden = false;
         }
         updateSaveButton();
-        if (creating) {
-          var guide = document.getElementById("editor-guide");
-          var guideTitle = document.getElementById("editor-guide-title");
-          var guideCopy = document.getElementById("editor-guide-copy");
-          if (guide) guide.setAttribute("open", "");
-          if (guideTitle) guideTitle.textContent = msg("entry.newGuideTitle", "New entry");
-          if (guideCopy) guideCopy.textContent = msg("entry.newGuideCopy", "Fill in the fields marked *, then press Create. Nothing is saved or shown on the site until then.");
-        }
         editorEl.hidden = false;
         studioSync.announceReady();
         // The toolbar's History link opens the entry with #history (a reload,

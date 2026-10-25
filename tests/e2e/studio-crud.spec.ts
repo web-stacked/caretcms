@@ -64,14 +64,18 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
 
   await createButton.click();
   await createTitle.fill("Draft title");
-  await expect(createId).toHaveValue("draft-title");
+  // The address follows the name and is only edited on request.
+  await expect(page.locator("#create-address-preview")).toHaveText("Web address: draft-title");
+  await expect(createId).toBeHidden();
+  await page.locator("#create-address summary").click();
   await createId.fill("first-studio-entry");
   await Promise.all([
     page.waitForURL(/\/admin\/cms\/studio-fixture\/first-studio-entry\?new=1&title=Draft%20title$/),
     page.locator("#btn-create-confirm").click(),
   ]);
 
-  await expect(page.getByText("New entry", { exact: true })).toBeVisible();
+  // No instructions open; the status and the Create button say what's next.
+  await expect(page.locator("#editor-guide")).not.toHaveAttribute("open", "");
   await expect(page.locator('[name="title"]')).toHaveValue("Draft title");
   const notStored = await page.request.get("/api/cms/entries?collection=studio-fixture&id=first-studio-entry");
   expect((await notStored.json()).entries).toHaveLength(0);
@@ -706,6 +710,7 @@ test("collection pagination reaches every entry and title search crosses pages",
 
   await page.locator("#btn-new").click();
   await page.locator("#create-title-input").fill("Duplicate post");
+  await page.locator("#create-address summary").click();
   await page.locator("#create-id-input").fill("post-30");
   await expect(page.locator("#btn-create-confirm")).toBeEnabled();
   const duplicateLookup = page.waitForResponse((response) =>
@@ -714,7 +719,7 @@ test("collection pagination reaches every entry and title search crosses pages",
   await page.locator("#btn-create-confirm").click();
   expect((await duplicateLookup).ok()).toBe(true);
   await expect(page.locator("#create-error"))
-    .toHaveText("An entry with this ID already exists.");
+    .toHaveText("Another entry already uses this web address. Choose a different one.");
   await expect(page.locator("#create-id-input")).toBeFocused();
   await expect(page.locator("#btn-create-confirm")).toBeDisabled();
   await page.locator("#create-id-input").press("Escape");
@@ -870,4 +875,16 @@ test("an image upload the server refuses says why", async ({ page }) => {
   });
   await expect(page.locator('[data-field-path="images"] .caret-image-help.is-error'))
     .toHaveText("This image is larger than 10 MB. Use a smaller image.");
+});
+
+test("a new entry named like an existing one gets the next free address", async ({ page }) => {
+  await page.goto("/admin/cms/studio-fixture");
+  await page.locator("#btn-new").click();
+  await page.locator("#create-title-input").fill("Seed entry");
+  await expect(page.locator("#create-address-preview")).toHaveText("Web address: seed-entry-2");
+  await expect(page.locator("#create-error")).toBeHidden();
+  await Promise.all([
+    page.waitForURL(/\/admin\/cms\/studio-fixture\/seed-entry-2\?new=1/),
+    page.locator("#create-title-input").press("Enter"),
+  ]);
 });

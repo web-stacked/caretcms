@@ -306,7 +306,7 @@ export async function GET(context: APIContext): Promise<Response> {
         </div>
       </div>
 
-      <details class="editor-help" id="editor-guide"${isNew ? " open" : ""}>
+      <details class="editor-help" id="editor-guide">
         <summary id="editor-guide-title">${escapeHtml(messages["entry.guideTitle"])}</summary>
         <p id="editor-guide-copy">${escapeHtml(messages["entry.guideCopy"])}</p>
       </details>

@@ -112,6 +112,11 @@ export async function GET(context: APIContext): Promise<Response> {
     .entries-grid[data-view="list"] .entry-card-text { flex: 1; min-width: 0; }
     .entries-grid[data-view="list"] .entry-card-meta { margin: 0; padding: 0; flex-shrink: 0; }
     .collection-heading-bar { margin-bottom: 1.5rem; }
+    .create-address { margin: 0.6rem 0 0.75rem; font-size: 12px; color: var(--studio-text-dim); }
+    .create-address summary { cursor: pointer; width: fit-content; }
+    .create-address-change { color: var(--studio-accent); margin-left: 0.35rem; }
+    .create-address[open] summary { margin-bottom: 0.6rem; }
+    .create-address-hint { font-size: 12px; margin: 0.5rem 0 1rem; color: var(--studio-text-dim); }
     .collection-actions {
       display: flex; align-items: center; justify-content: flex-end; gap: 0.6rem; flex: 0 0 auto;
     }
@@ -251,20 +256,23 @@ export async function GET(context: APIContext): Promise<Response> {
     </div>
   </div>
 
-  <div id="create-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="create-dialog-title" aria-describedby="create-hint" hidden>
+  <div id="create-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="create-dialog-title"${publicationFieldName ? ' aria-describedby="create-publish-hint"' : ""} hidden>
     <div class="modal-card">
       <div class="modal-header">
         <h2 id="create-dialog-title" style="font:inherit;letter-spacing:inherit;text-transform:inherit;margin:0;">${escapeHtml(dialogTitle)}</h2>
         <button id="btn-create-close" type="button" class="studio-icon-btn" aria-label="${escapeHtml(messages["common.close"])}" title="${escapeHtml(messages["common.close"])}"><svg class="studio-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
       <div class="modal-body">
-        ${titleField ? `<label for="create-title-input" class="studio-label">${escapeHtml(titleInputLabel)}</label>
+        <label for="create-title-input" class="studio-label">${escapeHtml(titleField ? titleInputLabel : messages["collection.nameLabel"])}</label>
         <input id="create-title-input" type="text" class="studio-input" placeholder="${escapeHtml(messages["collection.entryTitlePlaceholder"])}" autocomplete="off" />
-        <div style="height:1rem;"></div>` : ""}
-        <label for="create-id-input" class="studio-label">${escapeHtml(messages["collection.entryId"])}</label>
-        <input id="create-id-input" type="text" class="studio-input" placeholder="${escapeHtml(messages["collection.entryIdPlaceholder"])}" autocomplete="off" spellcheck="false" />
-        <p id="create-hint" style="font-size:12px;margin:0.5rem 0 0.35rem;color:var(--studio-text-dim);">${escapeHtml(messages["collection.idHint"])}</p>
-        ${publicationFieldName ? `<p style="font-size:12px;margin:0 0 1rem;color:var(--studio-text-dim);">${escapeHtml(messages["collection.publishHint"])}</p>` : ""}
+        <!-- The address follows the name; changing it is optional. -->
+        <details id="create-address" class="create-address">
+          <summary><span id="create-address-preview" aria-live="polite"></span> <span class="create-address-change">${escapeHtml(messages["collection.changeAddress"])}</span></summary>
+          <label for="create-id-input" class="studio-label">${escapeHtml(messages["collection.entryId"])}</label>
+          <input id="create-id-input" type="text" class="studio-input" placeholder="${escapeHtml(messages["collection.entryIdPlaceholder"])}" autocomplete="off" spellcheck="false" aria-describedby="create-hint" />
+          <p id="create-hint" class="create-address-hint">${escapeHtml(messages["collection.idHint"])}</p>
+        </details>
+        ${publicationFieldName ? `<p id="create-publish-hint" class="create-address-hint">${escapeHtml(messages["collection.publishHint"])}</p>` : ""}
         <p id="create-error" class="studio-error-text" hidden></p>
         <div style="display:flex;justify-content:flex-end;gap:0.75rem;">
           <button id="btn-create-cancel" type="button" class="studio-btn-ghost">${escapeHtml(messages["common.cancel"])}</button>
@@ -325,7 +333,9 @@ export async function GET(context: APIContext): Promise<Response> {
     var reorderSave = document.getElementById('btn-reorder-save');
     var reorderCancel = document.getElementById('btn-reorder-cancel');
     var dialog = document.getElementById('create-dialog');
-    var titleInput = document.getElementById('create-title-input');
+    var titleInput = /** the entry's name; it also suggests the address */ document.getElementById('create-title-input');
+    var addressDetails = document.getElementById('create-address');
+    var addressPreview = document.getElementById('create-address-preview');
     var idInput = document.getElementById('create-id-input');
     var errorEl = document.getElementById('create-error');
     var confirmBtn = document.getElementById('btn-create-confirm');
@@ -574,12 +584,14 @@ export async function GET(context: APIContext): Promise<Response> {
     function openDialog() {
       dialogTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       dialog.hidden = false;
-      if (titleInput) titleInput.value = '';
+      titleInput.value = '';
       idInput.value = '';
       idWasEdited = false;
+      addressDetails.open = false;
+      showAddress();
       errorEl.hidden = true;
       confirmBtn.disabled = true;
-      (titleInput || idInput).focus();
+      titleInput.focus();
     }
     function closeDialog() {
       if (dialog.hidden) return;
@@ -588,12 +600,33 @@ export async function GET(context: APIContext): Promise<Response> {
       dialogTrigger = null;
       if (trigger && trigger.isConnected) trigger.focus();
     }
+    function showAddress() {
+      var id = idInput.value.trim();
+      addressPreview.textContent = id ? MSG['collection.addressPreview'].replace('{id}', id) : '';
+      addressDetails.hidden = !id && !idWasEdited;
+    }
+    function taken(id) {
+      return knownDuplicateIds.has(id) || allEntries.some(function (e) { return e.id === id; });
+    }
+    /** The address for a name, numbered when that one is taken: quiet-structures-2. */
+    function freeAddress(base) {
+      if (!base) return '';
+      var id = base;
+      for (var n = 2; taken(id); n++) id = (base.slice(0, 76) + '-' + n);
+      return id;
+    }
+    function followName() {
+      // A name with no Latin letters still gets an address to start from.
+      var base = suggestedId(titleInput.value) || (titleInput.value.trim() ? 'entry' : '');
+      if (!idWasEdited) idInput.value = freeAddress(base);
+      showAddress();
+    }
     function validate() {
       var v = idInput.value.trim();
-      if (titleInput && !titleInput.value.trim()) { confirmBtn.disabled = true; errorEl.hidden = true; return; }
+      if (!titleInput.value.trim()) { confirmBtn.disabled = true; errorEl.hidden = true; return; }
       if (!v) { confirmBtn.disabled = true; errorEl.hidden = true; return; }
       if (!ID_RE.test(v)) { errorEl.textContent = MSG['collection.invalidId']; errorEl.hidden = false; confirmBtn.disabled = true; return; }
-      if (knownDuplicateIds.has(v) || allEntries.some(function (e) { return e.id === v; })) { errorEl.textContent = MSG['collection.duplicateId']; errorEl.hidden = false; confirmBtn.disabled = true; return; }
+      if (taken(v)) { addressDetails.open = true; errorEl.textContent = MSG['collection.duplicateId']; errorEl.hidden = false; confirmBtn.disabled = true; return; }
       errorEl.hidden = true; confirmBtn.disabled = false;
     }
     // Opens the new entry's form. Nothing is stored until the editor presses
@@ -610,6 +643,10 @@ export async function GET(context: APIContext): Promise<Response> {
           return res.json().then(function (body) {
             if (body && Array.isArray(body.entries) && body.entries.length > 0) {
               knownDuplicateIds.add(entryId);
+              confirmBtn.textContent = CREATE_LABEL;
+              // An address made from the name just takes the next number.
+              if (!idWasEdited) { followName(); validate(); createEntry(); return; }
+              addressDetails.open = true;
               errorEl.textContent = MSG['collection.duplicateId'];
               errorEl.hidden = false;
               confirmBtn.disabled = true;
@@ -619,7 +656,7 @@ export async function GET(context: APIContext): Promise<Response> {
               return;
             }
             var target = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entryId) + '?new=1';
-            if (TITLE_FIELD && titleInput && titleInput.value.trim()) target += '&title=' + encodeURIComponent(titleInput.value.trim());
+            if (TITLE_FIELD && titleInput.value.trim()) target += '&title=' + encodeURIComponent(titleInput.value.trim());
             window.location.href = target;
           });
         })
@@ -647,11 +684,9 @@ export async function GET(context: APIContext): Promise<Response> {
       return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
         .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
     }
-    if (titleInput) titleInput.addEventListener('input', function () {
-      if (!idWasEdited) idInput.value = suggestedId(titleInput.value);
-      validate();
-    });
-    idInput.addEventListener('input', function () { idWasEdited = true; validate(); });
+    titleInput.addEventListener('input', function () { followName(); validate(); });
+    titleInput.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !confirmBtn.disabled) createEntry(); });
+    idInput.addEventListener('input', function () { idWasEdited = true; showAddress(); validate(); });
     idInput.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !confirmBtn.disabled) createEntry(); });
     dialog.addEventListener('click', function (e) { if (e.target === dialog) closeDialog(); });
     document.addEventListener('keydown', function (e) {
@@ -663,8 +698,9 @@ export async function GET(context: APIContext): Promise<Response> {
           return;
         }
         if (e.key !== 'Tab') return;
-        var focusable = [createCloseBtn, titleInput, idInput, createCancelBtn, confirmBtn].filter(function (element) {
-          return !element.disabled && !element.hidden;
+        var addressSummary = addressDetails.querySelector('summary');
+        var focusable = [createCloseBtn, titleInput, addressSummary, addressDetails.open ? idInput : null, createCancelBtn, confirmBtn].filter(function (element) {
+          return element && !element.disabled && !element.hidden && !element.closest('[hidden]');
         });
         var first = focusable[0];
         var last = focusable[focusable.length - 1];
