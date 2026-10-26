@@ -838,6 +838,20 @@ import { whenServed } from './editor/image-utils.js';
 
   /* ─── Field rendering ───────────────────────────────────────────── */
 
+  // Without permission to edit, the form is for reading: every control is
+  // disabled, including ones rendered later (list items, re-renders).
+  if (CFG.editable === false) {
+    var lockFields = function () {
+      fieldsEl.querySelectorAll("input, textarea, select, button").forEach(function (control) {
+        /** @type {HTMLInputElement} */ (control).disabled = true;
+      });
+      fieldsEl.querySelectorAll("[contenteditable='true'], [contenteditable='plaintext-only']").forEach(function (element) {
+        element.setAttribute("contenteditable", "false");
+      });
+    };
+    new MutationObserver(lockFields).observe(fieldsEl, { childList: true, subtree: true });
+  }
+
   const { renderFields, renderFieldsFallback } = createFieldRenderer({
     updateField,
     buildSingleImage,

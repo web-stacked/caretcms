@@ -221,3 +221,44 @@ test("Studio rejects a stale first draft and refreshes its base version for an e
     await remote.close();
   }
 });
+
+test("fields a writer may not edit are read-only and say why", async ({ browser }) => {
+  const writer = await identityContext(browser, "writer");
+  const admin = await identityContext(browser, "admin");
+  try {
+    // An about page visitors can see (in policy mode content arrives by publishing).
+    const seed = await admin.request.post("/api/cms/mutate", {
+      headers: { "x-caret-request": "1" },
+      data: { type: "put_entry", collection: "pages", id: "about", data: { hero: { headline: "About CaretCMS", subtext: "Second route" } } },
+    });
+    expect(seed.ok(), await seed.text()).toBe(true);
+    expect((await admin.request.post("/api/cms/publish", { headers: { "x-caret-request": "1" }, data: {} })).ok()).toBe(true);
+
+    const page = await writer.newPage();
+    await page.goto("/about");
+    const headline = page.locator('h1[data-caret="hero.headline"]');
+    await expect(page.locator("body")).toHaveClass(/cms-edit-mode/);
+    // pages::about is outside the writer's permission: nothing to type into.
+    await expect(headline).toHaveAttribute("data-caret-locked", "permission");
+    await expect(headline).not.toHaveAttribute("contenteditable", /true|plaintext-only/);
+    await expect(headline).toHaveAttribute("title", "You don't have permission to edit this.");
+    await headline.click();
+    await expect(page.getByText("You don't have permission to edit this.")).toBeVisible();
+
+    // The home page stays editable for the same writer.
+    await page.goto("/");
+    await expect(page.locator(HEADLINE)).toHaveAttribute("contenteditable", /true|plaintext-only/);
+    await expect(page.locator(HEADLINE)).not.toHaveAttribute("data-caret-locked");
+
+    // In the Studio the same entry is for reading: a note, and nothing to type into.
+    await page.goto("/admin/cms/pages/about");
+    await expect(page.locator("#editor")).toBeVisible();
+    await expect(page.getByRole("note")).toHaveText("You can view this entry, but you don't have permission to edit it.");
+    const fields = page.locator("#fields input, #fields textarea");
+    await expect(fields.first()).toBeVisible();
+    for (const field of await fields.all()) await expect(field).toBeDisabled();
+  } finally {
+    await writer.close();
+    await admin.close();
+  }
+});

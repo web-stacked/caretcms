@@ -30,6 +30,7 @@ import { mountRichToolbar } from './editor/rich-toolbar.js';
 import { mountMdBlockEditors } from './editor/md-block-edit.js';
 import { mountLinkFollowAffordances } from './editor/link-follow.js';
 import { revealAndFade } from './editor/highlight.js';
+import { findDeniedEntries, lockDeniedBindings } from './editor/permissions.js';
 import { hydrateStega } from './editor/stega-hydrate.js';
 import { createSessionRecovery } from './editor/session-recovery.js';
 
@@ -174,7 +175,10 @@ function boot() {
   editModeButton?.addEventListener('click', () => setPageMode('edit'));
   previewModeButton?.addEventListener('click', () => setPageMode('preview'));
 
+  /** Entries this editor may not edit (with an authorization policy). @type {Set<string>} */
+  let deniedEntries = new Set();
   const mountInlineEditors = () => {
+    lockDeniedBindings(deniedEntries, showToast);
     const { showLinkPopup } = mountTextEditors({
       state,
       parseCaretAttr,
@@ -232,16 +236,20 @@ function boot() {
     onCanvasStructureChanged: mountInlineEditors,
   });
 
-  mountInlineEditors();
-
-  // First load after login: flash every editable region once, then fade out.
-  // The flag is set by the login form just before it redirects here.
-  try {
-    if (sessionStorage.getItem('caret:welcome')) {
-      sessionStorage.removeItem('caret:welcome');
-      revealAndFade(2500);
-    }
-  } catch (e) {}
+  // With a policy, find what this editor may not edit before making anything
+  // editable; without one this resolves at once.
+  void findDeniedEntries().then((denied) => {
+    deniedEntries = denied;
+    mountInlineEditors();
+    // First load after login: flash every editable region once, then fade
+    // out. The flag is set by the login form just before it redirects here.
+    try {
+      if (sessionStorage.getItem('caret:welcome')) {
+        sessionStorage.removeItem('caret:welcome');
+        revealAndFade(2500);
+      }
+    } catch (e) {}
+  });
 }
 
 if (document.readyState === 'loading') {

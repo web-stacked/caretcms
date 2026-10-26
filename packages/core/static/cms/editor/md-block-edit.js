@@ -221,7 +221,7 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
   mountParagraphGroups();
   document.querySelectorAll('[data-caret-md]').forEach((el) => {
     if (!(el instanceof HTMLElement)) return;
-    if (el.dataset.caretMdMounted === 'true') return;
+    if (el.dataset.caretMdMounted === 'true' || el.hasAttribute('data-caret-locked')) return;
 
     const stamps = readStamps(el);
     // A block with missing or malformed source metadata cannot be saved

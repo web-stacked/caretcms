@@ -316,6 +316,8 @@ export async function GET(context: APIContext): Promise<Response> {
         <ul id="draft-changes-list" class="caret-history-diff"></ul>
       </details>` : ""}
 
+      ${editable ? "" : `<p id="read-only-note" class="studio-read-only-note" role="note">${escapeHtml(messages["entry.readOnly"])}</p>`}
+
       <div id="validation-warning" role="alert" hidden style="margin-bottom:1.25rem;padding:1rem;border:1px solid var(--studio-red);border-radius:var(--radius-theme-md);background:var(--studio-red-soft);color:var(--studio-text);font-size:0.85rem;"></div>
 
       <div id="history-panel" class="history-panel" role="region" aria-labelledby="history-panel-title" hidden>

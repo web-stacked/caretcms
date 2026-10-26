@@ -2,6 +2,7 @@ export const prerender = false;
 
 import type { APIContext } from "astro";
 import { matchEntry } from "../entry-search.js";
+import { canPerform } from "../authorization.js";
 import { unpublishedEntries } from "../unpublished.js";
 import { entryDisplayTitle } from "../entry-title.js";
 import { isEditorAuthenticated } from "../auth/session.js";
@@ -142,9 +143,13 @@ export async function GET(context: APIContext): Promise<Response> {
       const base = getRequestContext()?.publishedAdapter;
       const published = base ? await readEntrySnapshot(base, collection, singleId) : null;
 
+      // With an authorization policy, say when this editor may not edit the
+      // entry, so the page can show it read-only instead of failing on save.
+      const denied = !(await canPerform("edit", collection, singleId));
       return json({
         entries,
         revision,
+        ...(denied ? { editable: false } : {}),
         ...(baseRevision !== undefined ? { baseRevision } : {}),
         ...(published ? { live: { data: published.entry ? stripBodyOverlay(published.entry.data) : null } } : {}),
         pagination: {

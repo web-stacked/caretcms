@@ -935,3 +935,14 @@ button.studio-nav-link {
 .studio-skip-link:focus { transform: none; }
 #studio-main:focus,
 #fields:focus { outline: none; }
+
+/* Shown on an entry the editor may view but not edit. */
+.studio-read-only-note {
+  margin: 0 0 1.25rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--studio-border);
+  border-radius: var(--radius-theme-md);
+  background: var(--studio-surface);
+  color: var(--studio-text-muted);
+  font-size: 0.85rem;
+}

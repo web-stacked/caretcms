@@ -56,7 +56,7 @@ export function imageUnderControl(target) {
 
 /** @param {EventTarget | null} target @returns {HTMLImageElement | null} */
 function editableImage(target) {
-  if (!(target instanceof HTMLImageElement) || !target.hasAttribute('data-caret')) return null;
+  if (!(target instanceof HTMLImageElement) || !target.hasAttribute('data-caret') || target.hasAttribute('data-caret-locked')) return null;
   if (target.closest('.cms-toolbar, .cms-studio-panel, .cms-content-map')) return null;
   return target;
 }
@@ -90,7 +90,7 @@ export function mountImageEditors({
   // Keyboard access: an editable image outside a link or button becomes a stop.
   document.querySelectorAll('img[data-caret]').forEach((el) => {
     const img = /** @type {HTMLImageElement} */ (el);
-    if (img.dataset.caretImgMounted === 'true') return;
+    if (img.dataset.caretImgMounted === 'true' || img.hasAttribute('data-caret-locked')) return;
     img.dataset.caretImgMounted = 'true';
     if (!img.closest('a, button') && !img.hasAttribute('tabindex')) img.tabIndex = 0;
   });

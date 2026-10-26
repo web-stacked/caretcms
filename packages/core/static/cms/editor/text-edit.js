@@ -131,6 +131,7 @@ export function mountTextEditors({
 
   document.querySelectorAll('[data-caret]').forEach((el) => {
     if (!(el instanceof HTMLElement) || el instanceof HTMLImageElement) return;
+    if (el.hasAttribute('data-caret-locked')) return;
     const editableEl = /** @type {EditableElement} */ (el);
     if (el.dataset.caretTextMounted === 'true') return;
     el.dataset.caretTextMounted = 'true';
