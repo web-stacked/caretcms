@@ -169,23 +169,40 @@ function updateActiveStates() {
   }
 }
 
-/** @param {Selection} sel */
+/** Room kept clear at the bottom of the screen for the editor toolbar. */
+const BOTTOM_CLEARANCE = 72;
+const GAP = 8;
+
+/**
+ * Put the bar at the start of the selection, inside the text being edited:
+ * above the selection when that stays within the element (so it never covers
+ * a heading or other content above), else below it; only when there's no room
+ * below does it go above the element.
+ * @param {Selection} sel
+ */
 function position(sel) {
   if (!toolbar || sel.isCollapsed || sel.rangeCount === 0) return;
 
   const range = sel.getRangeAt(0);
   const rect = range.getBoundingClientRect();
   if (!rect.width && !rect.height) return;
-
+  const firstLine = range.getClientRects()[0] ?? rect;
+  const lastLines = range.getClientRects();
+  const lastLine = lastLines[lastLines.length - 1] ?? rect;
+  const bounds = currentRichEl?.getBoundingClientRect() ?? rect;
   const tbRect = toolbar.getBoundingClientRect();
-  let left = rect.left + rect.width / 2 - tbRect.width / 2;
-  left = Math.max(8, Math.min(left, window.innerWidth - tbRect.width - 8));
 
-  // Prefer above selection, flip below if near top
-  let top = rect.top - tbRect.height - 8;
-  if (top < 8) {
-    top = rect.bottom + 8;
-  }
+  // Start where the selection starts, kept within the element, then the screen.
+  let left = Math.min(firstLine.left, bounds.right - tbRect.width);
+  left = Math.max(left, bounds.left);
+  left = Math.max(GAP, Math.min(left, window.innerWidth - tbRect.width - GAP));
+
+  const above = firstLine.top - tbRect.height - GAP;
+  const below = lastLine.bottom + GAP;
+  const roomBelow = below + tbRect.height <= window.innerHeight - BOTTOM_CLEARANCE;
+  const top = above >= bounds.top && above >= GAP ? above
+    : roomBelow ? below
+      : Math.max(GAP, above);
 
   toolbar.style.left = `${left}px`;
   toolbar.style.top = `${top}px`;

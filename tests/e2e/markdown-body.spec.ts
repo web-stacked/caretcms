@@ -929,3 +929,19 @@ test("a body draft taken back with Undo leaves nothing to publish", async ({ pag
   expect((await (await page.request.get("/api/cms/draft")).json()).count).toBe(0);
   expect(readFileSync(POST, "utf8")).toBe(ORIGINAL);
 });
+
+test("the formatting bar starts at the selection and stays off the heading above", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/");
+  const intro = page.locator("[data-caret-rich]").first();
+  await expect(intro).toHaveAttribute("contenteditable", "true");
+  await intro.click({ position: { x: 5, y: 10 } });
+  await page.keyboard.down("Shift");
+  for (let i = 0; i < 8; i++) await page.keyboard.press("ArrowRight");
+  await page.keyboard.up("Shift");
+  const bar = page.locator(".cms-rich-toolbar");
+  await expect(bar).toBeVisible();
+  const [barBox, introBox, headingBox] = await Promise.all([bar.boundingBox(), intro.boundingBox(), page.locator("main h1").boundingBox()]);
+  expect(barBox!.x).toBeGreaterThanOrEqual(introBox!.x);
+  expect(barBox!.y).toBeGreaterThanOrEqual(headingBox!.y + headingBox!.height);
+});
