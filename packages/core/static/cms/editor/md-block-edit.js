@@ -1,4 +1,5 @@
 import { markdownBlockHtml, mountParagraphGroups, paragraphHtml, pasteParagraphText } from './md-paragraphs.js';
+import { describeEditableText } from './a11y.js';
 /**
  * Inline editing for markdown body blocks (`data-caret-md`).
  *
@@ -239,6 +240,7 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
 
     el.setAttribute('contenteditable', 'true');
     el.classList.add('cms-editable', 'cms-md-block');
+    describeEditableText(el);
 
     // A heading, list item or quote can't gain new blocks on the page, so
     // Enter finishes the edit (leaving the block saves it), as in a one-line

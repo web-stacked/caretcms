@@ -1,4 +1,5 @@
 import { createTextLinkInteractions } from './text-link-interactions.js';
+import { describeEditableText } from './a11y.js';
 import { resolveBinding } from './helpers.js';
 import { ALLOWED_TAGS, sanitizeHtml } from './sanitize.js';
 import { SESSION_RESTORED_EVENT } from './session-recovery.js';
@@ -160,6 +161,7 @@ export function mountTextEditors({
       isRich || !PLAINTEXT_ONLY_SUPPORTED ? 'true' : 'plaintext-only',
     );
     el.classList.add('cms-editable');
+    describeEditableText(el);
     if (isRich) el.classList.add('cms-rich');
     if (isLinkable) el.classList.add('cms-linkable');
 

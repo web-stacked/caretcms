@@ -935,3 +935,22 @@ test.describe("inline editor — click to edit", () => {
     expect(anonHtml).not.toContain("This should be discarded");
   });
 });
+
+test("editable headings and links keep their names, and say how editing works", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/");
+  const headline = page.locator(HEADLINE);
+  await expect(headline).toHaveClass(/cms-editable/);
+  await expect(page.getByRole("heading", { level: 1, name: TEMPLATE_HEADLINE })).toBeVisible();
+  await expect(headline).toHaveAccessibleDescription(/Editable\. Changes save when you leave it/);
+  await headline.click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" now");
+  await expect(page.getByRole("heading", { level: 1, name: `${TEMPLATE_HEADLINE} now` })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await expect(page.getByRole("button", { name: /^Replace image: / }).first()).toBeVisible();
+
+  await page.goto("/links");
+  await expect(page.getByRole("link", { name: "Home" })).toBeVisible();
+});

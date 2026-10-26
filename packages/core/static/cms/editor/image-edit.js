@@ -3,6 +3,7 @@ import { uploadHeaders } from './security.js';
 import { resolveBinding } from './helpers.js';
 import { whenServed } from './image-utils.js';
 import { createAltPrompt } from './alt-text.js';
+import { describeEditableImage } from './a11y.js';
 
 /** @typedef {{ collection: string, id: string, field: string }} ResolvedCaretBinding */
 /** @typedef {{ collection: string | null, id: string | null, field: string }} ParsedCaretBinding */
@@ -94,6 +95,7 @@ export function mountImageEditors({
     if (img.dataset.caretImgMounted === 'true' || img.hasAttribute('data-caret-locked')) return;
     img.dataset.caretImgMounted = 'true';
     if (!img.closest('a, button') && !img.hasAttribute('tabindex')) img.tabIndex = 0;
+    describeEditableImage(img);
   });
 
   if (document.querySelector('.cms-img-layer')) return;
