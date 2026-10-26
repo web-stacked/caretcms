@@ -289,6 +289,12 @@ test("formatted fields keep supported markup while HTML editing stays secondary"
 });
 
 test("embedded Studio Escape closes local overlays before the Studio drawer", async ({ page }) => {
+  // Arrange needs at least two entries.
+  const second = await page.request.post("/api/cms/mutate", {
+    headers: { "x-caret-request": "1" },
+    data: { type: "put_entry", collection: "studio-fixture", id: "second-entry", data: { title: "Second entry", summary: "", website: "", published: false, details: [], images: [] } },
+  });
+  expect(second.ok(), await second.text()).toBe(true);
   await page.goto("/");
   await page.getByRole("button", { name: "Studio", exact: true }).click();
 
@@ -349,8 +355,11 @@ test("embedded Studio Escape closes local overlays before the Studio drawer", as
   const reorderRegion = studio.getByRole("region", { name: "Arrange entries" });
   const reorderCancel = studio.locator("#btn-reorder-cancel");
   await expect(reorderRegion).toBeVisible();
-  await expect(reorderCancel).toBeFocused();
-  await reorderCancel.press("Escape");
+  // Focus starts on the first move control; Escape leaves Arrange from there.
+  const firstMove = studio.locator(".reorder-move:not([disabled])").first();
+  await expect(firstMove).toBeFocused();
+  await expect(reorderCancel).toBeVisible();
+  await firstMove.press("Escape");
 
   await expect(reorderRegion).toBeHidden();
   await expect(reorderButton).toBeFocused();
@@ -481,7 +490,7 @@ test("collection navigation and title-first creation fit a narrow viewport", asy
   await page.keyboard.press("Escape");
   await expect(menu).toHaveAttribute("aria-expanded", "false");
   await expect(menu).toBeFocused();
-  for (const control of await page.locator(".collection-actions > input, .collection-actions > button").all()) {
+  for (const control of await page.locator(".collection-actions > input:visible, .collection-actions > button:visible").all()) {
     const bounds = await control.boundingBox();
     expect(bounds).not.toBeNull();
     expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(390);
@@ -930,4 +939,29 @@ test("the sign-in page focuses the password field", async ({ browser }) => {
   await visitor.goto("/admin");
   await expect(visitor.locator("#password")).toBeFocused();
   await visitor.close();
+});
+
+test("a search counts matches, and an unsaved arrangement asks before leaving", async ({ page }) => {
+  for (const [id, title] of [["second-entry", "Second entry"], ["third-entry", "Third entry"]] as const) {
+    const response = await page.request.post("/api/cms/mutate", {
+      headers: { "x-caret-request": "1" },
+      data: { type: "put_entry", collection: "studio-fixture", id, data: { title, summary: "", website: "", published: false, details: [], images: [] } },
+    });
+    expect(response.ok(), await response.text()).toBe(true);
+  }
+  await page.goto("/admin/cms/studio-fixture");
+  await page.getByRole("searchbox").fill("zeppelin");
+  await expect(page.locator("#entry-count")).toHaveText("No matches");
+  await page.getByRole("searchbox").fill("Second");
+  await expect(page.locator("#entry-count")).toHaveText("1 match");
+  await page.getByRole("searchbox").fill("");
+
+  await page.locator("#btn-reorder").click();
+  await page.locator(".reorder-item").nth(1).locator('[data-move="-1"]').click();
+  const prompted = page.waitForEvent("dialog");
+  void page.getByRole("navigation", { name: "Collections" }).getByRole("link", { name: "Overview" }).click();
+  const dialog = await prompted;
+  expect(dialog.type()).toBe("beforeunload");
+  await dialog.dismiss();
+  await expect(page.locator("#reorder-container")).toBeVisible();
 });

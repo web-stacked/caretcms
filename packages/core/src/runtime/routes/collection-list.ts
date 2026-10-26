@@ -454,7 +454,10 @@ export async function GET(context: APIContext): Promise<Response> {
           loading.hidden = true;
           var paging = json.pagination;
           currentPage = paging.page;
-          countEl.textContent = paging.total + ' ' + (paging.total === 1 ? MSG['count.entry'] : MSG['count.entries']);
+          // A search counts matches, not the collection's entries.
+          countEl.textContent = query
+            ? (paging.total === 0 ? MSG['collection.noMatches'] : MSG[paging.total === 1 ? 'collection.matchOne' : 'collection.matches'].replace('{count}', String(paging.total)))
+            : paging.total + ' ' + (paging.total === 1 ? MSG['count.entry'] : MSG['count.entries']);
           previousPage.disabled = !paging.hasPrev;
           nextPage.disabled = !paging.hasNext;
           pageRange.textContent = MSG['collection.range'].replace('{start}', paging.total ? (paging.page - 1) * paging.pageSize + 1 : 0).replace('{end}', Math.min(paging.page * paging.pageSize, paging.total)).replace('{total}', paging.total);
@@ -463,7 +466,8 @@ export async function GET(context: APIContext): Promise<Response> {
           empty.dataset.mode = query ? 'search' : 'collection';
           if (emptyCreateBtn) emptyCreateBtn.hidden = Boolean(query);
           if (clearSearchBtn) clearSearchBtn.hidden = !query;
-          var limited = Boolean(query) || paging.totalPages > 1 || allEntries.some(function (entry) { return entry.readError; });
+          // Arranging needs every entry on one page, and at least two of them.
+          var limited = Boolean(query) || paging.totalPages > 1 || paging.total < 2 || allEntries.some(function (entry) { return entry.readError; });
           if (reorderBtn) {
             reorderBtn.hidden = limited;
             reorderBtn.disabled = false;
@@ -724,6 +728,16 @@ export async function GET(context: APIContext): Promise<Response> {
     var reorderMode = false;
     var ordered = [];
     var reorderTrigger = null;
+    /** Whether Arrange has a new order that isn't saved yet. */
+    function orderChanged() {
+      return reorderMode && ordered.some(function (entry, index) { return !allEntries[index] || allEntries[index].id !== entry.id; });
+    }
+    // Leaving the page (a sidebar link, Back) with a new order unsaved asks first.
+    window.addEventListener('beforeunload', function (event) {
+      if (!orderChanged()) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
     function enterReorder() {
       if (reorderBtn.disabled) return;
       reorderTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : reorderBtn;

@@ -49,9 +49,15 @@ for (const colorScheme of ["light", "dark"] as const) test(`login, collection li
     },
   });
   expect(seed.ok()).toBe(true);
+  // Arrange needs at least two entries.
+  const second = await page.request.post("/api/cms/mutate", {
+    headers: { "x-caret-request": "1" },
+    data: { type: "put_entry", collection: "studio-fixture", id: "second-entry", data: { title: "Second entry", summary: "", website: "", published: false, details: [], images: [] } },
+  });
+  expect(second.ok(), await second.text()).toBe(true);
 
   await page.goto("/admin/cms/studio-fixture");
-  await expect(page.locator(".entry-card")).toBeVisible();
+  await expect(page.locator(".entry-card")).toHaveCount(2);
   await expectNoAxeViolations(page);
 
   await page.locator("#btn-new").click();
@@ -62,9 +68,10 @@ for (const colorScheme of ["light", "dark"] as const) test(`login, collection li
 
   await page.locator("#btn-reorder").click();
   await expect(page.getByRole("region", { name: "Arrange entries" })).toBeVisible();
-  await expect(page.locator("#btn-reorder-cancel")).toBeFocused();
+  const firstMove = page.locator(".reorder-move:not([disabled])").first();
+  await expect(firstMove).toBeFocused();
   await expectNoAxeViolations(page);
-  await page.locator("#btn-reorder-cancel").press("Escape");
+  await firstMove.press("Escape");
 
   await page.goto("/admin/cms/studio-fixture/axe-entry");
   await expect(page.locator("#editor")).toBeVisible();
