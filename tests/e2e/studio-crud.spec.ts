@@ -388,9 +388,16 @@ test("Studio applies form edits on top of a conflicting save without reverting i
   );
   await page.locator("#btn-save").click();
   expect((await conflict).status()).toBe(409);
-  const conflictDialog = page.getByRole("dialog", { name: "Newer changes found" });
-  await expect(conflictDialog).toContainText("Title — you edited this too");
-  await expect(conflictDialog).toContainText("Website");
+  const conflictDialog = page.getByRole("dialog", { name: "Someone else saved this entry" });
+  // Both versions of a field both people changed, side by side.
+  const titleRow = conflictDialog.locator("li", { hasText: "Title" });
+  await expect(titleRow).toContainText("Saved by someone else:External edit");
+  await expect(titleRow).toContainText("Yours:Local form edit");
+  // A field only they changed shows their value and that it's kept.
+  const websiteRow = conflictDialog.locator("li", { hasText: "Website" });
+  await expect(websiteRow).toContainText("https://elsewhere.example");
+  await expect(websiteRow).toContainText("kept either way");
+  await expect(page.locator("#status-msg")).toHaveText("Someone else saved this entry. Choose which version to keep.");
   await conflictDialog.getByRole("button", { name: "Keep my edits" }).click();
   await expect(page.locator("#status-msg")).toHaveText("Your edits are on the latest version — Save to apply them");
   await expect(page.locator('[name="title"]')).toHaveValue("Local form edit");
@@ -422,7 +429,7 @@ test("Studio applies form edits on top of a conflicting save without reverting i
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST");
   await page.locator("#btn-save").click();
   expect((await loadConflict).status()).toBe(409);
-  await page.getByRole("dialog", { name: "Newer changes found" }).getByRole("button", { name: "Load latest" }).click();
+  await page.getByRole("dialog", { name: "Someone else saved this entry" }).getByRole("button", { name: "Load latest" }).click();
   await expect(page.locator('[name="title"]')).toHaveValue("Latest remote edit");
   await expect(page.locator("#status-msg")).toHaveText("Loaded latest changes");
   const cleanup = await page.request.post("/api/cms/mutate", {

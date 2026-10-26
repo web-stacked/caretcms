@@ -548,14 +548,21 @@
 }
 .caret-history-row > .studio-btn-ghost { flex-shrink: 0; }
 .conflict-fields {
-  max-height: 12rem;
+  display: grid;
+  gap: 0.6rem;
+  max-height: 16rem;
   text-align: left;
   margin: -0.5rem 0 1.25rem;
-  padding-left: 1.25rem;
+  padding: 0;
+  list-style: none;
   overflow: auto;
   color: var(--studio-text);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
 }
+/* Each field: their saved version, then yours. */
+.conflict-version { display: block; margin-top: 0.2rem; overflow-wrap: anywhere; }
+.conflict-version-label { margin-right: 0.35rem; color: var(--studio-text-muted); font-weight: 600; }
+.conflict-version-note { color: var(--studio-text-dim); }
 .caret-history-row:last-child { border-bottom: none; }
 .caret-history-action {
   display: inline-block;

@@ -6,7 +6,7 @@ import { createStudioUploadClient } from './studio/upload-client.js';
 import { createStudioEntryLoader } from './studio/entry-loader.js';
 import { createStudioSync } from './studio/sync-client.js';
 import { rebaseEdits } from './studio/merge.js';
-import { historyChanges, historyFieldLabel, relativeTime } from './studio/history-view.js';
+import { historyChanges, historyFieldLabel, historyValueText, relativeTime } from './studio/history-view.js';
 import { presentPublishResult } from './editor/publish-result.js';
 import { whenServed } from './editor/image-utils.js';
 
@@ -465,15 +465,43 @@ import { whenServed } from './editor/image-utils.js';
     return historyFieldLabel(path, entrySchema);
   }
 
-  /** @param {string[]} theirChanges @param {string[]} overlapping */
-  function resolveConflict(theirChanges, overlapping) {
+  /**
+   * Show what the other person saved next to your version, field by field.
+   * @param {string[]} theirChanges @param {string[]} overlapping
+   * @param {unknown} theirData @param {unknown} myData
+   */
+  function resolveConflict(theirChanges, overlapping, theirData, myData) {
     var restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : saveBtn;
+    var empty = msg("history.empty", "Empty");
     conflictFieldsEl.innerHTML = "";
+    /** @param {HTMLElement} item @param {string} label @param {unknown} value */
+    function version(item, label, value) {
+      var line = document.createElement("span");
+      line.className = "conflict-version";
+      var name = document.createElement("span");
+      name.className = "conflict-version-label";
+      name.textContent = label;
+      line.appendChild(name);
+      line.appendChild(document.createTextNode(historyValueText(value, empty)));
+      item.appendChild(line);
+    }
     (theirChanges.length ? theirChanges : [""]).forEach(function (path) {
       var item = document.createElement("li");
-      item.textContent = path === ""
-        ? msg("entry.conflictRevision", "The entry revision changed")
-        : humanizePath(path) + (overlapping.indexOf(path) >= 0 ? " — " + msg("entry.conflictBoth", "you edited this too") : "");
+      if (path === "") {
+        item.textContent = msg("entry.conflictRevision", "The entry revision changed");
+      } else {
+        var field = document.createElement("strong");
+        field.textContent = humanizePath(path);
+        item.appendChild(field);
+        version(item, msg("entry.conflictTheirs", "Saved by someone else:"), getNestedValue(theirData, path));
+        if (overlapping.indexOf(path) >= 0) version(item, msg("entry.conflictYours", "Yours:"), getNestedValue(myData, path));
+        else {
+          var kept = document.createElement("span");
+          kept.className = "conflict-version conflict-version-note";
+          kept.textContent = msg("entry.conflictKept", "You didn't change this, so it's kept either way.");
+          item.appendChild(kept);
+        }
+      }
       conflictFieldsEl.appendChild(item);
     });
     conflictDialog.hidden = false;
@@ -587,8 +615,10 @@ import { whenServed } from './editor/image-utils.js';
           }
           entryRevision = latest.revision;
           entryBaseRevision = latest.baseRevision;
-          var rebase = rebaseEdits(JSON.parse(originalJson || "{}"), entryData || {}, fillDefaults(deepClone(latest.data), entrySchema));
-          var choice = await resolveConflict(rebase.theirChanges, rebase.overlapping);
+          var theirs = fillDefaults(deepClone(latest.data), entrySchema);
+          var rebase = rebaseEdits(JSON.parse(originalJson || "{}"), entryData || {}, theirs);
+          showStatus("dirty", msg("entry.conflictStatus", "Someone else saved this entry. Choose which version to keep."));
+          var choice = await resolveConflict(rebase.theirChanges, rebase.overlapping, theirs, entryData);
           if (choice === "latest") {
             entryData = fillDefaults(deepClone(latest.data), entrySchema);
             originalJson = JSON.stringify(entryData);
