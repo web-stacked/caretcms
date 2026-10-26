@@ -237,3 +237,12 @@ body.cms-panel-open.caret-push-content.no-transition {
   background: var(--cms-panel-bg, #0c0e12);
   color: var(--cms-panel-text-muted, rgba(255, 255, 255, 0.5));
 }
+
+/* The drawer is already full-screen on a phone: no Expand. Touch targets
+   in its header are 44px. */
+@media (max-width: 768px) {
+  .cms-panel-expand { display: none; }
+}
+@media (pointer: coarse) {
+  .cms-studio-panel-header button { min-height: 44px; min-width: 44px; }
+}

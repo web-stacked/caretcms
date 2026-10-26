@@ -162,6 +162,7 @@ function renderPalette(runtime: CaretRuntimeConfig): string {
           ${renderIcon("search")}
           <input id="studio-palette-input" type="text" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="studio-palette-results" aria-autocomplete="list" aria-label="${escapeHtml(m["nav.goToLabel"])}" placeholder="${escapeHtml(m["nav.searchPlaceholder"])}" />
           <kbd>Esc</kbd>
+          <button type="button" class="studio-palette-close" id="studio-palette-close" aria-label="${escapeHtml(m["common.close"])}">${escapeHtml(m["common.close"])}</button>
         </div>
         <ul class="studio-palette-results" id="studio-palette-results" role="listbox" aria-label="${escapeHtml(m["nav.results"])}"></ul>
       </div>
@@ -505,6 +506,8 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           if (hint && !/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)) hint.textContent = 'Ctrl K';
         }
         palette.addEventListener('click', function (event) { if (event.target === palette) closePalette(); });
+        var paletteClose = document.getElementById('studio-palette-close');
+        if (paletteClose) paletteClose.addEventListener('click', closePalette);
         input.addEventListener('input', function () { search(input.value.trim()); });
         input.addEventListener('keydown', function (event) {
           if (event.key === 'ArrowDown') { event.preventDefault(); if (results.length) { active = (active + 1) % results.length; render(); } }

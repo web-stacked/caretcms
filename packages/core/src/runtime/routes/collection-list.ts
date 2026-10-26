@@ -416,16 +416,22 @@ export async function GET(context: APIContext): Promise<Response> {
         var card = document.createElement('a');
         card.href = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entry.id);
         card.className = 'entry-card studio-card';
+        // Named by its title; subtitle and status are its description, so
+        // they aren't read as one run-on name.
+        var cardId = 'entry-card-' + i;
+        card.setAttribute('aria-labelledby', cardId + '-title');
+        card.setAttribute('aria-describedby', cardId + '-detail');
         card.innerHTML =
           (thumb ? '<div class="entry-thumb"><img src="' + htmlEsc(thumb) + '" alt="" loading="lazy" /></div>'
             : anyThumb || grid.dataset.view === 'list' ? '<div class="entry-thumb" aria-hidden="true">' + htmlEsc(initial) + '</div>' : '') +
           '<div class="entry-card-body">' +
             '<div class="entry-card-text">' +
-              '<h2 class="entry-card-title">' + htmlEsc(title) + '</h2>' +
+              '<h2 class="entry-card-title" id="entry-card-' + i + '-title">' + htmlEsc(title) + '</h2>' +
               (subtitle ? '<p class="entry-card-subtitle">' + htmlEsc(subtitle) + '</p>' : '') +
               (entry.readError ? '<p role="note" class="entry-card-subtitle">' + htmlEsc(MSG['collection.unreadable']) + '</p>' : '') +
             '</div>' +
             '<div class="entry-card-meta">' + invalid + draft + publication + '</div>' +
+            '<span class="studio-sr-only" id="entry-card-' + i + '-detail">' + htmlEsc([subtitle, entry.draft === true ? MSG['collection.draft'] : ''].filter(Boolean).join(', ')) + '</span>' +
           '</div>';
         grid.appendChild(card);
       }

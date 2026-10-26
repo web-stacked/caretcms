@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { expect, test, type Locator } from "@playwright/test";
+import { devices, expect, test, type Locator } from "@playwright/test";
 import { loginAsEditor, resetCmsStorage } from "./helpers";
 
 const fixtureImage = resolve(process.cwd(), "tests/e2e/fixtures/sample.png");
@@ -964,4 +964,45 @@ test("a search counts matches, and an unsaved arrangement asks before leaving", 
   expect(dialog.type()).toBe("beforeunload");
   await dialog.dismiss();
   await expect(page.locator("#reorder-container")).toBeVisible();
+});
+
+test("on a phone: no zoom on fields, 44px targets, and every overlay can be closed", async ({ browser }) => {
+  const phone = await browser.newContext({ ...devices["iPhone 13"], baseURL: test.info().project.use.baseURL });
+  try {
+    const page = await phone.newPage();
+    await loginAsEditor(page);
+    await page.goto("/admin/cms/studio-fixture/seed-entry");
+    await expect(page.locator("#editor")).toBeVisible();
+    // 16px fields: iOS zooms in on anything smaller.
+    for (const field of await page.locator("#fields input:visible, #fields textarea:visible").all()) {
+      expect(await field.evaluate((el) => getComputedStyle(el).fontSize)).toBe("16px");
+    }
+    // More actions closes on Esc and returns focus to its button.
+    await page.locator("#entry-more > summary").click();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("#entry-more")).not.toHaveAttribute("open", "");
+    await expect(page.locator("#entry-more > summary")).toBeFocused();
+
+    // The search palette has a Close button on touch.
+    await page.locator("#studio-search-btn").click();
+    await page.getByRole("button", { name: "Close" }).last().click();
+    await expect(page.locator("#studio-palette")).toBeHidden();
+
+    // Cards are named by their titles.
+    await page.goto("/admin/cms/studio-fixture");
+    await expect(page.locator(".entry-card").first()).toHaveAccessibleName("Seed entry");
+
+    // The editor toolbar and the drawer on the site.
+    await page.goto("/");
+    await expect(page.locator(".cms-toolbar")).toBeVisible();
+    for (const control of await page.locator(".cms-toolbar button:visible, .cms-toolbar summary:visible").all()) {
+      const box = (await control.boundingBox())!;
+      expect(Math.min(box.width, box.height), await control.textContent() ?? "").toBeGreaterThanOrEqual(44);
+    }
+    await page.locator(".cms-studio-btn").click();
+    await expect(page.locator(".cms-panel-close")).toBeVisible();
+    await expect(page.locator(".cms-panel-expand")).toBeHidden();
+  } finally {
+    await phone.close();
+  }
 });

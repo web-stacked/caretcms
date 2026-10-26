@@ -946,3 +946,47 @@ button.studio-nav-link {
   color: var(--studio-text-muted);
   font-size: 0.85rem;
 }
+
+/* Phones and the narrow drawer: 16px fields, or iOS zooms in on every focus. */
+@media (max-width: 860px) {
+  .studio-app input:not([type="checkbox"]):not([type="radio"]),
+  .studio-app textarea,
+  .studio-app select,
+  .studio-app [contenteditable="true"],
+  .modal-card input,
+  .studio-palette-field input {
+    font-size: 16px;
+  }
+}
+
+/* Touch: every control at least 44px to hit. */
+@media (pointer: coarse) {
+  .studio-btn-ghost,
+  .studio-btn-primary,
+  .studio-btn-danger,
+  .studio-icon-btn,
+  .studio-palette-option,
+  .studio-palette-close {
+    min-height: 44px;
+  }
+  .studio-icon-btn,
+  .studio-tag button {
+    min-width: 44px;
+  }
+  .studio-tag button { min-height: 32px; }
+}
+
+/* The palette's Close is for touch; keyboards have Esc. */
+.studio-palette-close {
+  display: none;
+  border: 0;
+  background: transparent;
+  color: var(--studio-accent);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+@media (pointer: coarse) {
+  .studio-palette-field kbd { display: none; }
+  .studio-palette-close { display: inline-flex; align-items: center; }
+}

@@ -1134,6 +1134,7 @@ import { whenServed } from './editor/image-utils.js';
           var btn = document.createElement("button");
           btn.type = "button";
           btn.title = msg("field.remove", "Remove");
+          btn.setAttribute("aria-label", msg("field.remove", "Remove") + " " + item);
           btn.textContent = "×";
           btn.addEventListener("click", function () {
             var next = current.slice();
@@ -1632,6 +1633,23 @@ import { whenServed } from './editor/image-utils.js';
       }).catch(function () {});
   }
   historyBtn.addEventListener("click", loadHistory);
+  // More actions closes on Esc (focus back on its button) and when focus leaves it.
+  var moreMenuEl = document.getElementById("entry-more");
+  if (moreMenuEl instanceof HTMLDetailsElement) {
+    var moreMenu = moreMenuEl;
+    moreMenu.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape" || !moreMenu.open) return;
+      event.preventDefault();
+      event.stopPropagation();
+      moreMenu.open = false;
+      var summary = moreMenu.querySelector("summary");
+      if (summary instanceof HTMLElement) summary.focus();
+    });
+    moreMenu.addEventListener("focusout", function (event) {
+      var next = event.relatedTarget;
+      if (moreMenu.open && next instanceof Node && !moreMenu.contains(next)) moreMenu.open = false;
+    });
+  }
   // The ⌘K palette offers this entry's history.
   var studioWindow = /** @type {Window & { caretStudioActions?: Array<{ label: string, keywords: string, run: () => void }> }} */ (window);
   (studioWindow.caretStudioActions = studioWindow.caretStudioActions || []).push({

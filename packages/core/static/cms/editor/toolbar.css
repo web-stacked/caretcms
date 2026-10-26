@@ -619,3 +619,15 @@ body:has(astro-dev-toolbar) .cms-toolbar {
   font-size: 0.9rem;
 }
 .cms-alt-input:focus-visible { outline: 2px solid var(--cms-accent, #3b82f6); outline-offset: 1px; }
+
+/* Touch: 44px targets, and Sign out set apart from the controls used often. */
+@media (pointer: coarse) {
+  .cms-toolbar-inner { height: auto; min-height: 52px; }
+  .cms-toolbar button,
+  .cms-toolbar summary {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .cms-tools-popover button { min-height: 44px; }
+  .cms-toolbar .cms-exit-btn { margin-left: 12px; }
+}
