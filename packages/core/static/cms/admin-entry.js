@@ -8,6 +8,7 @@ import { createStudioSync } from './studio/sync-client.js';
 import { rebaseEdits } from './studio/merge.js';
 import { historyChanges, historyFieldLabel, relativeTime } from './studio/history-view.js';
 import { presentPublishResult } from './editor/publish-result.js';
+import { whenServed } from './editor/image-utils.js';
 
 /** @typedef {import('../../src/schema-utils.js').JsonSchemaNode} Schema */
 /** @typedef {{ path: string, message: string }} ValidationIssue */
@@ -912,7 +913,9 @@ import { presentPublishResult } from './editor/publish-result.js';
         var imgs = Array.isArray(existingImages)
           ? existingImages.filter(function (value) { return typeof value === "string"; })
           : [];
-        Promise.allSettled(valid.map(function (f) { return uploadClient.upload(f); })).then(function (results) {
+        Promise.allSettled(valid.map(function (f) {
+          return uploadClient.upload(f).then(function (url) { return whenServed(url).then(function () { return url; }); });
+        })).then(function (results) {
           /** @type {string[]} */
           var refused = [];
           results.forEach(function (r, index) {
@@ -1036,6 +1039,9 @@ import { presentPublishResult } from './editor/publish-result.js';
           else uploadAction.textContent = msg("field.uploading", "Uploading…");
         }
         Promise.all([uploadClient.upload(selectedFile), uploadClient.readDimensions(selectedFile)]).then(function (results) {
+          // Show the new image only once it's actually served.
+          return whenServed(results[0]).then(function () { return results; });
+        }).then(function (results) {
           updateField(path, results[0]);
           populateImageObject(path, selectedFile, results[1]);
           rerender();

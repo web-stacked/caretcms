@@ -1,6 +1,7 @@
 import { buildCmsUrl } from './config.js';
 import { uploadHeaders } from './security.js';
 import { resolveBinding } from './helpers.js';
+import { whenServed } from './image-utils.js';
 
 /** @typedef {{ collection: string, id: string, field: string }} ResolvedCaretBinding */
 /** @typedef {{ collection: string | null, id: string | null, field: string }} ParsedCaretBinding */
@@ -267,6 +268,8 @@ export function mountImageEditors({
       }
       const url = readUploadUrl(await uploadRes.json());
       if (!url) throw new Error('');
+      // Keep the local preview until the new file is actually served.
+      await whenServed(url);
 
       // Point at the durable uploaded URL now, so the shown image survives the
       // optimistic blob being revoked in `finally` (and any conflict prompt).

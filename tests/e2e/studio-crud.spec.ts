@@ -154,6 +154,10 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   await chooser.setFiles(fixtureImage);
 
   await expect(page.locator(".caret-single-image-preview img")).toBeVisible();
+  // The new upload shows as an image, not a broken one, even while the dev
+  // server is still discovering the file.
+  await expect.poll(() => page.locator(".caret-single-image-preview img")
+    .evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
   await expect(page.locator('[name="images.0.src"]')).not.toHaveValue("");
   await expect(page.locator('[name="images.0.title"]')).toHaveValue("Sample");
   await expect(page.locator('[name="images.0.alt"]')).toHaveValue("Sample");
