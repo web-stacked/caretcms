@@ -555,7 +555,8 @@ import { whenServed } from './editor/image-utils.js';
       next.id = generatedId(parentPath, Number(parts[parts.length - 2]) || 0);
     }
     if (Object.prototype.hasOwnProperty.call(next, "title") && !next.title) next.title = title;
-    if (Object.prototype.hasOwnProperty.call(next, "alt") && !next.alt) next.alt = title;
+    // A file name isn't a description: alt text is left for the editor, who
+    // is taken to its field below.
     if (dimensions && Object.prototype.hasOwnProperty.call(next, "width")) next.width = dimensions.width;
     if (dimensions && Object.prototype.hasOwnProperty.call(next, "height")) next.height = dimensions.height;
     updateField(parentPath, next);
@@ -565,6 +566,12 @@ import { whenServed } from './editor/image-utils.js';
       var control = document.getElementById(fieldIdFromPath(parentPath + "." + key));
       if (control && "value" in control) control.value = String(next[key]);
     });
+    var altControl = Object.prototype.hasOwnProperty.call(next, "alt") && !next.alt
+      ? document.getElementById(fieldIdFromPath(parentPath + ".alt")) : null;
+    if (altControl instanceof HTMLElement) {
+      var focusAlt = altControl;
+      requestAnimationFrame(function () { focusAlt.focus(); });
+    }
   }
 
   /* ─── Save / Delete ─────────────────────────────────────────────── */

@@ -134,3 +134,9 @@ img[data-caret][data-caret-img-mounted]:focus-visible {
   0% { outline: 2px solid var(--cms-green); outline-offset: 2px; }
   100% { outline: 2px solid transparent; outline-offset: 2px; }
 }
+
+/* A file dragged over an editable image: dropping replaces it. */
+.cms-img-overlay.dropping {
+  outline: 3px dashed var(--cms-accent, #3b82f6);
+  outline-offset: -6px;
+}

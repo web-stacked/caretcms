@@ -2,6 +2,7 @@ import { buildCmsUrl } from './config.js';
 import { uploadHeaders } from './security.js';
 import { resolveBinding } from './helpers.js';
 import { whenServed } from './image-utils.js';
+import { createAltPrompt } from './alt-text.js';
 
 /** @typedef {{ collection: string, id: string, field: string }} ResolvedCaretBinding */
 /** @typedef {{ collection: string | null, id: string | null, field: string }} ParsedCaretBinding */
@@ -225,10 +226,11 @@ export function mountImageEditors({
     });
   };
 
-  input.addEventListener('change', async () => {
-    const file = input.files?.[0];
-    const img = active;
-    if (!file || !img) return;
+  const altPrompt = createAltPrompt({ saveField, showToast });
+
+  /** Replace an image with a chosen or dropped file. @param {File} file @param {HTMLImageElement} img */
+  async function replaceImage(file, img) {
+    if (uploading) return;
 
     const marker = img.getAttribute('data-caret') || '';
     const resolved = resolveBinding(img, parseCaretAttr(marker));
@@ -279,6 +281,7 @@ export function mountImageEditors({
       if (result.ok) {
         syncBoundImages(marker, url);
         showToast('Image updated', 'success');
+        await altPrompt.ask(img, resolved);
       } else if (result.reason === 'conflict') {
         runImageConflict(img, resolved, marker, url, result.latestValue);
       } else if (result.reason !== 'unauthorized') {
@@ -299,7 +302,38 @@ export function mountImageEditors({
       overlay.classList.remove('uploading');
       if (!img.matches(':hover') && document.activeElement !== img) hide();
     }
+  }
 
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
     input.value = '';
+    if (file && active) void replaceImage(file, active);
+  });
+
+  // Dropping an image file onto an editable image replaces it. While hovered,
+  // the image is under the Replace control, so drops there count too.
+  /** @param {DragEvent} event */
+  const dropTarget = (event) => {
+    if (!document.body.classList.contains('cms-edit-mode') || document.body.classList.contains('cms-preview-mode')) return null;
+    if (!event.dataTransfer || ![...event.dataTransfer.types].includes('Files')) return null;
+    if (event.target === overlay || overlay.contains(/** @type {Node} */ (event.target))) return active;
+    return editableImage(event.target);
+  };
+  document.addEventListener('dragover', (event) => {
+    const img = dropTarget(event);
+    if (!img) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    if (img !== active) show(img);
+    overlay.classList.add('dropping');
+  });
+  document.addEventListener('dragleave', () => overlay.classList.remove('dropping'));
+  document.addEventListener('drop', (event) => {
+    overlay.classList.remove('dropping');
+    const img = dropTarget(event);
+    if (!img) return;
+    event.preventDefault();
+    const file = [...(event.dataTransfer?.files ?? [])].find((candidate) => candidate.type.startsWith('image/'));
+    if (file) void replaceImage(file, img);
   });
 }

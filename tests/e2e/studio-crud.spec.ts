@@ -160,7 +160,9 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
     .evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
   await expect(page.locator('[name="images.0.src"]')).not.toHaveValue("");
   await expect(page.locator('[name="images.0.title"]')).toHaveValue("Sample");
-  await expect(page.locator('[name="images.0.alt"]')).toHaveValue("Sample");
+  // Alt text is a description, not the file name: left empty and focused.
+  await expect(page.locator('[name="images.0.alt"]')).toHaveValue("");
+  await expect(page.locator('[name="images.0.alt"]')).toBeFocused();
   await expect(page.locator('input[type="file"]')).toHaveAttribute("aria-label", "Upload or replace image");
   await expect(page.getByRole("button", { name: "Replace image" })).toHaveCount(1);
   await expect(page.getByLabel("Image URL")).toBeHidden();

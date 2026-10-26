@@ -945,3 +945,29 @@ test("the formatting bar starts at the selection and stays off the heading above
   expect(barBox!.x).toBeGreaterThanOrEqual(introBox!.x);
   expect(barBox!.y).toBeGreaterThanOrEqual(headingBox!.y + headingBox!.height);
 });
+
+test("dropping an image onto the page replaces it and asks for its description", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/");
+  const cover = page.locator('img[data-caret="cover"]');
+  await expect(cover).toHaveAttribute("data-caret-img-mounted", "true");
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+  const transfer = await page.evaluateHandle((bytes) => {
+    const data = new DataTransfer();
+    data.items.add(new File([new Uint8Array(bytes)], "desk.png", { type: "image/png" }));
+    return data;
+  }, [...png]);
+  await cover.dispatchEvent("dragover", { dataTransfer: transfer });
+  const saved = page.waitForResponse(isMutatePost);
+  await cover.dispatchEvent("drop", { dataTransfer: transfer });
+  expect((await saved).ok()).toBe(true);
+
+  const dialog = page.getByRole("dialog", { name: "Describe this image" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("textbox").fill("Two desks by a window");
+  const altSaved = page.waitForResponse(isMutatePost);
+  await dialog.getByRole("button", { name: "Save description" }).click();
+  expect((await altSaved).request().postDataJSON()).toMatchObject({ field: "cover_alt", value: "Two desks by a window" });
+  await expect(cover).toHaveAttribute("alt", "Two desks by a window");
+  await expect(page.locator('[data-caret="cover_alt"]')).toHaveText("Two desks by a window");
+});
