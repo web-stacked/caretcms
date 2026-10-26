@@ -971,3 +971,17 @@ test("dropping an image onto the page replaces it and asks for its description",
   await expect(cover).toHaveAttribute("alt", "Two desks by a window");
   await expect(page.locator('[data-caret="cover_alt"]')).toHaveText("Two desks by a window");
 });
+
+test("Enter in a heading or list item finishes the edit without an error", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/start-from-the-words/");
+  const heading = page.locator("h2[data-caret-md]").first();
+  await expect(heading).toHaveAttribute("contenteditable", "true");
+  const before = await heading.textContent();
+  await heading.click();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await expect(heading).not.toBeFocused();
+  await expect(heading).toHaveText(before!);
+  await expect(page.locator(".cms-toast-error")).toHaveCount(0);
+});

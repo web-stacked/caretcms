@@ -240,18 +240,14 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
     el.setAttribute('contenteditable', 'true');
     el.classList.add('cms-editable', 'cms-md-block');
 
+    // A heading, list item or quote can't gain new blocks on the page, so
+    // Enter finishes the edit (leaving the block saves it), as in a one-line
+    // field. A top-level paragraph still takes Shift+Enter as a line break.
     el.addEventListener('keydown', (event) => {
       if (sources || event.key !== 'Enter') return;
-      if (event.shiftKey && ctx.block === 'paragraph' && !ctx.nested) {
-        return; // hard break in a top-level paragraph — allowed
-      }
+      if (event.shiftKey && ctx.block === 'paragraph' && !ctx.nested) return;
       event.preventDefault();
-      showToast(
-        event.shiftKey
-          ? 'Line breaks are not supported in this block'
-          : 'Paragraph changes are not supported in this block',
-        'error',
-      );
+      if (!event.shiftKey) el.blur();
     });
 
     el.addEventListener('beforeinput', (rawEvent) => {
@@ -259,7 +255,6 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
       if (!sources && (event.inputType === 'insertParagraph' ||
           (event.inputType === 'insertLineBreak' && (ctx.block !== 'paragraph' || ctx.nested)))) {
         event.preventDefault();
-        showToast('Paragraph changes are not supported in this block', 'error');
       }
     });
 
