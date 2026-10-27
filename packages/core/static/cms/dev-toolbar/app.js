@@ -192,6 +192,7 @@ const PANEL_CSS = `
   button.btn.on{background:#6366f1;border-color:#6366f1;color:#fff;}
   .scroll{overflow-y:auto;flex:1;padding-right:2px;}
   .note{font-size:11px;color:#fbbf24;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:6px;padding:6px 8px;margin:8px 0;}
+  .note a{color:inherit;text-decoration:underline;}
   .problem{font-size:11px;color:#f87171;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:6px;padding:6px 8px;margin:8px 0;}
   .problem b{color:#fca5a5;}
   .group{margin:10px 0 0;}
@@ -246,7 +247,7 @@ export default defineToolbarApp({
       let html = `
         <div class="head">
           <span class="title">CaretCMS bindings</span>
-          <span class="count">${bindings.length} on page${orphans.length ? ` · ${orphans.length} orphan${orphans.length > 1 ? "s" : ""}` : ""}</span>
+          <span class="count">${bindings.length} on page${stega ? " · more after sign-in" : ""}${orphans.length ? ` · ${orphans.length} orphan${orphans.length > 1 ? "s" : ""}` : ""}</span>
         </div>
         <div class="actions">
           <button type="button" class="btn ${highlightOn ? "on" : ""}" data-action="highlight" aria-pressed="${highlightOn}">${highlightOn ? "Hide" : "Highlight"} all</button>
@@ -255,7 +256,8 @@ export default defineToolbarApp({
         <div class="scroll">`;
 
       if (stega) {
-        html += `<div class="note">This page has stega-encoded bindings (live-loader content). They become visible only when the editor is loaded — sign in to see them here.</div>`;
+        const signIn = `${mountPath}?redirect=${encodeURIComponent(location.pathname + location.search)}`;
+        html += `<div class="note">Content from live collections becomes bindings once the editor loads. <a href="${esc(signIn)}">Sign in</a> to count and list them here.</div>`;
       }
       if (orphans.length) {
         html += `<div class="problem"><b>${orphans.length} orphan binding${orphans.length > 1 ? "s" : ""}</b> — field-only <code>data-caret</code> with no resolvable <code>data-caret-scope</code> ancestor: ${orphans.map((o) => `<code>${esc(o.attr)}</code>`).join(", ")}</div>`;
