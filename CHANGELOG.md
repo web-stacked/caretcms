@@ -8,6 +8,83 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+Makes editing simpler and safer: edits save on their own with Undo, drafts say
+what Publish will do, and the Studio speaks the editor's language. Some changes
+affect policies, dictionaries and stored layouts; see **Changed**.
+
+### Added
+
+- Autosave for on-page text, Markdown body blocks and Studio forms, with Undo
+  in the save message, Cmd/Ctrl+Z after a save, and History one click away.
+- A status pill in the toolbar (Live or Draft, saving, unsaved, failed) with a
+  panel holding the details and the last problem.
+- Publish, Discard and a list of unpublished changes in the Studio, for
+  static delivery and policy modes. Publish and Discard dialogs say what they
+  will do and report what they did.
+- History shows what each change did in the form's words, with the changed
+  words marked for text edits.
+- Search inside entries with matching snippets, and a command palette that
+  runs actions ("New team member").
+- The Studio drawer opens the entry for the current page, or an "On this
+  page" list.
+- Date and date-and-time pickers for `format: date` and `date-time` fields.
+- Drop an image file onto an editable image to replace it, then describe it
+  when the entry has an alt-text field.
+- Undo for deleting entries and page sections.
+- Keyboard access: a skip link to the toolbar, arrow keys within it, and a
+  skip link to Studio forms.
+- Astro `file()` data collections and single-object data files are editable in
+  place, keeping their formatting.
+- `astro dev` and `astro preview` load `CARET_*` settings from `.env` files.
+- `StorageAdapter.isDocumentCollection()` (optional) marks collections whose
+  entries are data, not Markdown documents.
+- A `create` authorization action (see **Changed**).
+
+### Changed
+
+- **Policies:** creating an entry in the Studio needs both `edit` and the new
+  `create` action. A policy that grants only the actions it knows denies
+  creation until it also returns `true` for `create`. A first save to content
+  a page already shows is still an `edit`.
+- **`@caretcms/zod`:** a `.describe()` that becomes a field's label is no
+  longer repeated as help text. Use `.meta({ title })` with `.describe()` to
+  show both.
+- **Page layouts:** stored layouts keep any well-formed section key, and the
+  section controls offer the kinds the page templates name
+  (`data-caret-section-label`). The built-in list of section keys and its old
+  key renames are gone.
+- **Draft mode** is decided by the server: static delivery and an active
+  policy make every edit a private draft; server delivery without a policy
+  saves live (in production builds, Markdown body edits still wait for
+  Publish). The `caret_preview` cookie is no longer read, so it can't turn on
+  private drafts for a server-delivered site.
+- **Studio dictionary:** `entry.saveNow` ("Save now") replaces
+  `entry.saveLive` and `entry.saveDraft`. The Save button appears only while
+  changes are waiting.
+- Pending Git history and the caretize hint moved from the editor toolbar to
+  the Astro developer toolbar.
+- Entries and fields use the names editors know: singleton labels, title
+  fields, and humanized ids instead of raw ids.
+- New entries are created by name, with the web address filled in and
+  editable on request.
+
+### Fixed
+
+- Inline edits are never lost to a failed or concurrent save. When someone
+  else saved the same entry, both versions are shown; Cancel keeps asking
+  instead of letting the next save overwrite theirs.
+- Required fields can't be saved empty, and a new entry isn't stored until
+  its required fields are filled.
+- Signing out asks first when it would lose drafts or unsaved text; password
+  sessions keep their drafts in the same browser.
+- A session that ends mid-edit can be resumed without leaving the page.
+- Upload refusals say why (too large, not an image). A new image shows only
+  once it is served.
+- Fields an editor may not change are read-only and say why, and Create is
+  only offered when the policy allows it.
+- Headings and links keep their accessible names while being edited; Studio
+  fields don't zoom on phones and touch targets are at least 44px.
+
 ## [0.6.0] - 2026-10-11
 
 Fixes 22 bugs found in a review of 0.5.0. Some fixes change stored data or API
