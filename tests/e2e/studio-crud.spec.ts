@@ -97,6 +97,7 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   await expect(page.locator(".editor-action-bar")).toHaveCSS("position", "sticky");
   await page.locator('[name="title"]').fill("First studio entry");
   await expect(page.locator("#status-msg")).toHaveText("Not created yet");
+  await expect(page.locator(".studio-breadcrumb-current").last()).toHaveText("First studio entry");
   await page.locator('[name="published"]').check();
   await expect(page.locator("#visibility-status")).toHaveText("Public");
 

@@ -227,6 +227,9 @@ import { whenServed } from './editor/image-utils.js';
   function updateDisplayedTitle() {
     var title = displayTitle(entryData);
     titleEl.textContent = title;
+    // The breadcrumb and tab title follow the name as it's typed.
+    var crumb = document.querySelector(".studio-breadcrumb .studio-breadcrumb-current:last-child");
+    if (crumb) crumb.textContent = title;
     document.title = document.title.replace(/^Edit .*?(?= — )/, "Edit " + title);
   }
 
