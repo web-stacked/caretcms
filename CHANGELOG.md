@@ -39,6 +39,12 @@ affect policies, dictionaries and stored layouts; see **Changed**.
 - `StorageAdapter.isDocumentCollection()` (optional) marks collections whose
   entries are data, not Markdown documents.
 - A `create` authorization action (see **Changed**).
+- The Studio lists text and images that templates bind with `data-caret`
+  before anything is saved, with the page's own content. Saving from the
+  Studio stores only what changed, so untouched text keeps following the
+  template.
+- `caretize init` offers to tag your content right after wiring CaretCMS, so
+  the first run is one command.
 
 ### Changed
 
@@ -67,6 +73,12 @@ affect policies, dictionaries and stored layouts; see **Changed**.
   fields, and humanized ids instead of raw ids.
 - New entries are created by name, with the web address filled in and
   editable on request.
+- **Dev password:** the temporary password is kept in `.caret/dev-password`
+  (stable across restarts, git-ignored) and shown by `astro dev logs`; Astro 7
+  runs `astro dev` in the background, so it no longer reached the terminal.
+- caretize prints `npx @caretcms/caretize` everywhere, names prose after its
+  heading or landmark (`what_we_bake_text`, `footer_text`), and inserts
+  attributes after the last attribute, keeping the tag's own spacing.
 
 ### Fixed
 
@@ -84,6 +96,10 @@ affect policies, dictionaries and stored layouts; see **Changed**.
   only offered when the policy allows it.
 - Headings and links keep their accessible names while being edited; Studio
   fields don't zoom on phones and touch targets are at least 44px.
+- The production sign-in page lists the missing settings (editor password,
+  session secret) instead of failing with a 500 after submit.
+- `caretize init` without a terminal says to pass `-y` instead of exiting
+  silently.
 
 ## [0.6.0] - 2026-10-11
 
