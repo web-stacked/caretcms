@@ -1,6 +1,6 @@
 import { defineConfig } from "astro/config";
 import cloudflare from "@astrojs/cloudflare";
-import caret, { defineStorageProvider, defineUploadProvider } from "@caretcms/core";
+import caret, { defineIdentityProvider, defineStorageProvider, defineUploadProvider } from "@caretcms/core";
 import { fileURLToPath } from "node:url";
 
 const released = process.env.CARET_GATE_STAGE === "released";
@@ -18,6 +18,7 @@ export default defineConfig({
   } } },
   integrations: [caret({
     delivery: "server",
+    identity: defineIdentityProvider({ entrypoint: source("./src/identity.ts"), exportName: "identity" }),
     storage: defineStorageProvider({ entrypoint: source("./src/providers.ts"), exportName: "storage",
       options: { instanceName: "primary", editorDrafts: released ? "separate" : "coordinated" } }),
     uploads: defineUploadProvider({ entrypoint: source("./src/providers.ts"), exportName: "uploads" }),

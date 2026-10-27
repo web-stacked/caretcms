@@ -14,10 +14,10 @@ The Worker name, class, bindings, instance identities, and persistence directory
 stay unchanged across the upgrade and subsequent restart.
 
 The runner verifies four frozen interrupted-publication plans, exact revisions
-and history after recovery, SSR/live-loader content, password login with Worker
-bindings, concurrent HTTP mutations, private previews, schema rejection,
-competing draft publishes, surviving private drafts, session continuity after
-restart, and native alarm expiry. Every application/test/asset request requires
+and history after recovery, SSR/live-loader content, editors named by a test
+identity with a write policy (so every edit is a private draft), concurrent
+draft writes, isolated private drafts, schema rejection, competing draft
+publishes, drafts surviving a restart, and native alarm expiry. Every application/test/asset request requires
 a random bearer secret. Test inspection endpoints are never added to production
 CaretCMS routes. Uploads are disabled; there is no R2 binding.
 

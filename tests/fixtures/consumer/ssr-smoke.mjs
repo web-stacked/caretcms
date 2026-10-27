@@ -68,7 +68,7 @@ try {
   });
   assert.equal(login.status, 200, await login.text());
   assert.match(login.headers.get("set-cookie"), /HttpOnly/i);
-  const headers = { cookie: `${login.headers.get("set-cookie").split(";")[0]}; caret_preview=1`,
+  const headers = { cookie: login.headers.get("set-cookie").split(";")[0],
     "content-type": "application/json", "x-caret-request": "1", origin: server.origin };
   const read = await request("/api/cms/entries?collection=pages&id=home", { headers });
   assert.equal(read.status, 200);
@@ -83,21 +83,14 @@ try {
   assert.equal(saved.status, 200, await saved.text());
   const stale = await save({ title: "Stale SSR title" });
   assert.equal(stale.status, 409, await stale.text());
-  // Private drafts must not leak into anonymous rendering or public live loads.
-  await publicPage("Consumer approved title");
-  const preview = await request("/", { headers });
-  assert.equal(preview.status, 200);
-  assert.match(preview.headers.get("cache-control"), /private.*no-store/);
-  assert.match(await preview.text(), /<h1\b[^>]*>SSR approved title/);
-  const published = await request("/api/cms/publish", { method: "POST", headers,
-    body: JSON.stringify({ collection: "pages", id: "home" }) });
-  assert.equal(published.status, 200);
-  const result = await published.json();
-  assert.equal(result.published.length, 1);
-  assert.deepEqual(result.conflicts, []);
-  assert.deepEqual(result.failed, []);
-  assert.equal(JSON.parse(await readFile("data/pages/home.json", "utf8")).title, "SSR approved title");
+  // Server delivery without a write policy saves live: visitors and the
+  // live loader see the edit at once, and the editor's page is never cached.
   await publicPage("SSR approved title");
+  const editorPage = await request("/", { headers });
+  assert.equal(editorPage.status, 200);
+  assert.match(editorPage.headers.get("cache-control"), /private.*no-store/);
+  assert.match(await editorPage.text(), /<h1\b[^>]*>SSR approved title/);
+  assert.equal(JSON.parse(await readFile("data/pages/home.json", "utf8")).title, "SSR approved title");
   for (const asset of ["editor.js", "editor.css", "studio/history-client.js"]) {
     const response = await request(`/__caret/${asset}`);
     assert.equal(response.status, 200, asset);
@@ -107,4 +100,4 @@ try {
   server = await start();
   await publicPage("SSR approved title");
 } finally { await server.stop(); }
-console.log("Packed consumer production SSR passed: live loader, private drafts, validation, stale saves, publish, shipped assets, and process restart without rebuilding");
+console.log("Packed consumer production SSR passed: live loader, live saves, validation, stale saves, shipped assets, and process restart without rebuilding");

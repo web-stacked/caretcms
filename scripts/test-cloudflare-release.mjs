@@ -13,7 +13,6 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const fixture = join(root, "tests/fixtures/cloudflare-release");
 const scratch = await mkdtemp(join(tmpdir(), "caret-release-ssr-"));
 const secret = randomBytes(32).toString("hex");
-const password = randomBytes(24).toString("hex");
 const listen = createServer();
 await new Promise(done => listen.listen(0, "127.0.0.1", done));
 const port = listen.address().port;
@@ -37,14 +36,14 @@ async function stop() {
   const timeout = setTimeout(() => worker.kill("SIGKILL"), 10_000);
   try { await exited; } finally { clearTimeout(timeout); }
 }
-async function request(path, body, cookie) {
+async function request(path, body, editor) {
   return fetch(`${origin}${path}`, { method: body === undefined ? "GET" : "POST",
     headers: { authorization: `Bearer ${secret}`, "content-type": "application/json", origin,
-      "x-caret-request": "1", ...(cookie ? { cookie } : {}) },
+      "x-caret-request": "1", ...(editor ? { "x-gate-editor": editor } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(15_000) });
 }
-async function json(path, body, cookie) {
-  const response = await request(path, body, cookie);
+async function json(path, body, editor) {
+  const response = await request(path, body, editor);
   const data = await response.json();
   assert.equal(response.status, 200, JSON.stringify(data));
   return data;
@@ -83,7 +82,7 @@ try {
   for (const [file, hash] of Object.entries(manifest.sha256)) {
     assert.equal(createHash("sha256").update(await readFile(join(frozen, file))).digest("hex"), hash, file);
   }
-  await writeFile(join(scratch, ".dev.vars"), `CARET_GATE_TOKEN=${secret}\nCARET_EDIT_PASSWORD=${password}\nCARET_SESSION_SECRET=${randomBytes(32).toString("hex")}\n`, { mode: 0o600 });
+  await writeFile(join(scratch, ".dev.vars"), `CARET_GATE_TOKEN=${secret}\nCARET_SESSION_SECRET=${randomBytes(32).toString("hex")}\n`, { mode: 0o600 });
   await command(join(root, "node_modules/.bin/astro"), ["build", "--root", fixture], { CARET_GATE_STAGE: "released" });
   await command(join(root, "node_modules/.bin/astro"), ["build", "--root", fixture], { CARET_GATE_STAGE: "current" });
   for (const stage of ["released", "current"]) {
@@ -113,27 +112,36 @@ try {
   assert.deepEqual(published.failed, []);
   assert.deepEqual(published.conflicts, []);
   assert.equal(published.published.length, 4);
-  const login = await request("/api/cms/auth/login", { password });
-  assert.equal(login.status, 200, await login.clone().text());
-  const cookie = login.headers.get("set-cookie").split(";")[0];
-  const change = title => ({ type: "put_entry", collection: "pages", id: "home", data: { title }, expectedRevision: 0 });
+  // Editors are named by the gate identity (src/identity.ts); with a policy
+  // active every write is that editor's private draft until published.
+  const cookie = "alice";
+  const change = title => ({ type: "put_entry", collection: "pages", id: "home", data: { title }, expectedRevision: 0, expectedBaseRevision: 0 });
   const raced = await Promise.all([request("/api/cms/mutate", change("Writer A"), cookie), request("/api/cms/mutate", change("Writer B"), cookie)]);
   assert.deepEqual(raced.map(response => response.status).sort(), [200, 409]);
-  const entry = (await json("/api/cms/entries?collection=pages&id=home", undefined, cookie)).entries[0];
-  assert.equal(entry.revision, 1);
+  const drafted = (await json("/api/cms/entries?collection=pages&id=home", undefined, cookie)).entries[0];
+  // With a policy active the write is the editor's draft until it is published.
+  assert.ok(!(await (await request("/")).text()).includes(drafted.data.title));
+  const first = await json("/api/cms/publish", { collection: "pages", id: "home" }, cookie);
+  assert.equal(first.published.length, 1);
+  // Published state is read from storage; an editor's view carries its draft
+  // store's own revision, based on the published one.
+  const live = () => storage("getEntry", ["pages", "home"], { instance: "primary" });
+  const liveRevision = () => storage("getRevision", ["pages", "home"], { instance: "primary" });
+  const entry = await live();
+  assert.equal(await liveRevision(), 1);
+  assert.equal(entry.data.title, drafted.data.title);
   const html = await (await request("/")).text();
   assert.ok(html.includes(entry.data.title));
-  log("Current Astro SSR and CMS login work; concurrent HTTP writes yield one success and one conflict.");
-  const secondLogin = await request("/api/cms/auth/login", { password });
-  assert.equal(secondLogin.status, 200);
-  const secondCookie = secondLogin.headers.get("set-cookie").split(";")[0];
-  const preview = [cookie, secondCookie].map(value => `${value}; caret_preview=1`);
+  log("Current Astro SSR and CMS editors work; concurrent draft writes yield one success and one conflict, published once.");
+  const preview = [cookie, "bob"];
   const titles = ["Alice private draft", "Bob private draft"];
-  assert.deepEqual(await json("/context.json", undefined, preview[0]), { previewCookie: "1", editor: true, overlayActive: true });
-  const invalid = await request("/api/cms/mutate", { ...change(42), expectedBaseRevision: 1 }, preview[0]);
+  assert.deepEqual(await json("/context.json", undefined, preview[0]), { editor: true, overlayActive: true });
+  const aliceView = (await json("/api/cms/entries?collection=pages&id=home", undefined, preview[0])).entries[0];
+  const invalid = await request("/api/cms/mutate", { ...change(42), expectedRevision: aliceView.revision, expectedBaseRevision: 1 }, preview[0]);
   assert.equal(invalid.status, 400, await invalid.text());
   for (let n = 0; n < 2; n++) {
-    await json("/api/cms/mutate", { ...change(titles[n]), expectedBaseRevision: 1 }, preview[n]);
+    const own = (await json("/api/cms/entries?collection=pages&id=home", undefined, preview[n])).entries[0];
+    await json("/api/cms/mutate", { ...change(titles[n]), expectedRevision: own.revision, expectedBaseRevision: 1 }, preview[n]);
     const response = await request("/", undefined, preview[n]);
     assert.match(response.headers.get("cache-control"), /no-store/);
     const privateHtml = await response.text();
@@ -147,8 +155,8 @@ try {
   assert.equal(publications.flatMap(result => result.conflicts).length, 1);
   assert.deepEqual(publications.flatMap(result => result.failed), []);
   const winner = publications.findIndex(result => result.published.length === 1);
-  const finalEntry = (await json("/api/cms/entries?collection=pages&id=home", undefined, cookie)).entries[0];
-  assert.equal(finalEntry.revision, 2);
+  const finalEntry = await live();
+  assert.equal(await liveRevision(), 2);
   assert.equal(finalEntry.data.title, titles[winner]);
   log("Private SSR previews stay isolated; schema rejection and simultaneous CMS publishes preserve the losing draft.");
   await start("current", "current-2");
@@ -159,10 +167,11 @@ try {
     assert.equal(await storage("getEntry", ["pages", id], { editor: "alice" }), null);
   }
   assert.deepEqual((await json("/__gate/publish", { provider: "durable", instance: "recovery", editor: "alice" })).published, []);
-  assert.deepEqual((await json("/api/cms/entries?collection=pages&id=home", undefined, cookie)).entries[0], finalEntry);
+  assert.deepEqual(await live(), finalEntry);
+  assert.equal(await liveRevision(), 2);
   assert.equal((await json("/api/cms/entries?collection=pages&id=home", undefined, preview[1 - winner])).entries[0].data.title, titles[1 - winner]);
   assert.equal((await storage("getHistory", ["pages", "home"], { instance: "primary" })).length, 2);
-  log("Restart preserves content, cookies, revisions, and exactly one history record per recovered publish.");
+  log("Restart preserves content, editors' drafts, revisions, and exactly one history record per recovered publish.");
   await storage("writeEntry", ["scratch", "one", { title: "Expires" }], { instance: "expiry", ttl: 2 });
   const inspect = () => json("/__gate/inspect", { provider: "durable", instance: "expiry" });
   const initial = await inspect();
