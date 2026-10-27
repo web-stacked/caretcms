@@ -4,6 +4,41 @@ import { sanitizeHtml } from '../editor/sanitize.js';
 /** @typedef {import('./field-model.js').Schema} Schema */
 /** @typedef {Record<string, unknown>} Entry */
 
+/** @param {number} n */
+function pad2(n) { return String(n).padStart(2, "0"); }
+
+/**
+ * What a date or date-time picker shows for a stored value. Dates are
+ * calendar days ("2026-03-11"), never shifted by time zone. A date-time with a
+ * zone ("…Z", "+02:00") shows in the editor's local time; one without shows as
+ * written.
+ * @param {"date" | "date-time"} format @param {string} stored
+ */
+export function dateInputValue(format, stored) {
+  var day = /^\d{4}-\d{2}-\d{2}/.exec(stored);
+  if (!day) return "";
+  if (format === "date") return day[0];
+  if (!/(Z|[+-]\d{2}:?\d{2})$/i.test(stored)) return stored.slice(0, 16);
+  var when = new Date(stored);
+  if (Number.isNaN(when.getTime())) return "";
+  return when.getFullYear() + "-" + pad2(when.getMonth() + 1) + "-" + pad2(when.getDate())
+    + "T" + pad2(when.getHours()) + ":" + pad2(when.getMinutes());
+}
+
+/**
+ * The value to store for what the picker shows, in the form the field
+ * already uses: a date-time stored with a zone stays an ISO instant (as do new
+ * ones); one stored without stays local wall time.
+ * @param {"date" | "date-time"} format @param {string} input @param {string} previous
+ */
+export function storedDateValue(format, input, previous) {
+  if (!input || format === "date") return input;
+  var zoned = !previous || /(Z|[+-]\d{2}:?\d{2})$/i.test(previous);
+  if (!zoned) return input;
+  var when = new Date(input);
+  return Number.isNaN(when.getTime()) ? input : when.toISOString();
+}
+
 /** @param {string} label @param {boolean} isRequired @param {boolean} [inline] */
 export function createFieldGroup(label, isRequired, inline) {
   var wrapper = document.createElement("div");
@@ -96,6 +131,23 @@ export function createFieldRenderer({ updateField, buildSingleImage, buildImageG
       if (next !== width) { width = next; fit(); }
     }).observe(area);
     return area;
+  }
+
+  /**
+   * The browser's own date (or date and time) picker.
+   * @param {"date" | "date-time"} format @param {string} value @param {(next: string) => void} onChange
+   */
+  function buildDateControl(format, value, onChange) {
+    var input = document.createElement("input");
+    input.type = format === "date" ? "date" : "datetime-local";
+    input.className = "studio-input studio-input-date";
+    input.value = dateInputValue(format, value);
+    var stored = value;
+    input.addEventListener("change", function () {
+      stored = storedDateValue(format, input.value, stored);
+      onChange(stored);
+    });
+    return input;
   }
 
   /** A link: a site path (/work), #anchor, mailto:, tel:, or a full http(s) address. */
@@ -362,6 +414,10 @@ export function createFieldRenderer({ updateField, buildSingleImage, buildImageG
         emailInput.value = String(current || "");
         emailInput.addEventListener("input", function () { updateField(path, emailInput.value); });
         group.appendChild(emailInput);
+      } else if (prop.type === "string" && (prop.format === "date" || prop.format === "date-time")) {
+        group = createFieldGroup(label, isRequired);
+        group.dataset.fieldPath = path;
+        group.appendChild(buildDateControl(prop.format, String(current || ""), function (next) { updateField(path, next); }));
       } else if (prop.type === "string" && (prop.format === "uri" || prop.format === "url")) {
         group = createFieldGroup(label, isRequired);
         group.dataset.fieldPath = path;

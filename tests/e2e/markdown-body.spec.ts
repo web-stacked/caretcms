@@ -194,6 +194,24 @@ test("edits rendered Markdown, publishes through the toolbar, and renders after 
   expect(readFileSync(POST, "utf8")).toBe(ORIGINAL);
 });
 
+test("a post date is the same day on the page and in the Studio's date picker", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/ship-something-real/");
+  // Stored as "2026-03-11"; shown as that day in every time zone.
+  await expect(page.getByText("March 11, 2026")).toBeVisible();
+
+  await page.goto("/admin/cms/blog/ship-something-real");
+  const date = page.getByRole("textbox", { name: "Date" }).or(page.locator('[data-field-path="date"] input'));
+  await expect(date).toHaveAttribute("type", "date");
+  await expect(date).toHaveValue("2026-03-11");
+
+  const save = page.waitForResponse(isMutatePost);
+  await date.fill("2026-04-02");
+  await date.dispatchEvent("change");
+  await save;
+  await expect.poll(() => readFileSync(POST, "utf8")).toContain("2026-04-02");
+});
+
 test("keeps live-loader metadata out of non-text attributes", async ({ page }) => {
   await loginAsEditor(page);
   await page.goto("/");

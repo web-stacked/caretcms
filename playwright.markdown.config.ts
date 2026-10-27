@@ -13,6 +13,7 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${PORT}`,
     trace: "on-first-retry",
+    timezoneId: "America/Los_Angeles",
   },
   projects: [{ name: "chromium-markdown", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
@@ -27,6 +28,8 @@ export default defineConfig({
       CARET_SESSION_SECRET: "e2e-markdown-session-secret-not-for-real-use-0123456789",
       HOST: "0.0.0.0",
       PORT: String(PORT),
+      // West of UTC, where a date-only value read as local time slips a day.
+      TZ: "America/Los_Angeles",
     },
   },
 });

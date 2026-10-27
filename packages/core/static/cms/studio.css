@@ -607,6 +607,8 @@ textarea.studio-input {
   min-height: 80px;
 }
 /* Text fields wrap and grow to fit their content instead of cutting it off. */
+/* Date pickers are as wide as a date, not the whole form. */
+.studio-input.studio-input-date { max-width: 16rem; }
 textarea.studio-input.studio-input-grow {
   min-height: 0;
   resize: none;

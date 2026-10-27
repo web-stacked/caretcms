@@ -19,6 +19,8 @@ const when = date.toLocaleDateString("en-US", {
   year: "numeric",
   month: "short",
   day: "numeric",
+  // A post date is a calendar day (stored as midnight UTC); show that day everywhere.
+  timeZone: "UTC",
 });
 ---
 
