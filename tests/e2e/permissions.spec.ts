@@ -244,6 +244,8 @@ test("fields a writer may not edit are read-only and say why", async ({ browser 
     await expect(headline).toHaveAttribute("title", "You don't have permission to edit this.");
     await headline.click();
     await expect(page.getByText("You don't have permission to edit this.")).toBeVisible();
+    // Not shown as selected, which would look like it can be edited.
+    await expect(headline).not.toHaveClass(/cms-linked-selection/);
 
     // The home page stays editable for the same writer.
     await page.goto("/");

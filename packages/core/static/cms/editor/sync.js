@@ -291,6 +291,9 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
 
   /** @param {Element} el */
   function selectStudioField(el) {
+    // Text this editor may not change isn't selected or opened in the Studio;
+    // the click explains the lock instead (permissions.js).
+    if (el.getAttribute('data-caret-locked') === 'permission') return;
     const resolved = resolveBinding(el, parseCaretAttr(el.getAttribute('data-caret') || ''));
     if (!resolved) return;
 
