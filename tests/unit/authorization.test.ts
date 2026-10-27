@@ -40,6 +40,16 @@ describe('authorization policy', () => {
     expect(permissions).toMatchObject({ draftMode: true, permissions: { edit: true, publish: false, delete: false, upload: false, manageCollections: false } });
   });
 
+  it('needs create, not only edit, to make a new entry in the Studio', async () => {
+    policy = ({ action }) => action === 'edit'; setup();
+    expect((await call(mutate, { ...edit('contact'), createOnly: true })).status).toBe(403);
+    // A first save to content a page already shows is still an edit.
+    expect((await call(mutate, edit('about'))).status).toBe(200);
+    expect((await (await call(session)).json()).permissions).toMatchObject({ edit: true, create: false });
+    policy = ({ action }) => action === 'edit' || action === 'create';
+    expect((await call(mutate, { ...edit('contact'), createOnly: true })).status).toBe(200);
+  });
+
   it('denies direct commands and checks every reorder target before any changes', async () => {
     policy = ({ action, id }) => action === 'edit' && id === 'home'; const adapter = setup();
     for (const command of [edit('locked'), { type: 'delete_entry', collection: 'pages', id: 'home' }, { type: 'delete_collection', id: 'pages' }, { type: 'create_collection', id: 'new', label: 'New', schema: { type: 'object', properties: {} } }, { type: 'reorder_entries', collection: 'pages', items: [{ id: 'home', order: 1 }, { id: 'locked', order: 0 }] }]) {

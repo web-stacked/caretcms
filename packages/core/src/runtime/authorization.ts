@@ -26,5 +26,8 @@ export async function canMutate(command: CmsMutationCommand): Promise<boolean> {
     return true;
   }
   if (!(await canPerform('edit', command.collection, command.id))) return false;
+  // Making a new entry (the Studio's Create) is its own permission; a first
+  // save to content a page already shows is an edit.
+  if (command.type === 'put_entry' && command.createOnly === true) return canPerform('create', command.collection, command.id);
   return command.type !== 'delete_entry' || canPerform('delete', command.collection, command.id);
 }

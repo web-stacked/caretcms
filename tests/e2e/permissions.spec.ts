@@ -257,6 +257,11 @@ test("fields a writer may not edit are read-only and say why", async ({ browser 
     const fields = page.locator("#fields input, #fields textarea");
     await expect(fields.first()).toBeVisible();
     for (const field of await fields.all()) await expect(field).toBeDisabled();
+
+    // May edit, but not create: no Create button that could only fail.
+    await page.goto("/admin/cms/pages");
+    await expect(page.locator("#btn-new")).toHaveCount(0);
+    await expect(page.locator("#btn-empty-create")).toHaveCount(0);
   } finally {
     await writer.close();
     await admin.close();

@@ -38,7 +38,7 @@ export type EditorIdentity = {
 };
 
 /** Write permissions. Reading content is not restricted by this interface. */
-export type AuthorizationAction = "edit" | "publish" | "delete" | "manageCollections" | "upload";
+export type AuthorizationAction = "edit" | "create" | "publish" | "delete" | "manageCollections" | "upload";
 export interface AuthorizationRequest {
   identity: EditorIdentity;
   request: Request;

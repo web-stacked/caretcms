@@ -13,7 +13,7 @@ export async function GET(context: APIContext): Promise<Response> {
     ...(authenticated && getRequestContext()?.authorize ? {
       draftMode: true,
       permissions: Object.fromEntries(await Promise.all(
-        (["edit", "publish", "delete", "manageCollections", "upload"] as const).map(async action =>
+        (["edit", "create", "publish", "delete", "manageCollections", "upload"] as const).map(async action =>
           [action, await canPerform(action, context.url?.searchParams.get("collection") ?? undefined, context.url?.searchParams.get("id") ?? undefined)]),
       )),
     } : {}),

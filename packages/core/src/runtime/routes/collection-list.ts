@@ -50,7 +50,7 @@ export async function GET(context: APIContext): Promise<Response> {
   const label = collectionConfig.label || humanizeCollection(collection);
   const navigation = await studioNavigation(runtime, adapter, collection);
   const messages = runtime.messages;
-  const creatable = collectionConfig.creatable !== false && await canPerform("edit", collection);
+  const creatable = collectionConfig.creatable !== false && await canPerform("edit", collection) && await canPerform("create", collection);
   const orderable = collectionConfig.orderable !== false && await canPerform("edit", collection);
   const publicationFieldName = publicationField(collectionConfig);
   const registeredSchema = getRegisteredSchema(collection)?.schema;

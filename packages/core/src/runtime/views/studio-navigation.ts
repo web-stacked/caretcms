@@ -17,7 +17,7 @@ export async function studioNavigation(
   return Promise.all(collections.map(async ({ name, config }) => {
     const base = `${runtime.mountPath}/cms/${encodeURIComponent(name)}`;
     const label = config.label || humanizeCollection(name);
-    const creatable = !config.singletonId && config.creatable !== false && await canPerform("edit", name);
+    const creatable = !config.singletonId && config.creatable !== false && await canPerform("edit", name) && await canPerform("create", name);
     const entryLabel = config.entryLabel?.trim();
     return {
       name,
