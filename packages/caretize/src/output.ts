@@ -99,10 +99,20 @@ export function formatSummary(
   if (hoisted) out += `✓ ${hoisted} component prop(s) hoisted to editable()\n`;
   if (bound) out += `✓ ${bound} collection field(s) bound to data-caret\n`;
   if (flagged) out += `⚠ ${flagged} loop(s) flagged → consider dynamic collections\n`;
-  if (hadBackups) out += `⤺ backups in .caret/.caretize-bak/ (caretize --restore to undo)\n`;
+  if (hadBackups) out += `⤺ backups in .caret/.caretize-bak/ (${CARETIZE} --restore to undo)\n`;
   out += `───────────────────────────────\n`;
   return out;
 }
+
+/**
+ * How to run caretize in printed instructions. It works without a global
+ * install, and the scoped name is the one we publish (an unscoped `caretize`
+ * would be whatever someone else publishes under that name).
+ */
+export const CARETIZE = "npx @caretcms/caretize";
+
+/** Where the dev server keeps its temporary password (core writes it). */
+const DEV_PASSWORD = "sign in at /admin with the password in .caret/dev-password";
 
 /**
  * The single most-important "what now?" line, tailored to where the project
@@ -113,28 +123,27 @@ export function formatSummary(
 export function formatNextStep(pf: Preflight): string {
   if (!pf.hasCaretCore) {
     return (
-      `Next: make these editable — install + wire CaretCMS:\n` +
-      `    npx caretize init\n` +
-      `    npx caretize\n` +
+      `Next: make these editable — install and wire CaretCMS:\n` +
+      `    ${CARETIZE} init\n` +
       `  Static Astro projects use caret() with automatic static delivery by default.\n`
     );
   }
   if (!pf.caretWired) {
     return (
       `Next: wire CaretCMS — add caret() to the integrations array in your astro.config,\n` +
-      `  then npm run dev → click to edit.\n`
+      `  then npm run dev → ${DEV_PASSWORD} → click to edit.\n`
     );
   }
   if (pf.outputMode === "static") {
     if (pf.staticDeliveryConfigured) {
-      return `Next: npm run dev → sign in at /admin → edit tagged content locally; Publish + rebuild bakes static HTML.\n`;
+      return `Next: npm run dev → ${DEV_PASSWORD} → edit tagged content; Publish + rebuild bakes static HTML.\n`;
     }
     return (
       `Next: add caret() with delivery: "auto" (the default) for static HTML baking,\n` +
-      `  or run: npx caretize init\n`
+      `  or run: ${CARETIZE} init\n`
     );
   }
-  return `Next: npm run dev → open your page → click to edit\n`;
+  return `Next: npm run dev → ${DEV_PASSWORD} → click to edit\n`;
 }
 
 /**
@@ -148,14 +157,18 @@ export function formatNextStep(pf: Preflight): string {
  */
 export function formatEscalationOffer(counts: Partial<Record<TierId, number>>): string {
   const lines: string[] = [];
+  let flagged = false;
   for (const t of TIERS) {
     const n = counts[t.id] ?? 0;
     if (n <= 0) continue;
     const flag = t.risk === "guess" ? " ⚠" : "";
+    if (flag) flagged = true;
     lines.push(`    •${flag} ${String(n).padStart(3)} ${t.label} — ${t.note}`);
   }
   if (lines.length === 0) return "";
-  return `\n  I can also make these editable:\n${lines.join("\n")}\n`;
+  // The legend only when a row carries the mark.
+  const legend = flagged ? "  ⚠ = per-row binding that assumes each entry's .id is its identity\n" : "";
+  return `\n  I can also make these editable:\n${lines.join("\n")}\n${legend}`;
 }
 
 /**
@@ -282,7 +295,7 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
   const parts: string[] = [];
   if (inIterator && !opts.collections) parts.push(`${inIterator} item(s) in dynamic lists`);
   if (dynamicRoutes && !opts.routes) parts.push(`${dynamicRoutes} dynamic detail route(s)`);
-  if (eligible && !opts.rich) parts.push(`${eligible} rich heading(s)`);
+  if (eligible && !opts.rich) parts.push(`${eligible} text block(s) with bold or links`);
   if (belowConfidence && !opts.lowconf) parts.push(`${belowConfidence} lower-confidence spot(s)`);
 
   let out = "";

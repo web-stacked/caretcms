@@ -15,7 +15,7 @@ import { randomBytes } from "node:crypto";
 import { relative, resolve } from "node:path";
 import { parseAstro } from "./parse.js";
 import { discoverAstroFiles } from "./discover.js";
-import { preflight } from "./preflight.js";
+import { DIRTY_TREE_WARNING, preflight } from "./preflight.js";
 import { planFile, type FilePlan, type PlannedTag, type PlanOptions } from "./plan.js";
 import { prepareFileFull, commitRun, readSource, type PreparedFile } from "./run.js";
 import { detectWrapTargetsSafe, type WrapTarget } from "./wrap.js";
@@ -34,7 +34,7 @@ import { buildReport } from "./report.js";
 import { applyKeyRegistry } from "./keys.js";
 import { isValidField } from "./name.js";
 import { parseArgs, CliUsageError, HELP, type Args } from "./cli-args.js";
-import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, formatEscalationOffer, formatNextStep, formatDiff, type HintOpts } from "./output.js";
+import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, formatEscalationOffer, formatNextStep, formatDiff, CARETIZE, type HintOpts } from "./output.js";
 import { selectTiers, type Intent } from "./select-policy.js";
 import { tierById, type TierId } from "./tiers.js";
 import {
@@ -472,7 +472,6 @@ async function offerEscalation(
   let chosenNew: TierId[];
   try {
     process.stdout.write(formatEscalationOffer(counts));
-    process.stdout.write("  ⚠ = per-row binding that assumes each entry's .id is its identity\n");
     chosenNew = await askEscalationAnswer(rl, counts);
   } finally {
     rl.close();
@@ -553,11 +552,15 @@ function findConfigName(root: string): string | null {
  * via verified pure insertions, falling back to a paste-me snippet when its
  * shape isn't safe to touch.
  */
-async function runInit(root: string, args: Args): Promise<void> {
+async function runInit(root: string, args: Args): Promise<{ tag: boolean; cleanBefore: boolean }> {
   const pf = preflight(root);
   if (!pf.isAstroProject) {
     for (const e of pf.errors) process.stderr.write(`✗ ${e}\n`);
     process.exit(1);
+  }
+  // init asks before each step; without a terminal there's no one to answer.
+  if (!args.yes && !(process.stdin.isTTY && process.stdout.isTTY)) {
+    fail(`non-interactive terminal: pass -y to accept init's steps (${CARETIZE} init -y)`);
   }
 
   process.stdout.write("caretize init · wiring CaretCMS into this project\n");
@@ -665,16 +668,12 @@ async function runInit(root: string, args: Args): Promise<void> {
     } else {
       process.stdout.write("✓ .gitignore already covers CaretCMS files\n");
     }
+    const tagNow = await confirmYes(rl, args, "\nTag your content as editable now? [Y/n] ");
+    if (!tagNow) process.stdout.write(`  skipped — run later: ${CARETIZE}\n`);
+    return { tag: tagNow, cleanBefore: pf.gitClean !== false };
   } finally {
     rl.close();
   }
-
-  process.stdout.write(
-    "\nNext:\n" +
-      "  1. caretize      — tag your content as editable\n" +
-      "  2. npm run dev   — a temporary edit password prints in the terminal\n" +
-      "  3. sign in at /admin, then click tagged content to edit (Studio at /admin/cms)\n",
-  );
 }
 
 async function main(): Promise<void> {
@@ -691,11 +690,24 @@ async function main(): Promise<void> {
   const root = process.cwd();
 
   if (args.restore) { runRestore(root); return; }
-  if (args.init) { await runInit(root, args); return; }
+  if (args.init) {
+    // init wires CaretCMS, then tags — one command for the first run.
+    const init = await runInit(root, args);
+    // Init's own edits made the tree dirty; that's no reason to warn.
+    if (init.tag) await runTag(root, args, { initMadeDirty: init.cleanBefore });
+    return;
+  }
+  await runTag(root, args);
+}
 
+/** Scan the project and add data-caret tags (the default command). */
+async function runTag(root: string, args: Args, opts: { initMadeDirty?: boolean } = {}): Promise<void> {
   const pf = preflight(root);
   for (const n of pf.notes) process.stdout.write(`• ${n}\n`);
-  for (const w of pf.warnings) process.stdout.write(`⚠ ${w}\n`);
+  for (const w of pf.warnings) {
+    if (opts.initMadeDirty && w === DIRTY_TREE_WARNING) continue;
+    process.stdout.write(`⚠ ${w}\n`);
+  }
   if (pf.errors.length) { for (const e of pf.errors) process.stderr.write(`✗ ${e}\n`); process.exit(1); }
 
   const files = discoverAstroFiles(root, args.target);
@@ -827,7 +839,7 @@ async function main(): Promise<void> {
   process.stdout.write(formatNextStep(pf));
   process.stdout.write(formatHints(summaryPlans, hintOpts));
   if (optimistic) {
-    process.stdout.write("\n  not what you wanted? caretize --restore  ·  approve each change next time? caretize --review\n");
+    process.stdout.write(`\n  not what you wanted? ${CARETIZE} --restore  ·  approve each change next time? ${CARETIZE} --review\n`);
   }
 }
 

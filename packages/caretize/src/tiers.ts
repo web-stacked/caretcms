@@ -59,15 +59,15 @@ export const TIERS: readonly TierDescriptor[] = [
   },
   {
     id: "rich",
-    label: "rich headings",
-    note: "bold & links inside",
+    label: "text blocks with bold or links",
+    note: "kept as formatted text",
     risk: "judgment",
     recommended: true,
     flag: "--rich",
   },
   {
     id: "rich-class",
-    label: "styled-span headings",
+    label: "text blocks with styled spans",
     note: "needs allowedClasses to keep the class",
     risk: "judgment",
     recommended: false,

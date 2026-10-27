@@ -86,7 +86,8 @@ describe("parseArgs", () => {
 
 describe("HELP", () => {
   it("documents usage and the headline flags", () => {
-    expect(HELP).toContain("Usage: caretize");
+    expect(HELP).toContain("Usage: npx @caretcms/caretize");
+    expect(HELP).not.toMatch(/npx caretize\b/);
     expect(HELP).toContain("--dry-run");
     expect(HELP).toContain("--min-confidence");
     expect(HELP).toContain("--all");

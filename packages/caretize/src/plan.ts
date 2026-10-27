@@ -9,7 +9,7 @@
  * valid wherever it lands. (Scope-on-wrapper is a later readability pass.)
  */
 
-import { parseAstro, walkTags, type AstroNode, type TagNode } from "./parse.js";
+import { isTagNode, parseAstro, walkTags, type AstroNode, type TagNode } from "./parse.js";
 import {
   detect,
   type Candidate,
@@ -17,7 +17,7 @@ import {
   type IteratorFlag,
   type Skipped,
 } from "./detect.js";
-import { assignFields, deriveScope, type Scope, type ScopeReason } from "./name.js";
+import { assignFields, deriveScope, slugifyText, type FieldContext, type Scope, type ScopeReason } from "./name.js";
 import { assetImportNames, frontmatterRange, imageComponentNames } from "./frontmatter.js";
 
 export interface PlannedTag {
@@ -122,7 +122,7 @@ export async function planFile(
     return false;
   });
 
-  const fields = assignFields(accepted, existingFields(ast));
+  const fields = assignFields(accepted, existingFields(ast), fieldContexts(ast, accepted));
 
   const tags: PlannedTag[] = accepted.map((candidate) => {
     const field = fields.get(candidate)!;
@@ -143,4 +143,44 @@ export async function planFile(
   });
 
   return { relPath, scope, tags, skipped, flags, belowConfidence };
+}
+
+const LANDMARKS = new Set(["footer", "header", "nav", "aside"]);
+const SECTIONS = new Set(["section", "article"]);
+
+/** A heading's text when it is all static text, else null. */
+function staticText(node: AstroNode): string | null {
+  let out = "";
+  for (const child of node.children ?? []) {
+    if (child.type === "text") out += (child as { value?: string }).value ?? "";
+    else if (isTagNode(child)) {
+      const inner = staticText(child);
+      if (inner === null) return null;
+      out += inner;
+    } else return null;
+  }
+  return out;
+}
+
+/**
+ * Each candidate's landmark (footer, header, nav, aside) or the heading it sits
+ * under, for naming prose. A new section or article starts without a heading.
+ */
+function fieldContexts(ast: AstroNode, candidates: Candidate[]): Map<Candidate, FieldContext> {
+  const byNode = new Map(candidates.map((c) => [c.node, c] as const));
+  const contexts = new Map<Candidate, FieldContext>();
+  let heading: string | undefined;
+  walkTags(ast, (node, ancestors) => {
+    if (SECTIONS.has(node.name)) heading = undefined;
+    if (/^h[1-6]$/.test(node.name)) {
+      const text = staticText(node);
+      heading = (text && slugifyText(text)) || undefined;
+      return;
+    }
+    const candidate = byNode.get(node);
+    if (!candidate) return;
+    const landmark = [...ancestors].reverse().map((a) => (isTagNode(a) ? a.name : "")).find((n) => LANDMARKS.has(n));
+    contexts.set(candidate, landmark ? { landmark } : { heading });
+  });
+  return contexts;
 }

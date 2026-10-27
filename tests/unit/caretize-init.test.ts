@@ -91,6 +91,13 @@ describe("planConfigWiring", () => {
     expect(stripped(r.output, src)).toBe(true);
   });
 
+  it("formats a property added to an empty or one-line config on its own lines", () => {
+    const empty = planConfigWiring(`export default defineConfig({});\n`, STATIC_ALL);
+    expect(empty.output).toContain(`defineConfig({\n  integrations: [caret()],\n});`);
+    const inline = planConfigWiring(`export default defineConfig({ site: 'https://x.dev' });\n`, STATIC_ALL);
+    expect(inline.output).toContain(`defineConfig({\n  integrations: [caret()],\n   site: 'https://x.dev' });`);
+  });
+
   it("leaves an existing caret() call alone for static auto delivery", () => {
     const src = `import caret from '@caretcms/core';\n\nexport default defineConfig({ integrations: [caret()] });\n`;
     const r = planConfigWiring(src, { caret: false, adapter: false, output: false, staticDelivery: true });

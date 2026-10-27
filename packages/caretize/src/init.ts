@@ -185,7 +185,11 @@ export function planConfigWiring(source: string, needs: WiringNeeds): WiringResu
   }
 
   if (newProps.length) {
-    edits.push({ index: braceIdx + 1, text: `\n  ` + newProps.join(`\n  `) });
+    // Each new property on its own line; the closing brace of an empty config
+    // (`{}`) or the property that already followed `{` goes on the next one.
+    const rest = source.slice(braceIdx + 1);
+    const tail = /^\s*}/.test(rest) ? `\n` : /^[ \t]*\r?\n/.test(rest) ? `` : `\n  `;
+    edits.push({ index: braceIdx + 1, text: `\n  ` + newProps.join(`\n  `) + tail });
   }
 
   // Apply highest-offset-first so earlier edits don't shift later indices.
@@ -225,7 +229,7 @@ export function renderEnvAdditions(
     added.push("CARET_SESSION_SECRET (generated)");
   }
   if (!has("CARET_EDIT_PASSWORD")) {
-    lines.push(`# Set before deploying — until then dev prints a temp password:`);
+    lines.push(`# Set before deploying — until then dev uses the temporary one in .caret/dev-password:`);
     lines.push(`# CARET_EDIT_PASSWORD=choose-a-strong-password`);
     added.push("CARET_EDIT_PASSWORD (placeholder)");
   }

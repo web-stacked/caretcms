@@ -30,13 +30,20 @@ describe("findOpenTagEnd", () => {
     expect(r.insertAt).toBe(3); // before the >
   });
 
-  it("handles self-closing tags, inserting before the slash", () => {
+  it("handles self-closing tags, inserting right after the last attribute", () => {
     const src = '<img src="/a.png" />';
     const buf = Buffer.from(src, "utf8");
     const r = findOpenTagEnd(buf, 0)!;
     expect(r.selfClosing).toBe(true);
-    // insertAt sits before the `/`, so the result stays ` ... attr />`
-    expect(src.slice(r.insertAt)).toBe("/>");
+    // The tag keeps its own space before `/>`: `<img src="/a.png" data-caret="…" />`.
+    expect(src.slice(r.insertAt)).toBe(" />");
+  });
+
+  it("keeps a multi-line tag's closing on its own line", () => {
+    const src = '<img\n  src="/a.png"\n  alt="x"\n/>';
+    const r = findOpenTagEnd(Buffer.from(src, "utf8"), 0)!;
+    expect(src.slice(0, r.insertAt)).toBe('<img\n  src="/a.png"\n  alt="x"');
+    expect(src.slice(r.insertAt)).toBe("\n/>");
   });
 
   it("handles void elements with no slash", () => {

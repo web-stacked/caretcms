@@ -220,11 +220,15 @@ function hasCaretAttr(node: TagNode): boolean {
   );
 }
 
-/** Direct text content of an element (concatenated text-node children). */
-function directText(node: TagNode): string {
+/**
+ * Text content of an element, including text inside inline markup, so a rich
+ * candidate's preview and name keep its bold or linked words.
+ */
+function textContent(node: AstroNode): string {
   const parts: string[] = [];
   for (const child of node.children ?? []) {
     if (child.type === "text") parts.push((child as { value?: string }).value ?? "");
+    else if (isTagNode(child)) parts.push(textContent(child));
   }
   return parts.join("");
 }
@@ -375,14 +379,14 @@ export function detect(
       richHosts.add(node);
       candidates.push({
         decision: "tag", kind: "text", node, tag, startOffset,
-        confidence: "medium", text: directText(node).trim(), rich: true,
+        confidence: "medium", text: textContent(node).trim(), rich: true,
       });
       return;
     }
 
     candidates.push({
       decision: "tag", kind: "text", node, tag, startOffset,
-      confidence: CONFIDENCE[tag], text: directText(node).trim(),
+      confidence: CONFIDENCE[tag], text: textContent(node).trim(),
     });
   });
 

@@ -45,8 +45,8 @@ export class CliUsageError extends Error {}
 
 export const HELP = `caretize · make an Astro project editable (data-caret + editable())
 
-Usage: caretize [path] [options]
-       caretize init       wire CaretCMS into the project, then tag
+Usage: npx @caretcms/caretize [path] [options]
+       npx @caretcms/caretize init   wire CaretCMS into the project, then tag
 
 By default caretize applies the safe edits, then shows a diff you can undo with
 --restore. Use --review to approve each change first, or --diff to preview only.

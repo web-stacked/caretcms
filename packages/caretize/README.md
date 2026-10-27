@@ -5,7 +5,7 @@ Make an existing Astro site editable with [CaretCMS](https://github.com/web-stac
 The static HTML you already have *is* the seed content: CaretCMS renders the original text until an editor saves an override, so caretize only has to mark what's editable.
 
 ```sh
-# in your Astro project root — set CaretCMS up first (deps + astro.config + .env)
+# in your Astro project root — set CaretCMS up, then tag your content
 npx @caretcms/caretize init
 
 # preview what would be tagged, write nothing
@@ -19,10 +19,12 @@ npx @caretcms/caretize
 npx @caretcms/caretize --review
 ```
 
-`init` is optional but is the fastest path on a project that hasn't wired
-CaretCMS yet: it installs `@caretcms/core`, wires `caret()` into `astro.config`, and
-scaffolds a `.env` with a generated `CARET_SESSION_SECRET`, and adds `.env`, drafts,
-backups, and history to `.gitignore`.
+`init` is the fastest path on a project that hasn't wired CaretCMS yet: it
+installs `@caretcms/core`, wires `caret()` into `astro.config`, scaffolds a `.env`
+with a generated `CARET_SESSION_SECRET`, adds `.env`, drafts, backups, and history
+to `.gitignore`, then offers to tag your content. It asks before each step; pass
+`-y` to accept them all (needed when no one is at the terminal, such as in CI or
+an AI agent).
 
 - **Static Astro projects** (default): `caret()` auto-selects static delivery — no SSR adapter.
 - **Server projects** (`output: "server"` already): keeps or adds adapter + `caret()`.
@@ -92,14 +94,17 @@ caretize init                wire CaretCMS into the project, then tag
   --restore                restore the most recent backup, then exit
 ```
 
-## After caretize
+## First run
 
-1. Run `npx @caretcms/caretize init` if CaretCMS is not wired yet.
-2. Run `npx @caretcms/caretize` to tag content.
-3. Run `npm run dev`.
-4. Sign in at `/admin` — with no `CARET_EDIT_PASSWORD` set, a temporary dev password is printed in your terminal.
-5. Click any tagged element to edit it in place; the Studio lives at `/admin/cms`.
-6. Use Preview / Publish / Discard in the editor toolbar for draft workflow.
+1. `npx @caretcms/caretize init` — set up CaretCMS and tag your content.
+2. `npm run dev`.
+3. Sign in at `/admin`. Until you set `CARET_EDIT_PASSWORD` in `.env`, dev uses a
+   temporary password kept in `.caret/dev-password` (also shown by `astro dev logs`).
+4. Click any tagged element to edit it in place; the Studio lives at `/admin/cms`.
+5. Static sites save drafts: use Publish or Discard in the editor toolbar.
+
+Added pages or sections later? Run `npx @caretcms/caretize` again; it skips what's
+already tagged.
 
 Requires [`@caretcms/core`](https://www.npmjs.com/package/@caretcms/core) wired into `astro.config.mjs` (caretize's preflight checks this and tells you if it isn't).
 

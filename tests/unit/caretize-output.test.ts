@@ -65,7 +65,9 @@ describe("formatNextStep", () => {
        gitRepo: true, gitClean: true, errors: [], notes: [], warnings: [], ...over } as Preflight);
 
   it("tells an un-installed project to install + wire core", () => {
-    expect(formatNextStep(pf({ hasCaretCore: false }))).toContain("npx caretize init");
+    expect(formatNextStep(pf({ hasCaretCore: false }))).toContain("npx @caretcms/caretize init");
+    // Never the unscoped name: that package isn't ours.
+    expect(formatNextStep(pf({ hasCaretCore: false }))).not.toMatch(/npx caretize\b/);
   });
   it("tells an installed-but-unwired project to add caret()", () => {
     const out = formatNextStep(pf({ caretWired: false }));
@@ -79,7 +81,7 @@ describe("formatNextStep", () => {
     expect(formatNextStep(pf({ outputMode: "static", staticDeliveryConfigured: true }))).toContain("bakes static HTML");
   });
   it("tells a fully-wired project to run dev and click to edit", () => {
-    expect(formatNextStep(pf({}))).toBe("Next: npm run dev → open your page → click to edit\n");
+    expect(formatNextStep(pf({}))).toBe("Next: npm run dev → sign in at /admin with the password in .caret/dev-password → click to edit\n");
   });
 });
 
@@ -149,7 +151,7 @@ describe("formatHints", () => {
     })];
     const out = formatHints(plans, {});
     expect(out).toContain("More can be made editable:");
-    expect(out).toContain("1 rich heading(s)");
+    expect(out).toContain("1 text block(s) with bold or links");
     expect(out).toContain("1 item(s) in dynamic lists");
     expect(out).toContain("4 lower-confidence spot(s)");
     expect(out).toContain("Re-run with --all");
@@ -157,7 +159,7 @@ describe("formatHints", () => {
 
   it("omits a tier from the line once that tier is on", () => {
     const plans = [plan({ skipped: [{ reason: "rich-eligible" }] as unknown as FilePlan["skipped"] })];
-    expect(formatHints(plans, {})).toContain("rich heading(s)");
+    expect(formatHints(plans, {})).toContain("text block(s) with bold or links");
     expect(formatHints(plans, { rich: true })).toBe("");
   });
 

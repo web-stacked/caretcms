@@ -8,6 +8,9 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
+/** Shown when the git working tree has uncommitted changes. */
+export const DIRTY_TREE_WARNING = "Working tree has uncommitted changes — commit first so you can `git checkout` to undo.";
+
 export interface Preflight {
   isAstroProject: boolean;
   hasCaretCore: boolean;
@@ -131,11 +134,11 @@ export function preflight(rootDir: string): Preflight {
     );
   } else if (hasCaretCore && outputMode === "static") {
     warnings.push(
-      `output is "static" — run caretize init to add caret(); CaretCMS will use automatic static delivery, or use output: "server" plus an SSR adapter for server delivery.`,
+      `output is "static" — run npx @caretcms/caretize init to add caret(); CaretCMS will use automatic static delivery, or use output: "server" plus an SSR adapter for server delivery.`,
     );
   }
   if (gitRepo && gitClean === false) {
-    warnings.push("Working tree has uncommitted changes — commit first so you can `git checkout` to undo.");
+    warnings.push(DIRTY_TREE_WARNING);
   }
 
   return {

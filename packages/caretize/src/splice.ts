@@ -45,6 +45,10 @@ export interface OpenTagEnd {
  *
  * Returns null if `startOffset` isn't a `<` or no closing `>` is found.
  */
+function isSpace(byte: number | undefined): boolean {
+  return byte === 0x20 || byte === 0x09 || byte === 0x0a || byte === 0x0d || byte === 0x0c;
+}
+
 export function findOpenTagEnd(
   buf: Buffer,
   startOffset: number,
@@ -79,8 +83,12 @@ export function findOpenTagEnd(
 
     if (braceDepth === 0 && b === GT) {
       const selfClosing = buf[i - 1] === SLASH;
+      // Right after the last attribute, so the tag keeps its own spacing
+      // before `>` or `/>` (and a multi-line tag keeps `/>` on its own line).
+      let insertAt = selfClosing ? i - 1 : i;
+      while (insertAt > startOffset + 1 && isSpace(buf[insertAt - 1])) insertAt--;
       return {
-        insertAt: selfClosing ? i - 1 : i,
+        insertAt,
         gtOffset: i,
         selfClosing,
       };

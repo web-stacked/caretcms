@@ -65,7 +65,16 @@ describe("caretize CLI · meta flags", () => {
   it("--help prints usage and exits 0", () => {
     const r = run(dir, "--help");
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain("Usage: caretize");
+    expect(r.stdout).toContain("Usage: npx @caretcms/caretize");
+  });
+
+  it("init without a terminal says how to run it instead of quitting silently", () => {
+    project();
+    const r = run(dir, "init");
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("npx @caretcms/caretize init -y");
+    // Nothing was changed.
+    expect(readFileSync(join(dir, "astro.config.mjs"), "utf8")).toBe("export default {};\n");
   });
 
   it("--version prints the published package version and exits 0", () => {
@@ -134,7 +143,7 @@ describe("caretize CLI · scan + apply", () => {
     expect(apply.status).toBe(0);
     expect(apply.stdout).toContain("change(s) across");
     // core isn't installed in the temp project → CTA points at init, not "click to edit"
-    expect(apply.stdout).toContain("npx caretize init");
+    expect(apply.stdout).toContain("npx @caretcms/caretize init");
     expect(apply.stdout).not.toContain("click to edit");
     const tagged = readFileSync(join(dir, "src/pages/index.astro"), "utf8");
     expect(tagged).toContain(`data-caret="pages::home::`);
