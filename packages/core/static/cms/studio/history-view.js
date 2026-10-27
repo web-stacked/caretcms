@@ -1,7 +1,12 @@
 import { humanizeKey } from './field-model.js';
 
 /** @typedef {import('../../../src/schema-utils.js').JsonSchemaNode} Schema */
-/** @typedef {{ path: string, label: string, before: string, after: string }} HistoryChange */
+/**
+ * @typedef {{ path: string, label: string, before: string, after: string, diff: DiffPart[] | null }} HistoryChange
+ * `before`/`after` are short display values; `diff` is a word-level diff of
+ * the full text when both sides are text (null for images, lists and the like).
+ */
+/** @typedef {{ op: '=' | '-' | '+', text: string }} DiffPart */
 
 const IMAGE_PATH = /\.(avif|gif|jpe?g|png|svg|webp)(\?.*)?$/i;
 const ENTITIES = /** @type {Record<string, string>} */ ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", apos: "'", nbsp: ' ' });
@@ -88,11 +93,14 @@ export function historyChanges(before, after, schema, empty) {
       return;
     }
     if (!path) return;
+    const beforeText = typeof a === 'string' && !IMAGE_PATH.test(a) ? readableText(a) : null;
+    const afterText = typeof b === 'string' && !IMAGE_PATH.test(b) ? readableText(b) : null;
     changes.push({
       path,
       label: historyFieldLabel(path, schema),
       before: historyValueText(a, empty),
       after: historyValueText(b, empty),
+      diff: beforeText && afterText ? wordDiff(beforeText, afterText) : null,
     });
   }
   walk(before ?? {}, after ?? {}, '');
@@ -116,4 +124,70 @@ export function relativeTime(ts, now, locale) {
   const days = Math.round(hours / 24);
   if (Math.abs(days) < 7) return format.format(days, 'day');
   return new Date(ts).toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** Longest-common-subsequence work above which a diff isn't worth computing. */
+const DIFF_LIMIT = 160000;
+/** Unchanged words kept on each side of a change. */
+const CONTEXT_WORDS = 5;
+
+/**
+ * Words removed and added between two texts, with unchanged stretches
+ * shortened to a few words of context around each change. Null when the
+ * texts share nothing worth showing (a rewrite reads better as before → after)
+ * or are too long to compare.
+ * @param {string} before @param {string} after
+ * @returns {DiffPart[] | null}
+ */
+export function wordDiff(before, after) {
+  const a = before.split(/(\s+)/).filter(Boolean);
+  const b = after.split(/(\s+)/).filter(Boolean);
+  if (a.length * b.length > DIFF_LIMIT) return null;
+  // lcs[i][j]: length of the common subsequence of a[i..] and b[j..].
+  const lcs = Array.from({ length: a.length + 1 }, () => new Uint16Array(b.length + 1));
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+  /** @type {DiffPart[]} */
+  const parts = [];
+  /** @param {DiffPart['op']} op @param {string} text */
+  const push = (op, text) => {
+    const last = parts[parts.length - 1];
+    if (last && last.op === op) last.text += text;
+    else parts.push({ op, text });
+  };
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { push('=', a[i]); i++; j++; }
+    else if (lcs[i + 1][j] >= lcs[i][j + 1]) push('-', a[i++]);
+    else push('+', b[j++]);
+  }
+  while (i < a.length) push('-', a[i++]);
+  while (j < b.length) push('+', b[j++]);
+
+  const shared = parts.filter((part) => part.op === '=' && part.text.trim()).reduce((count, part) => count + part.text.trim().split(/\s+/).length, 0);
+  const words = Math.max(a.filter((t) => t.trim()).length, b.filter((t) => t.trim()).length);
+  if (shared === 0 || shared < words / 3) return null;
+
+  // Keep a little context around each change; elide the rest.
+  return parts.map((part, index) => {
+    if (part.op !== '=') return part;
+    const tokens = part.text.split(/(\s+)/).filter(Boolean);
+    const wordCount = tokens.filter((t) => t.trim()).length;
+    const first = index === 0;
+    const last = index === parts.length - 1;
+    const keep = first || last ? CONTEXT_WORDS : CONTEXT_WORDS * 2;
+    if (wordCount <= keep) return part;
+    /** @param {number} n */
+    const headWords = (n) => { let seen = 0; const out = []; for (const t of tokens) { if (t.trim() && seen === n) break; out.push(t); if (t.trim()) seen++; } return out.join(''); };
+    /** @param {number} n */
+    const tailWords = (n) => { let seen = 0; const out = []; for (let k = tokens.length - 1; k >= 0; k--) { const t = tokens[k]; if (t.trim() && seen === n) break; out.unshift(t); if (t.trim()) seen++; } return out.join(''); };
+    const text = first ? `…${tailWords(CONTEXT_WORDS).trimStart()}`
+      : last ? `${headWords(CONTEXT_WORDS).trimEnd()}…`
+        : `${headWords(CONTEXT_WORDS).trimEnd()} … ${tailWords(CONTEXT_WORDS).trimStart()}`;
+    return { op: '=', text };
+  });
 }

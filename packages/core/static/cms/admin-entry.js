@@ -1467,6 +1467,19 @@ import { whenServed } from './editor/image-utils.js';
     var after = document.createElement("ins");
     after.textContent = change.after;
     item.appendChild(label);
+    if (change.diff) {
+      // Text that was edited, not rewritten: the changed words in place.
+      var words = document.createElement("span");
+      words.className = "caret-history-words";
+      change.diff.forEach(function (part) {
+        if (part.op === "=") { words.appendChild(document.createTextNode(part.text)); return; }
+        var mark = document.createElement(part.op === "-" ? "del" : "ins");
+        mark.textContent = part.text;
+        words.appendChild(mark);
+      });
+      item.appendChild(words);
+      return item;
+    }
     item.appendChild(before);
     item.appendChild(arrow);
     item.appendChild(after);

@@ -493,13 +493,16 @@
 /* History panel */
 .caret-history-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.5rem 1rem;
   padding: 8px 0;
   border-bottom: 1px solid var(--studio-border);
 }
+/* Restore drops below the change when there's no room beside it. */
 .caret-history-summary {
+  flex: 1 1 20rem;
   min-width: 0;
 }
 .caret-history-meta {
@@ -525,7 +528,7 @@
   font-size: 0.78rem;
   line-height: 1.4;
 }
-.caret-history-diff li { overflow-wrap: anywhere; }
+.caret-history-diff li { overflow-wrap: break-word; }
 .caret-history-field {
   margin-right: 0.45rem;
   color: var(--studio-text-muted);
@@ -538,6 +541,22 @@
 .caret-history-diff ins {
   color: var(--studio-text);
   text-decoration: none;
+}
+/* A word-level edit: removed words struck, added words marked. */
+.caret-history-words { color: var(--studio-text-muted); }
+.caret-history-words del,
+.caret-history-words ins { padding: 0 2px; }
+/* A replacement reads as two words, not one run-together string. */
+.caret-history-words del + ins { margin-left: 0.3em; }
+.caret-history-words del {
+  color: var(--studio-text);
+  background: var(--studio-red-soft);
+  border-radius: 3px;
+}
+.caret-history-words ins {
+  color: var(--studio-text);
+  background: var(--studio-green-soft);
+  border-radius: 3px;
 }
 .caret-history-arrow { margin: 0 0.35rem; color: var(--studio-text-dim); }
 .caret-history-more { margin-top: 0.35rem; font-size: 0.75rem; }
