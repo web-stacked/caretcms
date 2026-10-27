@@ -614,18 +614,22 @@ import { whenServed } from './editor/image-utils.js';
       }
       if (result.kind === "conflict") {
           preserveSaveStatus = true;
-          entryRevision = result.currentRevision;
+          // The newer revision is adopted only once the editor chooses a
+          // version. Until then saves keep conflicting, so this stale copy can
+          // never overwrite what someone else saved.
           var latest = await entryLoader.load({ collection: COLLECTION, id: ID, isNew: false, initializeIfMissing: false });
           if (latest.kind !== "ready") {
             showStatus("error", msg("entry.changedElsewhere", "Changed elsewhere — your edits are still here"));
             return;
           }
-          entryRevision = latest.revision;
-          entryBaseRevision = latest.baseRevision;
           var theirs = fillDefaults(deepClone(latest.data), entrySchema);
           var rebase = rebaseEdits(JSON.parse(originalJson || "{}"), entryData || {}, theirs);
           showStatus("dirty", msg("entry.conflictStatus", "Someone else saved this entry. Choose which version to keep."));
           var choice = await resolveConflict(rebase.theirChanges, rebase.overlapping, theirs, entryData);
+          if (choice === "latest" || choice === "keep") {
+            entryRevision = latest.revision;
+            entryBaseRevision = latest.baseRevision;
+          }
           if (choice === "latest") {
             entryData = fillDefaults(deepClone(latest.data), entrySchema);
             originalJson = JSON.stringify(entryData);

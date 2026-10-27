@@ -409,6 +409,17 @@ test("Studio applies form edits on top of a conflicting save without reverting i
   await expect(websiteRow).toContainText("https://elsewhere.example");
   await expect(websiteRow).toContainText("kept either way");
   await expect(page.locator("#status-msg")).toHaveText("Someone else saved this entry. Choose which version to keep.");
+  // Cancel decides nothing: saving again asks again instead of overwriting theirs.
+  await conflictDialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(conflictDialog).toBeHidden();
+  const askedAgain = page.waitForResponse(response =>
+    response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
+  );
+  await page.locator("#btn-save").click();
+  expect((await askedAgain).status()).toBe(409);
+  await expect(conflictDialog).toBeVisible();
+  const untouched = await page.request.get(`/api/cms/entries?collection=studio-fixture&id=${id}`);
+  expect((await untouched.json()).entries[0].data).toMatchObject({ title: "External edit", website: "https://elsewhere.example" });
   await conflictDialog.getByRole("button", { name: "Keep my edits" }).click();
   await expect(page.locator("#status-msg")).toHaveText("Your edits are on the latest version — Save to apply them");
   await expect(page.locator('[name="title"]')).toHaveValue("Local form edit");
