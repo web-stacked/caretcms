@@ -87,6 +87,10 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   await expect(page.locator('[name="summary"]')).toHaveAttribute("aria-describedby", "caret-field-summary-help");
   await expect(page.locator("#status-msg")).toHaveText("Not created yet");
   await expect(page.locator("#btn-save")).toHaveText("Create");
+  // Named as typed, and nothing to look back on or delete until it exists.
+  await expect(page.locator("h1")).toHaveText("Draft title");
+  await expect(page.locator("#btn-history")).toBeHidden();
+  await expect(page.locator("#entry-more")).toBeHidden();
   await expect(page.locator("#save-target")).toHaveText("Saving live");
   await expect(page.locator("#visibility-status")).toHaveText("Hidden");
   await expect(page.locator("#btn-preview")).toHaveAttribute("target", "_blank");
@@ -213,8 +217,11 @@ test("Studio CRUD uses schema-aware rows, image previews, and clear save state",
   const firstRevision = createdBody.entries[0].revision;
 
   await expect(page).toHaveURL(/\/admin\/cms\/studio-fixture\/first-studio-entry$/);
-  await expect(page.locator("#btn-save")).toHaveText("Save live");
+  await expect(page.locator("#entry-more")).toBeVisible();
+  // Nothing to save: changes save on their own, so there's no Save button.
+  await expect(page.locator("#btn-save")).toBeHidden();
   await page.locator('[name="summary"]').fill("Updated summary");
+  await expect(page.locator("#btn-save")).toHaveText("Save now");
   const updateSave = page.waitForResponse((response) =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
@@ -249,11 +256,11 @@ test("formatted fields keep supported markup while HTML editing stays secondary"
   const editor = page.locator('[name="summary"]');
   const saveButton = page.locator("#btn-save");
   await expect(page.locator("#status-msg")).toHaveText("All changes live");
-  await expect(saveButton).toBeDisabled();
+  await expect(saveButton).toBeHidden();
   await page.getByRole("button", { name: "Edit HTML" }).click();
   await page.getByRole("button", { name: "Show formatted" }).click();
   await expect(page.locator("#status-msg")).toHaveText("All changes live");
-  await expect(saveButton).toBeDisabled();
+  await expect(saveButton).toBeHidden();
 
   await editor.fill("Make this clear");
   await editor.evaluate((element) => {
@@ -480,6 +487,8 @@ test("Studio routes singleton collections directly and hides impossible actions"
   await expect(page).toHaveURL(/\/admin\/cms\/site-settings-fixture\/global$/);
   await expect(page.locator("#entry-title")).toHaveText("Site Settings");
   await expect(page.locator("#btn-delete")).toHaveCount(0);
+  // Nothing to preview or delete: no More actions menu with nothing in it.
+  await expect(page.locator("#entry-more")).toHaveCount(0);
 
   await page.goto("/admin/cms/site-settings-fixture");
   await expect(page).toHaveURL(/\/admin\/cms\/site-settings-fixture\/global$/);

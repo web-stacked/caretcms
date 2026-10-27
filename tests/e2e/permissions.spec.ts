@@ -81,7 +81,7 @@ test("writer edits a private draft while destructive and publishing actions stay
 
     const studio = await writer.newPage();
     await studio.goto("/admin/cms/pages/home");
-    await expect(studio.locator("#btn-save")).toHaveText("Save draft");
+    await expect(studio.locator("#btn-save")).toBeHidden();
     await expect(studio.locator("#btn-delete")).toHaveCount(0);
     await expect(studio.locator("#btn-history")).toBeHidden();
   } finally {

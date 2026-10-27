@@ -53,12 +53,16 @@ export async function GET(context: APIContext): Promise<Response> {
   const canRestore = editable && await canPerform("publish", collection, id);
   const savingToPreview = getRequestContext()?.overlayActive === true;
   const previewPath = resolvePreviewPath(collectionConfig, id);
+  // More actions only when there is something to do in it.
+  const hasMoreActions = Boolean(previewPath) || (savingToPreview && editable) || deletable;
   const publicationFieldName = publicationField(collectionConfig);
   const messages = runtime.messages;
   const isNew = context.url.searchParams.get("new") === "1";
   // Named as on every other screen; the page keeps it current as fields change.
   const stored = isNew ? null : await adapter.getEntry(collection, id).catch(() => null);
-  const entryTitle = entryDisplayTitle(collection, id, stored?.data, collectionConfig);
+  // A new entry is called what the editor typed in the create dialog.
+  const givenTitle = isNew ? context.url.searchParams.get("title")?.trim() : "";
+  const entryTitle = givenTitle || entryDisplayTitle(collection, id, stored?.data, collectionConfig);
 
   const config = {
     apiBasePath: runtime.apiBasePath,
@@ -236,7 +240,9 @@ export async function GET(context: APIContext): Promise<Response> {
         -webkit-box-orient: vertical;
         -webkit-line-clamp: 2;
       }
-      .editor-actions { width: 100%; }
+      /* History and More actions stay at the start, where their menu opens
+         rightward; Save (only while changes are pending) sits at the end. */
+      .editor-actions { width: 100%; justify-content: flex-start; }
       .editor-more-menu {
         right: auto;
         left: 0;
@@ -288,8 +294,8 @@ export async function GET(context: APIContext): Promise<Response> {
           ${publicationFieldName ? `<span id="visibility-status" class="entry-visibility" aria-live="polite"></span>` : ""}
         </div>
         <div class="editor-actions">
-          <button id="btn-history" ${canRestore ? "" : "hidden"} type="button" class="studio-btn-ghost" aria-controls="history-panel" aria-expanded="false">${escapeHtml(messages["entry.history"])}</button>
-          <details id="entry-more" class="editor-more">
+          <button id="btn-history" ${canRestore && !isNew ? "" : "hidden"} data-available="${canRestore}" type="button" class="studio-btn-ghost" aria-controls="history-panel" aria-expanded="false">${escapeHtml(messages["entry.history"])}</button>
+          ${hasMoreActions ? `<details id="entry-more" class="editor-more" ${isNew ? "hidden" : ""}>
             <summary class="studio-btn-ghost">${escapeHtml(messages["common.more"])}</summary>
             <div class="editor-more-menu">
               <div class="editor-context">
@@ -300,9 +306,9 @@ export async function GET(context: APIContext): Promise<Response> {
               ${savingToPreview && editable ? `<button id="btn-discard-draft" type="button" class="studio-btn-ghost" hidden>${escapeHtml(messages["entry.discardDraft"])}</button>` : ""}
               ${deletable ? `<button id="btn-delete" type="button" class="studio-btn-danger">${escapeHtml(messages["entry.delete"])}</button>` : ""}
             </div>
-          </details>
+          </details>` : ""}
           ${savingToPreview && editable ? `<button id="btn-publish" type="button" class="studio-btn-primary" hidden>${escapeHtml(messages["entry.publish"])}</button>` : ""}
-          <button id="btn-save" ${editable ? "" : "hidden"} type="button" class="studio-save-clean" disabled>${escapeHtml(savingToPreview ? messages["entry.saveDraft"] : messages["entry.saveLive"])}</button>
+          <button id="btn-save" hidden type="button" class="studio-save-clean" disabled>${escapeHtml(messages["entry.saveNow"])}</button>
         </div>
       </div>
 

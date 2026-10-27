@@ -361,15 +361,25 @@ import { whenServed } from './editor/image-utils.js';
     window.location.reload();
   }
 
+  /** History and More actions only once the entry exists. @param {boolean} exists */
+  function showEntryActions(exists) {
+    historyBtn.hidden = !exists || historyBtn.dataset.available !== "true";
+    var more = document.getElementById("entry-more");
+    if (more) more.hidden = !exists;
+  }
+
   /** @param {boolean} [preserveStatus] */
   function updateSaveButton(preserveStatus) {
     var dirty = isDirty();
+    // Changes save on their own; the button is there only while some are
+    // pending (to save at once) or to create a new entry.
+    saveBtn.hidden = CFG.editable === false || (!dirty && !creating && !saving);
     saveBtn.disabled = CFG.editable === false || (!dirty && !creating) || saving;
     saveBtn.classList.remove("studio-save-dirty", "studio-save-clean", "studio-save-saving");
     saveBtn.classList.add(saving ? "studio-save-saving" : (dirty || creating ? "studio-save-dirty" : "studio-save-clean"));
     saveBtn.textContent = saving ? msg("common.saving", "Saving…")
       : creating ? msg("entry.create", "Create")
-      : (SAVE_TARGET === "preview" ? msg("entry.saveDraft", "Save draft") : msg("entry.saveLive", "Save live"));
+      : msg("entry.saveNow", "Save now");
     updateDisplayedTitle();
     updateVisibility();
     updateDraftUi();
@@ -398,6 +408,8 @@ import { whenServed } from './editor/image-utils.js';
     setNestedValue(entryData, path, value);
     if (!saving) {
       saveBtn.disabled = CFG.editable === false;
+      saveBtn.hidden = CFG.editable === false;
+      if (!creating) saveBtn.textContent = msg("entry.saveNow", "Save now");
       saveBtn.classList.remove("studio-save-clean", "studio-save-saving");
       saveBtn.classList.add("studio-save-dirty");
     }
@@ -656,6 +668,7 @@ import { whenServed } from './editor/image-utils.js';
       if (typeof result.revision === "number") entryRevision = result.revision;
       if (creating) {
         creating = false;
+        showEntryActions(true);
         history.replaceState(null, "", window.location.pathname);
       }
       var previous = /** @type {Record<string, unknown>} */ (JSON.parse(originalJson || "{}"));
@@ -1737,6 +1750,7 @@ import { whenServed } from './editor/image-utils.js';
         liveData = result.live;
         if (IS_NEW && result.initialized) {
           creating = true;
+          showEntryActions(false);
           blankRequiredText(entryData, entrySchema);
           var givenTitle = new URLSearchParams(window.location.search).get("title");
           if (CFG.titleField && givenTitle) setNestedValue(entryData, CFG.titleField, givenTitle);

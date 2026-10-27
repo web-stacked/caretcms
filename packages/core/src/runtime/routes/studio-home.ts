@@ -78,17 +78,13 @@ export async function GET(context: APIContext): Promise<Response> {
 
   const navigation = await studioNavigation(runtime, adapter);
 
+  const entryHref = (collection: string, id: string) =>
+    `${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`;
+
   const pageEntryKeys = readPageEntryKeys(context.url);
   const pageEntries = await Promise.all(pageEntryKeys.map(async ({ collection, id }) => {
     const { title, collectionLabel, icon } = await describePageEntry(adapter, collection, id);
-    const href = `${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`;
-    return `<a href="${escapeHtml(href)}" class="studio-card-interactive studio-collection-card studio-page-entry" data-entry="${escapeHtml(`${collection}::${id}`)}">
-        <span class="studio-collection-icon">${renderCollectionIcon(icon, collection)}</span>
-        <span class="studio-collection-body">
-          <h3 class="studio-collection-name">${escapeHtml(title)}</h3>
-          <p class="studio-collection-description">${escapeHtml(collectionLabel)}</p>
-        </span>
-      </a>`;
+    return entryCard({ collection, id, title, detail: collectionLabel, icon, href: entryHref(collection, id) });
   }));
   const onThisPage = pageEntries.length === 0 ? "" : `<section class="studio-home-section" aria-labelledby="studio-on-this-page">
       <h2 id="studio-on-this-page" class="studio-home-section-title">${escapeHtml(runtime.messages["home.onThisPage"])}</h2>
@@ -100,15 +96,8 @@ export async function GET(context: APIContext): Promise<Response> {
   const unpublishedCards = await Promise.all(unpublished.map(async ({ collection, id, deleted }) => {
     const { title, collectionLabel, icon } = await describePageEntry(adapter, collection, id);
     const detail = deleted ? `${collectionLabel} · ${runtime.messages["entry.deleteNotPublished"]}` : collectionLabel;
-    const card = `<span class="studio-collection-icon">${renderCollectionIcon(icon, collection)}</span>
-        <span class="studio-collection-body">
-          <h3 class="studio-collection-name">${escapeHtml(title)}</h3>
-          <p class="studio-collection-description">${escapeHtml(detail)}</p>
-        </span>`;
     // A deleted entry has no page to open.
-    return deleted
-      ? `<div class="studio-card studio-collection-card studio-page-entry" data-entry="${escapeHtml(`${collection}::${id}`)}">${card}</div>`
-      : `<a href="${escapeHtml(`${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`)}" class="studio-card-interactive studio-collection-card studio-page-entry" data-entry="${escapeHtml(`${collection}::${id}`)}">${card}</a>`;
+    return entryCard({ collection, id, title, detail, icon, href: deleted ? null : entryHref(collection, id) });
   }));
   const notPublished = unpublishedCards.length === 0 ? "" : `<section class="studio-home-section" aria-labelledby="studio-not-published">
       <div class="studio-home-section-header">
@@ -243,4 +232,27 @@ export async function GET(context: APIContext): Promise<Response> {
       inlineScript,
     }),
   );
+}
+
+/**
+ * One entry as a card: its title, and where it lives unless that only repeats
+ * the title (a singleton named after its collection). Links when it has a page.
+ */
+function entryCard({ collection, id, title, detail, icon, href }: {
+  collection: string;
+  id: string;
+  title: string;
+  detail: string;
+  icon: Parameters<typeof renderCollectionIcon>[0];
+  href: string | null;
+}): string {
+  const body = `<span class="studio-collection-icon">${renderCollectionIcon(icon, collection)}</span>
+        <span class="studio-collection-body">
+          <h3 class="studio-collection-name">${escapeHtml(title)}</h3>
+          ${detail.trim().toLowerCase() === title.trim().toLowerCase() ? "" : `<p class="studio-collection-description">${escapeHtml(detail)}</p>`}
+        </span>`;
+  const entry = escapeHtml(`${collection}::${id}`);
+  return href
+    ? `<a href="${escapeHtml(href)}" class="studio-card-interactive studio-collection-card studio-page-entry" data-entry="${entry}">${body}</a>`
+    : `<div class="studio-card studio-collection-card studio-page-entry" data-entry="${entry}">${body}</div>`;
 }
