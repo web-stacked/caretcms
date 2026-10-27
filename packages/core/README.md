@@ -40,8 +40,7 @@ See [Static delivery](../../docs/static-delivery.md) and [Rendering & output](#r
 Fast path for an existing Astro site:
 
 ```bash
-npx @caretcms/caretize init
-npx @caretcms/caretize
+npx @caretcms/caretize init   # installs and wires CaretCMS, then tags your content
 npm run dev
 ```
 
@@ -57,11 +56,6 @@ export default defineConfig({
   integrations: [caret()],
 });
 ```
-
-Enable public access for the R2 bucket and set `R2_PUBLIC_DOMAIN` to that
-hostname, or pass `publicBaseUrl` to `r2Uploads()`. Uploads fail with an
-actionable configuration error if no public URL is available; Caret core does
-not mount an R2 image proxy.
 
 - **`astro dev`** — full authoring: `/admin`, `/api/cms`, inline editor.
 - **`astro build`** — bakes stored overrides into generated HTML; authoring routes stay out of production output.
@@ -147,9 +141,9 @@ Start the dev server:
 npm run dev
 ```
 
-With no password configured, a **temporary dev password is printed in the terminal** (dev only —
-production stays locked). To set a permanent one, add `CARET_EDIT_PASSWORD=<your-password>` to a
-`.env` file.
+With no password configured, dev uses a **temporary password kept in `.caret/dev-password`**
+(also shown by `astro dev logs`; dev only — production stays locked). To set your own, add
+`CARET_EDIT_PASSWORD=<your-password>` to a `.env` file.
 
 Log in at `/admin`, then click any tagged element on the page to edit it. The content Studio
 lives at `/admin/cms`.
@@ -421,6 +415,11 @@ export default defineConfig({
   ],
 });
 ```
+
+Enable public access for the R2 bucket and set `R2_PUBLIC_DOMAIN` to that
+hostname, or pass `publicBaseUrl` to `r2Uploads()`. Uploads fail with an
+actionable configuration error if no public URL is available; Caret core does
+not mount an R2 image proxy.
 
 ## API
 

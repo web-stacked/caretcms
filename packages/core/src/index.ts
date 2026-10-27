@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { fileURLToPath } from "node:url";
 import { basename, dirname, join, resolve } from "node:path";
@@ -1123,7 +1123,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           (!isStaticOutput || effectiveDelivery.mode === "static") &&
           resolved.mode !== "cloud" &&
           !hasEnvPassword
-            ? randomBytes(4).toString("hex")
+            ? devPasswordFile(fileURLToPath(config.root))
             : null;
 
         // Markdown storage owns src/content: its JSON files are data
@@ -1142,7 +1142,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
               __ASTRO_CARET_BRAND_CONFIG__: JSON.stringify(JSON.stringify(resolved.brand)),
               __ASTRO_CARET_LOCALE__: JSON.stringify(resolved.locale),
               __ASTRO_CARET_DICTIONARY__: JSON.stringify(JSON.stringify(resolved.dictionary)),
-              __ASTRO_CARET_DEV_PASSWORD__: JSON.stringify(devEditorPassword ?? ""),
+              __ASTRO_CARET_DEV_PASSWORD__: JSON.stringify(devEditorPassword?.password ?? ""),
               // Authoritative dev signal for the auth layer: the public fallback
               // session secret is honored only when this is true. Baked false in
               // production builds so a no-password deployment can't be unlocked
@@ -1343,9 +1343,9 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           logger.warn(
             `[caretcms] No CARET_EDIT_PASSWORD set — temporary dev login enabled so you can sign in now:\n` +
               `\n` +
-              `    password: ${devEditorPassword}\n` +
+              `    password: ${devEditorPassword.password}  (kept in ${DEV_PASSWORD_PATH})\n` +
               `\n` +
-              `  Sign in at ${resolved.mountPath}. To make it permanent, add\n` +
+              `  Sign in at ${resolved.mountPath}. To set your own, add\n` +
               `  CARET_EDIT_PASSWORD=<your-password> to a .env file and restart.\n` +
               `  This temporary password works in dev only; production stays locked.`,
           );
@@ -1421,3 +1421,36 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
 }
 
 export default caret;
+
+/** Where dev keeps its temporary password, relative to the project root. */
+const DEV_PASSWORD_PATH = ".caret/dev-password";
+
+/**
+ * The temporary dev password, kept in `.caret/dev-password` so it survives
+ * restarts and can be found without the dev server's output (Astro 7 runs
+ * `astro dev` in the background). The folder's own .gitignore keeps it out of
+ * commits.
+ */
+function devPasswordFile(root: string): { password: string } {
+  const file = join(root, DEV_PASSWORD_PATH);
+  try {
+    const kept = readFileSync(file, "utf8").trim();
+    if (/^[a-f0-9]{8,}$/.test(kept)) return { password: kept };
+  } catch {
+    // Not created yet.
+  }
+  const password = randomBytes(4).toString("hex");
+  try {
+    const dir = dirname(file);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, `${password}\n`, { mode: 0o600 });
+    const ignore = join(dir, ".gitignore");
+    const ignored = existsSync(ignore) ? readFileSync(ignore, "utf8") : "";
+    if (!ignored.split(/\r?\n/).includes("dev-password")) {
+      writeFileSync(ignore, `${ignored}${ignored && !ignored.endsWith("\n") ? "\n" : ""}dev-password\n`);
+    }
+  } catch {
+    // A read-only project still gets a password for this run.
+  }
+  return { password };
+}

@@ -212,7 +212,7 @@ export const EN_STUDIO_MESSAGES = {
   "login.invalid": "Invalid password.",
   "login.status": "Sign in to manage content.",
   "login.noPassword": "Caret needs an editor password before you can sign in.",
-  "login.devPassword": "Temporary dev password active — check your terminal to sign in.",
+  "login.devPassword": "Use the temporary dev password in .caret/dev-password.",
   "login.back": "← Back to site",
   "login.failed": "Login failed",
 } as const;
@@ -436,7 +436,7 @@ const ES_STUDIO_MESSAGES: StudioDictionary = {
   "login.invalid": "Contraseña incorrecta.",
   "login.status": "Inicia sesión para administrar el contenido.",
   "login.noPassword": "Caret necesita una contraseña de edición antes de iniciar sesión.",
-  "login.devPassword": "La contraseña temporal de desarrollo está activa — consúltala en la terminal.",
+  "login.devPassword": "Usa la contraseña temporal de desarrollo de .caret/dev-password.",
   "login.back": "← Volver al sitio",
   "login.failed": "No se pudo iniciar sesión",
 };

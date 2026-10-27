@@ -84,6 +84,18 @@ function getEditorPassword(): string | null {
 
 // True when the only thing unlocking the editor is the dev fallback — i.e. the
 // developer hasn't set a real password yet. Drives the on-page setup hint.
+/**
+ * Settings a production server still needs before anyone can sign in. Empty
+ * in dev, where a temporary password and secret stand in.
+ */
+export function missingProductionSettings(): string[] {
+  if (isDevContext()) return [];
+  const missing: string[] = [];
+  if (getConfiguredEditorPassword() === null) missing.push("CARET_EDIT_PASSWORD");
+  if (!(readEnv("CARET_SESSION_SECRET") ?? "").trim()) missing.push("CARET_SESSION_SECRET");
+  return missing;
+}
+
 export function isDevEditorPasswordActive(): boolean {
   return getConfiguredEditorPassword() === null && getDevFallbackPassword() !== null;
 }

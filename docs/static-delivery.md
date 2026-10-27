@@ -87,9 +87,9 @@ Same binding model as server delivery — see
 npm run dev
 ```
 
-Sign in at `/admin`. With no `CARET_EDIT_PASSWORD` set, a temporary dev password is
-printed in the terminal. Edit inline or in Studio; use Preview / Publish / Discard as
-usual.
+Sign in at `/admin`. With no `CARET_EDIT_PASSWORD` set, dev uses a temporary password
+kept in `.caret/dev-password` (also shown by `astro dev logs`). Edit inline or in
+Studio; use Publish / Discard as usual.
 
 ### 4. Ship baked HTML
 

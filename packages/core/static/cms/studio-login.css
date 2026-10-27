@@ -348,7 +348,7 @@
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.28);
   overflow: auto;
-  white-space: nowrap;
+  white-space: pre;
   font-family: var(--studio-font-mono);
   font-size: 0.85em;
 }
