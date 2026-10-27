@@ -1,4 +1,6 @@
 import { getRequestContext } from "../request-context.js";
+import { loadPageContent, withoutPageDefaults } from "../page-content.js";
+import { getRegisteredSchema } from "../schema-registry.js";
 export const prerender = false;
 
 import type { APIContext } from "astro";
@@ -106,6 +108,16 @@ export async function POST(context: APIContext): Promise<Response> {
     const type = (parsed.value as { type?: unknown } | null)?.type;
     adapter = !getRequestContext()?.demoMode && (type === "create_collection" || type === "delete_collection")
       ? (await getRuntimeServices()).adapter : await resolveAdapter();
+  }
+
+  // A whole-entry save from the Studio doesn't store text that still matches
+  // what the page shows on its own (schemaless collections, where no field is
+  // required to be stored).
+  const command = parsed.value as { type?: unknown; collection?: unknown; id?: unknown; data?: unknown };
+  if (command.type === "put_entry" && typeof command.collection === "string" && typeof command.id === "string" &&
+      command.data && typeof command.data === "object" && !getRegisteredSchema(command.collection)) {
+    const seed = (await loadPageContent())[command.collection]?.[command.id];
+    command.data = withoutPageDefaults(command.data as Record<string, unknown>, seed);
   }
 
   try {

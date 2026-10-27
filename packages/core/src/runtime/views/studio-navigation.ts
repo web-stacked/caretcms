@@ -1,6 +1,7 @@
 import { canPerform } from "../authorization.js";
+import { isPageCollection, loadPageContent } from "../page-content.js";
 import type { CaretRuntimeConfig } from "../config.js";
-import { getStudioCollections } from "../schema-registry.js";
+import { getRegisteredSchema, getStudioCollections } from "../schema-registry.js";
 import type { StorageAdapter } from "../../types.js";
 import { humanizeCollection, type StudioNavItem } from "./studio-layout.js";
 
@@ -14,10 +15,12 @@ export async function studioNavigation(
   selected?: string,
 ): Promise<StudioNavItem[]> {
   const collections = await getStudioCollections(adapter);
+  const pageContent = await loadPageContent();
   return Promise.all(collections.map(async ({ name, config }) => {
     const base = `${runtime.mountPath}/cms/${encodeURIComponent(name)}`;
     const label = config.label || humanizeCollection(name);
-    const creatable = !config.singletonId && config.creatable !== false && await canPerform("edit", name) && await canPerform("create", name);
+    const creatable = !config.singletonId && (config.creatable ?? !isPageCollection(pageContent, name, Boolean(getRegisteredSchema(name)))) &&
+      await canPerform("edit", name) && await canPerform("create", name);
     const entryLabel = config.entryLabel?.trim();
     return {
       name,

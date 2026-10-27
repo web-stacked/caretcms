@@ -9,14 +9,14 @@ import {
 } from "../schema-registry.js";
 import { inferJsonSchema, buildTemplate } from "../../schema-utils.js";
 import { stripBodyOverlay } from "../utils.js";
-import { json, resolveAdapter } from "./_helpers.js";
+import { json, resolveReadAdapter } from "./_helpers.js";
 
 export async function GET(context: APIContext): Promise<Response> {
   if (!isEditorAuthenticated(context)) {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  const adapter = await resolveAdapter();
+  const adapter = await resolveReadAdapter();
   const collectionRaw = (context.url.searchParams.get("collection") ?? "")
     .trim()
     .toLowerCase();

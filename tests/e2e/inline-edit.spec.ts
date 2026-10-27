@@ -163,8 +163,8 @@ test.describe("inline editor — click to edit", () => {
     const studio = page.frameLocator('iframe[title="Content Studio"]');
     await expect(studio.getByRole("button", { name: "Sign out" })).toBeHidden();
     await expect(studio.locator(".studio-header")).toBeHidden();
-    // Opening the drawer moves focus into the Studio page.
-    await expect(studio.locator("h1:visible, main").first()).toBeFocused();
+    // Opening the drawer moves focus into the Studio page: its heading, else its main area.
+    await expect(studio.locator("h1:focus, main:focus")).toHaveCount(1);
     await page.keyboard.press("Escape");
     await expect(page.locator(".cms-studio-panel")).toHaveAttribute("aria-hidden", "true");
     await expect(studioButton).toBeFocused();

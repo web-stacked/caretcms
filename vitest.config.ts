@@ -10,6 +10,9 @@ export default defineConfig({
       'virtual:caretcms/schemas': fileURLToPath(
         new URL('./tests/unit/stubs/schemas.ts', import.meta.url),
       ),
+      'virtual:caretcms/page-content': fileURLToPath(
+        new URL('./tests/unit/stubs/page-content.ts', import.meta.url),
+      ),
     },
   },
   test: {

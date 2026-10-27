@@ -188,6 +188,9 @@ export function validateJsonSchema(
   return visit(value, schema, "");
 }
 
+const INFERRED_IMAGE_RE = /^(?:\/|\.{1,2}\/|https?:\/\/)\S*\.(?:avif|gif|jpe?g|png|svg|webp)(?:\?\S*)?$/i;
+const INFERRED_HTML_RE = /<(strong|em|b|i|u|s|a|code|mark|small|sub|sup)\b[^>]*>[\s\S]*?<\/\1>/i;
+
 export function inferJsonSchema(value: unknown): JsonSchemaNode {
   if (value === null || value === undefined) {
     return { type: "string", default: "" };
@@ -210,7 +213,13 @@ export function inferJsonSchema(value: unknown): JsonSchemaNode {
     return { type: "object", properties, required };
   }
 
-  if (typeof value === "string") return { type: "string", default: "" };
+  if (typeof value === "string") {
+    // A path to an image file is an image; text with inline formatting
+    // (<strong>, <a href>…) is edited as formatted text.
+    if (INFERRED_IMAGE_RE.test(value.trim())) return { type: "string", format: "image", default: "" };
+    if (INFERRED_HTML_RE.test(value)) return { type: "string", format: "html", default: "" };
+    return { type: "string", default: "" };
+  }
   if (typeof value === "number") return { type: "number", default: 0 };
   if (typeof value === "boolean") return { type: "boolean", default: false };
   return { type: "string", default: "" };

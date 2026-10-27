@@ -41,7 +41,9 @@ test("the drawer shows what inline edits saved, including an entry's first save"
   const studioButton = page.getByRole("button", { name: "Studio", exact: true });
   const studio = page.frameLocator('iframe[title="Content Studio"]');
   await studioButton.click();
-  await expect(studio.getByText("Nothing is saved for this content yet")).toBeVisible();
+  // Nothing saved yet: the entry opens with the text the page shows.
+  await expect(studio.getByRole("textbox", { name: "Headline", exact: true }))
+    .toHaveValue("Launch an Astro site with live inline editing.");
   await page.locator(".cms-panel-close").click();
 
   const headline = page.locator('[data-caret="hero.headline"]');

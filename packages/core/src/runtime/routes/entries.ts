@@ -1,6 +1,7 @@
 export const prerender = false;
 
 import type { APIContext } from "astro";
+import { loadPageContent, withPageContent } from "../page-content.js";
 import { matchEntry } from "../entry-search.js";
 import { canPerform } from "../authorization.js";
 import { unpublishedEntries } from "../unpublished.js";
@@ -11,7 +12,7 @@ import { stripBodyOverlay } from "../utils.js";
 import { getRegisteredSchema, resolveCollectionStudioConfig } from "../schema-registry.js";
 import { validateJsonSchema, type JsonSchemaValidationIssue } from "../../schema-utils.js";
 import { contentReadFailure } from "../content-errors.js";
-import { json, resolveAdapter } from "./_helpers.js";
+import { json, resolveReadAdapter } from "./_helpers.js";
 import { getRequestContext } from "../request-context.js";
 import { readEntrySnapshot, readEntrySnapshots } from "../storage/read-snapshot.js";
 
@@ -126,7 +127,7 @@ export async function GET(context: APIContext): Promise<Response> {
   }
 
   try {
-    const adapter = await resolveAdapter();
+    const adapter = await resolveReadAdapter();
     const { collection, id: singleId, page, pageSize, q } = query;
     const collectionConfig = await resolveCollectionStudioConfig(adapter, collection);
     const titled = (entry: CmsEntryResponse): CmsEntryResponse =>
@@ -140,8 +141,9 @@ export async function GET(context: APIContext): Promise<Response> {
       // With a private draft overlay, also return what visitors see, so the
       // Studio can say whether this entry has unpublished changes and what
       // publishing would change.
+      // Seeded the same way, so an entry nobody has edited matches the page.
       const base = getRequestContext()?.publishedAdapter;
-      const published = base ? await readEntrySnapshot(base, collection, singleId) : null;
+      const published = base ? await readEntrySnapshot(withPageContent(base, await loadPageContent()), collection, singleId) : null;
 
       // With an authorization policy, say when this editor may not edit the
       // entry, so the page can show it read-only instead of failing on save.

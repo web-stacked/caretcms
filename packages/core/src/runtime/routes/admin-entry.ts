@@ -1,11 +1,13 @@
 import { canPerform } from "../authorization.js";
+import { isPageCollection, loadPageContent } from "../page-content.js";
 export const prerender = false;
 
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { getRuntimeConfig } from "../config.js";
-import { resolveAdapter } from "./_helpers.js";
+import { resolveReadAdapter } from "./_helpers.js";
 import {
+  getRegisteredSchema,
   isKnownStudioCollection,
   resolveCollectionStudioConfig,
 } from "../schema-registry.js";
@@ -35,7 +37,7 @@ export async function GET(context: APIContext): Promise<Response> {
     return redirectResponse(`${runtime.mountPath}/cms`);
   }
 
-  const adapter = await resolveAdapter();
+  const adapter = await resolveReadAdapter();
   if (!(await isKnownStudioCollection(adapter, collection))) {
     return redirectResponse(`${runtime.mountPath}/cms`);
   }
@@ -49,7 +51,8 @@ export async function GET(context: APIContext): Promise<Response> {
   const label = collectionConfig.label || humanizeCollection(collection);
   const navigation = await studioNavigation(runtime, adapter, collection);
   const editable = await canPerform("edit", collection, id);
-  const deletable = editable && collectionConfig.deletable !== false && !collectionConfig.singletonId && await canPerform("delete", collection, id);
+  const pageCollection = isPageCollection(await loadPageContent(), collection, Boolean(getRegisteredSchema(collection)));
+  const deletable = editable && (collectionConfig.deletable ?? !pageCollection) && !collectionConfig.singletonId && await canPerform("delete", collection, id);
   const canRestore = editable && await canPerform("publish", collection, id);
   const savingToPreview = getRequestContext()?.overlayActive === true;
   const previewPath = resolvePreviewPath(collectionConfig, id);

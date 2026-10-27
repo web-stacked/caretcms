@@ -25,3 +25,8 @@ declare module "virtual:caretcms/providers" {
 declare module "virtual:caretcms/schemas" {
   export const registered: boolean;
 }
+
+declare module "virtual:caretcms/page-content" {
+  const content: Record<string, Record<string, Record<string, string>>>;
+  export default content;
+}

@@ -6,7 +6,7 @@ const isDev = typeof __ASTRO_CARET_DEV__ === "boolean" && __ASTRO_CARET_DEV__;
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { getRuntimeConfig } from "../config.js";
-import { resolveAdapter } from "./_helpers.js";
+import { resolveReadAdapter } from "./_helpers.js";
 import {
   getStudioCollections,
   resolveCollectionStudioConfig,
@@ -73,7 +73,7 @@ export async function GET(context: APIContext): Promise<Response> {
     return redirectResponse(loginRedirect);
   }
 
-  const adapter = await resolveAdapter();
+  const adapter = await resolveReadAdapter();
   const configuredCollections = await getStudioCollections(adapter);
 
   const navigation = await studioNavigation(runtime, adapter);

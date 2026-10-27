@@ -1,10 +1,11 @@
 import { canPerform } from "../authorization.js";
+import { isPageCollection, loadPageContent } from "../page-content.js";
 export const prerender = false;
 
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { getRuntimeConfig } from "../config.js";
-import { resolveAdapter } from "./_helpers.js";
+import { resolveReadAdapter } from "./_helpers.js";
 import {
   getRegisteredSchema,
   isKnownStudioCollection,
@@ -36,7 +37,7 @@ export async function GET(context: APIContext): Promise<Response> {
     return redirectResponse(`${runtime.mountPath}/cms`);
   }
 
-  const adapter = await resolveAdapter();
+  const adapter = await resolveReadAdapter();
   if (!(await isKnownStudioCollection(adapter, collection))) {
     return redirectResponse(`${runtime.mountPath}/cms`);
   }
@@ -50,8 +51,10 @@ export async function GET(context: APIContext): Promise<Response> {
   const label = collectionConfig.label || humanizeCollection(collection);
   const navigation = await studioNavigation(runtime, adapter, collection);
   const messages = runtime.messages;
-  const creatable = collectionConfig.creatable !== false && await canPerform("edit", collection) && await canPerform("create", collection);
-  const orderable = collectionConfig.orderable !== false && await canPerform("edit", collection);
+  // Pages a template binds are listed to edit, not to add to or reorder.
+  const pageCollection = isPageCollection(await loadPageContent(), collection, Boolean(getRegisteredSchema(collection)));
+  const creatable = (collectionConfig.creatable ?? !pageCollection) && await canPerform("edit", collection) && await canPerform("create", collection);
+  const orderable = (collectionConfig.orderable ?? !pageCollection) && await canPerform("edit", collection);
   const publicationFieldName = publicationField(collectionConfig);
   const registeredSchema = getRegisteredSchema(collection)?.schema;
   const schemaProperties = registeredSchema?.properties ?? {};

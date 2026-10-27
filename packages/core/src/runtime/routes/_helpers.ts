@@ -1,4 +1,5 @@
 import type { StorageAdapter, UploadHandler } from "../../types.js";
+import { loadPageContent, withPageContent } from "../page-content.js";
 import {
   getRequestContext,
   requireRequestContext,
@@ -32,6 +33,14 @@ export async function resolveAdapter(): Promise<StorageAdapter> {
   const ctx = getRequestContext();
   if (ctx) return ctx.adapter;
   return (await bootstrapRequestContext()).adapter;
+}
+
+/**
+ * The adapter for Studio and editor reads: it also lists what pages show
+ * before anything is saved (page-content.ts). Never for writes.
+ */
+export async function resolveReadAdapter(): Promise<StorageAdapter> {
+  return withPageContent(await resolveAdapter(), await loadPageContent());
 }
 
 export async function resolveUploadHandler(): Promise<UploadHandler> {
