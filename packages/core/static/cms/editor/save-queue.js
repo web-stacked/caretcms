@@ -1,4 +1,4 @@
-import { buildCmsUrl, isPolicyDraftMode, isStaticDelivery } from './config.js';
+import { buildCmsUrl, savesDrafts } from './config.js';
 import { mutateHeaders, readHeaders } from './security.js';
 
 /** @typedef {{ revision: number, baseRevision?: number, data: Record<string, unknown> }} EntrySnapshot */
@@ -97,7 +97,7 @@ async function fetchEntrySnapshot(collection, id, onUnauthorized) {
  * @returns {SaveField}
  */
 export function createSaveField({ setStatus, onUnauthorized }) {
-  const savesToDraft = isPolicyDraftMode() || isStaticDelivery();
+  const savesToDraft = savesDrafts();
   /** @type {Promise<unknown>} */
   let saveQueue = Promise.resolve();
   /** @type {Map<string, number>} */

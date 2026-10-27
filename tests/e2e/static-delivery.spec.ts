@@ -175,6 +175,8 @@ test("keeps a saved draft on reload without exposing it to other visitors", asyn
   await page.locator('h1[data-caret]').fill(headline);
   await page.getByRole("button", { name: "Preview", exact: true }).click();
   await expect(page.locator(".cms-status-text")).toHaveText("Draft saved");
+  // The confirmation says it isn't public yet.
+  await expect(page.locator(".cms-toast-msg").filter({ hasText: "Draft saved. Publish to show it to visitors." })).toBeVisible();
 
   const response = await page.reload();
   expect(await response!.text()).toContain(headline);
@@ -256,7 +258,7 @@ test("rejects an older editor draft and keeps Publish above the Astro toolbar", 
     // A real click must reach Publish after keyboard focus enters the developer dock.
     const result = pages[0].waitForResponse(response => response.url().includes("/api/cms/publish"));
     await pages[0].locator(".cms-publish-btn").click();
-    await pages[0].getByRole("dialog", { name: "Publish drafts?" }).getByRole("button", { name: "Publish", exact: true }).click();
+    await pages[0].getByRole("dialog", { name: /^Publish \d+ changes?\?$/ }).getByRole("button", { name: "Publish", exact: true }).click();
     expect((await (await result).json()).conflicts).toEqual([{ collection: "pages", id: "home", reason: "stale_entry", title: "Older draft" }]);
     await expect(pages[0].locator(".cms-status-text")).toHaveText("Not published");
     expect(JSON.parse(readFileSync(resolve(FIXTURE, ".caret/data/pages/home.json"), "utf8")).headline).toBe("Newer published draft");
@@ -293,13 +295,13 @@ test("discards a draft and retries a failed deploy through toolbar requests", as
     const discarded = page.waitForResponse(response =>
       response.url().includes("/api/cms/draft") && response.request().method() === "DELETE");
     await page.locator(".cms-discard-btn").click();
-    const discardDialog = page.getByRole("dialog", { name: "Discard drafts?" });
+    const discardDialog = page.getByRole("dialog", { name: "Discard 1 unpublished change?" });
     await expect(discardDialog).toContainText("This permanently removes 1 unpublished change.");
-    await discardDialog.getByRole("button", { name: "Discard drafts" }).click();
+    await discardDialog.getByRole("button", { name: "Discard", exact: true }).click();
     expect((await discarded).ok()).toBe(true);
     await page.waitForLoadState("domcontentloaded");
     // The result survives the reload that follows a discard.
-    await expect(page.locator(".cms-toast-success .cms-toast-msg")).toHaveText("Drafts discarded");
+    await expect(page.locator(".cms-toast-success .cms-toast-msg")).toHaveText("Discarded 1 unpublished change");
     expect((await (await page.request.get("/api/cms/draft")).json()).count).toBe(0);
 
     expect((await saveDraft("Retry deployment target")).ok()).toBe(true);
@@ -307,7 +309,7 @@ test("discards a draft and retries a failed deploy through toolbar requests", as
     const failedPublish = page.waitForResponse(response =>
       response.url().includes("/api/cms/publish") && response.request().method() === "POST");
     await page.locator(".cms-publish-btn").click();
-    await page.getByRole("dialog", { name: "Publish drafts?" }).getByRole("button", { name: "Publish", exact: true }).click();
+    await page.getByRole("dialog", { name: /^Publish \d+ changes?\?$/ }).getByRole("button", { name: "Publish", exact: true }).click();
     expect(await (await failedPublish).json()).toMatchObject({
       rebuild: { triggered: true, ok: false, status: 503 },
       retryAvailable: true,

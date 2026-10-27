@@ -1,4 +1,5 @@
 import { createTextLinkInteractions } from './text-link-interactions.js';
+import { savesDrafts } from './config.js';
 import { describeEditableText } from './a11y.js';
 import { resolveBinding } from './helpers.js';
 import { ALLOWED_TAGS, sanitizeHtml } from './sanitize.js';
@@ -249,8 +250,10 @@ export function mountTextEditors({
     const finishEdit = (retried) => {
       if (!editSaved) return;
       editSaved = false;
+      // In draft modes a save isn't public yet; say so, as Markdown blocks do.
       showToast.saved({
-        message: retried ? 'Your change is saved' : 'Saved',
+        message: savesDrafts() ? 'Draft saved. Publish to show it to visitors.'
+          : retried ? 'Your change is saved' : 'Saved',
         action: { label: 'Undo', onClick: undoLastEdit },
       });
     };

@@ -511,7 +511,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   publishBtn?.addEventListener('click', async () => {
     const changes = changeCount(draftCount);
     if (!(await confirmToolbarAction({
-      title: 'Publish drafts?',
+      title: `Publish ${draftCount === 1 ? '1 change' : `${draftCount} changes`}?`,
       // When visitors see it depends on the server (a Markdown source can need
       // a rebuild), so only static delivery says it here; the result says it.
       copy: staticDelivery
@@ -525,16 +525,17 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
 
   const discardBtn = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-discard-btn'));
   discardBtn?.addEventListener('click', async () => {
+    const changes = changeCount(draftCount);
     if (!(await confirmToolbarAction({
-      title: 'Discard drafts?',
-      copy: `This permanently removes ${changeCount(draftCount)}.`,
-      confirmLabel: 'Discard drafts',
+      title: `Discard ${changes}?`,
+      copy: `This permanently removes ${changes}.`,
+      confirmLabel: 'Discard',
       danger: true,
       restoreFocus: discardBtn,
     }))) return;
     try {
       await draftClient.discard();
-      reloadWithToast('Drafts discarded', 'success');
+      reloadWithToast(`Discarded ${changes}`, 'success');
     } catch {
       showToast('Discard failed', 'error');
     }

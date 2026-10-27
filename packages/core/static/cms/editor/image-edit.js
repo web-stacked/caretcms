@@ -1,4 +1,4 @@
-import { buildCmsUrl } from './config.js';
+import { buildCmsUrl, savesDrafts } from './config.js';
 import { uploadHeaders } from './security.js';
 import { resolveBinding } from './helpers.js';
 import { whenServed } from './image-utils.js';
@@ -282,7 +282,7 @@ export function mountImageEditors({
       const result = await saveField(resolved.collection, resolved.id, resolved.field, url);
       if (result.ok) {
         syncBoundImages(marker, url);
-        showToast('Image updated', 'success');
+        showToast(savesDrafts() ? 'Image saved as a draft. Publish to show it to visitors.' : 'Image updated', 'success');
         await altPrompt.ask(img, resolved);
       } else if (result.reason === 'conflict') {
         runImageConflict(img, resolved, marker, url, result.latestValue);

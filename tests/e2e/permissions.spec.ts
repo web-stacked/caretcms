@@ -114,7 +114,7 @@ test("reviewer draft is isolated and can be published with attributed history", 
     const publishingPromise = reviewerPage.waitForResponse(response =>
       response.url().includes("/api/cms/publish") && response.request().method() === "POST");
     await reviewerPage.locator(".cms-publish-btn").click();
-    await reviewerPage.getByRole("dialog", { name: "Publish drafts?" }).getByRole("button", { name: "Publish", exact: true }).click();
+    await reviewerPage.getByRole("dialog", { name: /^Publish \d+ changes?\?$/ }).getByRole("button", { name: "Publish", exact: true }).click();
     const publishing = await publishingPromise;
     expect(publishing.ok()).toBe(true);
     await reviewerPage.waitForLoadState("domcontentloaded");

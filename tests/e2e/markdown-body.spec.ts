@@ -145,7 +145,7 @@ test("edits rendered Markdown, publishes through the toolbar, and renders after 
     response.url().includes("/api/cms/publish") && response.request().method() === "POST",
   );
   await page.locator(".cms-publish-btn").click();
-  const dialog = page.getByRole("dialog", { name: "Publish drafts?" });
+  const dialog = page.getByRole("dialog", { name: /^Publish \d+ changes?\?$/ });
   await expect(dialog).toContainText("This publishes 1 unpublished change.");
   await dialog.getByRole("button", { name: "Publish", exact: true }).click();
   const publish = await publishPromise;
@@ -439,7 +439,7 @@ test("recovers a Markdown publish after history storage fails", async ({ page })
   try {
     const pending = page.waitForResponse(response => response.url().includes("/api/cms/publish"));
     await page.locator(".cms-publish-btn").click();
-    await page.getByRole("dialog", { name: "Publish drafts?" }).getByRole("button", { name: "Publish", exact: true }).click();
+    await page.getByRole("dialog", { name: /^Publish \d+ changes?\?$/ }).getByRole("button", { name: "Publish", exact: true }).click();
     const failed = await (await pending).json();
     expect(failed.failed).toEqual([{ collection: "blog", id: "ship-something-real", reason: "storage_error", title: "Ship something real" }]);
     await expect(page.locator(".cms-status-text")).toHaveText("Publish didn’t finish");
@@ -577,7 +577,7 @@ test('splits, merges, inserts and deletes paragraphs with undo, then publishes a
   expect((await resaving).ok()).toBe(true);
   const publishing = page.waitForResponse(response => response.url().includes('/api/cms/publish') && response.request().method() === 'POST');
   await page.locator('.cms-publish-btn').click();
-  await page.getByRole('dialog', { name: 'Publish drafts?' }).getByRole('button', { name: 'Publish', exact: true }).click();
+  await page.getByRole('dialog', { name: /^Publish \d+ changes?\?$/ }).getByRole('button', { name: 'Publish', exact: true }).click();
   expect((await publishing).ok()).toBe(true);
   const source = readFileSync(POST, 'utf8');
   expect(source).toContain('Alpha\n\nBeta continued\n\nInserted paragraph.');
