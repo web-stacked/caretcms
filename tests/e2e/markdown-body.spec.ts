@@ -557,11 +557,12 @@ test('splits, merges, inserts and deletes paragraphs with undo, then publishes a
   });
   await page.keyboard.press('Backspace');
   await expect(group).not.toContainText('Inserted paragraph.');
+  // Wait before the last edit: autosave can fire 1.2 s later, before the blur.
+  const saving = page.waitForResponse(isMutatePost);
   await page.keyboard.press('ControlOrMeta+z');
   await expect(group).toContainText('Inserted paragraph.');
   await expect(page.locator('.post-body blockquote')).toHaveText(originalQuote!);
 
-  const saving = page.waitForResponse(isMutatePost);
   await group.evaluate(element => (element as HTMLElement).blur());
   expect((await saving).ok()).toBe(true);
   expect(readFileSync(POST, 'utf8')).toBe(ORIGINAL);
@@ -570,8 +571,8 @@ test('splits, merges, inserts and deletes paragraphs with undo, then publishes a
   await page.screenshot({ path: test.info().outputPath('paragraph-preview.png'), fullPage: true });
   // Continue editing the reloaded structural draft; formatting must survive.
   await caret(1, true);
-  await page.keyboard.type(' continued');
   const resaving = page.waitForResponse(isMutatePost);
+  await page.keyboard.type(' continued');
   await group.evaluate(element => (element as HTMLElement).blur());
   expect((await resaving).ok()).toBe(true);
   const publishing = page.waitForResponse(response => response.url().includes('/api/cms/publish') && response.request().method() === 'POST');
