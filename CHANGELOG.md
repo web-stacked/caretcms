@@ -8,77 +8,28 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
-Makes editing simpler and safer: edits save on their own with Undo, drafts say
-what Publish will do, and the Studio speaks the editor's language. Some changes
-affect policies, dictionaries and stored layouts; see **Changed**.
+## [0.6.0] - 2026-11-03
 
-### Added
+Redesigns the Studio and the toolbar, makes editing simpler and safer (edits
+save on their own with Undo, drafts say what Publish will do, the Studio lists
+page content before anything is saved), and fixes 22 bugs found in a review of
+0.5.0. Some changes affect stored data, API responses, permission policies and
+Studio dictionaries; read the [upgrade steps](docs/releases/0.6.0.md#upgrading)
+first.
 
-- Autosave for on-page text, Markdown body blocks and Studio forms, with Undo
-  in the save message, Cmd/Ctrl+Z after a save, and History one click away.
-- A status pill in the toolbar (Live or Draft, saving, unsaved, failed) with a
-  panel holding the details and the last problem.
-- Publish, Discard and a list of unpublished changes in the Studio, for
-  static delivery and policy modes. Publish and Discard dialogs say what they
-  will do and report what they did.
-- History shows what each change did in the form's words, with the changed
-  words marked for text edits.
-- Search inside entries with matching snippets, and a command palette that
-  runs actions ("New team member").
-- The Studio drawer opens the entry for the current page, or an "On this
-  page" list.
-- Date and date-and-time pickers for `format: date` and `date-time` fields.
-- Drop an image file onto an editable image to replace it, then describe it
-  when the entry has an alt-text field.
-- Undo for deleting entries and page sections.
-- Keyboard access: a skip link to the toolbar, arrow keys within it, and a
-  skip link to Studio forms.
-- Astro `file()` data collections and single-object data files are editable in
-  place, keeping their formatting.
-- `astro dev` and `astro preview` load `CARET_*` settings from `.env` files.
-- `StorageAdapter.isDocumentCollection()` (optional) marks collections whose
-  entries are data, not Markdown documents.
-- A `create` authorization action (see **Changed**).
-- The Studio lists text and images that templates bind with `data-caret`
-  before anything is saved, with the page's own content. Saving from the
-  Studio stores only what changed, so untouched text keeps following the
-  template.
-- `caretize init` offers to tag your content right after wiring CaretCMS, so
-  the first run is one command.
+### Security
 
-### Changed
-
-- **Policies:** creating an entry in the Studio needs both `edit` and the new
-  `create` action. A policy that grants only the actions it knows denies
-  creation until it also returns `true` for `create`. A first save to content
-  a page already shows is still an `edit`.
-- **`@caretcms/zod`:** a `.describe()` that becomes a field's label is no
-  longer repeated as help text. Use `.meta({ title })` with `.describe()` to
-  show both.
-- **Page layouts:** stored layouts keep any well-formed section key, and the
-  section controls offer the kinds the page templates name
-  (`data-caret-section-label`). The built-in list of section keys and its old
-  key renames are gone.
-- **Draft mode** is decided by the server: static delivery and an active
-  policy make every edit a private draft; server delivery without a policy
-  saves live (in production builds, Markdown body edits still wait for
-  Publish). The `caret_preview` cookie is no longer read, so it can't turn on
-  private drafts for a server-delivered site.
-- **Studio dictionary:** `entry.saveNow` ("Save now") replaces
-  `entry.saveLive` and `entry.saveDraft`. The Save button appears only while
-  changes are waiting.
-- Pending Git history and the caretize hint moved from the editor toolbar to
-  the Astro developer toolbar.
-- Entries and fields use the names editors know: singleton labels, title
-  fields, and humanized ids instead of raw ids.
-- New entries are created by name, with the web address filled in and
-  editable on request.
-- **Dev password:** the temporary password is kept in `.caret/dev-password`
-  (stable across restarts, git-ignored) and shown by `astro dev logs`; Astro 7
-  runs `astro dev` in the background, so it no longer reached the terminal.
-- caretize prints `npx @caretcms/caretize` everywhere, names prose after its
-  heading or landmark (`what_we_bake_text`, `footer_text`), and inserts
-  attributes after the last attribute, keeping the tag's own spacing.
+- The rewrite engine reads bindings only from element tags. Bindings inside
+  comments, attribute values, `<script>` text, and SVG/MathML are ignored.
+- Sanitization decodes HTML entities once. URLs are checked after decoding and
+  reject unsafe schemes, control characters, and backslashes.
+- Editor, Studio, and API responses send `Cache-Control: private, no-store`.
+- Login and upload limit request size while reading the body and cancel
+  oversized requests.
+- KV editor and session overlays use the site's `keyPrefix`. Prefixed sites in
+  one namespace no longer share drafts.
+- Worker session cookies are verified before a private overlay is chosen.
+  Forged cookies get public content.
 
 ### Fixed
 
@@ -100,28 +51,6 @@ affect policies, dictionaries and stored layouts; see **Changed**.
   session secret) instead of failing with a 500 after submit.
 - `caretize init` without a terminal says to pass `-y` instead of exiting
   silently.
-
-## [0.6.0] - 2026-10-11
-
-Fixes 22 bugs found in a review of 0.5.0. Some fixes change stored data or API
-responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
-
-### Security
-
-- The rewrite engine reads bindings only from element tags. Bindings inside
-  comments, attribute values, `<script>` text, and SVG/MathML are ignored.
-- Sanitization decodes HTML entities once. URLs are checked after decoding and
-  reject unsafe schemes, control characters, and backslashes.
-- Editor, Studio, and API responses send `Cache-Control: private, no-store`.
-- Login and upload limit request size while reading the body and cancel
-  oversized requests.
-- KV editor and session overlays use the site's `keyPrefix`. Prefixed sites in
-  one namespace no longer share drafts.
-- Worker session cookies are verified before a private overlay is chosen.
-  Forged cookies get public content.
-
-### Fixed
-
 - Static development pages show the signed-in editor's draft after a reload,
   including routes from `getStaticPaths`. Static production builds contain only
   published content.
@@ -176,6 +105,37 @@ responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
 
 ### Added
 
+- Autosave for on-page text, Markdown body blocks and Studio forms, with Undo
+  in the save message, Cmd/Ctrl+Z after a save, and History one click away.
+- A status pill in the toolbar (Live or Draft, saving, unsaved, failed) with a
+  panel holding the details and the last problem.
+- Publish, Discard and a list of unpublished changes in the Studio, for
+  static delivery and policy modes. Publish and Discard dialogs say what they
+  will do and report what they did.
+- History shows what each change did in the form's words, with the changed
+  words marked for text edits.
+- Search inside entries with matching snippets, and a command palette that
+  runs actions ("New team member").
+- The Studio drawer opens the entry for the current page, or an "On this
+  page" list.
+- Date and date-and-time pickers for `format: date` and `date-time` fields.
+- Drop an image file onto an editable image to replace it, then describe it
+  when the entry has an alt-text field.
+- Undo for deleting entries and page sections.
+- Keyboard access: a skip link to the toolbar, arrow keys within it, and a
+  skip link to Studio forms.
+- Astro `file()` data collections and single-object data files are editable in
+  place, keeping their formatting.
+- `astro dev` and `astro preview` load `CARET_*` settings from `.env` files.
+- `StorageAdapter.isDocumentCollection()` (optional) marks collections whose
+  entries are data, not Markdown documents.
+- A `create` authorization action (see **Changed**).
+- The Studio lists text and images that templates bind with `data-caret`
+  before anything is saved, with the page's own content. Saving from the
+  Studio stores only what changed, so untouched text keeps following the
+  template.
+- `caretize init` offers to tag your content right after wiring CaretCMS, so
+  the first run is one command.
 - Merged draft views include `baseRevision`. Send it as `expectedBaseRevision`;
   a stale value returns 409 with `currentBaseRevision`.
 - Optional `StorageAdapter` members: `guarantees`, `getEntrySnapshot`,
@@ -216,6 +176,37 @@ responses; read the [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
 
 ### Changed
 
+- **Policies:** creating an entry in the Studio needs both `edit` and the new
+  `create` action. A policy that grants only the actions it knows denies
+  creation until it also returns `true` for `create`. A first save to content
+  a page already shows is still an `edit`.
+- **`@caretcms/zod`:** a `.describe()` that becomes a field's label is no
+  longer repeated as help text. Use `.meta({ title })` with `.describe()` to
+  show both.
+- **Page layouts:** stored layouts keep any well-formed section key, and the
+  section controls offer the kinds the page templates name
+  (`data-caret-section-label`). The built-in list of section keys and its old
+  key renames are gone.
+- **Draft mode** is decided by the server: static delivery and an active
+  policy make every edit a private draft; server delivery without a policy
+  saves live (in production builds, Markdown body edits still wait for
+  Publish). The `caret_preview` cookie is no longer read, so it can't turn on
+  private drafts for a server-delivered site.
+- **Studio dictionary:** `entry.saveNow` ("Save now") replaces
+  `entry.saveLive` and `entry.saveDraft`. The Save button appears only while
+  changes are waiting.
+- Pending Git history and the caretize hint moved from the editor toolbar to
+  the Astro developer toolbar.
+- Entries and fields use the names editors know: singleton labels, title
+  fields, and humanized ids instead of raw ids.
+- New entries are created by name, with the web address filled in and
+  editable on request.
+- **Dev password:** the temporary password is kept in `.caret/dev-password`
+  (stable across restarts, git-ignored) and shown by `astro dev logs`; Astro 7
+  runs `astro dev` in the background, so it no longer reached the terminal.
+- caretize prints `npx @caretcms/caretize` everywhere, names prose after its
+  heading or landmark (`what_we_bake_text`, `footer_text`), and inserts
+  attributes after the last attribute, keeping the tag's own spacing.
 - The Studio has a collection sidebar, a Go to search (⌘K / Ctrl K) across
   collections and entries, light and dark themes that follow the system with a
   manual switch, collection page headers, a grid and list view with status
