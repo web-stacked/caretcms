@@ -94,6 +94,17 @@
   justify-content: flex-end;
 }
 
+/* A save confirmation keeps its one action (Undo) on the message's row. */
+.cms-toast.cms-toast-inline {
+  flex-wrap: nowrap;
+  padding-right: 10px;
+}
+.cms-toast-inline .cms-toast-actions {
+  width: auto;
+  margin: 0 0 0 6px;
+  flex-shrink: 0;
+}
+
 .cms-toast-btn {
   font-family: var(--cms-font);
   font-size: 11px;

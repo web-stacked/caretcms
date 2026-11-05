@@ -727,6 +727,10 @@ test.describe("inline editor — click to edit", () => {
     await blurToSave(page, headline);
     const saved = page.locator(".cms-toast", { hasText: "Saved" });
     await expect(saved).toBeVisible();
+    // Undo sits on the message's row, not on a row of its own.
+    const message = await saved.locator(".cms-toast-msg").boundingBox();
+    const button = await saved.getByRole("button", { name: "Undo" }).boundingBox();
+    expect(Math.abs((button!.y + button!.height / 2) - (message!.y + message!.height / 2))).toBeLessThan(4);
     const undo = page.waitForResponse(isMutatePost);
     await saved.getByRole("button", { name: "Undo" }).click();
     expect((await undo).ok()).toBe(true);

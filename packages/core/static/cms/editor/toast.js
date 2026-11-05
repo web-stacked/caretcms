@@ -7,7 +7,7 @@ const WARNING_SVG =
 
 /** @typedef {'success' | 'error' | 'warning'} ToastType */
 /** @typedef {{ label: string, primary?: boolean, onClick: () => void | Promise<void> }} ToastAction */
-/** @typedef {{ message: string, sticky?: boolean, actions?: ToastAction[], role?: string, duration?: number }} ToastOptions */
+/** @typedef {{ message: string, sticky?: boolean, actions?: ToastAction[], role?: string, inline?: boolean, duration?: number }} ToastOptions */
 /** @typedef {{ message: string, action?: ToastAction }} SavedOptions */
 /** @typedef {{ message: string, onKeepMine: () => void | Promise<void>, onLoadLatest: () => void | Promise<void>, keepLabel?: string, latestLabel?: string }} ConflictOptions */
 /** @typedef {{ message: string, actions: ToastAction[] }} PendingOptions */
@@ -73,13 +73,14 @@ export function createToast() {
   }
 
   /** @param {ToastType} type @param {ToastOptions} options @returns {HTMLDivElement} */
-  function render(type, { message, sticky, actions, role, duration = 2500 }) {
+  function render(type, { message, sticky, actions, role, inline, duration = 2500 }) {
     const stack = ensureContainer();
 
     const toast = document.createElement('div');
     toast.className = `cms-toast cms-toast-${type}`;
     if (role) toast.setAttribute('role', role);
     if (sticky || (actions && actions.length)) toast.classList.add('cms-toast-interactive');
+    if (inline) toast.classList.add('cms-toast-inline');
 
     const iconWrap = document.createElement('span');
     iconWrap.className = 'cms-toast-icon-wrap';
@@ -169,7 +170,7 @@ export function createToast() {
   let savedToast = null;
   showToast.saved = ({ message, action }) => {
     if (savedToast) dismiss(savedToast);
-    savedToast = render('success', { message, actions: action ? [action] : undefined, duration: 8000 });
+    savedToast = render('success', { message, actions: action ? [action] : undefined, inline: true, duration: 8000 });
     return savedToast;
   };
 
