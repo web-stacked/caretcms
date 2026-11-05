@@ -222,6 +222,11 @@ first.
   the page that shows the entry (`previewPath`, else `editorHome`) with the
   Studio expanded on that route. With `enableInlineEditor: false` the Studio is
   still a page of its own.
+- The Studio drawer moves the page aside instead of covering it (padding on
+  `<html>`, sideways overflow clipped); expanded, it covers the page. Fixed
+  elements don't move with the page: add `caret-studio-overlay` to `<html>` or
+  `<body>` to keep the drawer over it. This replaces the opt-in
+  `caret-push-content` class.
 - The on-page toolbar is a floating bar. It re-centers beside the open Studio
   drawer and uses an icon-only Sign out on phones.
 - `theme.tokens` overrides apply in both light and dark mode.
