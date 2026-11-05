@@ -35,12 +35,15 @@ first.
 
 - Inline edits are never lost to a failed or concurrent save. When someone
   else saved the same entry, both versions are shown; Cancel keeps asking
-  instead of letting the next save overwrite theirs.
+  instead of letting the next save overwrite theirs. Replaced images stay on
+  the page and save again too, and an upload cut off by a lost connection or
+  an ended session runs again.
 - Required fields can't be saved empty, and a new entry isn't stored until
   its required fields are filled.
 - Signing out asks first when it would lose drafts or unsaved text; password
   sessions keep their drafts in the same browser.
-- A session that ends mid-edit can be resumed without leaving the page.
+- A session that ends mid-edit can be resumed without leaving the page, on the
+  site and in the Studio. Studio edits made offline save on reconnecting.
 - Upload refusals say why (too large, not an image). A new image shows only
   once it is served.
 - Fields an editor may not change are read-only and say why, and Create is
@@ -130,6 +133,8 @@ first.
 - `StorageAdapter.isDocumentCollection()` (optional) marks collections whose
   entries are data, not Markdown documents.
 - A `create` authorization action (see **Changed**).
+- The dev toolbar flags fields that stay read-only because their markup can't
+  be edited as rich text, and names the tags in the way.
 - The Studio lists text and images that templates bind with `data-caret`
   before anything is saved, with the page's own content. Saving from the
   Studio stores only what changed, so untouched text keeps following the
