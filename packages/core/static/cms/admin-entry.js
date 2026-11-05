@@ -160,6 +160,17 @@ import { createSessionRecovery, SESSION_RESTORED_EVENT } from './editor/session-
   var deleteBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-delete"));
   var publishBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-publish"));
   var discardDraftBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-discard-draft"));
+  // In the on-page drawer, the entry's page opens behind the Studio, which
+  // stays open on this entry, instead of in another tab.
+  var previewLink = document.getElementById("btn-preview");
+  if (previewLink && window.parent !== window) {
+    var previewHref = previewLink.getAttribute("href") || "";
+    previewLink.removeAttribute("target");
+    previewLink.addEventListener("click", function (event) {
+      event.preventDefault();
+      window.parent.postMessage({ type: "cms:show-page", path: previewHref }, window.location.origin);
+    });
+  }
   var draftChangesEl = /** @type {HTMLDetailsElement | null} */ (document.getElementById("draft-changes"));
   var historyBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-history"));
   var historyPanel = /** @type {HTMLElement} */ (document.getElementById("history-panel"));

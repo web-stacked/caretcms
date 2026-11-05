@@ -1,5 +1,5 @@
 import { STUDIO_PATH } from './config.js';
-import { entryRoute, initialPanelRoute, rememberPanelRoute } from './panel-route.js';
+import { entryRoute, initialPanelRoute, isStudioRoute, rememberPanelRoute } from './panel-route.js';
 
 /** @param {string} key @returns {string | null} */
 function readSessionValue(key) {
@@ -17,6 +17,19 @@ function writeSessionValue(key, value) {
   } catch {
     // Session storage is optional.
   }
+}
+
+// A Studio link opened in a tab of its own arrives here as this fragment
+// (see studioOverSite on the server) and opens over the page, expanded.
+const HANDOFF = '#caret-studio=';
+
+/** The Studio route handed to this page, removed from the address. @returns {string | null} */
+function takeHandoff() {
+  if (!window.location.hash.startsWith(HANDOFF)) return null;
+  let route = '';
+  try { route = decodeURIComponent(window.location.hash.slice(HANDOFF.length)); } catch { /* malformed */ }
+  history.replaceState(history.state, '', `${window.location.pathname}${window.location.search}`);
+  return isStudioRoute(route) ? route : null;
 }
 
 const FOCUSABLE = 'button:not([disabled]):not([hidden]), summary, [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -95,7 +108,9 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
   const iframe = document.createElement('iframe');
   /** @type {'left' | 'right'} */
   let panelSide = readSessionValue('cms-panel-side') === 'right' ? 'right' : 'left';
-  iframe.src = initialPanelRoute();
+  const handoff = takeHandoff();
+  if (handoff) rememberPanelRoute(handoff);
+  iframe.src = handoff ?? initialPanelRoute();
   iframe.title = 'Content Studio';
   iframe.addEventListener('load', () => {
     loading.setAttribute('hidden', 'hidden');
@@ -154,10 +169,12 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
     iframe.focus();
   }
 
-  // The toolbar is a single Tab stop (arrow keys move inside it).
-  endGuard.addEventListener('focus', () => (toolbarTabStop() ?? focusables(panelHeader)[0])?.focus());
+  // The toolbar is a single Tab stop (arrow keys move inside it). It's hidden
+  // while the Studio is expanded, so Tab then stays in the Studio.
+  const tabStop = () => (panel.classList.contains('expanded') ? null : toolbarTabStop());
+  endGuard.addEventListener('focus', () => (tabStop() ?? focusables(panelHeader)[0])?.focus());
   startGuard.addEventListener('focus', () => {
-    const stop = toolbarTabStop();
+    const stop = tabStop();
     if (stop) stop.focus();
     else focusDrawerEnd();
   });
@@ -202,6 +219,23 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
   }
 
   setPanelSide(panelSide);
+
+  // Expanded, the Studio covers two thirds of the page and the live page stays
+  // beside it; the drawer and the page underneath are the same either way.
+  /** @param {boolean} expanded */
+  function setExpanded(expanded) {
+    panel.classList.toggle('expanded', expanded);
+    document.body.classList.toggle('cms-panel-expanded', expanded);
+    expandButton.textContent = expanded ? 'Shrink' : 'Expand';
+    expandButton.setAttribute('aria-label', expanded ? 'Shrink the Studio to a drawer' : 'Expand the Studio');
+    expandButton.setAttribute('aria-pressed', String(expanded));
+    writeSessionValue('cms-panel-size', expanded ? 'expanded' : 'drawer');
+    reportLayout();
+  }
+  setExpanded(Boolean(handoff) || readSessionValue('cms-panel-size') === 'expanded');
+  panel.addEventListener('transitionend', (event) => {
+    if (event.target === panel && event.propertyName === 'width') reportLayout();
+  });
 
   // Match the drawer chrome to the theme chosen inside the Studio (same origin).
   function syncPanelTheme() {
@@ -306,14 +340,7 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
     }
   });
   moveButton.addEventListener('click', () => setPanelSide(panelSide === 'left' ? 'right' : 'left'));
-  expandButton.addEventListener('click', () => {
-    try {
-      const href = iframe.contentWindow?.location.href;
-      window.location.href = href || studioPath;
-    } catch {
-      window.location.href = studioPath;
-    }
-  });
+  expandButton.addEventListener('click', () => setExpanded(!panel.classList.contains('expanded')));
   closeButton.addEventListener('click', closePanel);
 
   function togglePanel() {
@@ -327,9 +354,32 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
   studioButton?.addEventListener('click', togglePanel);
 
   // Restore panel state from sessionStorage (without animation)
-  if (readSessionValue('cms-panel-open') === '1') {
+  if (handoff || readSessionValue('cms-panel-open') === '1') {
     openPanel(false);
+    // Opened from a Studio address, the Studio is what the editor came for:
+    // keyboard focus starts in it, not on the page it covers.
+    if (handoff) focusFrameHeading();
   }
+
+  // The Studio asks to close (its View site) or to show an entry's page,
+  // keeping itself open on the same route over that page.
+  window.addEventListener('message', (event) => {
+    if (event.source !== iframe.contentWindow || event.origin !== window.location.origin) return;
+    const data = event.data;
+    if (!data || typeof data !== 'object') return;
+    if (data.type === 'cms:close-studio') {
+      closePanel();
+      return;
+    }
+    if (data.type === 'cms:show-page' && typeof data.path === 'string' && data.path.startsWith('/') && !data.path.startsWith('//')) {
+      const target = new URL(data.path, window.location.origin);
+      if (target.pathname === window.location.pathname) return;
+      const route = framePath();
+      if (route) rememberPanelRoute(route, target.pathname);
+      writeSessionValue('cms-panel-open', '1');
+      window.location.href = `${target.pathname}${target.search}${target.hash}`;
+    }
+  });
 
   /** @param {KeyboardEvent} e */
   function handleEscape(e) {

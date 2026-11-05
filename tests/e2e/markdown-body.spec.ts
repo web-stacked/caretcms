@@ -2,7 +2,7 @@ import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { expect, test } from "@playwright/test";
-import { isMutatePost, loginAsEditor, replaceText } from "./helpers";
+import { expectStudioURL, isMutatePost, loginAsEditor, openStudio, reloadStudio, replaceText } from "./helpers";
 
 const CONTENT_SITE = resolve(process.cwd(), "examples/content-site");
 const REPO_ROOT = process.cwd();
@@ -200,8 +200,8 @@ test("a post date is the same day on the page and in the Studio's date picker", 
   // Stored as "2026-03-11"; shown as that day in every time zone.
   await expect(page.getByText("March 11, 2026")).toBeVisible();
 
-  await page.goto("/admin/cms/blog/ship-something-real");
-  const date = page.getByRole("textbox", { name: "Date" }).or(page.locator('[data-field-path="date"] input'));
+  const studio = await openStudio(page, "/admin/cms/blog/ship-something-real");
+  const date = studio.getByRole("textbox", { name: "Date" }).or(studio.locator('[data-field-path="date"] input'));
   await expect(date).toHaveAttribute("type", "date");
   await expect(date).toHaveValue("2026-03-11");
 
@@ -369,19 +369,19 @@ test("rich toolbar creates a Markdown link without an early draft save", async (
 test("exposes only collection operations the example implements", async ({ page }) => {
   await loginAsEditor(page);
 
-  await page.goto("/admin/cms/site");
-  await expect(page).toHaveURL(/\/admin\/cms\/site\/global$/);
+  const studio = await openStudio(page, "/admin/cms/site");
+  await expectStudioURL(page, /\/admin\/cms\/site\/global$/);
 
   for (const collection of ["pages", "blog"]) {
-    await page.goto(`/admin/cms/${collection}`);
-    await expect(page.locator("#btn-new")).toHaveCount(0);
-    await expect(page.locator("#btn-reorder")).toHaveCount(0);
+    await openStudio(page, `/admin/cms/${collection}`);
+    await expect(studio.locator("#btn-new")).toHaveCount(0);
+    await expect(studio.locator("#btn-reorder")).toHaveCount(0);
   }
 
   for (const collection of ["gallery", "team"]) {
-    await page.goto(`/admin/cms/${collection}`);
-    await expect(page.locator("#btn-new")).toBeVisible();
-    await expect(page.locator("#btn-reorder")).toBeVisible();
+    await openStudio(page, `/admin/cms/${collection}`);
+    await expect(studio.locator("#btn-new")).toBeVisible();
+    await expect(studio.locator("#btn-reorder")).toBeVisible();
   }
 
   const schema = await page.request.get("/api/cms/schema?collection=gallery");
@@ -458,16 +458,16 @@ test("unsupported YAML remains visible with an actionable error and retry", asyn
   const source = "---\nsrc: /gallery/01.svg\nalt: Test\ncaption: &caption Unsupported anchor\nyear: \"2026\"\n---\n";
   writeFileSync(path, source);
   try {
-    await page.goto("/admin/cms/gallery");
-    await expect(page.locator('a[href$="/unsupported-yaml"]')).toContainText("Cannot read entry");
-    await page.locator('a[href$="/unsupported-yaml"]').click();
-    await expect(page.locator("#load-error")).toContainText("unsupported frontmatter");
-    await expect(page.locator("#not-found")).not.toBeVisible();
+    const studio = await openStudio(page, "/admin/cms/gallery");
+    await expect(studio.locator('a[href$="/unsupported-yaml"]')).toContainText("Cannot read entry");
+    await studio.locator('a[href$="/unsupported-yaml"]').click();
+    await expect(studio.locator("#load-error")).toContainText("unsupported frontmatter");
+    await expect(studio.locator("#not-found")).not.toBeVisible();
     expect(readFileSync(path, "utf8")).toBe(source);
     writeFileSync(path, GALLERY[0].source);
-    await page.locator("#load-error-retry").click();
-    await expect(page.locator("#fields")).toBeVisible();
-    await expect(page.locator("#load-error")).not.toBeVisible();
+    await studio.locator("#load-error-retry").click();
+    await expect(studio.locator("#fields")).toBeVisible();
+    await expect(studio.locator("#load-error")).not.toBeVisible();
   } finally { rmSync(path, { force: true }); }
 });
 
@@ -480,19 +480,19 @@ test(`Studio edits ${style} frontmatter and preserves untouched YAML and body`, 
   const source = `---\nsrc: /gallery/01.svg\nalt: Original\n${scalar}year: '2026' # preserve this too\n---\n${body}`;
   writeFileSync(path, source);
   try {
-    await page.goto("/admin/cms/gallery/multiline-yaml");
-    const caption = page.locator('textarea[name="caption"]');
+    const studio = await openStudio(page, "/admin/cms/gallery/multiline-yaml");
+    const caption = studio.locator('textarea[name="caption"]');
     await expect(caption).toHaveValue(style === "|" ? "Café first line\nsecond line\n\n" : "Café first line second line\n\n");
-    await page.locator('[name="alt"]').fill("Changed alt");
+    await studio.locator('[name="alt"]').fill("Changed alt");
     let pending = page.waitForResponse(isMutatePost);
-    await page.locator("#btn-save").click();
+    await studio.locator("#btn-save").click();
     expect((await pending).ok()).toBe(true);
     expect(readFileSync(path, "utf8")).toContain(scalar);
     await caption.fill("Edited first line\nEdited second line\n\n");
     pending = page.waitForResponse(isMutatePost);
-    await page.locator("#btn-save").click();
+    await studio.locator("#btn-save").click();
     expect((await pending).ok()).toBe(true);
-    await page.reload();
+    await reloadStudio(page);
     await expect(caption).toHaveValue("Edited first line\nEdited second line\n\n");
     const stored = await (await page.request.get("/api/cms/entries?collection=gallery&id=multiline-yaml")).json();
     expect(stored.entries[0].data.caption).toBe("Edited first line\nEdited second line\n\n");
@@ -714,12 +714,12 @@ test("Studio sign-out keeps body drafts for the next sign-in in the same browser
     paragraph.evaluate((element) => (element as HTMLElement).blur()),
   ]);
 
-  await page.goto("/admin/cms");
+  const studio = await openStudio(page, "/admin/cms");
   const logout = page.waitForResponse((response) =>
     response.url().includes("/api/cms/auth/logout") && response.request().method() === "POST");
-  await page.locator("#studio-logout-btn").click();
+  await studio.locator("#studio-logout-btn").click();
   expect((await logout).ok()).toBe(true);
-  await expect(page.getByRole("dialog", { name: "Unpublished changes" })).toHaveCount(0);
+  await expect(studio.getByRole("dialog", { name: "Unpublished changes" })).toHaveCount(0);
 
   await loginAsEditor(page);
   const state = await page.request.get("/api/cms/draft", { headers: { "x-caret-request": "1" } });
@@ -820,23 +820,23 @@ test("a new team member isn't stored or shown until its required fields are fill
   const created = resolve(CONTENT_SITE, "src/content/team/noor-haddad.md");
   try {
     await loginAsEditor(page);
-    await page.goto("/admin/cms/team");
-    await page.locator("#btn-new").click();
-    await page.locator("#create-title-input").fill("Noor Haddad");
+    const studio = await openStudio(page, "/admin/cms/team");
+    await studio.locator("#btn-new").click();
+    await studio.locator("#create-title-input").fill("Noor Haddad");
     await Promise.all([
-      page.waitForURL(/\/admin\/cms\/team\/noor-haddad\?new=1&title=Noor%20Haddad$/),
-      page.locator("#btn-create-confirm").click(),
+      expectStudioURL(page, /\/admin\/cms\/team\/noor-haddad\?new=1&title=Noor%20Haddad$/),
+      studio.locator("#btn-create-confirm").click(),
     ]);
 
-    await expect(page.locator('[name="name"]')).toHaveValue("Noor Haddad");
-    await expect(page.locator('[name="role"]')).toHaveValue("");
+    await expect(studio.locator('[name="name"]')).toHaveValue("Noor Haddad");
+    await expect(studio.locator('[name="role"]')).toHaveValue("");
     expect(await (await page.request.get("/about")).text()).not.toContain("Noor Haddad");
 
     const refused = page.waitForResponse(isMutatePost);
-    await page.locator("#btn-save").click();
+    await studio.locator("#btn-save").click();
     expect((await refused).status()).toBe(400);
-    await expect(page.locator('[name="role"]')).toHaveAttribute("aria-invalid", "true");
-    await expect(page.locator('[data-field-path="role"] .studio-error-text')).toContainText("This field can't be empty");
+    await expect(studio.locator('[name="role"]')).toHaveAttribute("aria-invalid", "true");
+    await expect(studio.locator('[data-field-path="role"] .studio-error-text')).toContainText("This field can't be empty");
     expect(await (await page.request.get("/about")).text()).not.toContain("Noor Haddad");
   } finally {
     rmSync(created, { force: true });

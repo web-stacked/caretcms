@@ -45,6 +45,8 @@ export type StudioLayoutOptions = {
   inlineScript?: string;
   /** The page's first Tab stop; defaults to skipping to the main content. */
   skipLink?: { label: string; href: string };
+  /** The site page this screen opens over when loaded outside the drawer; defaults to `editorHome`. */
+  sitePath?: string;
 };
 
 export function humanizeCollection(name: string): string {
@@ -135,7 +137,7 @@ function renderSidebar(runtime: CaretRuntimeConfig, navigation: StudioNavItem[],
         ${navigation.length ? `<p class="studio-sidebar-heading">${escapeHtml(m["nav.collections"])}</p>${links}` : ""}
       </nav>
       <div class="studio-sidebar-footer">
-        <a href="${escapeHtml(runtime.editorHome)}" class="studio-sidebar-link">${renderIcon("external")}<span>${escapeHtml(m["nav.viewSite"])}</span></a>
+        <a href="${escapeHtml(runtime.editorHome)}" class="studio-sidebar-link" id="studio-site-link">${renderIcon("external")}<span>${escapeHtml(m["nav.viewSite"])}</span></a>
         <button type="button" class="studio-sidebar-link" id="studio-theme-btn" aria-label="${escapeHtml(m["theme.label"])}: ${escapeHtml(m["theme.system"])}">
           <span class="studio-theme-icon" data-theme-icon="system">${renderIcon("system")}</span>
           <span class="studio-theme-icon" data-theme-icon="light">${renderIcon("sun")}</span>
@@ -191,11 +193,15 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
     ${favicon}
     <script>
       (function () {
+        var overSite = ${serializeJsonForScript(runtime.inlineEditor ? (opts.sitePath ?? runtime.editorHome) : null)};
         try {
           var theme = localStorage.getItem('caret-studio-theme');
           if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
         } catch (e) { /* storage may be blocked; follow the system */ }
         if (window.parent !== window) document.documentElement.classList.add('studio-embedded');
+        // Browsers that don't send Sec-Fetch-Dest reach a Studio page in a tab
+        // of its own; open it over the site like the server would.
+        else if (overSite) location.replace(overSite.split('#')[0] + ${serializeJsonForScript(STUDIO_HANDOFF)} + encodeURIComponent(location.pathname + location.search + location.hash));
       })();
     </script>
     <link rel="stylesheet" href="${themeCss}" />
@@ -263,6 +269,19 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           setTheme({ system: 'light', light: 'dark', dark: 'system' }[currentTheme()]);
         });
 
+        // ── Back to the site ───────────────────────────────────────────
+        // The Studio opens over the site, so leaving it closes the drawer on
+        // the page the editor was on instead of loading another page.
+        var embedded = window.parent !== window;
+        function closeStudio() {
+          window.parent.postMessage({ type: 'cms:close-studio' }, window.location.origin);
+        }
+        var siteLink = document.getElementById('studio-site-link');
+        if (siteLink && embedded) siteLink.addEventListener('click', function (event) {
+          event.preventDefault();
+          closeStudio();
+        });
+
         // ── Mobile sidebar ─────────────────────────────────────────────
         var menuBtn = document.getElementById('studio-menu-btn');
         var scrim = document.getElementById('studio-sidebar-scrim');
@@ -302,9 +321,9 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           }).then(function (response) {
             return response.json().catch(function () { return null; });
           }).then(function (body) {
-            window.location.href = body && body.redirect ? body.redirect : mountPath;
+            (window.top || window).location.href = body && body.redirect ? body.redirect : mountPath;
           }).catch(function () {
-            window.location.href = mountPath;
+            (window.top || window).location.href = mountPath;
           });
         }
         function element(tag, attrs, text) {
@@ -335,7 +354,7 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           anyway.addEventListener('click', function () { dialog.remove(); signOut(); });
           dialog.addEventListener('click', function (event) { if (event.target === dialog) close(); });
           dialog.addEventListener('keydown', function (event) {
-            if (event.key === 'Escape') { event.preventDefault(); close(); return; }
+            if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); return; }
             if (event.key !== 'Tab') return;
             var controls = [cancel, anyway, site];
             var index = controls.indexOf(document.activeElement);
@@ -343,6 +362,7 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
             event.preventDefault();
             controls[next].focus();
           });
+          if (embedded) site.addEventListener('click', function (event) { event.preventDefault(); dialog.remove(); closeStudio(); });
           site.focus();
         }
         if (logoutBtn) logoutBtn.addEventListener('click', function () {
@@ -380,7 +400,7 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           var items = pageActions.map(function (action) {
             return { group: messages.actions, label: action.label, keywords: action.keywords, run: action.run };
           });
-          items.push({ group: messages.actions, label: messages.visitSite, keywords: 'view website preview home', run: function () { (window.top || window).location.href = editorHome; } });
+          items.push({ group: messages.actions, label: messages.visitSite, keywords: 'view website preview home', run: function () { if (embedded) closeStudio(); else window.location.href = editorHome; } });
           ['light', 'dark', 'system'].forEach(function (theme) {
             if (theme === currentTheme()) return;
             items.push({
@@ -521,6 +541,10 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
             event.preventDefault();
             if (palette.hidden) openPalette(); else closePalette();
           } else if (event.key === 'Escape' && root.classList.contains('studio-menu-open')) {
+            // Only the menu closes, not the drawer the Studio is open in
+            // (its Escape listens on this document too).
+            event.preventDefault();
+            event.stopImmediatePropagation();
             setMenu(false);
             if (menuBtn) menuBtn.focus();
           }
@@ -536,6 +560,37 @@ export function htmlResponse(content: string, status = 200): Response {
   return new Response(content, {
     status,
     headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
+}
+
+/** How a Studio route reaches the site page it opens over. */
+export const STUDIO_HANDOFF = "#caret-studio=";
+
+/** The site page and fragment that open `route` in the Studio over `sitePath`. */
+function studioOverSiteUrl(sitePath: string, route: string): string {
+  return `${sitePath.split("#")[0]}${STUDIO_HANDOFF}${encodeURIComponent(route)}`;
+}
+
+/**
+ * The Studio lives over the site, in the editor's drawer. A Studio page opened
+ * in a tab of its own (a bookmark, a typed URL, the dev toolbar) sends the
+ * browser to `sitePath` with the Studio open on this route, expanded. Pages
+ * loaded inside the drawer are frames and render as usual. Without the inline
+ * editor there is no drawer, so the Studio stays a page.
+ */
+export function studioOverSite(
+  context: { request: Request; url: URL },
+  runtime: CaretRuntimeConfig,
+  sitePath: string = runtime.editorHome,
+): Response | null {
+  if (!runtime.inlineEditor) return null;
+  if (context.request.headers.get("sec-fetch-dest") !== "document") return null;
+  return new Response(null, {
+    status: 303,
+    headers: {
+      Location: studioOverSiteUrl(sitePath, `${context.url.pathname}${context.url.search}`),
+      "Cache-Control": "private, no-store",
+    },
   });
 }
 

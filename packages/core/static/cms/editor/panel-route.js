@@ -17,7 +17,7 @@ const MAX_LISTED = 8;
 const STUDIO = STUDIO_PATH ?? '';
 
 /** @param {string} path */
-function isStudioRoute(path) {
+export function isStudioRoute(path) {
   return Boolean(STUDIO) && (path === STUDIO || path.startsWith(`${STUDIO}/`) || path.startsWith(`${STUDIO}?`));
 }
 
@@ -98,11 +98,14 @@ function rememberedRoute() {
   return null;
 }
 
-/** Remember the drawer's route for this page. @param {string} path */
-export function rememberPanelRoute(path) {
+/**
+ * Remember the drawer's route for a page, this one unless another is named.
+ * @param {string} path @param {string} [page]
+ */
+export function rememberPanelRoute(path, page = window.location.pathname) {
   if (!isStudioRoute(path)) return;
   try {
-    sessionStorage.setItem(ROUTE_KEY, JSON.stringify({ page: window.location.pathname, path }));
+    sessionStorage.setItem(ROUTE_KEY, JSON.stringify({ page, path }));
   } catch {
     // Session storage is optional.
   }

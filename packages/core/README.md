@@ -145,8 +145,11 @@ With no password configured, dev uses a **temporary password kept in `.caret/dev
 (also shown by `astro dev logs`; dev only — production stays locked). To set your own, add
 `CARET_EDIT_PASSWORD=<your-password>` to a `.env` file.
 
-Log in at `/admin`, then click any tagged element on the page to edit it. The content Studio
-lives at `/admin/cms`.
+Log in at `/admin`, then click any tagged element on the page to edit it. The toolbar's
+**Studio** button opens the content Studio over the page, as a drawer you can expand to two
+thirds of the window. Its routes live under `/admin/cms`: opened in a tab of their own, they
+show the page an entry appears on (its `previewPath`, else `editorHome`) with the Studio open
+over it. With `enableInlineEditor: false` the Studio is a page of its own.
 
 For editable content inside a link, a normal click edits while Command-click
 (macOS) or Ctrl-click (Windows/Linux) opens the destination in a new tab. The
@@ -387,7 +390,7 @@ existing entries; deriving from Zod just adds proper labels, types, and widget h
 
 - **Inline editing** on any `data-caret` element (text and images)
 - **Live content collections** via `caretLoader` for `getLiveEntry` / `getLiveCollection` on Astro 6 and 7
-- **Content Studio** at `/admin/cms` for structured CRUD
+- **Content Studio** over the site (routes under `/admin/cms`) for structured CRUD
 - **Section composer** for reordering and spacing page sections
 - **Response rewriting** middleware (server delivery) or **build-time HTML bake** (static delivery)
 - **Scoped bindings** via `data-caret-scope` to reduce repetition

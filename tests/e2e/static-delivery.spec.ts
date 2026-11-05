@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
-import { EDIT_PASSWORD } from "./helpers";
+import { EDIT_PASSWORD, openStudio } from "./helpers";
 
 const PORT = process.env.STATIC_E2E_PORT ?? "4403";
 const ORIGIN = `http://localhost:${PORT}`;
@@ -103,55 +103,56 @@ test("a Studio-only editor drafts, sees what isn't published, and publishes from
     data: { password: EDIT_PASSWORD },
     headers: { Accept: "application/json" },
   });
-  // Never visits the site: the Studio alone works on drafts in static delivery.
-  await page.goto("/admin/cms/pages/home");
-  const headline = page.getByRole("textbox", { name: /^Headline/ });
+  // Edits only in the Studio, never on the page behind it: the Studio alone
+  // works on drafts in static delivery.
+  const studio = await openStudio(page, "/admin/cms/pages/home");
+  const headline = studio.getByRole("textbox", { name: /^Headline/ });
   await expect(headline).toHaveValue(PUBLISHED_HEADLINE);
   await headline.fill("Drafted in the Studio");
-  await page.locator("#btn-save").click();
-  await expect(page.locator("#status-msg")).toHaveText("Draft saved");
+  await studio.locator("#btn-save").click();
+  await expect(studio.locator("#status-msg")).toHaveText("Draft saved");
   expect(await (await fetch(ORIGIN)).text()).toContain(PUBLISHED_HEADLINE);
 
-  const changes = page.locator("#draft-changes");
+  const changes = studio.locator("#draft-changes");
   await expect(changes.locator("summary")).toHaveText("1 change not published yet");
   await changes.locator("summary").click();
   await expect(changes.locator("del")).toHaveText(PUBLISHED_HEADLINE);
   await expect(changes.locator("ins")).toHaveText("Drafted in the Studio");
 
-  await page.goto("/admin/cms/pages");
-  await expect(page.locator(".entry-card-draft")).toHaveText("Not published");
-  await page.goto("/admin/cms");
-  const notPublished = page.getByRole("region", { name: "Not published yet" });
+  await openStudio(page, "/admin/cms/pages");
+  await expect(studio.locator(".entry-card-draft")).toHaveText("Not published");
+  await openStudio(page, "/admin/cms");
+  const notPublished = studio.getByRole("region", { name: "Not published yet" });
   await expect(notPublished.locator(".studio-page-entry")).toHaveCount(1);
 
   // Publishing one entry from its page.
-  await page.goto("/admin/cms/pages/home");
+  await openStudio(page, "/admin/cms/pages/home");
   const publish = page.waitForResponse(response => response.url().includes("/api/cms/publish") && response.request().method() === "POST");
-  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  await studio.getByRole("button", { name: "Publish", exact: true }).click();
   expect((await publish).ok()).toBe(true);
-  await expect(page.locator("#status-msg")).toContainText("Published 1 change");
+  await expect(studio.locator("#status-msg")).toContainText("Published 1 change");
   await expect(changes).toBeHidden();
-  await expect(page.getByRole("button", { name: "Publish", exact: true })).toBeHidden();
+  await expect(studio.getByRole("button", { name: "Publish", exact: true })).toBeHidden();
   expect(await (await fetch(ORIGIN)).text()).toContain("Drafted in the Studio");
 
   // Discarding a draft returns the entry to what visitors see.
   await headline.fill("Thrown away");
-  await page.locator("#btn-save").click();
-  await expect(page.locator("#status-msg")).toHaveText("Draft saved");
-  await page.locator("#entry-more > summary").click();
-  await page.getByRole("button", { name: "Discard draft" }).click();
-  await page.getByRole("dialog", { name: "Discard your draft?" }).getByRole("button", { name: "Discard draft" }).click();
-  await expect(page.getByRole("textbox", { name: /^Headline/ })).toHaveValue("Drafted in the Studio");
+  await studio.locator("#btn-save").click();
+  await expect(studio.locator("#status-msg")).toHaveText("Draft saved");
+  await studio.locator("#entry-more > summary").click();
+  await studio.getByRole("button", { name: "Discard draft" }).click();
+  await studio.getByRole("dialog", { name: "Discard your draft?" }).getByRole("button", { name: "Discard draft" }).click();
+  await expect(studio.getByRole("textbox", { name: /^Headline/ })).toHaveValue("Drafted in the Studio");
   await expect(changes).toBeHidden();
 
   // Publish all from the overview.
-  await page.getByRole("textbox", { name: /^Headline/ }).fill(EDITED_HEADLINE_FROM_STUDIO);
-  await page.locator("#btn-save").click();
-  await expect(page.locator("#status-msg")).toHaveText("Draft saved");
-  await page.goto("/admin/cms");
-  await page.getByRole("button", { name: "Publish all" }).click();
-  await expect(page.locator("#studio-publish-status")).toContainText("Published 1 change");
-  await expect(page.locator("#studio-not-published")).toHaveText("Everything is published");
+  await studio.getByRole("textbox", { name: /^Headline/ }).fill(EDITED_HEADLINE_FROM_STUDIO);
+  await studio.locator("#btn-save").click();
+  await expect(studio.locator("#status-msg")).toHaveText("Draft saved");
+  await openStudio(page, "/admin/cms");
+  await studio.getByRole("button", { name: "Publish all" }).click();
+  await expect(studio.locator("#studio-publish-status")).toContainText("Published 1 change");
+  await expect(studio.locator("#studio-not-published")).toHaveText("Everything is published");
   expect(await (await fetch(ORIGIN)).text()).toContain(EDITED_HEADLINE_FROM_STUDIO);
 
   // Later tests start from the original published headline.

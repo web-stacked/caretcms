@@ -17,6 +17,7 @@ import {
   htmlResponse,
   humanizeCollection,
   redirectResponse,
+  studioOverSite,
   renderCollectionIcon,
   renderIcon,
   renderStudioPage,
@@ -32,6 +33,8 @@ export async function GET(context: APIContext): Promise<Response> {
   if (!isEditorAuthenticated(context)) {
     return redirectResponse(loginRedirect);
   }
+  const overSite = studioOverSite(context, runtime);
+  if (overSite) return overSite;
 
   if (!collection) {
     return redirectResponse(`${runtime.mountPath}/cms`);

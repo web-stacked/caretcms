@@ -1,7 +1,7 @@
 import { readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, test, type Browser, type BrowserContext } from "@playwright/test";
-import { blurToSave, replaceText } from "./helpers";
+import { blurToSave, openStudio, replaceText } from "./helpers";
 
 const STARTER = resolve(process.cwd(), "examples/starter");
 const CARET = resolve(STARTER, ".caret");
@@ -79,8 +79,7 @@ test("writer edits a private draft while destructive and publishing actions stay
     });
     expect(upload.status()).toBe(403);
 
-    const studio = await writer.newPage();
-    await studio.goto("/admin/cms/pages/home");
+    const studio = await openStudio(await writer.newPage(), "/admin/cms/pages/home");
     await expect(studio.locator("#btn-save")).toBeHidden();
     await expect(studio.locator("#btn-delete")).toHaveCount(0);
     await expect(studio.locator("#btn-history")).toBeHidden();
@@ -151,17 +150,17 @@ test("Studio tells a draft's visibility apart from what visitors see", async ({ 
     const published = await page.request.post("/api/cms/publish", { headers: { "x-caret-request": "1" }, data: {} });
     expect(published.ok(), await published.text()).toBe(true);
 
-    await page.goto("/admin/cms/studio-fixture/pol-entry");
-    const status = page.locator("#status-msg");
-    const visibility = page.locator("#visibility-status");
+    const studio = await openStudio(page, "/admin/cms/studio-fixture/pol-entry");
+    const status = studio.locator("#status-msg");
+    const visibility = studio.locator("#visibility-status");
     await expect(status).toHaveText("Matches live");
     await expect(visibility).toHaveText("Public");
 
-    await page.getByRole("switch", { name: "Published" }).click();
-    await page.locator("#btn-save").click();
+    await studio.getByRole("switch", { name: "Published" }).click();
+    await studio.locator("#btn-save").click();
     await expect(status).toHaveText("Draft saved");
     await expect(visibility).toHaveText("Hidden after publish");
-    await expect(page.locator('[data-field-path="published"] .caret-field-help')).toContainText("publish");
+    await expect(studio.locator('[data-field-path="published"] .caret-field-help')).toContainText("publish");
 
     const visitor = await anonymous.newPage();
     await visitor.goto("/publication");
@@ -192,23 +191,23 @@ test("Studio rejects a stale first draft and refreshes its base version for an e
     // The other editor publishes both versions, so this one's draft is its first.
     await publishTitle(remote, "Original");
     const page = await mine.newPage();
-    await page.goto("/admin/cms/studio-fixture/version-conflict");
-    await expect(page.locator('[name="title"]')).toHaveValue("Original");
-    await page.locator('[name="website"]').fill("https://example.invalid/mine");
+    const studio = await openStudio(page, "/admin/cms/studio-fixture/version-conflict");
+    await expect(studio.locator('[name="title"]')).toHaveValue("Original");
+    await studio.locator('[name="website"]').fill("https://example.invalid/mine");
 
     await publishTitle(remote, "Other editor");
     const saved = page.waitForResponse(response => response.url().includes("/api/cms/mutate") && response.request().method() === "POST");
-    await page.locator("#btn-save").click();
+    await studio.locator("#btn-save").click();
     const conflict = await saved;
     expect(conflict.status()).toBe(409);
     const firstBase = (conflict.request().postDataJSON() as { expectedBaseRevision: number }).expectedBaseRevision;
     expect(conflict.request().postDataJSON()).toMatchObject({ expectedRevision: 0 });
     expect(await conflict.json()).toMatchObject({ currentRevision: 0, currentBaseRevision: firstBase + 1 });
 
-    await expect(page.locator("#conflict-dialog")).toBeVisible();
-    await page.locator("#btn-conflict-keep").click();
+    await expect(studio.locator("#conflict-dialog")).toBeVisible();
+    await studio.locator("#btn-conflict-keep").click();
     const retry = page.waitForResponse(response => response.url().includes("/api/cms/mutate") && response.request().method() === "POST");
-    await page.locator("#btn-save").click();
+    await studio.locator("#btn-save").click();
     const result = await retry;
     expect(result.status()).toBe(200);
     expect(result.request().postDataJSON()).toMatchObject({ expectedRevision: 0, expectedBaseRevision: firstBase + 1 });
@@ -253,17 +252,17 @@ test("fields a writer may not edit are read-only and say why", async ({ browser 
     await expect(page.locator(HEADLINE)).not.toHaveAttribute("data-caret-locked");
 
     // In the Studio the same entry is for reading: a note, and nothing to type into.
-    await page.goto("/admin/cms/pages/about");
-    await expect(page.locator("#editor")).toBeVisible();
-    await expect(page.getByRole("note")).toHaveText("You can view this entry, but you don't have permission to edit it.");
-    const fields = page.locator("#fields input, #fields textarea");
+    const studio = await openStudio(page, "/admin/cms/pages/about");
+    await expect(studio.locator("#editor")).toBeVisible();
+    await expect(studio.getByRole("note")).toHaveText("You can view this entry, but you don't have permission to edit it.");
+    const fields = studio.locator("#fields input, #fields textarea");
     await expect(fields.first()).toBeVisible();
     for (const field of await fields.all()) await expect(field).toBeDisabled();
 
     // May edit, but not create: no Create button that could only fail.
-    await page.goto("/admin/cms/pages");
-    await expect(page.locator("#btn-new")).toHaveCount(0);
-    await expect(page.locator("#btn-empty-create")).toHaveCount(0);
+    await openStudio(page, "/admin/cms/pages");
+    await expect(studio.locator("#btn-new")).toHaveCount(0);
+    await expect(studio.locator("#btn-empty-create")).toHaveCount(0);
   } finally {
     await writer.close();
     await admin.close();

@@ -283,10 +283,13 @@ kbd {
   overflow-y: auto;
 }
 
-/* Embedded in the on-page Studio drawer: the drawer supplies navigation. */
-.studio-embedded .studio-sidebar,
-.studio-embedded .studio-header { display: none; }
-.studio-embedded .studio-main { --studio-main-pad-top: var(--space-theme-lg); padding: var(--studio-main-pad-top) var(--space-theme-lg) var(--space-theme-lg); }
+/* In the narrow on-page drawer, the drawer supplies navigation. Expanded, the
+   drawer is wide enough for the Studio's own sidebar and header. */
+@media (max-width: 600px) {
+  .studio-embedded .studio-sidebar,
+  .studio-embedded .studio-header { display: none; }
+  .studio-embedded .studio-main { --studio-main-pad-top: var(--space-theme-lg); padding: var(--studio-main-pad-top) var(--space-theme-lg) var(--space-theme-lg); }
+}
 
 /* Page header shared by Studio pages */
 .studio-page { max-width: 72rem; margin: 0 auto; }
@@ -356,21 +359,23 @@ h1[tabindex="-1"]:focus { outline: none; }
 .studio-home-publish-status:empty { display: none; }
 .studio-home-publish-status[data-kind="error"] { color: var(--studio-red); }
 .studio-card-interactive.studio-collection-card.studio-page-entry { min-height: 0; flex-direction: row; align-items: center; }
-.studio-embedded .studio-home-section + .studio-home-section { margin-top: var(--space-theme-lg); }
-/* The on-page drawer is narrow: collection cards become compact rows. */
-.studio-embedded .studio-home-grid { grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
-.studio-embedded .studio-card-interactive.studio-collection-card {
-  min-height: 0;
-  flex-direction: row;
-  align-items: center;
-  gap: 0.85rem;
-  padding: 0.85rem 1rem;
+/* The narrow on-page drawer: collection cards become compact rows. */
+@media (max-width: 600px) {
+  .studio-embedded .studio-home-section + .studio-home-section { margin-top: var(--space-theme-lg); }
+  .studio-embedded .studio-home-grid { grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
+  .studio-embedded .studio-card-interactive.studio-collection-card {
+    min-height: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0.85rem 1rem;
+  }
+  .studio-embedded .studio-collection-card .studio-collection-icon { width: 2.25rem; height: 2.25rem; flex-shrink: 0; }
+  .studio-embedded .studio-collection-body { flex: 1; min-width: 0; }
+  .studio-embedded .studio-collection-description { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .studio-embedded .studio-count-label { margin: 0; flex-shrink: 0; }
+  .studio-embedded .studio-page-header { margin-bottom: var(--space-theme-lg); }
 }
-.studio-embedded .studio-collection-card .studio-collection-icon { width: 2.25rem; height: 2.25rem; flex-shrink: 0; }
-.studio-embedded .studio-collection-body { flex: 1; min-width: 0; }
-.studio-embedded .studio-collection-description { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.studio-embedded .studio-count-label { margin: 0; flex-shrink: 0; }
-.studio-embedded .studio-page-header { margin-bottom: var(--space-theme-lg); }
 
 .studio-collection-icon {
   width: 2.5rem;
@@ -484,7 +489,9 @@ h1[tabindex="-1"]:focus { outline: none; }
 .studio-palette-empty { padding: 1.5rem; text-align: center; color: var(--studio-text-dim); font-size: 0.85rem; }
 
 /* Narrow screens: sidebar becomes a drawer */
-@media (max-width: 860px) {
+/* Wide enough for the sidebar from 760px: the expanded drawer is two thirds
+   of a laptop window. */
+@media (max-width: 760px) {
   .studio-menu-btn { display: inline-grid; }
   .studio-sidebar {
     position: fixed;

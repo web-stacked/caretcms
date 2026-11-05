@@ -170,9 +170,19 @@ test.describe("inline editor — click to edit", () => {
     await expect(studioButton).toBeFocused();
     expect(pageErrors).toEqual([]);
 
+    // Expand widens the Studio over the same page, where it has room for its
+    // own header; the page and the Studio's place in it stay.
     await studioButton.click();
-    await panel.getByRole("button", { name: "Expand" }).click();
-    await expect(page).toHaveURL(/\/admin\/cms\/pages\/home$/);
+    const expand = panel.getByRole("button", { name: "Expand the Studio" });
+    await expect(expand).toHaveAttribute("aria-pressed", "false");
+    await expand.click();
+    await expect(panel).toHaveClass(/\bexpanded\b/);
+    await expect(panel.getByRole("button", { name: "Shrink the Studio to a drawer" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page).toHaveURL("/");
+    await expect(page.locator('iframe[title="Content Studio"]')).toHaveAttribute("src", "/admin/cms/pages/home");
+    await expect(studio.locator(".studio-header")).toBeVisible();
+    await expect(page.locator(".cms-toolbar")).toBeHidden();
+    expect(pageErrors).toEqual([]);
   });
 
   test("Studio panel controls preserve work and keep selected content beside the drawer", async ({ page }) => {

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { fetchAnonymousHtml, loginAsEditor, resetCmsStorage } from "./helpers";
+import { fetchAnonymousHtml, loginAsEditor, openStudio, resetCmsStorage } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   resetCmsStorage();
@@ -23,8 +23,8 @@ test("unpublishing hides an entry publicly without deleting it and allows republ
   await writeEntry(page, true);
   expect(await fetchAnonymousHtml("/publication")).toContain("Reversible entry");
 
-  await page.goto("/admin/cms/studio-fixture/reversible-entry");
-  const publication = page.getByRole("switch", { name: "Published" });
+  const studio = await openStudio(page, "/admin/cms/studio-fixture/reversible-entry");
+  const publication = studio.getByRole("switch", { name: "Published" });
   await expect(publication).toHaveAttribute("aria-checked", "true");
   await expect(publication.locator("xpath=..").locator(".caret-field-help"))
     .toContainText("remove the entry from the public site without deleting it");
@@ -34,7 +34,7 @@ test("unpublishing hides an entry publicly without deleting it and allows republ
   const unpublish = page.waitForResponse((response) =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
-  await page.locator("#btn-save").click();
+  await studio.locator("#btn-save").click();
   expect((await unpublish).ok()).toBe(true);
   expect(await fetchAnonymousHtml("/publication")).not.toContain("Reversible entry");
 
@@ -47,13 +47,13 @@ test("unpublishing hides an entry publicly without deleting it and allows republ
     entries: [{ id: "reversible-entry", data: { published: false } }],
   });
 
-  await page.goto("/admin/cms/studio-fixture/reversible-entry");
-  const republishToggle = page.getByRole("switch", { name: "Published" });
+  await openStudio(page, "/admin/cms/studio-fixture/reversible-entry");
+  const republishToggle = studio.getByRole("switch", { name: "Published" });
   await republishToggle.click();
   const republish = page.waitForResponse((response) =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
-  await page.locator("#btn-save").click();
+  await studio.locator("#btn-save").click();
   expect((await republish).ok()).toBe(true);
   expect(await fetchAnonymousHtml("/publication")).toContain("Reversible entry");
 });

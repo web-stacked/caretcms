@@ -18,6 +18,7 @@ import {
   htmlResponse,
   humanizeCollection,
   redirectResponse,
+  studioOverSite,
   renderStudioPage,
 } from "../views/studio-layout.js";
 import { studioNavigation } from "../views/studio-navigation.js";
@@ -56,6 +57,10 @@ export async function GET(context: APIContext): Promise<Response> {
   const canRestore = editable && await canPerform("publish", collection, id);
   const savingToPreview = getRequestContext()?.overlayActive === true;
   const previewPath = resolvePreviewPath(collectionConfig, id);
+  // Opened in a tab of its own, the entry opens over the page that shows it.
+  const sitePath = previewPath ?? runtime.editorHome;
+  const overSite = studioOverSite(context, runtime, sitePath);
+  if (overSite) return overSite;
   // More actions only when there is something to do in it.
   const hasMoreActions = Boolean(previewPath) || (savingToPreview && editable) || deletable;
   const publicationFieldName = publicationField(collectionConfig);
@@ -382,6 +387,7 @@ export async function GET(context: APIContext): Promise<Response> {
       skipLink: { label: messages["entry.skipToForm"], href: "#fields" },
       body,
       extraStyles,
+      sitePath,
     }),
   );
 }

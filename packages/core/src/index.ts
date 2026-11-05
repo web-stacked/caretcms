@@ -1137,6 +1137,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
               __ASTRO_CARET_MOUNT_PATH__: JSON.stringify(resolved.mountPath),
               __ASTRO_CARET_API_BASE_PATH__: JSON.stringify(resolved.apiBasePath),
               __ASTRO_CARET_EDITOR_HOME__: JSON.stringify(resolved.editorHome),
+              __ASTRO_CARET_INLINE_EDITOR__: JSON.stringify(resolved.enableInlineEditor),
               __ASTRO_CARET_MODE__: JSON.stringify(resolved.mode),
               __ASTRO_CARET_THEME_CONFIG__: JSON.stringify(JSON.stringify(resolved.theme)),
               __ASTRO_CARET_BRAND_CONFIG__: JSON.stringify(JSON.stringify(resolved.brand)),
@@ -1318,7 +1319,9 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
   // OR stega-encoded content (key hidden in a string via U+E0000); the latter
   // has no attribute until the editor hydrates it, so attribute-only detection
   // would miss it.
-  if(!document.querySelector('[data-caret],[data-caret-md]') && !/\\u{E0000}/u.test(document.body&&document.body.textContent||''))return;
+  // A Studio link opened in a tab arrives as #caret-studio=<route>: load the
+  // editor so the Studio opens over this page, bindings or not.
+  if(!document.querySelector('[data-caret],[data-caret-md]') && !/\\u{E0000}/u.test(document.body&&document.body.textContent||'') && location.hash.indexOf('#caret-studio=')!==0)return;
   fetch(${JSON.stringify(`${resolved.apiBasePath}/auth/session`)},{credentials:'same-origin'})
     .then(function(response){return response.ok?response.json():null;})
     .then(function(session){

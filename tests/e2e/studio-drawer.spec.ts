@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { blurToSave, loginAsEditor, replaceText, resetCmsStorage } from "./helpers";
+import { blurToSave, loginAsEditor, openStudio, replaceText, resetCmsStorage } from "./helpers";
 
 const drawerFrame = (page: Page) => page.locator('iframe[title="Content Studio"]');
 
@@ -61,17 +61,17 @@ test("the Studio overview lists the entries a page passes, with their titles", a
   });
   expect(seed.ok(), await seed.text()).toBe(true);
 
-  await page.goto("/admin/cms?on=studio-fixture::listed&on=pages::about-us&on=bad::id::extra&on=Bad::x");
-  const section = page.getByRole("region", { name: "On this page" });
+  const studio = await openStudio(page, "/admin/cms?on=studio-fixture::listed&on=pages::about-us&on=bad::id::extra&on=Bad::x");
+  const section = studio.getByRole("region", { name: "On this page" });
   const entries = section.locator(".studio-page-entry");
   await expect(entries).toHaveCount(2);
   await expect(entries.nth(0)).toContainText("Listed entry");
   await expect(entries.nth(0)).toHaveAttribute("href", "/admin/cms/studio-fixture/listed");
   await expect(entries.nth(1)).toContainText("About us");
-  await expect(page.getByRole("region", { name: "Collections" })).toBeVisible();
+  await expect(studio.getByRole("region", { name: "Collections" })).toBeVisible();
 
-  await page.goto("/admin/cms");
-  await expect(page.getByRole("region", { name: "On this page" })).toHaveCount(0);
+  await openStudio(page, "/admin/cms");
+  await expect(studio.getByRole("region", { name: "On this page" })).toHaveCount(0);
 });
 
 test("Tab cycles through the drawer and the toolbar, never the page behind", async ({ page }) => {

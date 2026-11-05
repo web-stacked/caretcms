@@ -20,6 +20,7 @@ import {
   htmlResponse,
   humanizeCollection,
   redirectResponse,
+  studioOverSite,
   renderCollectionIcon,
   renderStudioPage,
   serializeJsonForScript,
@@ -72,6 +73,8 @@ export async function GET(context: APIContext): Promise<Response> {
   if (!isEditorAuthenticated(context)) {
     return redirectResponse(loginRedirect);
   }
+  const overSite = studioOverSite(context, runtime);
+  if (overSite) return overSite;
 
   const adapter = await resolveReadAdapter();
   const configuredCollections = await getStudioCollections(adapter);
