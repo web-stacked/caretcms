@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { devices, expect, test, type Locator } from "@playwright/test";
-import { loginAsEditor, resetCmsStorage } from "./helpers";
+import { EDIT_PASSWORD, loginAsEditor, resetCmsStorage } from "./helpers";
 
 const fixtureImage = resolve(process.cwd(), "tests/e2e/fixtures/sample.png");
 
@@ -918,6 +918,44 @@ test("an image upload the server refuses says why", async ({ page }) => {
   });
   await expect(page.locator('[data-field-path="images"] .caret-image-help.is-error'))
     .toHaveText("This image is larger than 10 MB. Use a smaller image.");
+});
+
+async function storedTitle(page: import("@playwright/test").Page): Promise<unknown> {
+  const response = await page.request.get("/api/cms/entries?collection=studio-fixture&id=seed-entry");
+  const body = await response.json();
+  return body.entries?.[0]?.data?.title;
+}
+
+test("an expired session in the Studio asks to sign in again and saves the kept edit", async ({ page, context }) => {
+  await page.goto("/admin/cms/studio-fixture/seed-entry");
+  await expect(page.locator("#editor")).toBeVisible();
+
+  await context.clearCookies();
+  await page.locator('[name="title"]').fill("Saved after signing in");
+  const dialog = page.getByRole("dialog", { name: "Sign in again" });
+  await expect(dialog).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/cms\/studio-fixture\/seed-entry$/);
+  await expect(page.locator("#status-msg")).toHaveText("Not saved — sign in to save your changes");
+  await expect(page.locator('[name="title"]')).toHaveValue("Saved after signing in");
+
+  await dialog.getByLabel("Password").fill(EDIT_PASSWORD);
+  await dialog.getByRole("button", { name: "Sign in" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator("#status-msg")).toHaveText("All changes live");
+  expect(await storedTitle(page)).toBe("Saved after signing in");
+});
+
+test("a Studio edit made offline saves itself when the connection returns", async ({ page, context }) => {
+  await page.goto("/admin/cms/studio-fixture/seed-entry");
+  await expect(page.locator("#editor")).toBeVisible();
+
+  await context.setOffline(true);
+  await page.locator('[name="title"]').fill("Written offline in the Studio");
+  await expect(page.locator("#status-msg")).toHaveText("You're offline. Your changes are kept and save when you reconnect");
+
+  await context.setOffline(false);
+  await expect(page.locator("#status-msg")).toHaveText("All changes live");
+  expect(await storedTitle(page)).toBe("Written offline in the Studio");
 });
 
 test("a new entry named like an existing one gets the next free address", async ({ page }) => {

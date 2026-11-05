@@ -918,6 +918,20 @@ button.studio-nav-link {
 .modal-card-confirm h2 { font-size: 1rem; font-weight: 650; margin: 0 0 0.5rem; color: var(--studio-text); }
 .modal-card-confirm p { font-size: 0.85rem; line-height: 1.5; color: var(--studio-text-muted); margin: 0 0 1.5rem; }
 .modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.75rem; }
+.studio-reauth-label {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0 0 1.25rem;
+  font-size: 0.8rem;
+  font-weight: 550;
+  color: var(--studio-text);
+  text-align: left;
+}
+.modal-card-confirm p.studio-reauth-error {
+  margin: -0.75rem 0 1.25rem;
+  color: var(--studio-red);
+  text-align: left;
+}
 
 /* First Tab stop: skip the sidebar and header (Skip to form on entry pages). */
 .studio-skip-link {

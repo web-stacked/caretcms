@@ -9,6 +9,7 @@ import { rebaseEdits } from './studio/merge.js';
 import { historyChanges, historyFieldLabel, historyValueText, relativeTime } from './studio/history-view.js';
 import { presentPublishResult } from './editor/publish-result.js';
 import { whenServed } from './editor/image-utils.js';
+import { createSessionRecovery, SESSION_RESTORED_EVENT } from './editor/session-recovery.js';
 
 /** @typedef {import('../../src/schema-utils.js').JsonSchemaNode} Schema */
 /** @typedef {{ path: string, message: string }} ValidationIssue */
@@ -77,7 +78,38 @@ import { whenServed } from './editor/image-utils.js';
   if (!API || !COLLECTION || !ID) return;
   var mutationClient = createStudioMutationClient({ apiBasePath: API });
   var historyClient = createStudioHistoryClient({ apiBasePath: API });
-  var uploadClient = createStudioUploadClient({ apiBasePath: API, onUnauthorized: loginRedirect });
+  // A session that ends mid-edit is renewed in a dialog, so the form keeps
+  // what the editor typed; it saves again once they're signed in.
+  var sessionRecovery = createSessionRecovery({
+    cmsUrl: function (path) { return API + path; },
+    loginUrl: function (returnTo) { return MOUNT + "?redirect=" + encodeURIComponent(returnTo); },
+    redirectOnly: false,
+    look: {
+      backdrop: "modal-backdrop",
+      dialog: "modal-card modal-card-confirm studio-reauth",
+      label: "studio-reauth-label",
+      input: "studio-input",
+      error: "studio-reauth-error",
+      actions: "modal-actions",
+      secondary: "studio-btn-ghost",
+      link: "studio-btn-ghost",
+      primary: "studio-btn-primary",
+    },
+    messages: {
+      title: msg("session.title", "Sign in again"),
+      copy: msg("session.copy", "Your session ended. Your changes are kept here and save once you sign in."),
+      password: msg("session.password", "Password"),
+      later: msg("session.later", "Not now"),
+      signIn: msg("session.signIn", "Sign in"),
+      signInPage: msg("session.signInPage", "Use the sign-in page"),
+      openSignInPage: msg("session.openSignInPage", "Open the sign-in page"),
+      wrongPassword: msg("session.wrongPassword", "That password isn't right."),
+      failed: msg("session.failed", "Couldn't sign in. Check your connection and try again."),
+    },
+  });
+  function sessionExpired() { sessionRecovery.handleExpired(); }
+
+  var uploadClient = createStudioUploadClient({ apiBasePath: API, onUnauthorized: sessionExpired });
   var entryLoader = createStudioEntryLoader({ apiBasePath: API });
 
   /* ─── State ─────────────────────────────────────────────────────── */
@@ -313,7 +345,7 @@ import { whenServed } from './editor/image-utils.js';
       credentials: "same-origin",
       body: JSON.stringify({ collection: COLLECTION, id: ID }),
     }).then(function (response) {
-      if (response.status === 401) { loginRedirect(); return; }
+      if (response.status === 401) { sessionExpired(); return; }
       return response.json().catch(function () { return {}; }).then(function (body) {
         if (!response.ok) {
           showStatus("error", typeof body.error === "string" ? body.error : msg("common.error", "Error"));
@@ -354,7 +386,7 @@ import { whenServed } from './editor/image-utils.js';
       headers: { "x-caret-request": "1" },
       credentials: "same-origin",
     }).catch(function () { return null; });
-    if (response && response.status === 401) { loginRedirect(); return; }
+    if (response && response.status === 401) { sessionExpired(); return; }
     if (!response || !response.ok) {
       var body = response ? await response.json().catch(function () { return {}; }) : {};
       showStatus("error", typeof body.error === "string" ? body.error : msg("common.error", "Error"));
@@ -426,12 +458,6 @@ import { whenServed } from './editor/image-utils.js';
 
   function loginRedirect() {
     window.location.href = MOUNT + "?redirect=" + encodeURIComponent(window.location.pathname);
-  }
-
-  /** @param {Response} res */
-  function handleAuth(res) {
-    if (res.status === 401) { loginRedirect(); return true; }
-    return false;
   }
 
   /** @param {{ title: string, copy: string, action: string, danger?: boolean }} options */
@@ -611,7 +637,12 @@ import { whenServed } from './editor/image-utils.js';
     if (creating) payload.createOnly = true;
 
     mutationClient.save(payload).then(async function (result) {
-      if (result.kind === "unauthorized") { loginRedirect(); return; }
+      if (result.kind === "unauthorized") {
+        preserveSaveStatus = true;
+        showStatus("error", msg("entry.signInToSave", "Not saved — sign in to save your changes"));
+        sessionExpired();
+        return;
+      }
       if (result.kind === "validation") {
           preserveSaveStatus = true;
           var firstInvalid = showValidationErrors(result.issues);
@@ -687,8 +718,11 @@ import { whenServed } from './editor/image-utils.js';
         showStatus("saved", SAVE_TARGET === "preview" ? savedStatusMessage() : msg("entry.savedLive", "Changes are live"));
       }
     }).catch(function () {
+      // The edits stay in the form and save again on reconnecting.
       preserveSaveStatus = true;
-      showStatus("error", msg("common.error", "Error"));
+      showStatus("error", navigator.onLine
+        ? msg("entry.saveFailed", "Couldn't save. Your changes are still here — Save now to try again")
+        : msg("entry.offline", "You're offline. Your changes are kept and save when you reconnect"));
     }).then(function () {
       saving = false;
       updateSaveButton(preserveSaveStatus);
@@ -735,7 +769,7 @@ import { whenServed } from './editor/image-utils.js';
     if (typeof entryRevision === "number") payload.expectedRevision = entryRevision;
     if (typeof entryBaseRevision === "number") payload.expectedBaseRevision = entryBaseRevision;
     mutationClient.remove(payload).then(function (result) {
-      if (result === "unauthorized") { loginRedirect(); return; }
+      if (result === "unauthorized") { sessionExpired(); return; }
       if (result !== "deleted") throw new Error("delete failed");
       studioSync.announceChange("cms:deleted", null);
       window.location.href = MOUNT + "/cms/" + encodeURIComponent(COLLECTION);
@@ -1511,7 +1545,7 @@ import { whenServed } from './editor/image-utils.js';
     historyCloseBtn.focus();
 
     historyClient.list({ collection: COLLECTION, id: ID }).then(function (result) {
-      if (result.kind === "unauthorized") { loginRedirect(); return; }
+      if (result.kind === "unauthorized") { sessionExpired(); return; }
       if (result.kind === "error") throw new Error("history failed");
       var items = result.items;
       if (items.length === 0) {
@@ -1618,7 +1652,7 @@ import { whenServed } from './editor/image-utils.js';
       action: msg("entry.restore", "Restore"),
     }))) return;
     historyClient.restore({ collection: COLLECTION, id: ID, ts: ts }).then(function (result) {
-      if (result.kind === "unauthorized") { loginRedirect(); return; }
+      if (result.kind === "unauthorized") { sessionExpired(); return; }
       if (result.kind === "error") {
         showStatus("error", result.message || "Restore failed");
         return;
@@ -1719,6 +1753,12 @@ import { whenServed } from './editor/image-utils.js';
       if (isDirty()) save();
     }
   }, true);
+
+  function saveKeptChanges() {
+    if (isDirty() && !creating && CFG.editable !== false) save(AUTOSAVE);
+  }
+  window.addEventListener("online", saveKeptChanges);
+  window.addEventListener(SESSION_RESTORED_EVENT, saveKeptChanges);
 
   window.addEventListener("beforeunload", function (e) {
     if (isDirty()) { e.preventDefault(); e.returnValue = ""; }

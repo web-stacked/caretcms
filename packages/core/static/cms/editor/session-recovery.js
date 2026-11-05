@@ -9,10 +9,45 @@ import { buildCmsUrl, getEditorLoginUrl, isCloudMode } from './config.js';
  */
 export const SESSION_RESTORED_EVENT = 'cms:sessionRestored';
 
-/** @returns {Promise<{ authenticated: boolean, passwordLogin: boolean }>} */
-async function readSession() {
+/**
+ * Class names for the dialog's parts, so the page editor and the Studio each
+ * draw it in their own style.
+ * @typedef {{ backdrop: string, dialog: string, label: string, input: string, error: string, actions: string, secondary: string, link: string, primary: string }} DialogLook
+ */
+/**
+ * @typedef {{ title: string, copy: string, password: string, later: string, signIn: string, signInPage: string, openSignInPage: string, wrongPassword: string, failed: string }} SessionMessages
+ */
+
+/** @type {DialogLook} */
+const EDITOR_LOOK = {
+  backdrop: 'cms-dialog-backdrop',
+  dialog: 'cms-dialog cms-reauth-dialog',
+  label: 'cms-reauth-label',
+  input: 'cms-reauth-input',
+  error: 'cms-reauth-error',
+  actions: 'cms-dialog-actions',
+  secondary: '',
+  link: 'cms-dialog-link',
+  primary: 'cms-dialog-primary',
+};
+
+/** @type {SessionMessages} */
+const EDITOR_MESSAGES = {
+  title: 'Sign in again',
+  copy: 'Your session ended. Your changes are kept on this page and save once you sign in.',
+  password: 'Password',
+  later: 'Not now',
+  signIn: 'Sign in',
+  signInPage: 'Use the sign-in page',
+  openSignInPage: 'Open the sign-in page',
+  wrongPassword: "That password isn't right.",
+  failed: "Couldn't sign in. Check your connection and try again.",
+};
+
+/** @param {(path: string) => string} cmsUrl @returns {Promise<{ authenticated: boolean, passwordLogin: boolean }>} */
+async function readSession(cmsUrl) {
   try {
-    const response = await fetch(buildCmsUrl('/auth/session'), { credentials: 'same-origin' });
+    const response = await fetch(cmsUrl('/auth/session'), { credentials: 'same-origin' });
     const body = response.ok ? await response.json() : null;
     return { authenticated: body?.authenticated === true, passwordLogin: body?.passwordLogin === true };
   } catch {
@@ -20,8 +55,24 @@ async function readSession() {
   }
 }
 
-/** @returns {{ handleExpired: () => void }} */
-export function createSessionRecovery() {
+/**
+ * The defaults are the page editor's; the Studio passes its own paths, look
+ * and translated messages.
+ * @param {object} [options]
+ * @param {(path: string) => string} [options.cmsUrl]
+ * @param {(returnTo: string) => string} [options.loginUrl]
+ * @param {boolean} [options.redirectOnly] sign in only on the sign-in page (cloud mode)
+ * @param {DialogLook} [options.look]
+ * @param {SessionMessages} [options.messages]
+ * @returns {{ handleExpired: () => void }}
+ */
+export function createSessionRecovery({
+  cmsUrl = buildCmsUrl,
+  loginUrl = getEditorLoginUrl,
+  redirectOnly = isCloudMode(),
+  look = EDITOR_LOOK,
+  messages = EDITOR_MESSAGES,
+} = {}) {
   /** @type {HTMLElement | null} */
   let backdrop = null;
   let opening = false;
@@ -39,15 +90,15 @@ export function createSessionRecovery() {
 
   // Signing in from the sign-in page in another tab sets the same cookie.
   async function checkAfterSignInElsewhere() {
-    if ((await readSession()).authenticated) restored();
+    if ((await readSession(cmsUrl)).authenticated) restored();
   }
 
   /** @param {boolean} passwordLogin */
   function render(passwordLogin) {
     backdrop = document.createElement('div');
-    backdrop.className = 'cms-dialog-backdrop';
+    backdrop.className = look.backdrop;
     const dialog = document.createElement('form');
-    dialog.className = 'cms-dialog cms-reauth-dialog';
+    dialog.className = look.dialog;
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
     dialog.setAttribute('aria-labelledby', 'cms-reauth-title');
@@ -56,49 +107,50 @@ export function createSessionRecovery() {
 
     const title = document.createElement('h2');
     title.id = 'cms-reauth-title';
-    title.textContent = 'Sign in again';
+    title.textContent = messages.title;
     const copy = document.createElement('p');
     copy.id = 'cms-reauth-copy';
-    copy.textContent = 'Your session ended. Your changes are kept on this page and save once you sign in.';
+    copy.textContent = messages.copy;
     dialog.append(title, copy);
 
     /** @type {HTMLInputElement | null} */
     let password = null;
     const error = document.createElement('p');
-    error.className = 'cms-reauth-error';
+    error.className = look.error;
     error.setAttribute('role', 'alert');
     error.hidden = true;
     if (passwordLogin) {
       const label = document.createElement('label');
-      label.className = 'cms-reauth-label';
-      label.textContent = 'Password';
+      label.className = look.label;
+      label.textContent = messages.password;
       password = document.createElement('input');
       password.type = 'password';
       password.name = 'password';
       password.autocomplete = 'current-password';
       password.required = true;
-      password.className = 'cms-reauth-input';
+      password.className = look.input;
       label.append(password);
       dialog.append(label, error);
     }
 
     const actions = document.createElement('div');
-    actions.className = 'cms-dialog-actions';
+    actions.className = look.actions;
     const later = document.createElement('button');
     later.type = 'button';
-    later.textContent = 'Not now';
+    if (look.secondary) later.className = look.secondary;
+    later.textContent = messages.later;
     const elsewhere = document.createElement('a');
-    elsewhere.className = 'cms-dialog-link';
-    elsewhere.href = getEditorLoginUrl(window.location.href);
+    elsewhere.className = look.link;
+    elsewhere.href = loginUrl(window.location.href);
     elsewhere.target = '_blank';
     elsewhere.rel = 'noopener';
-    elsewhere.textContent = passwordLogin ? 'Use the sign-in page' : 'Open the sign-in page';
+    elsewhere.textContent = passwordLogin ? messages.signInPage : messages.openSignInPage;
     actions.append(later, elsewhere);
     if (passwordLogin) {
       const submit = document.createElement('button');
       submit.type = 'submit';
-      submit.className = 'cms-dialog-primary';
-      submit.textContent = 'Sign in';
+      submit.className = look.primary;
+      submit.textContent = messages.signIn;
       actions.append(submit);
     }
     dialog.append(actions);
@@ -120,7 +172,7 @@ export function createSessionRecovery() {
       event.preventDefault();
       if (!password?.value) { password?.focus(); return; }
       error.hidden = true;
-      const response = await fetch(buildCmsUrl('/auth/login'), {
+      const response = await fetch(cmsUrl('/auth/login'), {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -128,8 +180,8 @@ export function createSessionRecovery() {
       }).catch(() => null);
       if (response?.ok) { restored(); return; }
       const body = response ? await response.json().catch(() => null) : null;
-      error.textContent = response?.status === 401 ? "That password isn't right."
-        : typeof body?.error === 'string' ? body.error : "Couldn't sign in. Check your connection and try again.";
+      error.textContent = response?.status === 401 ? messages.wrongPassword
+        : typeof body?.error === 'string' ? body.error : messages.failed;
       error.hidden = false;
       password.select();
     });
@@ -140,10 +192,10 @@ export function createSessionRecovery() {
   return {
     handleExpired() {
       // Cloud sign-in happens on the cloud host; keep its existing redirect.
-      if (isCloudMode()) { window.location.href = getEditorLoginUrl(window.location.href); return; }
+      if (redirectOnly) { window.location.href = loginUrl(window.location.href); return; }
       if (backdrop || opening) return;
       opening = true;
-      readSession().then(({ authenticated, passwordLogin }) => {
+      readSession(cmsUrl).then(({ authenticated, passwordLogin }) => {
         opening = false;
         if (authenticated) { window.dispatchEvent(new CustomEvent(SESSION_RESTORED_EVENT)); return; }
         if (!backdrop) render(passwordLogin);
