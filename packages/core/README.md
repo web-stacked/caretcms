@@ -391,7 +391,7 @@ existing entries; deriving from Zod just adds proper labels, types, and widget h
 - **Section composer** for reordering and spacing page sections
 - **Response rewriting** middleware (server delivery) or **build-time HTML bake** (static delivery)
 - **Scoped bindings** via `data-caret-scope` to reduce repetition
-- **Dev Toolbar app** — in `astro dev`, inspect and highlight every binding on the page (no login required), grouped by entry with deep-links into Studio
+- **Dev Toolbar app** — in `astro dev`, inspect and highlight every binding on the page (no login required), grouped by entry with deep-links into Studio; it flags orphan bindings, duplicate keys and fields whose markup keeps them read-only
 - **Revision safety** with optimistic locking and restore from history
 - **Storage adapters** — filesystem (default), in-memory, or custom via `StorageAdapter` interface
 

@@ -2,7 +2,7 @@ import { createTextLinkInteractions } from './text-link-interactions.js';
 import { savesDrafts } from './config.js';
 import { describeEditableText } from './a11y.js';
 import { resolveBinding } from './helpers.js';
-import { ALLOWED_TAGS, sanitizeHtml } from './sanitize.js';
+import { sanitizeHtml, unsupportedTags } from './sanitize.js';
 import { bindUndo, dropEdit, recordEdit, undoLastEdit } from './undo-stack.js';
 import { bindUnsavedChanges, clearUnsaved, isUnsaved, markUnsaved } from './unsaved.js';
 
@@ -112,8 +112,7 @@ export function mountTextEditors({
     // otherwise saving would flatten markup the page never shows, so keep it
     // read-only and say why.
     if (!el.hasAttribute('data-caret-rich') && !el.hasAttribute('data-caret-raw') && el.children.length > 0) {
-      const tags = [...el.querySelectorAll('*')].map((child) => child.tagName.toLowerCase());
-      if (tags.every((tag) => ALLOWED_TAGS.has(tag))) {
+      if (unsupportedTags(el).length === 0) {
         el.setAttribute('data-caret-rich', '');
       } else {
         el.classList.add('cms-locked');

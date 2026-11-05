@@ -13,6 +13,18 @@ export const ALLOWED_TAGS = new Set([
   'b', 'strong', 'i', 'em', 'u', 's', 'a', 'br', 'sub', 'sup', 'span', 'code',
 ]);
 
+/**
+ * The tags inside a plain binding that rich text can't hold. None means the
+ * binding can be edited (and is rendered) as rich text; any means it stays
+ * read-only on the page, since saving would flatten markup the page shows.
+ * @param {Element} el
+ * @returns {string[]}
+ */
+export function unsupportedTags(el) {
+  const tags = [...el.querySelectorAll('*')].map((child) => child.tagName.toLowerCase());
+  return [...new Set(tags.filter((tag) => !ALLOWED_TAGS.has(tag)))];
+}
+
 /** @type {Readonly<Record<string, ReadonlySet<string>>>} */
 export const ALLOWED_ATTRS = {
   a: new Set(['href', 'target', 'rel']),

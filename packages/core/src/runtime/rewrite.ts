@@ -7,7 +7,8 @@
  *
  * v1 scope: text-only leaf nodes + <img> src swaps.
  * Child markup within the rich allowlist is rendered as rich text; any other
- * child markup is skipped, and the editor keeps such elements read-only.
+ * child markup is skipped: the editor keeps such elements read-only, and the
+ * dev toolbar lists them.
  */
 
 import type { StorageAdapter, EntryData } from "../types.js";
