@@ -95,7 +95,7 @@ export default defineConfig({
 
 - Add `data-caret` / `data-caret-scope` attributes — or run `npx @caretcms/caretize` to tag an existing site interactively
 - Run `npm run dev` — with no password configured, dev uses a temporary password kept in `.caret/dev-password` (also shown by `astro dev logs`)
-- **Sign in at `/admin`**, then click tagged content to edit; the Studio lives at `/admin/cms`
+- **Sign in at `/admin`**, then click tagged content to edit; the toolbar's **Studio** button opens the content Studio over the page
 - For production authoring, set `CARET_EDIT_PASSWORD` and `CARET_SESSION_SECRET` (see [deployment](docs/deployment.md))
 - Optionally create `src/caret.config.ts` with `caretLoader` for `getLiveEntry` / `getLiveCollection`
 

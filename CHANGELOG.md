@@ -216,6 +216,12 @@ first.
   collections and entries, light and dark themes that follow the system with a
   manual switch, collection page headers, a grid and list view with status
   labels, and card-based entry forms. The sign-in page and dialogs match.
+- The Studio opens over the site. **Expand** widens the drawer to two thirds of
+  the window with the page beside it; Shrink, Close, Esc and **View site** keep
+  you on the page. A Studio URL opened in a tab of its own redirects (303) to
+  the page that shows the entry (`previewPath`, else `editorHome`) with the
+  Studio expanded on that route. With `enableInlineEditor: false` the Studio is
+  still a page of its own.
 - The on-page toolbar is a floating bar. It re-centers beside the open Studio
   drawer and uses an icon-only Sign out on phones.
 - `theme.tokens` overrides apply in both light and dark mode.
