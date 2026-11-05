@@ -199,6 +199,7 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
     moveButton.textContent = onRight ? 'Move left' : 'Move right';
     moveButton.setAttribute('aria-label', onRight ? 'Move Studio panel left' : 'Move Studio panel right');
     writeSessionValue('cms-panel-side', side);
+    updatePush();
     reportLayout();
   }
 
@@ -220,6 +221,16 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
 
   setPanelSide(panelSide);
 
+  // The drawer pushes the page aside; expanded, or on a site that opts out
+  // with `caret-studio-overlay`, it covers the page instead.
+  document.documentElement.classList.add('cms-studio-pushable');
+  function updatePush() {
+    const root = document.documentElement;
+    const optedOut = root.classList.contains('caret-studio-overlay') || document.body.classList.contains('caret-studio-overlay');
+    root.classList.toggle('cms-studio-push', panel.classList.contains('open') && !panel.classList.contains('expanded') && !optedOut);
+    root.classList.toggle('cms-studio-push-right', panelSide === 'right');
+  }
+
   // Expanded, the Studio covers two thirds of the page and the live page stays
   // beside it; the drawer and the page underneath are the same either way.
   /** @param {boolean} expanded */
@@ -230,6 +241,7 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
     expandButton.setAttribute('aria-label', expanded ? 'Shrink the Studio to a drawer' : 'Expand the Studio');
     expandButton.setAttribute('aria-pressed', String(expanded));
     writeSessionValue('cms-panel-size', expanded ? 'expanded' : 'drawer');
+    updatePush();
     reportLayout();
   }
   setExpanded(Boolean(handoff) || readSessionValue('cms-panel-size') === 'expanded');
@@ -293,10 +305,12 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
     if (!animate) {
       panel.classList.add('no-transition');
       document.body.classList.add('no-transition');
+      document.documentElement.classList.add('no-transition');
     }
     panel.classList.add('open');
     panel.setAttribute('aria-hidden', 'false');
     document.body.classList.add('cms-panel-open');
+    updatePush();
     studioButton?.classList.add('active');
     studioButton?.setAttribute('aria-expanded', 'true');
     writeSessionValue('cms-panel-open', '1');
@@ -309,6 +323,7 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
         requestAnimationFrame(() => {
           panel.classList.remove('no-transition');
           document.body.classList.remove('no-transition');
+          document.documentElement.classList.remove('no-transition');
         });
       });
     }
@@ -318,6 +333,7 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
     panel.classList.remove('open');
     panel.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('cms-panel-open');
+    updatePush();
     studioButton?.classList.remove('active');
     studioButton?.setAttribute('aria-expanded', 'false');
     writeSessionValue('cms-panel-open', '0');

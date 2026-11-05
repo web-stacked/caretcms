@@ -180,3 +180,45 @@ test("signing in from a Studio address ends on the site with the Studio open", a
     await visitor.close();
   }
 });
+
+test("the drawer moves the page aside, and the expanded Studio covers it", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openStudio(page, "/admin/cms/pages/home");
+  const root = page.locator("html");
+  const headline = page.locator('h1[data-caret="hero.headline"]');
+
+  // Expanded: the page stays where it is under the Studio.
+  await expect(root).not.toHaveClass(/cms-studio-push(\s|$)/);
+  const coveredLeft = (await headline.boundingBox())!.x;
+
+  await expandButton(page).click(); // Shrink
+  await expect(root).toHaveClass(/cms-studio-push(\s|$)/);
+  // Centered content moves by half the drawer's width.
+  await expect.poll(async () => (await headline.boundingBox())!.x).toBeGreaterThan(coveredLeft + 150);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await panel(page).getByRole("button", { name: "Move Studio panel right" }).click();
+  await expect(root).toHaveClass(/cms-studio-push-right/);
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).paddingRight)).toBe("380px");
+
+  await panel(page).getByRole("button", { name: "Close" }).click();
+  await expect(root).not.toHaveClass(/cms-studio-push(\s|$)/);
+});
+
+test("a site can keep the drawer over its page", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.addInitScript(() => {
+    document.addEventListener("DOMContentLoaded", () => document.body.classList.add("caret-studio-overlay"));
+  });
+  await openStudio(page, "/admin/cms/pages/home");
+  await expandButton(page).click(); // Shrink
+  await expect(panel(page)).not.toHaveClass(/expanded/);
+  await expect(page.locator("html")).not.toHaveClass(/cms-studio-push(\s|$)/);
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).paddingLeft)).toBe("0px");
+});
+
+test("on a phone the drawer fills the screen and pushes nothing", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openStudio(page, "/admin/cms/pages/home");
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).paddingLeft)).toBe("0px");
+});

@@ -146,8 +146,9 @@ With no password configured, dev uses a **temporary password kept in `.caret/dev
 `CARET_EDIT_PASSWORD=<your-password>` to a `.env` file.
 
 Log in at `/admin`, then click any tagged element on the page to edit it. The toolbar's
-**Studio** button opens the content Studio over the page, as a drawer you can expand to two
-thirds of the window. Its routes live under `/admin/cms`: opened in a tab of their own, they
+**Studio** button opens the content Studio as a drawer that moves the page aside (add
+`caret-studio-overlay` to `<html>` or `<body>` to keep it over the page instead), and that you
+can expand to two thirds of the window. Its routes live under `/admin/cms`: opened in a tab of their own, they
 show the page an entry appears on (its `previewPath`, else `editorHome`) with the Studio open
 over it. With `enableInlineEditor: false` the Studio is a page of its own.
 

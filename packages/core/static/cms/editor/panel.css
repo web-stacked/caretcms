@@ -1,14 +1,13 @@
 /* ---------------------------------------------------------------------------
    Studio Panel — sliding left drawer with iframe
 
-   The panel is an OVERLAY drawer: it slides over the page and does not reflow
-   host layout. Earlier versions pushed `body` and shifted a hard-coded
-   `#main-header`, which silently broke on any site not using that selector or
-   using absolute/transformed layout. The only element still shifted is the CMS
-   toolbar, which is our own chrome (always present) — no host coupling.
-
-   Hosts that DO want content pushed aside (rather than overlaid) can opt in by
-   adding the `caret-push-content` class to <body>. See docs.
+   The 380px drawer moves the page aside so all of it stays visible; expanded,
+   the Studio covers two thirds of the window and the page stays where it is
+   beside it. The push is padding on <html> (sites rarely style it, unlike
+   <body>), with sideways overflow clipped so full-width sections don't scroll.
+   Fixed and sticky elements don't move with it: a site whose layout can't take
+   the push adds `caret-studio-overlay` to <html> or <body>, and the drawer
+   covers the page instead.
    --------------------------------------------------------------------------- */
 
 :root {
@@ -176,17 +175,19 @@ body.no-transition .cms-toolbar {
   white-space: nowrap;
 }
 
-/* Opt-in: push host content aside instead of overlaying it. */
-body.cms-panel-open.caret-push-content {
+/* The drawer pushes the page aside (see the top of this file). */
+html.cms-studio-pushable {
+  transition: padding-left 0.5s cubic-bezier(0.16, 1, 0.3, 1), padding-right 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+html.cms-studio-push {
   padding-left: var(--cms-panel-width);
-  transition: padding-left 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow-x: clip;
 }
-
-body.cms-panel-open.cms-panel-expanded.caret-push-content {
-  padding-left: var(--cms-panel-expanded-width);
+html.cms-studio-push.cms-studio-push-right {
+  padding-left: 0;
+  padding-right: var(--cms-panel-width);
 }
-
-body.cms-panel-open.caret-push-content.no-transition {
+html.cms-studio-pushable.no-transition {
   transition: none;
 }
 
@@ -206,9 +207,11 @@ body.cms-panel-open.caret-push-content.no-transition {
     box-shadow: none;
   }
 
-  body.cms-panel-open.caret-push-content,
-  body.cms-panel-open.cms-panel-expanded.caret-push-content {
+  /* The drawer fills a phone's screen; nothing is beside it to push. */
+  html.cms-studio-push,
+  html.cms-studio-push.cms-studio-push-right {
     padding-left: 0;
+    padding-right: 0;
   }
 
   .cms-panel-move { display: none; }
@@ -216,7 +219,7 @@ body.cms-panel-open.caret-push-content.no-transition {
 
 @media (prefers-reduced-motion: reduce) {
   .cms-studio-panel,
-  body.cms-panel-open.caret-push-content,
+  html.cms-studio-pushable,
   .cms-studio-panel-spinner {
     transition: none;
     animation: none;
