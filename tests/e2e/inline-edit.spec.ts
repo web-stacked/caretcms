@@ -876,6 +876,72 @@ test.describe("inline editor — click to edit", () => {
     expect(anonHtml).not.toContain('src="/initial.png"');
   });
 
+  test("a failed image save keeps the new image on the page and Retry saves it", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const image = page.locator(HERO_IMAGE);
+    await expect(image).toHaveAttribute("data-caret-img-mounted", "true");
+    await image.hover({ force: true });
+
+    await page.route("**/api/cms/mutate", (route) => route.fulfill({ status: 500, body: "{}" }));
+    await page.locator(".cms-img-input").setInputFiles(SAMPLE_PNG);
+
+    await expect(page.getByText("Couldn't save your change. It's kept on the page.")).toBeVisible();
+    await expect(image).toHaveAttribute("src", /^\/uploads\/.+\.(webp|png|jpe?g)$/);
+    await expect(image).toHaveClass(/cms-unsaved/);
+    await expect(page.locator(".cms-status-text")).toHaveText("Unsaved changes");
+    const uploaded = await image.getAttribute("src");
+
+    await page.unroute("**/api/cms/mutate");
+    await page.getByRole("button", { name: "Retry now" }).click();
+    await expect(page.getByText("Image updated")).toBeVisible();
+    await expect(image).not.toHaveClass(/cms-unsaved/);
+    expect(await fetchAnonymousHtml("/")).toContain(`src="${uploaded}"`);
+  });
+
+  test("a newer edit to another field of the entry doesn't interrupt an image save", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const image = page.locator(HERO_IMAGE);
+    await expect(image).toHaveAttribute("data-caret-img-mounted", "true");
+
+    const elsewhere = await page.request.post("/api/cms/mutate", {
+      headers: { "x-caret-request": "1" },
+      data: { type: "save_field", collection: "pages", id: "home", field: "hero.headline", value: "Headline from another tab", expectedRevision: 0 },
+    });
+    expect(elsewhere.ok()).toBeTruthy();
+
+    await image.hover({ force: true });
+    await page.locator(".cms-img-input").setInputFiles(SAMPLE_PNG);
+    await expect(page.getByText("Image updated")).toBeVisible();
+    await expect(page.getByText("This image changed elsewhere while you were editing.")).toHaveCount(0);
+
+    const html = await fetchAnonymousHtml("/");
+    expect(html).toContain(`src="${await image.getAttribute("src")}"`);
+    expect(html).toContain("Headline from another tab");
+  });
+
+  test("an image upload interrupted by an expired session finishes after signing in again", async ({ page, context }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const image = page.locator(HERO_IMAGE);
+    await expect(image).toHaveAttribute("data-caret-img-mounted", "true");
+    await image.hover({ force: true });
+
+    await context.clearCookies();
+    await page.locator(".cms-img-input").setInputFiles(SAMPLE_PNG);
+    const dialog = page.getByRole("dialog", { name: "Sign in again" });
+    await expect(dialog).toBeVisible();
+    await expect(image).toHaveClass(/cms-unsaved/);
+
+    await dialog.getByLabel("Password").fill(EDIT_PASSWORD);
+    await dialog.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByText("Image updated")).toBeVisible();
+    await expect(image).not.toHaveClass(/cms-unsaved/);
+    await expect(image).toHaveAttribute("src", /^\/uploads\/.+\.(webp|png|jpe?g)$/);
+    expect(await fetchAnonymousHtml("/")).toContain(`src="${await image.getAttribute("src")}"`);
+  });
+
   test("uploads the original image when canvas compression is unavailable", async ({ page }) => {
     await page.addInitScript(() => {
       Object.defineProperty(window, "createImageBitmap", {

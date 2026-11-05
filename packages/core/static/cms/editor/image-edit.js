@@ -4,10 +4,12 @@ import { resolveBinding } from './helpers.js';
 import { whenServed } from './image-utils.js';
 import { createAltPrompt } from './alt-text.js';
 import { describeEditableImage } from './a11y.js';
+import { clearUnsaved, markUnsaved } from './unsaved.js';
 
 /** @typedef {{ collection: string, id: string, field: string }} ResolvedCaretBinding */
 /** @typedef {{ collection: string | null, id: string | null, field: string }} ParsedCaretBinding */
 /** @typedef {{ ok: true, revision?: number } | { ok: false, reason: 'conflict' | 'unauthorized' | 'error', latestValue?: unknown } | { ok: false, reason: 'invalid', message: string }} SaveResult */
+/** @typedef {{ dirtyEls: Set<Element> }} ImageEditorState */
 /**
  * @typedef {((message: string, kind: 'success' | 'error') => unknown) & {
  *   conflict: (options: {
@@ -46,6 +48,14 @@ const OVERLAY_HTML = `
 /** @type {HTMLImageElement | null} */
 let active = null;
 
+// Each binding's stored image as the page shows it: the base a save is
+// checked against, and what a refused save puts back.
+/** @type {Map<string, string>} */
+const savedSrc = new Map();
+// The local preview of a file whose upload is waiting to be retried.
+/** @type {WeakMap<HTMLImageElement, string>} */
+const keptPreviews = new WeakMap();
+
 /**
  * The image an event on the Replace control belongs to, so other editor
  * affordances (the link "Open" button) treat the control as that image.
@@ -70,16 +80,18 @@ function editableImage(target) {
  * carousel images keep their layout.
  *
  * @param {object} options
+ * @param {ImageEditorState} options.state
  * @param {(attr: string) => ParsedCaretBinding | null} options.parseCaretAttr
  * @param {(element: Element, success: boolean) => void} options.flash
  * @param {(file: File) => Promise<File>} options.compressImage
  * @param {(image: HTMLImageElement, url: string) => void} options.updateEmblaCarousel
- * @param {(collection: string, id: string, field: string, value: string) => Promise<SaveResult>} options.saveField
+ * @param {(collection: string, id: string, field: string, value: string, options?: { baseValue?: string }) => Promise<SaveResult>} options.saveField
  * @param {(state: 'saving' | 'error', text: string) => void} options.setStatus
  * @param {ConflictToast} options.showToast
  * @param {() => void} options.onUnauthorized
  */
 export function mountImageEditors({
+  state,
   parseCaretAttr,
   flash,
   compressImage,
@@ -94,6 +106,8 @@ export function mountImageEditors({
     const img = /** @type {HTMLImageElement} */ (el);
     if (img.dataset.caretImgMounted === 'true' || img.hasAttribute('data-caret-locked')) return;
     img.dataset.caretImgMounted = 'true';
+    const marker = img.getAttribute('data-caret') || '';
+    if (!savedSrc.has(marker)) savedSrc.set(marker, img.getAttribute('src') || '');
     if (!img.closest('a, button') && !img.hasAttribute('tabindex')) img.tabIndex = 0;
     describeEditableImage(img);
   });
@@ -190,7 +204,7 @@ export function mountImageEditors({
     document.querySelectorAll('img[data-caret]').forEach((node) => {
       const image = /** @type {HTMLImageElement} */ (node);
       if (image.getAttribute('data-caret') !== marker) return;
-      image.src = src;
+      image.setAttribute('src', src);
       image.removeAttribute('srcset');
       updateEmblaCarousel(image, src);
     });
@@ -206,12 +220,15 @@ export function mountImageEditors({
    * @param {unknown} latestValue
    */
   const runImageConflict = (img, resolved, marker, mineUrl, latestValue) => {
+    state.dirtyEls.add(img);
     showToast.conflict({
       message: 'This image changed elsewhere while you were editing.',
       onKeepMine: async () => {
         const retry = await saveField(resolved.collection, resolved.id, resolved.field, mineUrl);
         flash(img, retry.ok);
         if (retry.ok) {
+          state.dirtyEls.delete(img);
+          savedSrc.set(marker, mineUrl);
           syncBoundImages(marker, mineUrl);
           showToast('Your image saved', 'success');
         } else if (retry.reason === 'conflict') {
@@ -222,6 +239,8 @@ export function mountImageEditors({
       },
       onLoadLatest: () => {
         const src = typeof latestValue === 'string' ? latestValue : mineUrl;
+        state.dirtyEls.delete(img);
+        savedSrc.set(marker, src);
         syncBoundImages(marker, src);
         showToast('Loaded latest image', 'success');
       },
@@ -229,6 +248,45 @@ export function mountImageEditors({
   };
 
   const altPrompt = createAltPrompt({ saveField, showToast });
+
+  /** Keep a change that couldn't be saved yet. @param {HTMLImageElement} img @param {() => Promise<void>} retry @param {boolean} quiet */
+  const keepUnsaved = (img, retry, quiet) => {
+    markUnsaved(img, retry, { quiet });
+    state.dirtyEls.add(img);
+  };
+
+  /** @param {HTMLImageElement} img */
+  const settle = (img) => {
+    clearUnsaved(img);
+    state.dirtyEls.delete(img);
+  };
+
+  /**
+   * Write an uploaded image into its entry. A save that couldn't complete
+   * keeps the image on the page and is retried like a text field.
+   * @param {HTMLImageElement} img @param {ResolvedCaretBinding} resolved @param {string} marker @param {string} url
+   */
+  async function saveImage(img, resolved, marker, url) {
+    const result = await saveField(resolved.collection, resolved.id, resolved.field, url, { baseValue: savedSrc.get(marker) });
+    flash(img, result.ok);
+    if (result.ok) {
+      settle(img);
+      savedSrc.set(marker, url);
+      syncBoundImages(marker, url);
+      showToast(savesDrafts() ? 'Image saved as a draft. Publish to show it to visitors.' : 'Image updated', 'success');
+      await altPrompt.ask(img, resolved);
+    } else if (result.reason === 'conflict') {
+      settle(img);
+      runImageConflict(img, resolved, marker, url, result.latestValue);
+    } else if (result.reason === 'invalid') {
+      // The server refused the image, so a retry can't help.
+      settle(img);
+      syncBoundImages(marker, savedSrc.get(marker) ?? '');
+      showToast(`${result.message.replace(/\.$/, '')}. The previous image is back.`, 'error');
+    } else {
+      keepUnsaved(img, () => saveImage(img, resolved, marker, url), result.reason === 'unauthorized');
+    }
+  }
 
   /** Replace an image with a chosen or dropped file. @param {File} file @param {HTMLImageElement} img */
   async function replaceImage(file, img) {
@@ -238,10 +296,16 @@ export function mountImageEditors({
     const resolved = resolveBinding(img, parseCaretAttr(marker));
     if (!resolved) return;
 
+    // A new file (or a retry) replaces any upload still waiting.
+    const stalePreview = keptPreviews.get(img);
+    keptPreviews.delete(img);
+
     // Optimistic preview
     const previewUrl = URL.createObjectURL(file);
-    const originalSrc = img.src;
+    const originalSrc = savedSrc.get(marker) ?? img.getAttribute('src') ?? '';
     img.src = previewUrl;
+    if (stalePreview) URL.revokeObjectURL(stalePreview);
+    let keepPreview = false;
 
     uploading = true;
     overlay.classList.add('uploading');
@@ -257,12 +321,16 @@ export function mountImageEditors({
         method: 'POST',
         headers,
         body: formData,
-      });
-      if (uploadRes.status === 401) {
-        // Restore the real image before the redirect — the optimistic blob is
-        // revoked in `finally`, so leaving it as src would flash a broken image.
-        img.src = originalSrc;
-        onUnauthorized();
+      }).catch(() => null);
+      if (!uploadRes || uploadRes.status === 401 || uploadRes.status >= 500) {
+        // Offline, a server failure or an expired session: keep the chosen
+        // file on the page and upload it again with the other kept changes.
+        keepPreview = true;
+        keptPreviews.set(img, previewUrl);
+        const expired = uploadRes?.status === 401;
+        keepUnsaved(img, () => replaceImage(file, img), expired);
+        setStatus('error', 'Not saved');
+        if (expired) onUnauthorized();
         return;
       }
       if (!uploadRes.ok) {
@@ -277,29 +345,17 @@ export function mountImageEditors({
 
       // Point at the durable uploaded URL now, so the shown image survives the
       // optimistic blob being revoked in `finally` (and any conflict prompt).
-      img.src = url;
-
-      const result = await saveField(resolved.collection, resolved.id, resolved.field, url);
-      if (result.ok) {
-        syncBoundImages(marker, url);
-        showToast(savesDrafts() ? 'Image saved as a draft. Publish to show it to visitors.' : 'Image updated', 'success');
-        await altPrompt.ask(img, resolved);
-      } else if (result.reason === 'conflict') {
-        runImageConflict(img, resolved, marker, url, result.latestValue);
-      } else if (result.reason !== 'unauthorized') {
-        syncBoundImages(marker, originalSrc);
-        showToast('Failed to save image. Changes reverted.', 'error');
-      }
-
-      flash(img, result.ok);
+      img.setAttribute('src', url);
+      await saveImage(img, resolved, marker, url);
     } catch (error) {
-      img.src = originalSrc;
+      settle(img);
+      img.setAttribute('src', originalSrc);
       flash(img, false);
       setStatus('error', 'Upload failed');
       const reason = error instanceof Error && error.message ? error.message : '';
       showToast(reason || 'The image couldn’t be uploaded. Try again.', 'error');
     } finally {
-      URL.revokeObjectURL(previewUrl);
+      if (!keepPreview) URL.revokeObjectURL(previewUrl);
       uploading = false;
       overlay.classList.remove('uploading');
       if (!img.matches(':hover') && document.activeElement !== img) hide();

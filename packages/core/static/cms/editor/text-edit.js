@@ -3,8 +3,8 @@ import { savesDrafts } from './config.js';
 import { describeEditableText } from './a11y.js';
 import { resolveBinding } from './helpers.js';
 import { ALLOWED_TAGS, sanitizeHtml } from './sanitize.js';
-import { SESSION_RESTORED_EVENT } from './session-recovery.js';
 import { bindUndo, dropEdit, recordEdit, undoLastEdit } from './undo-stack.js';
+import { bindUnsavedChanges, clearUnsaved, isUnsaved, markUnsaved } from './unsaved.js';
 
 /** @typedef {HTMLElement & { _caretSkipSave?: boolean }} EditableElement */
 /** @typedef {{ collection: string, id: string, field: string }} ResolvedCaretBinding */
@@ -32,19 +32,6 @@ let keydownBound = false;
 
 // Text edits save on their own: ~1.2s after typing stops, and on blur.
 const AUTOSAVE_DELAY_MS = 1200;
-
-// Fields whose last save failed, each with the function that saves it again.
-// Their text stays on the page and their snapshot stays at the last saved
-// value, so leaving the field or coming back online retries the same change.
-/** @type {Map<HTMLElement, () => Promise<void>>} */
-const unsavedFields = new Map();
-/** @type {HTMLDivElement | null} */
-let unsavedToast = null;
-let onlineRetryBound = false;
-
-function retryUnsavedFields() {
-  for (const save of [...unsavedFields.values()]) void save();
-}
 
 // `contenteditable="plaintext-only"` isn't supported in older Firefox (pre-136);
 // setting it there leaves the element non-editable. Feature-detect once and fall
@@ -109,27 +96,7 @@ export function mountTextEditors({
     document.addEventListener('keydown', onKeydown);
     keydownBound = true;
   }
-  if (!onlineRetryBound) {
-    window.addEventListener('online', retryUnsavedFields);
-    window.addEventListener(SESSION_RESTORED_EVENT, retryUnsavedFields);
-    onlineRetryBound = true;
-  }
-
-  function showUnsavedNotice() {
-    if (unsavedToast && document.body.contains(unsavedToast)) return;
-    unsavedToast = showToast.pending({
-      message: navigator.onLine
-        ? "Couldn't save your change. It's kept on the page."
-        : "You're offline. Your change is kept and saves when you reconnect.",
-      actions: [{ label: 'Retry now', primary: true, onClick: retryUnsavedFields }],
-    });
-  }
-
-  function clearUnsavedNotice() {
-    if (unsavedFields.size > 0 || !unsavedToast) return;
-    showToast.dismiss(unsavedToast);
-    unsavedToast = null;
-  }
+  bindUnsavedChanges(showToast);
 
   document.querySelectorAll('[data-caret]').forEach((el) => {
     if (!(el instanceof HTMLElement) || el instanceof HTMLImageElement) return;
@@ -196,7 +163,7 @@ export function mountTextEditors({
     el.addEventListener('focus', () => {
       // An unsaved field keeps the snapshot of its last saved value, so the
       // next blur compares against that and saves the kept text again.
-      const keepSnapshot = unsavedFields.has(el);
+      const keepSnapshot = isUnsaved(el);
       edit += 1;
       editSaved = false;
       if (isRich) {
@@ -301,11 +268,7 @@ export function mountTextEditors({
       });
     };
 
-    const markSaved = () => {
-      unsavedFields.delete(el);
-      el.classList.remove('cms-unsaved');
-      clearUnsavedNotice();
-    };
+    const markSaved = () => clearUnsaved(el);
 
     // Save the field's text if it differs from the last saved value. On blur
     // the element holds the text being edited; on a retry it holds the
@@ -319,7 +282,7 @@ export function mountTextEditors({
       if (!fromBlur && document.activeElement === el) return;
       if (!live) clearTimeout(autosaveTimer);
       const snapshot = snapshots.get(el) ?? '';
-      const wasUnsaved = unsavedFields.has(el);
+      const wasUnsaved = isUnsaved(el);
       let current;
       if (isRich) {
         current = sanitizeHtml(el.innerHTML);
@@ -382,10 +345,8 @@ export function mountTextEditors({
         // retry on the next blur, when the browser comes back online or the
         // session is restored, or from the notice's Retry action. An expired
         // session has its own sign-in dialog instead of the notice.
-        unsavedFields.set(el, commit);
-        el.classList.add('cms-unsaved');
+        markUnsaved(el, commit, { quiet: result.reason === 'unauthorized' });
         state.dirtyEls.add(el);
-        if (result.reason !== 'unauthorized') showUnsavedNotice();
       }
     };
 

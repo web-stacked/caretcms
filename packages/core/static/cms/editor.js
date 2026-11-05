@@ -201,6 +201,7 @@ function boot() {
     });
 
     mountImageEditors({
+      state,
       parseCaretAttr,
       flash,
       compressImage,
