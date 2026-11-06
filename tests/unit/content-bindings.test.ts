@@ -201,4 +201,18 @@ describe("readAstroCollectionSchemas", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("reads a file() collection's entry schema out of its whole-file schema", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "caret-astro-schemas-"));
+    const entry = { type: "object", properties: { category: { type: "string", enum: ["bread", "cake"] } }, required: ["category"] };
+    try {
+      await writeFile(join(dir, "menu.schema.json"), JSON.stringify({
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        anyOf: [{ type: "array", items: entry }, { type: "object", properties: { $schema: { type: "string" } }, additionalProperties: entry }],
+      }));
+      expect(readAstroCollectionSchemas(dir)).toEqual({ menu: entry });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

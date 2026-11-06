@@ -169,8 +169,13 @@ where one file holds many entries, implements `isDocumentCollection(collection)`
 and returns false for those collections. Publish then saves the entry with
 `writeEntry` and keeps the file's other entries.
 
-The Markdown adapter treats `<contentRoot>/<name>.json` as a data collection
-when no `<contentRoot>/<name>/` directory holds Markdown entries. An array of
+The Markdown adapter treats a collection as a data collection when no
+`<contentRoot>/<name>/` directory holds Markdown entries and it has a JSON
+file: the one its `file("…")` loader names in the project's content config
+(`src/content.config.ts`, read literally, paths relative to the project root),
+or else `<contentRoot>/<name>.json`. `astro dev` logs the configured
+collections it can't map to a source (a custom loader, a non-JSON file, a
+`glob()` base outside `<contentRoot>/<name>/`). An array of
 objects with a string `id`, or an object whose values are all objects, holds
 one entry per item, as Astro's `file()` loader reads it. Any other object is a
 single entry whose id is the file name. Writes to one file are serialized in

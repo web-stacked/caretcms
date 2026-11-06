@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { basename, dirname, join, resolve } from "node:path";
 import type { AstroIntegration } from "astro";
 import { COLLECTION_NAME_RE } from "./runtime/storage/id-contracts.js";
+import { contentConfigDataFiles, uneditableCollections } from "./runtime/storage/content-config.js";
 import type {
   CaretMode,
   CaretStorageProvider,
@@ -801,7 +802,13 @@ export function readAstroCollectionSchemas(dir: string): Record<string, JsonSche
     const match = /^(.+)\.schema\.json$/.exec(file);
     if (!match || !COLLECTION_NAME_RE.test(match[1])) continue;
     try {
-      const schema = JSON.parse(readFileSync(join(dir, file), "utf8")) as Record<string, unknown>;
+      const parsed = JSON.parse(readFileSync(join(dir, file), "utf8")) as Record<string, unknown>;
+      // A `file()` collection's schema describes the whole file: an array of
+      // entries or an object of them. Each entry is the array's item schema.
+      const fileItems = Array.isArray(parsed.anyOf)
+        ? (parsed.anyOf as Array<Record<string, unknown>>).find((option) => option?.type === "array")?.items as Record<string, unknown> | undefined
+        : undefined;
+      const schema = fileItems?.type === "object" ? { $schema: parsed.$schema, ...fileItems } : parsed;
       const properties = schema.properties as Record<string, unknown> | undefined;
       if (schema.type !== "object" || !properties || Object.keys(properties).length === 0) continue;
       const { $schema: _draft, ...rest } = schema;
@@ -888,7 +895,14 @@ type PluginContextLike = {
  * wrapped with `bindDataFile`. Astro's own modules, `content.config`,
  * `live.config`, and browser code keep the originals.
  */
-function createContentBindingsPlugin(contentRoot: string | null) {
+function createContentBindingsPlugin(contentRoot: string | null, projectRoot: string) {
+  /** Collection a JSON file belongs to: a configured `file()` source, or `<contentRoot>/<name>.json`. */
+  const collectionOf = (file: string): string | null => {
+    const normalized = resolve(file);
+    for (const [name, path] of contentConfigDataFiles(projectRoot)) if (resolve(path) === normalized) return name;
+    const name = basename(file, ".json");
+    return contentRoot !== null && dirname(normalized) === resolve(contentRoot) && COLLECTION_NAME_RE.test(name) ? name : null;
+  };
   return {
     name: "caretcms:content-bindings",
     enforce: "pre" as const,
@@ -907,21 +921,25 @@ function createContentBindingsPlugin(contentRoot: string | null) {
         const target = await this.resolve(source, importer, { skipSelf: true });
         if (!target || target.external) return null;
         const file = target.id.split("?")[0];
-        const name = basename(file, ".json");
-        if (target.id.includes("?") || dirname(file) !== contentRoot || !COLLECTION_NAME_RE.test(name)) return null;
-        // A `.js` suffix keeps Vite's JSON plugin from parsing the generated module.
-        return `${DATA_FILE_PREFIX}${file}.js`;
+        const name = target.id.includes("?") ? null : collectionOf(file);
+        if (!name) return null;
+        // A `.js` suffix keeps Vite's JSON plugin from parsing the generated module;
+        // the collection name rides along so a file elsewhere keeps its address.
+        return `${DATA_FILE_PREFIX}${name}:${file}.js`;
       },
     },
     load(this: PluginContextLike, id: string) {
       if (id === ASTRO_CONTENT_BINDINGS_ID) return ASTRO_CONTENT_BINDINGS_SOURCE;
       if (!id.startsWith(DATA_FILE_PREFIX)) return null;
-      const file = id.slice(DATA_FILE_PREFIX.length, -".js".length);
+      const target = id.slice(DATA_FILE_PREFIX.length, -".js".length);
+      const separator = target.indexOf(":");
+      const name = target.slice(0, separator);
+      const file = target.slice(separator + 1);
       this.addWatchFile(file);
       const value: unknown = JSON.parse(readFileSync(file, "utf8"));
       const lines = [
         `import { bindDataFile } from "@caretcms/core/runtime";`,
-        `const data = bindDataFile(${JSON.stringify(value)}, ${JSON.stringify(basename(file, ".json"))});`,
+        `const data = bindDataFile(${JSON.stringify(value)}, ${JSON.stringify(name)});`,
         `export default data;`,
       ];
       // Keep Vite's named exports for top-level keys (`import { nav } from …`).
@@ -1072,7 +1090,8 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
         );
         if (!userSetStorage && resolved.mode !== "cloud") {
           const projectRoot = fileURLToPath(config.root);
-          const detected = detectContentCollections(projectRoot);
+          const detected = [...new Set([...detectContentCollections(projectRoot), ...contentConfigDataFiles(projectRoot).keys()])]
+            .sort((a, b) => a.localeCompare(b));
           if (detected.length > 0) {
             // Pin the adapter to the SAME root the detection used — its own
             // default is process.cwd(), which diverges from config.root under
@@ -1084,8 +1103,25 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
               metaRoot: join(projectRoot, ".caretcms"),
             });
             logger.info(
-              `[caretcms] Detected Astro content collections under src/content (${detected.join(", ")}) — defaulting storage to markdownStorage(). Pass an explicit \`storage\` to override; add \`schemas\` (e.g. via @caretcms/zod) for typed fields.`,
+              `[caretcms] Detected Astro content collections (${detected.join(", ")}) — defaulting storage to markdownStorage(). Pass an explicit \`storage\` to override; add \`schemas\` (e.g. via @caretcms/zod) for typed fields.`,
             );
+          }
+        }
+
+        // Markdown storage reads `file()` collections from wherever the content
+        // config says they live; paths there are relative to the project root.
+        if (resolved.storage?.entrypoint === MARKDOWN_STORAGE_ENTRYPOINT && resolved.mode !== "cloud") {
+          const projectRoot = fileURLToPath(config.root);
+          const storageOptions = (resolved.storage.options ?? {}) as Record<string, unknown>;
+          if (typeof storageOptions.projectRoot !== "string") {
+            resolved.storage = { ...resolved.storage, options: { ...storageOptions, projectRoot } };
+          }
+          if (command === "dev") {
+            const contentRoot = markdownContentRoot(resolved.storage, projectRoot) ?? join(projectRoot, "src", "content");
+            const unreachable = uneditableCollections(projectRoot, contentRoot);
+            if (unreachable.length) {
+              logger.warn(`Can't edit ${unreachable.length === 1 ? "this collection" : "these collections"} yet: ${unreachable.join("; ")}.`);
+            }
           }
         }
 
@@ -1156,7 +1192,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
               createSchemasPlugin(resolved.schemas, resolved.collections, astroSchemasDir),
               createPageContentPlugin(fileURLToPath(new URL("./src/", config.root))),
               ...(resolved.bindContent && resolved.enableInlineEditor
-                ? [createContentBindingsPlugin(contentRoot)]
+                ? [createContentBindingsPlugin(contentRoot, fileURLToPath(config.root))]
                 : []),
             ],
           },

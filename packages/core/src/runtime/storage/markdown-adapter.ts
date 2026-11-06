@@ -10,6 +10,7 @@ import { parseFrontmatter, rewriteFrontmatter } from "./frontmatter-codec.js";
 import { spliceBodyBlocks as spliceBodyBlocksInSource } from "../../markdown/splice.js";
 import { FilesystemAdapter } from "./filesystem-adapter.js";
 import { dataFileIds, parseDataFile, readDataEntry, writeDataEntry, type DataFile } from "./data-file-codec.js";
+import { contentConfigDataFiles } from "./content-config.js";
 
 // .md is preferred over .mdx when both exist for the same id (simpler format,
 // and an MDX body is more fragile). Order matters: first match wins on read.
@@ -35,9 +36,11 @@ function queueDataFileWrite<T>(path: string, task: () => Promise<T>): Promise<T>
  * hash-checked source replacements, with sidecar recovery metadata.
  *
  * A collection with no Markdown directory may instead be an Astro `file()`
- * data file, `<contentRoot>/<collection>.json` (an array of objects with `id`,
- * or an object keyed by id). Its entries are read and written in place inside
- * that one file; see `data-file-codec.ts`.
+ * data file: the JSON file its `file("…")` loader names in the project's
+ * content config (wherever it lives, e.g. `src/data/menu.json`), or else
+ * `<contentRoot>/<collection>.json`. A `file()` file is an array of objects
+ * with `id` or an object keyed by id. Its entries are read and written in
+ * place inside that one file; see `data-file-codec.ts`.
  *
  * Revisions, history, and collection metadata live in the `.caretcms/` sidecar
  * (shared `SidecarMetaStore`), so the source `.md` files stay free of CMS state.
@@ -64,11 +67,13 @@ export class MarkdownAdapter implements StorageAdapter {
     return entries.map((entry, index) => ({ entry, revision: revisions[index] }));
   }
   private readonly contentRoot: string;
+  private readonly projectRoot: string;
   private readonly meta: SidecarMetaStore;
   private readonly draftsRoot: string;
 
-  constructor(options?: { contentRoot?: string; metaRoot?: string; draftsRoot?: string }) {
+  constructor(options?: { contentRoot?: string; metaRoot?: string; draftsRoot?: string; projectRoot?: string }) {
     assertFilesystemRuntime();
+    this.projectRoot = options?.projectRoot ?? process.cwd();
     this.contentRoot = options?.contentRoot ?? join(process.cwd(), "src", "content");
     const metaRoot = options?.metaRoot ?? join(process.cwd(), ".caretcms");
     this.meta = new SidecarMetaStore({ metaRoot });
@@ -97,13 +102,19 @@ export class MarkdownAdapter implements StorageAdapter {
     return join(this.contentRoot, collection);
   }
 
+  /** JSON files the content config's `file()` loaders name, by collection. */
+  private configuredDataFiles(): Map<string, string> {
+    return contentConfigDataFiles(this.projectRoot);
+  }
+
   private dataFilePath(collection: string): string {
-    return join(this.contentRoot, `${collection}.json`);
+    return this.configuredDataFiles().get(collection) ?? join(this.contentRoot, `${collection}.json`);
   }
 
   private async readDataFile(collection: string): Promise<{ path: string; file: DataFile } | null> {
     if (!COLLECTION_NAME_RE.test(collection)) return null;
-    const path = this.dataFilePath(collection);
+    const configured = this.configuredDataFiles().get(collection);
+    const path = configured ?? join(this.contentRoot, `${collection}.json`);
     let source: string;
     try {
       source = await readFile(path, "utf8");
@@ -112,7 +123,10 @@ export class MarkdownAdapter implements StorageAdapter {
       throw new ContentReadError("storage_error");
     }
     const file = parseDataFile(source, collection);
-    return file ? { path, file } : null;
+    // A `file()` loader reads only an array of entries or an object of them;
+    // anything else (a parser that picks a nested key) can't be mapped safely.
+    if (!file || (configured && file.shape === "single")) return null;
+    return { path, file };
   }
 
   /** Markdown documents unless the collection exists only as a data file. */
@@ -185,14 +199,16 @@ export class MarkdownAdapter implements StorageAdapter {
   }
 
   private async listDataFileCollections(): Promise<string[]> {
-    let files: import("node:fs").Dirent[];
+    let files: import("node:fs").Dirent[] = [];
     try {
       files = await readdir(this.contentRoot, { withFileTypes: true });
     } catch {
-      return [];
+      // no content root; configured data files may still exist
     }
-    const names = files.filter((file) => file.isFile() && file.name.endsWith(".json"))
-      .map((file) => file.name.slice(0, -".json".length)).filter((name) => COLLECTION_NAME_RE.test(name));
+    const names = [...new Set([
+      ...files.filter((file) => file.isFile() && file.name.endsWith(".json")).map((file) => file.name.slice(0, -".json".length)),
+      ...this.configuredDataFiles().keys(),
+    ])].filter((name) => COLLECTION_NAME_RE.test(name));
     const valid = await Promise.all(names.map(async (name) => (await this.readDataFile(name).catch(() => null)) !== null));
     return names.filter((_, index) => valid[index]);
   }

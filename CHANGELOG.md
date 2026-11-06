@@ -157,12 +157,16 @@ first.
   are never marked, and text the page splits or rewrites is bound only where
   the whole value appears. `caret({ bindContent: false })` turns it off.
 - Studio forms use the JSON Schemas Astro generates for content collections,
-  so enums, defaults, and required fields match `content.config.ts`.
-- Markdown storage reads and writes Astro `file()` data collections:
-  `src/content/<name>.json` holding an array of entries with `id`, or an object
-  keyed by id, plus any other JSON object as a single entry. Publish changes
-  only the edited values inside the file, so hand formatting survives. Before,
-  it created a separate Markdown file instead.
+  `file()` collections included, so enums, defaults, and required fields
+  match `content.config.ts`.
+- Markdown storage reads and writes Astro `file()` data collections wherever
+  the JSON file lives: the path the collection's `file("…")` loader names in
+  `content.config.ts` (such as `src/data/menu.json`), or
+  `src/content/<name>.json`. The file holds an array of entries with `id`, or
+  an object keyed by id; any other JSON object in `src/content` is a single
+  entry. Publish changes only the edited values inside the file, so hand
+  formatting survives. Before, it created a separate Markdown file instead.
+  `astro dev` names the collections it can't edit, and why.
 - `astro dev` and `astro preview` load `CARET_*` settings from `.env`,
   `.env.local`, and the mode files. Before, the session secret and password
   that `caretize init` writes there were ignored. The real environment wins.
