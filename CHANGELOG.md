@@ -48,6 +48,15 @@ first.
   wrote values nobody chose into the content (an empty `photo`, `vegan: false`,
   and for Zod integers `-9007199254740991`); only required fields and stated
   defaults start with a value, and an emptied optional number is removed.
+- Sites using Astro view transitions (`<ClientRouter />`) keep the editor
+  across client-side navigations, and the Studio drawer no longer adds entries
+  to the tab's history, so the browser's Back stays with the site's pages.
+- A server-rendered site serves edits to content collections, `getStaticPaths`
+  props and imported data files made after the build: visitors get the stored
+  published values, not only signed-in editors.
+- Astro `reference()` values keep working in edit mode (a referenced author's
+  byline no longer disappears for editors), and a post created in the Studio
+  no longer gets empty optional fields that Astro rejects.
 - In `astro dev`, a Publish that reloads the page (it writes the site's files)
   still says how many changes went out. On a phone, waiting changes put Publish
   and Discard on a row of their own, so every toolbar control stays on screen.
