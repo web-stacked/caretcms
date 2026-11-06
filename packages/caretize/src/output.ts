@@ -395,9 +395,9 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
   }
   if (opts.fixedChrome?.length) {
     const [first, ...rest] = opts.fixedChrome;
-    out += `↪ ${first}${rest.length ? ` (and ${rest.length} more)` : ""} has a fixed header or nav. The Studio drawer\n` +
-      `  moves the page aside, and fixed elements stay put under it. To keep the drawer\n` +
-      `  over the page instead, add class="caret-studio-overlay" to <html> or <body>.\n`;
+    out += `↪ ${first}${rest.length ? ` (and ${rest.length} more)` : ""} has a fixed header or nav. The Studio\n` +
+      `  drawer moves full-width fixed bars aside with the page. If yours looks wrong beside it,\n` +
+      `  add class="caret-studio-overlay" to <html> or <body> to keep the drawer over the page.\n`;
   }
   return out;
 }
