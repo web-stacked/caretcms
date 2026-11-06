@@ -1,5 +1,27 @@
 import { ENTRY_TITLE_KEYS, plainText } from "./entry-search.js";
 import type { CollectionStudioConfig } from "../types.js";
+import type { JsonSchemaNode } from "../schema-utils.js";
+
+/** Required strings that address or decorate an entry rather than name it. */
+const NOT_A_NAME = /^(id|slug|key|lang|locale|type|kind|layout|template|status|href|url|link|src|path|icon|image|img|photo|picture|avatar|cover|thumbnail|logo|video|file|color|colour|date|email|phone)$/i;
+
+/** A plain text property: a string without an enum, const, or format. */
+function isPlainString(node: JsonSchemaNode | undefined): boolean {
+  return Boolean(node) && node!.type === "string" && !Array.isArray(node!.enum) && !("const" in node!) && typeof node!.format !== "string";
+}
+
+/**
+ * The field that names a collection's entries, read from its schema: a usual
+ * title field (title, headline, heading, name, …), else the first required
+ * plain text field. Only top-level fields. Undefined without a schema.
+ */
+export function inferTitleField(schema: JsonSchemaNode | null | undefined): string | undefined {
+  const properties = schema?.properties;
+  if (!properties) return undefined;
+  const known = ENTRY_TITLE_KEYS.find((key) => isPlainString(properties[key]));
+  if (known) return known;
+  return (schema?.required ?? []).find((key) => !NOT_A_NAME.test(key) && isPlainString(properties[key]));
+}
 
 /** "01-mara" → "01 mara", "about_us" → "About us". */
 export function humanizeEntryId(id: string): string {

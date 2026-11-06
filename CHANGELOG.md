@@ -127,6 +127,11 @@ first.
   draft. Saved rich text keeps Astro's `data-astro-cid-*` markers on its
   `<strong>`, `<a>` and other inline tags, so the component's scoped styles
   still apply after an edit.
+- A new entry starts with the title typed in the create dialog for ordinary
+  Astro collections too: the Studio infers the title field from the schema
+  (title, headline, heading, name, label, or the first required text field)
+  when `titleField` isn't set. Page entries are named by a title or headline
+  before a `name` field, which on a page is often a quoted person's.
 - Packages include their TypeScript sources, so source maps and declaration
   maps resolve. Vite no longer warns about missing source files.
 

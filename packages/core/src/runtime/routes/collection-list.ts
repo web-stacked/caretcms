@@ -61,10 +61,7 @@ export async function GET(context: APIContext): Promise<Response> {
   const publicationFieldName = publicationField(collectionConfig);
   const registeredSchema = getRegisteredSchema(collection)?.schema;
   const schemaProperties = registeredSchema?.properties ?? {};
-  const inferredTitleField = ["title", "name", "headline", "label", "question"].find((key) =>
-    schemaProperties[key]?.type === "string"
-  );
-  const titleField = collectionConfig.titleField || inferredTitleField || null;
+  const titleField = collectionConfig.titleField || null;
   const titleInputLabel = titleField && typeof schemaProperties[titleField]?.title === "string"
     ? schemaProperties[titleField].title
     : messages["collection.entryTitle"];

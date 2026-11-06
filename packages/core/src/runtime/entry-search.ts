@@ -1,7 +1,9 @@
 import { decodeHtmlEntities } from "./decode-entities.js";
 
 /** Fields that name an entry, in the order the Studio shows them as its title. */
-export const ENTRY_TITLE_KEYS = ["name", "title", "question", "company_name", "headline", "label"] as const;
+/** Fields that usually name an entry, best first. A page's `name` is often a
+ *  quoted person's, so title-like fields come before it. */
+export const ENTRY_TITLE_KEYS = ["title", "headline", "heading", "name", "label", "question", "company_name"] as const;
 
 const SNIPPET_RADIUS = 40;
 

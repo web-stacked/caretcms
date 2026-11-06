@@ -89,7 +89,8 @@ export function singularItemLabel(path) {
 /** @param {Record<string, unknown> | null | undefined} data @returns {string} */
 export function getTitle(data) {
   if (!data) return "Untitled";
-  var keys = ["name", "title", "question", "company_name", "headline", "label"];
+  // Mirrors ENTRY_TITLE_KEYS in src/runtime/entry-search.ts.
+  var keys = ["title", "headline", "heading", "name", "label", "question", "company_name"];
   for (var i = 0; i < keys.length; i++) {
     const value = data[keys[i]];
     if (typeof value === "string" && value) return value;
