@@ -144,6 +144,9 @@ first.
   of its first letter.
 - An edit that is undone no longer counts as a change to publish, including
   on an entry that had nothing saved before.
+- History's button on a change says what it does: **Undo this change**, or
+  **Undo this and 2 later changes** when going back to before it also undoes
+  newer ones. Before, every row offered "Restore earlier version".
 - Packages include their TypeScript sources, so source maps and declaration
   maps resolve. Vite no longer warns about missing source files.
 

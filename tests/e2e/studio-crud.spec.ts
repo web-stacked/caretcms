@@ -629,8 +629,9 @@ test("Studio history restores the previous entry and keeps the replaced state un
   const restore = page.waitForResponse((response) =>
     response.url().includes("/api/cms/history") && response.request().method() === "POST",
   );
-  await historyRows.first().getByRole("button", { name: "Restore" }).click();
-  await studio.getByRole("dialog", { name: "Go back to before this change?" }).getByRole("button", { name: "Restore" }).click();
+  await expect(historyRows.first().getByRole("button", { name: /^Undo the change / })).toHaveText("Undo this change");
+  await historyRows.first().getByRole("button", { name: /^Undo the change / }).click();
+  await studio.getByRole("dialog", { name: "Undo this change?" }).getByRole("button", { name: "Undo" }).click();
   expect((await restore).ok()).toBeTruthy();
 
   await expect(title).toHaveValue("Seed entry");
@@ -640,6 +641,13 @@ test("Studio history restores the previous entry and keeps the replaced state un
   await expect(studio.locator(".caret-history-row")).toHaveCount(2);
   await expect(studio.locator(".caret-history-row").first().locator(".caret-history-action"))
     .toHaveText("Restored");
+  // Going back to before the older save also undoes the newer one, and says so.
+  const older = studio.locator(".caret-history-row").nth(1).getByRole("button", { name: /and the change after it$/ });
+  await expect(older).toHaveText("Undo this and 1 later change");
+  await older.click();
+  const undoBoth = studio.getByRole("dialog", { name: "Undo this and 1 later change?" });
+  await expect(undoBoth).toContainText("the change made after it is undone too");
+  await undoBoth.getByRole("button", { name: "Cancel" }).click();
 
   const history = await page.request.get(
     "/api/cms/history?collection=studio-fixture&id=seed-entry",

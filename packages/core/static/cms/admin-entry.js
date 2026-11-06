@@ -1626,9 +1626,16 @@ import { createSessionRecovery, SESSION_RESTORED_EVENT } from './editor/session-
         var restoreBtn = document.createElement("button");
         restoreBtn.type = "button";
         restoreBtn.className = "studio-btn-ghost";
-        restoreBtn.textContent = msg("history.restoreBefore", "Restore earlier version");
-        restoreBtn.setAttribute("aria-label", msg("history.restoreBeforeLabel", "Restore the version from before the change {time}").replace("{time}", when));
-        restoreBtn.addEventListener("click", function () { restoreSnapshot(item.ts); });
+        // Going back to before a change also undoes every newer one (rows are
+        // newest first), so the button says how many.
+        var later = index;
+        var undoText = later === 0 ? msg("history.undoChange", "Undo this change")
+          : msg(later === 1 ? "history.undoWithLaterOne" : "history.undoWithLater", "Undo this and {count} later changes");
+        var undoLabel = later === 0 ? msg("history.undoChangeLabel", "Undo the change {time}")
+          : msg(later === 1 ? "history.undoWithLaterLabelOne" : "history.undoWithLaterLabel", "Undo the change {time} and the {count} changes after it");
+        restoreBtn.textContent = undoText.replace("{count}", String(later));
+        restoreBtn.setAttribute("aria-label", undoLabel.replace("{time}", when).replace("{count}", String(later)));
+        restoreBtn.addEventListener("click", function () { restoreSnapshot(item.ts, later); });
         row.appendChild(restoreBtn);
 
         historyList.appendChild(row);
@@ -1645,12 +1652,15 @@ import { createSessionRecovery, SESSION_RESTORED_EVENT } from './editor/session-
     historyBtn.focus();
   }
 
-  /** @param {number} ts */
-  async function restoreSnapshot(ts) {
+  /** @param {number} ts @param {number} later changes made after this one, undone with it */
+  async function restoreSnapshot(ts, later) {
+    var count = String(later);
     if (!(await confirmAction({
-      title: msg("entry.restoreTitle", "Go back to before this change?"),
-      copy: msg("entry.restoreCopy", "The fields return to how they were before this change, which also undoes any later changes. The current version stays in History, so you can come back to it."),
-      action: msg("entry.restore", "Restore"),
+      title: (later === 0 ? msg("entry.restoreTitle", "Undo this change?")
+        : msg(later === 1 ? "entry.restoreTitleWithLaterOne" : "entry.restoreTitleWithLater", "Undo this and {count} later changes?")).replace("{count}", count),
+      copy: (later === 0 ? msg("entry.restoreCopy", "The fields go back to how they were before this change. The current version stays in History, so you can come back to it.")
+        : msg(later === 1 ? "entry.restoreCopyWithLaterOne" : "entry.restoreCopyWithLater", "The fields go back to how they were before this change, so the {count} changes made after it are undone too. The current version stays in History, so you can come back to it.")).replace("{count}", count),
+      action: msg("entry.restore", "Undo"),
     }))) return;
     historyClient.restore({ collection: COLLECTION, id: ID, ts: ts }).then(function (result) {
       if (result.kind === "unauthorized") { sessionExpired(); return; }
