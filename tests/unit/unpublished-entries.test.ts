@@ -3,7 +3,8 @@ import { GET } from "../../packages/core/src/runtime/routes/entries";
 import { runWithRequestContext } from "../../packages/core/src/runtime/request-context";
 import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memory-adapter";
 import { SessionOverlayAdapter } from "../../packages/core/src/runtime/storage/session-overlay-adapter";
-import { allUnpublishedEntries, unpublishedEntries } from "../../packages/core/src/runtime/unpublished";
+import { allUnpublishedEntries, countPendingDrafts, unpublishedEntries } from "../../packages/core/src/runtime/unpublished";
+import pageContent from "./stubs/page-content";
 
 async function drafts() {
   const base = new InMemoryAdapter();
@@ -35,6 +36,29 @@ describe("unpublished entries", () => {
     ]);
     const all = await inDrafts(base, adapter, () => allUnpublishedEntries());
     expect(all.map(entry => `${entry.collection}/${entry.id}`)).toContain("pages/home");
+  });
+
+  it("doesn't list an undone edit on an entry the page shows without saved content", async () => {
+    const base = new InMemoryAdapter();
+    const adapter = new SessionOverlayAdapter(base, await base.makeEditorOverlay("editor-1"));
+    pageContent.pages = { menu: { todays_menu: "Today's menu", note: "Prices include tax." } };
+    try {
+      // Edited, then undone: the draft now stores exactly the page's text.
+      await adapter.writeEntry("pages", "menu", { todays_menu: "Today's menu" });
+      expect(await inDrafts(base, adapter, () => unpublishedEntries("pages"))).toEqual([]);
+      expect(await countPendingDrafts(base, await base.makeEditorOverlay("editor-1"))).toBe(0);
+      await adapter.writeEntry("pages", "menu", { todays_menu: "Tomorrow's menu" });
+      expect(await inDrafts(base, adapter, () => unpublishedEntries("pages"))).toEqual([{ collection: "pages", id: "menu", deleted: false }]);
+      expect(await countPendingDrafts(base, await base.makeEditorOverlay("editor-1"))).toBe(1);
+    } finally {
+      delete pageContent.pages;
+    }
+  });
+
+  it("counts drafts that change what visitors see, not ones edited back", async () => {
+    const { base } = await drafts();
+    // created, edited, removed, pages/home; "same" matches what is published.
+    expect(await countPendingDrafts(base, await base.makeEditorOverlay("editor-1"))).toBe(4);
   });
 
   it("is empty outside draft modes and in demo sandboxes", async () => {

@@ -6,7 +6,8 @@ export const prerender = false;
 import type { APIContext } from "astro";
 import { isEditorAuthenticated, getEditorId } from "../auth/session.js";
 import { getRuntimeServices } from "../providers.js";
-import { countOverlayDrafts, discardOverlay, type PublishScope } from "../publish.js";
+import { discardOverlay, type PublishScope } from "../publish.js";
+import { countPendingDrafts } from "../unpublished.js";
 import { json, enforceCsrfHeader } from "./_helpers.js";
 
 /**
@@ -22,7 +23,8 @@ export async function GET(context: APIContext): Promise<Response> {
   if (!base.makeEditorOverlay) return json({ hasDrafts: false, count: 0 });
 
   const overlay = await base.makeEditorOverlay(editorId);
-  const count = await countOverlayDrafts(overlay);
+  // Drafts that change nothing visitors see (an undone edit) aren't counted.
+  const count = await countPendingDrafts(base, overlay);
   const journalPending = durableGitJournalEnabled() && hasGitJournalQueue(overlay)
     ? (await overlay.listGitJournalReceipts!()).length : 0;
   const retryJournal = journalPending > 0 && await canRetryPublicationJournals(overlay);

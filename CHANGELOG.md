@@ -139,6 +139,11 @@ first.
 - `astro dev` no longer warns that `Astro.request.headers` isn't available on
   prerendered pages, and CaretCMS log lines carry one `[caretcms]` label
   instead of two.
+- Studio entry cards say their status once to screen readers (it was read
+  twice), and an entry without an image shows a picture placeholder instead
+  of its first letter.
+- An edit that is undone no longer counts as a change to publish, including
+  on an entry that had nothing saved before.
 - Packages include their TypeScript sources, so source maps and declaration
   maps resolve. Vite no longer warns about missing source files.
 

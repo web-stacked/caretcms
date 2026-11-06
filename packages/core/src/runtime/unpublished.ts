@@ -1,6 +1,9 @@
 import { getRequestContext } from "./request-context.js";
 import { SessionOverlayAdapter } from "./storage/session-overlay-adapter.js";
 import { stripBodyOverlay } from "./utils.js";
+import { loadPageContent, merged } from "./page-content.js";
+import { PUBLISH_RECOVERY_KEY } from "./draft-state.js";
+import type { EntryData, StorageAdapter } from "../types.js";
 
 export type UnpublishedEntry = { collection: string; id: string; deleted: boolean };
 
@@ -21,31 +24,55 @@ function draftScope() {
   return { drafts: context.adapter, published: context.publishedAdapter };
 }
 
+/** What the page shows for an entry: its stored data, with the page's own text where nothing is stored. */
+function shownData(entry: EntryData | null, id: string, seed: Record<string, string> | undefined): string | null {
+  const shown = merged(entry, id, seed);
+  return shown ? stableJson(stripBodyOverlay(shown.data)) : null;
+}
+
 /**
- * Entries in one collection whose draft differs from what visitors see: edited,
- * new, deleted, or with body-block drafts. A draft edited back to the
- * published content is not listed.
+ * Whether one entry's draft would change what visitors see: edited, new,
+ * deleted, or with body-block drafts. A draft edited back to the published
+ * content is no change, nor is one that only stores the text the page shows
+ * anyway (an edit undone on an entry nothing was saved for yet).
  */
+async function draftChange(
+  drafts: SessionOverlayAdapter, published: StorageAdapter, collection: string, id: string,
+  seed: Record<string, string> | undefined,
+): Promise<UnpublishedEntry | null> {
+  const [draft, stored] = await Promise.all([drafts.getEntry(collection, id), published.getEntry(collection, id)]);
+  if (!draft) return stored ? { collection, id, deleted: true } : null;
+  const body = draft.data.__body;
+  const hasBodyDrafts = Boolean(body && typeof body === "object" && Object.keys(body).length > 0);
+  const live = shownData(stored, id, seed);
+  return !live || hasBodyDrafts || shownData(draft, id, seed) !== live ? { collection, id, deleted: false } : null;
+}
+
+/** Entries in one collection whose draft differs from what visitors see (see `draftChange`). */
 export async function unpublishedEntries(collection: string): Promise<UnpublishedEntry[]> {
   const scope = draftScope();
   if (!scope) return [];
-  const out: UnpublishedEntry[] = [];
-  for (const id of await scope.drafts.draftIds(collection)) {
-    const [draft, published] = await Promise.all([
-      scope.drafts.getEntry(collection, id),
-      scope.published.getEntry(collection, id),
-    ]);
-    if (!draft) {
-      if (published) out.push({ collection, id, deleted: true });
-      continue;
-    }
-    const body = draft.data.__body;
-    const hasBodyDrafts = Boolean(body && typeof body === "object" && Object.keys(body).length > 0);
-    if (!published || hasBodyDrafts || stableJson(stripBodyOverlay(draft.data)) !== stableJson(stripBodyOverlay(published.data))) {
-      out.push({ collection, id, deleted: false });
+  const seeds = (await loadPageContent())[collection] ?? {};
+  const changes = await Promise.all((await scope.drafts.draftIds(collection))
+    .map((id) => draftChange(scope.drafts, scope.published, collection, id, seeds[id])));
+  return changes.filter((change): change is UnpublishedEntry => change !== null);
+}
+
+/**
+ * How many entries in an editor's draft store still need publishing: drafts
+ * that change what visitors see, and drafts holding an unfinished publish.
+ */
+export async function countPendingDrafts(base: StorageAdapter, overlay: StorageAdapter): Promise<number> {
+  const drafts = new SessionOverlayAdapter(base, overlay);
+  const content = await loadPageContent();
+  let count = 0;
+  for (const collection of await overlay.discoverCollections()) {
+    for (const id of await overlay.listEntryIds(collection)) {
+      const raw = await overlay.getEntry(collection, id);
+      if (raw?.data[PUBLISH_RECOVERY_KEY] || await draftChange(drafts, base, collection, id, content[collection]?.[id])) count += 1;
     }
   }
-  return out;
+  return count;
 }
 
 /** Every entry the current editor has not published yet, across collections. */

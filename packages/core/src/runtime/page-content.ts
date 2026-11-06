@@ -19,7 +19,7 @@ export async function loadPageContent(): Promise<PageContent> {
 }
 
 /** The page's text fills each field path that has no stored value. */
-function merged(entry: EntryData | null, id: string, seed: Record<string, string> | undefined): EntryData | null {
+export function merged(entry: EntryData | null, id: string, seed: Record<string, string> | undefined): EntryData | null {
   if (!seed) return entry;
   const data = entry ? structuredClone(entry.data) : {};
   for (const [path, value] of Object.entries(seed)) {
