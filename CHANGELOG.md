@@ -38,6 +38,16 @@ first.
   instead of letting the next save overwrite theirs. Replaced images stay on
   the page and save again too, and an upload cut off by a lost connection or
   an ended session runs again.
+- `editable()` values are safe to edit and reach every build. Editing a later
+  item of a list first no longer crashes the page (a saved list's empty items
+  mean "not edited"); fields the page's code compares (`key`, `id`, `slug`,
+  `href`, …) are no longer marked in edit mode, so filters keep working;
+  static builds and prerendered pages include published values; and the
+  Studio lists every item the page states, with its default text.
+- A Studio address whose page fails for the editor (a saved change can break a
+  page for editors only) opens the Studio on its own page with the reason,
+  instead of an error page with no way back. The drawer's Back stays in the
+  drawer.
 - Required fields can't be saved empty, and a new entry isn't stored until
   its required fields are filled.
 - Signing out asks first when it would lose drafts or unsaved text; password
