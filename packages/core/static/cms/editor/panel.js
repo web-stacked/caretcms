@@ -512,9 +512,11 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
   function handleEscape(e) {
     if (e.key !== 'Escape' || !panel.classList.contains('open')) return;
     const focused = document.activeElement;
-    if (!focused || !focused.matches('[data-caret]')) {
-      closePanel();
-    }
+    if (focused && focused.matches('[data-caret]')) return;
+    // Expanded, Esc shrinks it to the drawer first; the next Esc closes it.
+    // (On a phone both fill the screen, so it closes.)
+    if (panel.classList.contains('expanded') && window.innerWidth > 768) setExpanded(false);
+    else closePanel();
   }
 
   // Listen in both the page and same-origin Studio document. Keyboard events

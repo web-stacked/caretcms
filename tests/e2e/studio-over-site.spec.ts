@@ -109,8 +109,13 @@ test("Close and Escape put the page back where it was", async ({ page }) => {
   await studioButton.click();
   await expect(panel(page)).toHaveClass(/\bopen\b/);
   await expect(studio.getByRole("textbox", { name: "Headline", exact: true })).toBeVisible();
-  // Escape from inside the Studio's frame.
+  // Escape from inside the Studio's frame: expanded, it shrinks first, then closes.
+  await expect(panel(page)).toHaveClass(/\bexpanded\b/);
   await studio.getByRole("textbox", { name: "Headline", exact: true }).focus();
+  await page.keyboard.press("Escape");
+  await expect(panel(page)).not.toHaveClass(/\bexpanded\b/);
+  await expect(panel(page)).toHaveClass(/\bopen\b/);
+  await expect(page.locator("html")).toHaveClass(/cms-studio-push/);
   await page.keyboard.press("Escape");
   await expect(panel(page)).not.toHaveClass(/\bopen\b/);
   await expect(page).toHaveURL("/about");
