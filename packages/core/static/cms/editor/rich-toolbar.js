@@ -188,6 +188,8 @@ function position(sel) {
   const range = sel.getRangeAt(0);
   const rect = range.getBoundingClientRect();
   if (!rect.width && !rect.height) return;
+  // Scrolled out of view, the selection has nothing to point at.
+  toolbar.style.visibility = rect.bottom < 0 || rect.top > window.innerHeight ? 'hidden' : '';
   const firstLine = range.getClientRects()[0] ?? rect;
   const lastLines = range.getClientRects();
   const lastLine = lastLines[lastLines.length - 1] ?? rect;
@@ -260,4 +262,18 @@ export function mountRichToolbar({ state, showToast, showLinkPopup }) {
   void showToast;
   showLinkPopupFn = showLinkPopup || null;
   document.addEventListener('selectionchange', onSelectionChange);
+  // The bar is fixed to the viewport, so it follows the selection when the
+  // page (or any scrolling box around the text) moves.
+  /** @type {number | undefined} */
+  let frame;
+  const follow = () => {
+    if (frame !== undefined || !toolbar || toolbar.style.display === 'none' || !currentRichEl) return;
+    frame = requestAnimationFrame(() => {
+      frame = undefined;
+      const sel = window.getSelection();
+      if (sel && currentRichEl) position(sel);
+    });
+  };
+  window.addEventListener('scroll', follow, { capture: true, passive: true });
+  window.addEventListener('resize', follow);
 }

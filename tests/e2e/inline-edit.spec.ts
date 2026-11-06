@@ -727,6 +727,38 @@ test.describe("inline editor — click to edit", () => {
     expect(visitorSubtext).toContain(`<code ${scope}="">data-caret</code>`);
   });
 
+  test("the formatting bar sits by the selected words and follows them when the page scrolls", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 600 });
+    await loginAsEditor(page);
+    await page.goto("/");
+    const subtext = page.locator('p[data-caret="hero.subtext"]');
+    await expect(subtext).toHaveAttribute("data-caret-rich", "");
+    // Room to scroll.
+    await page.evaluate(() => { document.body.style.paddingBottom = "2000px"; });
+    await subtext.click();
+    const word = await subtext.evaluate((el) => {
+      const text = [...el.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && /normal/.test(node.textContent ?? ""))!;
+      const range = document.createRange();
+      const at = text.textContent!.indexOf("normal");
+      range.setStart(text, at);
+      range.setEnd(text, at + 3);
+      const box = range.getBoundingClientRect();
+      return { x: box.x + 2, y: box.y + box.height / 2 };
+    });
+    await page.mouse.dblclick(word.x, word.y);
+    const bar = page.locator(".cms-rich-toolbar");
+    await expect(bar).toBeVisible();
+    const gap = () => page.evaluate(() => {
+      const selected = window.getSelection()!.getRangeAt(0).getBoundingClientRect();
+      const toolbar = document.querySelector(".cms-rich-toolbar")!.getBoundingClientRect();
+      return Math.min(Math.abs(toolbar.top - selected.bottom), Math.abs(selected.top - toolbar.bottom));
+    });
+    expect(await gap()).toBeLessThan(24);
+    await page.mouse.wheel(0, 120);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
+    await expect.poll(gap).toBeLessThan(24);
+  });
+
   test("an emptied field stays visible and clickable", async ({ page }) => {
     await loginAsEditor(page);
     await page.goto("/");

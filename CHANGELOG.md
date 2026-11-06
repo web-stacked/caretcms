@@ -147,6 +147,9 @@ first.
 - History's button on a change says what it does: **Undo this change**, or
   **Undo this and 2 later changes** when going back to before it also undoes
   newer ones. Before, every row offered "Restore earlier version".
+- The formatting bar for rich text stays beside the selected words when the
+  page scrolls, and hides while they're out of view. Before, it stayed where it
+  first appeared.
 - Packages include their TypeScript sources, so source maps and declaration
   maps resolve. Vite no longer warns about missing source files.
 
