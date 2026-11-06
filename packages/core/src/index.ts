@@ -1174,6 +1174,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
               __ASTRO_CARET_API_BASE_PATH__: JSON.stringify(resolved.apiBasePath),
               __ASTRO_CARET_EDITOR_HOME__: JSON.stringify(resolved.editorHome),
               __ASTRO_CARET_INLINE_EDITOR__: JSON.stringify(resolved.enableInlineEditor),
+              __ASTRO_CARET_BIND_CONTENT__: JSON.stringify(resolved.bindContent && resolved.enableInlineEditor),
               __ASTRO_CARET_MODE__: JSON.stringify(resolved.mode),
               __ASTRO_CARET_THEME_CONFIG__: JSON.stringify(JSON.stringify(resolved.theme)),
               __ASTRO_CARET_BRAND_CONFIG__: JSON.stringify(JSON.stringify(resolved.brand)),

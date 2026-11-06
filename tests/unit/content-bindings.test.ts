@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readAstroCollectionSchemas } from "../../packages/core/src/index";
-import { bindCollectionEntries, bindCollectionEntry, bindDataFile, loadDataFileEntries } from "../../packages/core/src/runtime/content-bindings";
+import { bindCollectionEntries, bindCollectionEntry, bindDataFile, bindPageProps, loadDataFileEntries } from "../../packages/core/src/runtime/content-bindings";
 import { runWithRequestContext, type CaretRequestContext } from "../../packages/core/src/runtime/request-context";
 import { registerCollectionSchema } from "../../packages/core/src/runtime/schema-registry";
 import { hasStega, stegaClean, stegaCombine, stegaDecode } from "../../packages/core/src/runtime/stega";
@@ -181,6 +181,30 @@ describe("editor HTML cleanup", () => {
     expect(out).toContain('{"name":"Elias"}');
     expect(out).toContain('var n="Elias"');
     expect(out).toContain(`<h1>${title}</h1>`);
+  });
+});
+
+describe("bindPageProps", () => {
+  it("binds entries a page gets from getStaticPaths for this request only", async () => {
+    const adapter = new InMemoryAdapter();
+    await adapter.writeEntry("posts", "hello", { title: "Hello (draft)", description: "Short" });
+    const entry = { id: "hello", collection: "posts", data: { title: "Hello", description: "Short", date: new Date(0) } };
+    const cached = { post: entry, related: [entry], page: 2, label: "Next" };
+
+    const props = { ...cached };
+    await runWithRequestContext(context(adapter, true), () => bindPageProps(props));
+    expect(keyOf(props.post.data.title)).toBe("posts::hello::title");
+    expect(stegaClean(props.post.data.title)).toBe("Hello (draft)");
+    expect(props.post.data.date).toBeInstanceOf(Date);
+    expect(keyOf(props.related[0].data.description)).toBe("posts::hello::description");
+    expect(props.page).toBe(2);
+    expect(props.label).toBe("Next");
+    expect(cached.post).toBe(entry);
+    expect(entry.data.title).toBe("Hello");
+
+    const visitor = { ...cached };
+    await runWithRequestContext(context(adapter, false), () => bindPageProps(visitor));
+    expect(visitor.post).toBe(entry);
   });
 });
 

@@ -57,6 +57,25 @@ export async function bindCollectionEntries<T>(entries: T): Promise<T> {
   return (await Promise.all(entries.map((entry) => bindEntry(entry)))) as T;
 }
 
+declare const __ASTRO_CARET_BIND_CONTENT__: boolean | undefined;
+
+/**
+ * Bind content entries a page receives as props (`getStaticPaths` →
+ * `Astro.props.post`). Astro resolves those props before middleware runs and
+ * caches `getStaticPaths` results, so they never pass through a bound
+ * `getCollection()` during the editor's request. Astro gives each request its
+ * own shallow copy of the props, so replacing a prop here reaches only this
+ * render; the cached entries are never changed.
+ */
+export async function bindPageProps(props: Record<string, unknown> | null | undefined): Promise<void> {
+  if (typeof __ASTRO_CARET_BIND_CONTENT__ === "boolean" && !__ASTRO_CARET_BIND_CONTENT__) return;
+  if (!props || typeof props !== "object" || !getRequestContext()?.editor) return;
+  for (const [key, value] of Object.entries(props)) {
+    if (isContentEntry(value)) props[key] = await bindEntry(value);
+    else if (Array.isArray(value) && value.some(isContentEntry)) props[key] = await bindCollectionEntries(value);
+  }
+}
+
 /**
  * Read every data-file collection's stored entries for an editor request.
  * Imported data files are read synchronously during render, so their drafts

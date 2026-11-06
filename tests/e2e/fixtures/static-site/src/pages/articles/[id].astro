@@ -1,8 +1,10 @@
 ---
 export function getStaticPaths() {
-  return [{ params: { id: 'home' }, props: { label: 'Props from getStaticPaths' } }];
+  // `entry` has the shape of a content collection entry, as getCollection returns.
+  const entry = { id: 'home', collection: 'pages', data: { headline: 'Headline from props' } };
+  return [{ params: { id: 'home' }, props: { label: 'Props from getStaticPaths', entry } }];
 }
-const { label } = Astro.props;
+const { label, entry } = Astro.props;
 ---
 <!doctype html>
 <html lang="en">
@@ -10,5 +12,6 @@ const { label } = Astro.props;
   <body>
     <p>{label}</p>
     <h1 data-caret="pages::home::headline">Static template headline</h1>
+    <h2 class="from-props">{entry.data.headline}</h2>
   </body>
 </html>

@@ -3,7 +3,7 @@ import { isEditorAuthenticated, getEditorId } from "./auth/session.js";
 import { isDemoModeEnabled, resolveDemoSession } from "./auth/demo-session.js";
 import { getRuntimeServices } from "./providers.js";
 import { runWithRequestContext, type CaretRequestContext } from "./request-context.js";
-import { loadDataFileEntries } from "./content-bindings.js";
+import { bindPageProps, loadDataFileEntries } from "./content-bindings.js";
 import { rewriteCaretAttributes } from "./rewrite.js";
 import { hasCaretBindings } from "./html-tokens.js";
 import { hasStega, stegaClean } from "./stega.js";
@@ -237,6 +237,11 @@ async function prepareRequest(
         (requestContext as CaretRequestContext).dataFiles = await loadDataFileEntries(adapter);
       } catch (error) {
         console.warn("[caretcms] Data-file drafts unavailable:", error);
+      }
+      try {
+        await bindPageProps((context as { props?: Record<string, unknown> }).props);
+      } catch (error) {
+        console.warn("[caretcms] Page props couldn't be bound:", error);
       }
     }
     context.locals.isEditor = isEditor;

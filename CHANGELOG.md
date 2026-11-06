@@ -132,6 +132,10 @@ first.
   (title, headline, heading, name, label, or the first required text field)
   when `titleField` isn't set. Page entries are named by a title or headline
   before a `name` field, which on a page is often a quoted person's.
+- Entries a page gets as `getStaticPaths` props (`Astro.props.post` on
+  `blog/[slug].astro`) are editable on the page like `getCollection()`
+  results. Astro resolves those props before middleware runs, so they were
+  never bound.
 - Packages include their TypeScript sources, so source maps and declaration
   maps resolve. Vite no longer warns about missing source files.
 

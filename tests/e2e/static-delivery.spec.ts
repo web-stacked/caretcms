@@ -189,6 +189,10 @@ test("keeps a saved draft on reload without exposing it to other visitors", asyn
   const generatedHtml = await generatedPage.text();
   expect(generatedHtml).toContain("Props from getStaticPaths");
   expect(generatedHtml).toContain(headline);
+  // An entry passed as a getStaticPaths prop is bound like a getCollection() one.
+  await page.goto("/articles/home");
+  await expect(page.locator("h2.from-props")).toHaveText(headline);
+  await expect(page.locator("h2.from-props")).toHaveAttribute("data-caret", "pages::home::headline");
 
   const otherEditor = await browser.newContext({ baseURL: ORIGIN });
   try {
