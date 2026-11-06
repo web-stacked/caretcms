@@ -16,10 +16,21 @@ import { TIERS, type TierId } from "./tiers.js";
  *  customized subset of tier ids. */
 export type PromptAnswer = "yes" | "no" | TierId[];
 
+/**
+ * Tiers CaretCMS core 0.6+ covers on its own: content a page reads through
+ * `astro:content` (`getCollection()`, `getEntry()`) is bound at render time, so
+ * tagging those loops and routes in the templates adds nothing.
+ */
+export const CORE_BOUND_TIERS: readonly TierId[] = ["collections", "routes"];
+
 export interface Intent {
   /** `--all`: turn on EVERY tier, including the un-recommended ones (lowconf).
-   *  Named honestly — "all" means all. The curated bundle is `recommendedTiers`. */
+   *  Named honestly — "all" means all. The curated bundle is `recommendedTiers`.
+   *  Tiers core binds itself (`coreBinds`) are left out. */
   all?: boolean;
+  /** The project's CaretCMS binds `astro:content` reads on its own (see
+   *  `CORE_BOUND_TIERS`). Only an explicit flag still turns those tiers on. */
+  coreBinds?: boolean;
   /** The interactive escalation prompt's answer (interactive mode only). */
   promptAnswer?: PromptAnswer;
   /** Per-tier explicit opt-in from the individual flags (and, later, config). */
@@ -36,7 +47,9 @@ export interface Intent {
  *   - nothing                → empty set (today's conservative default).
  */
 export function selectTiers(intent: Intent): Set<TierId> {
-  if (intent.all) return new Set(TIERS.map((t) => t.id));
+  if (intent.all) {
+    return new Set(TIERS.map((t) => t.id).filter((id) => !(intent.coreBinds && CORE_BOUND_TIERS.includes(id))));
+  }
   if (intent.promptAnswer !== undefined) {
     if (intent.promptAnswer === "yes") return recommendedTiers();
     if (intent.promptAnswer === "no") return new Set();

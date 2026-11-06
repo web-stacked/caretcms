@@ -210,6 +210,11 @@ export interface HintOpts {
   collections?: boolean;
   routes?: boolean;
   lowconf?: boolean;
+  /** CaretCMS binds `astro:content` reads itself: lists and detail routes fed
+   *  by getCollection()/getEntry() need no tags. */
+  coreBinds?: boolean;
+  /** Templates with fixed header/nav chrome (CaretCMS 0.6+ projects only). */
+  fixedChrome?: string[];
 }
 
 /**
@@ -293,19 +298,26 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
 
   // The remaining opt-in coverage, each listed only while its tier is off.
   const parts: string[] = [];
-  if (inIterator && !opts.collections) parts.push(`${inIterator} item(s) in dynamic lists`);
-  if (dynamicRoutes && !opts.routes) parts.push(`${dynamicRoutes} dynamic detail route(s)`);
+  if (inIterator && !opts.collections && !opts.coreBinds) parts.push(`${inIterator} item(s) in dynamic lists`);
+  if (dynamicRoutes && !opts.routes && !opts.coreBinds) parts.push(`${dynamicRoutes} dynamic detail route(s)`);
   if (eligible && !opts.rich) parts.push(`${eligible} text block(s) with bold or links`);
   if (belowConfidence && !opts.lowconf) parts.push(`${belowConfidence} lower-confidence spot(s)`);
+
+  // With core binding astro:content reads, list items and detail routes are
+  // data spots like any other: explained below, not offered as a tier.
+  const dataSpots = fromData + (opts.coreBinds ? inIterator + dynamicRoutes : 0);
+  const flags = [
+    ...(opts.coreBinds ? [] : ["--bind-collections", "--bind-routes"]),
+    "--rich", "--min-confidence low",
+  ];
 
   let out = "";
   if (parts.length) {
     out += `\n↪ More can be made editable: ${parts.join(", ")}.\n` +
-      `  Re-run with --all to include them (or the individual flags: ` +
-      `--bind-collections --bind-routes --rich --min-confidence low).\n`;
+      `  Re-run with --all to include them (or the individual flags: ${flags.join(" ")}).\n`;
   }
-  if (fromData) {
-    out += `↪ ${fromData} spot(s) render text or images from props or data. CaretCMS makes content\n` +
+  if (dataSpots) {
+    out += `↪ ${dataSpots} spot(s) render text or images from props or data. CaretCMS makes content\n` +
       `  from getCollection()/getEntry() and JSON files in src/content editable in the browser\n` +
       `  on its own. Other data can be bound where it is loaded:\n` +
       `    const data = await editable("<collection>::<id>", value);  // from "@caretcms/core"\n`;
@@ -332,6 +344,12 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
         `  They keep their class only once blessed — add to caret():\n` +
         `    allowedClasses: ${snippet}\n`;
     }
+  }
+  if (opts.fixedChrome?.length) {
+    const [first, ...rest] = opts.fixedChrome;
+    out += `↪ ${first}${rest.length ? ` (and ${rest.length} more)` : ""} has a fixed header or nav. The Studio drawer\n` +
+      `  moves the page aside, and fixed elements stay put under it. To keep the drawer\n` +
+      `  over the page instead, add class="caret-studio-overlay" to <html> or <body>.\n`;
   }
   return out;
 }

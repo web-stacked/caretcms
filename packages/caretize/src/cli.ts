@@ -36,6 +36,7 @@ import { isValidField } from "./name.js";
 import { parseArgs, CliUsageError, HELP, type Args } from "./cli-args.js";
 import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, formatEscalationOffer, formatNextStep, formatDiff, CARETIZE, type HintOpts } from "./output.js";
 import { selectTiers, type Intent } from "./select-policy.js";
+import { findFixedChrome } from "./layout-notes.js";
 import { tierById, type TierId } from "./tiers.js";
 import {
   escalationCounts, offerableCounts, offeredTiers, recommendedBundle,
@@ -274,6 +275,7 @@ async function analyzeFiles(
   noProps: boolean,
   bindCollections: boolean,
   bindRoutes: boolean,
+  coreBinds = false,
 ): Promise<Analysis> {
   const plans: FilePlan[] = [];
   const wrapsByFile = new Map<string, WrapTarget[]>();
@@ -307,7 +309,10 @@ async function analyzeFiles(
     // A loop whose receiver a wrap tier (Tier-1/Tier-3) OR a bind tier (Tier-5)
     // just made editable no longer warrants the "consider a dynamic collection"
     // flag — suppress it so we don't tell the user to rethink a covered loop.
-    plan.flags = plan.flags.filter(
+    // With CaretCMS binding astro:content reads itself, a loop over data from
+    // elsewhere (props, a helper, getCollection()) is no reason to restructure:
+    // its items count among the data spots the closing hint explains.
+    plan.flags = coreBinds ? [] : plan.flags.filter(
       (f) => !f.receiver || (!byName.has(f.receiver) && !boundReceivers.has(f.receiver)),
     );
 
@@ -407,6 +412,8 @@ interface EscalationCtx {
   readFileSafe: FileReader;
   noProps: boolean;
   minConfidenceBase: Confidence;
+  /** CaretCMS binds astro:content reads itself; those tiers aren't offered. */
+  coreBinds: boolean;
 }
 
 /** Ask the top-level [Y/n/customize] choice (re-prompting on garbage) and return
@@ -462,9 +469,9 @@ async function offerEscalation(
   // + belowConfidence), so no entangled rich pass is needed just to count. Tiers
   // already on (Phase A flags / --all) are zeroed — never offer what's applied.
   const offer = await analyzeFiles(
-    ctx.root, ctx.files, ctx.basePlanOpts, ctx.readFileSafe, ctx.noProps, true, true,
+    ctx.root, ctx.files, ctx.basePlanOpts, ctx.readFileSafe, ctx.noProps, true, true, ctx.coreBinds,
   );
-  const counts = offerableCounts(escalationCounts(analysis.plans, offer.bindsByFile), active);
+  const counts = offerableCounts(escalationCounts(analysis.plans, offer.bindsByFile), active, ctx.coreBinds);
   if (totalOffer(counts) === 0) return unchanged;
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -494,7 +501,7 @@ async function offerEscalation(
   };
   const final = await analyzeFiles(
     ctx.root, ctx.files, finalPlanOpts, ctx.readFileSafe, ctx.noProps,
-    effective.has("collections"), effective.has("routes"),
+    effective.has("collections"), effective.has("routes"), ctx.coreBinds,
   );
 
   // Merge the escalation-only tags (rich + below-floor) into the reviewed set,
@@ -720,6 +727,7 @@ async function runTag(root: string, args: Args, opts: { initMadeDirty?: boolean 
   // byte-identical and `--all` simply turns the four tiers on at once.
   const intent: Intent = {
     all: args.all,
+    coreBinds: pf.coreBinds,
     flags: {
       collections: args.bindCollections,
       routes: args.bindRoutes,
@@ -734,6 +742,13 @@ async function runTag(root: string, args: Args, opts: { initMadeDirty?: boolean 
   const richClass = tiers.has("rich-class");
   const rich = tiers.has("rich") || richClass; // --rich-class implies --rich
   const minConfidence = tiers.has("lowconf") ? "low" : args.minConfidence;
+  if (pf.coreBinds && (bindCollections || bindRoutes)) {
+    process.stdout.write(
+      `• CaretCMS binds content from getCollection()/getEntry() on its own; ` +
+      `${[bindCollections && "--bind-collections", bindRoutes && "--bind-routes"].filter(Boolean).join(" and ")} ` +
+      `also writes those bindings into your templates.\n`,
+    );
+  }
 
   const planOpts: PlanOptions = {
     minConfidence,
@@ -754,7 +769,7 @@ async function runTag(root: string, args: Args, opts: { initMadeDirty?: boolean 
     }
   };
 
-  const analysis = await analyzeFiles(root, files, planOpts, readFileSafe, args.noProps, bindCollections, bindRoutes);
+  const analysis = await analyzeFiles(root, files, planOpts, readFileSafe, args.noProps, bindCollections, bindRoutes, pf.coreBinds);
   // A re-run signal: elements the scan skipped because they already carry a
   // data-caret. Lets the scan line read as incremental ("N new … · M already
   // editable") rather than a cold scan.
@@ -783,7 +798,7 @@ async function runTag(root: string, args: Args, opts: { initMadeDirty?: boolean 
   const optimistic = interactive && !args.review;
   if (interactive) {
     const esc = await offerEscalation(
-      { root, files, basePlanOpts: planOpts, readFileSafe, noProps: args.noProps, minConfidenceBase: args.minConfidence },
+      { root, files, basePlanOpts: planOpts, readFileSafe, noProps: args.noProps, minConfidenceBase: args.minConfidence, coreBinds: pf.coreBinds },
       tiers, analysis, sel,
     );
     sel = esc.sel;
@@ -797,6 +812,8 @@ async function runTag(root: string, args: Args, opts: { initMadeDirty?: boolean 
     collections: effectiveTiers.has("collections"),
     routes: effectiveTiers.has("routes"),
     lowconf: effectiveTiers.has("lowconf"),
+    coreBinds: pf.coreBinds,
+    fixedChrome: pf.core06 ? findFixedChrome(files, readFileSafe) : [],
   };
 
   const prepared = await prepareTouched(root, sel);

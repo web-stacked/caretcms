@@ -9,7 +9,7 @@
 import type { FilePlan, PlannedTag } from "./plan.js";
 import type { CollectionBindTarget } from "./bind-collection.js";
 import { TIERS, type TierId } from "./tiers.js";
-import { recommendedTiers } from "./select-policy.js";
+import { CORE_BOUND_TIERS, recommendedTiers } from "./select-policy.js";
 
 export type EscalationCounts = Record<TierId, number>;
 
@@ -56,9 +56,12 @@ export function totalOffer(counts: EscalationCounts): number {
 export function offerableCounts(
   counts: EscalationCounts,
   active: ReadonlySet<TierId>,
+  coreBinds = false,
 ): EscalationCounts {
   const out = { ...counts };
   for (const id of active) out[id] = 0;
+  // Never offer what CaretCMS already binds on its own.
+  if (coreBinds) for (const id of CORE_BOUND_TIERS) out[id] = 0;
   return out;
 }
 

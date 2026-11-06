@@ -72,6 +72,8 @@ By default caretize applies the safe edits, then shows a diff you can undo with
                            entry — a leaf rendering {entry.data.field} (entry from
                            getStaticPaths props) gets a data-caret instead of the
                            page being skipped as a dynamic route
+                           (CaretCMS 0.6+ binds getCollection()/getEntry() content
+                           on its own, so --all leaves these two out there)
   --rich                   also tag mixed-content blocks whose markup is
                            sanitizer-safe inline formatting (data-caret-rich)
   --rich-class             also tag rich blocks whose inline children carry a

@@ -232,3 +232,37 @@ const posts = await getCollection("blog");
     expect(readFileSync(join(dir, "src/pages/index.astro"), "utf8")).toBe(first);
   });
 });
+
+describe("caretize on a CaretCMS 0.6 project", () => {
+  function project(core: string): void {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ dependencies: { astro: "^7", "@caretcms/core": core } }));
+    writeFileSync(join(dir, "astro.config.mjs"), `import caret from "@caretcms/core";\nexport default defineConfig({ integrations: [caret()] });\n`);
+    mkdirSync(join(dir, "src", "pages"), { recursive: true });
+    mkdirSync(join(dir, "src", "components"), { recursive: true });
+    writeFileSync(join(dir, "src", "pages", "index.astro"), [
+      "---",
+      "import { getCollection } from 'astro:content';",
+      "const posts = await getCollection('blog');",
+      "---",
+      "<main><h1>Journal</h1><ul>{posts.map((p) => <li><h2>{p.data.title}</h2></li>)}</ul></main>",
+    ].join("\n"));
+    writeFileSync(join(dir, "src", "components", "Header.astro"), '<header class="fixed inset-x-0 top-0"><p>Atlas</p></header>\n');
+  }
+
+  it("leaves astro:content loops to CaretCMS and points fixed headers at the overlay opt-out", () => {
+    project("^0.6.0");
+    const r = run(dir, "--dry-run", "-y");
+    expect(r.status).toBe(0);
+    expect(r.stdout).not.toContain("consider a dynamic collection");
+    expect(r.stdout).not.toContain("--bind-collections");
+    expect(r.stdout).toContain("src/components/Header.astro has a fixed header or nav");
+    expect(r.stdout).toContain('class="caret-studio-overlay"');
+  });
+
+  it("keeps the earlier advice for older cores", () => {
+    project("^0.5.0");
+    const r = run(dir, "--dry-run", "-y");
+    expect(r.stdout).toContain("consider a dynamic collection");
+    expect(r.stdout).not.toContain("caret-studio-overlay");
+  });
+});

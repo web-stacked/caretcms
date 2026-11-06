@@ -20,6 +20,11 @@ export interface Preflight {
   outputMode: string;
   /** Static delivery is available either explicitly or via caret()'s auto default. */
   staticDeliveryConfigured: boolean;
+  /** The installed (else declared) @caretcms/core is 0.6 or newer. */
+  core06: boolean;
+  /** CaretCMS binds `astro:content` reads on its own: core 0.6+, wired, with
+   *  neither `bindContent: false` nor `enableInlineEditor: false`. */
+  coreBinds: boolean;
   gitRepo: boolean;
   gitClean: boolean | null; // null when not a git repo
   errors: string[];
@@ -43,6 +48,25 @@ function deps(pkg: Record<string, unknown> | null): Record<string, string> {
     ...(pkg.dependencies as Record<string, string> | undefined),
     ...(pkg.devDependencies as Record<string, string> | undefined),
   };
+}
+
+/**
+ * Whether the project's @caretcms/core is 0.6 or newer: the installed package's
+ * version, else the version in the declared range or tarball name. Unknown
+ * (a workspace link, a git URL) reads as older, which keeps the old advice.
+ */
+function coreAtLeast06(rootDir: string, declared: string | undefined): boolean {
+  let version: string | undefined;
+  try {
+    const installed = JSON.parse(readFileSync(resolve(rootDir, "node_modules/@caretcms/core/package.json"), "utf8")) as { version?: unknown };
+    if (typeof installed.version === "string") version = installed.version;
+  } catch {
+    version = declared;
+  }
+  const match = version?.match(/(\d+)\.(\d+)\.\d+/);
+  if (!match) return false;
+  const [major, minor] = [Number(match[1]), Number(match[2])];
+  return major > 0 || minor >= 6;
 }
 
 function findAstroConfig(rootDir: string): string | null {
@@ -76,6 +100,10 @@ export function preflight(rootDir: string): Preflight {
   // package or calls caret(...) in the integrations array).
   const caretWired =
     config !== null && (/\bcaret\s*\(/.test(config) || /@caretcms\/core/.test(config));
+  const core06 = hasCaretCore && coreAtLeast06(rootDir, d["@caretcms/core"]);
+  const coreBinds =
+    core06 && caretWired && config !== null &&
+    !/bindContent\s*:\s*false/.test(config) && !/enableInlineEditor\s*:\s*false/.test(config);
 
   // Output mode (Astro defaults to "static" when unset). "hybrid" was removed
   // in Astro 5 — a config still carrying it is treated as unknown/static so
@@ -147,6 +175,8 @@ export function preflight(rootDir: string): Preflight {
     caretWired,
     outputMode,
     staticDeliveryConfigured,
+    core06,
+    coreBinds,
     gitRepo,
     gitClean,
     errors,
