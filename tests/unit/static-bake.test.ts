@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   bakeStaticHtmlFiles,
   bakeStaticHtmlString,
+  stripBindingAttributes,
 } from "../../packages/core/src/runtime/static-bake";
 import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memory-adapter";
 
@@ -35,6 +36,29 @@ describe("static HTML bake", () => {
     expect(result.rewritten).toBe(true);
     expect(result.html).toContain("Stored title");
     expect(result.html).not.toContain("Default title");
+  });
+
+  it("leaves no binding attributes in visitors' HTML", async () => {
+    const result = await bakeStaticHtmlString(
+      '<h1 data-caret="pages::home::title" class="x">Default title</h1>\n<p data-caret="pages::home::body" data-caret-rich\n  data-caret-md="posts::a::__body.0">Default</p>',
+      { adapter },
+    );
+    expect(result.html).toBe('<h1 class="x">Stored title</h1>\n<p><strong>Stored rich</strong></p>');
+  });
+
+  it("strips only real attributes, never text, values, comments or scripts", () => {
+    const html = [
+      '<a title="see data-caret=&quot;x&quot;" data-caret="pages::home::link" href="/">Docs on data-caret="x"</a>',
+      '<!-- <b data-caret="c::d::e">comment</b> -->',
+      '<script>const s = \'<b data-caret="c::d::e">\';</script>',
+      '<img data-caret-scope="pages::home" src="/a.png"><span data-caretaker="kept">k</span>',
+    ].join("");
+    expect(stripBindingAttributes(html)).toBe([
+      '<a title="see data-caret=&quot;x&quot;" href="/">Docs on data-caret="x"</a>',
+      '<!-- <b data-caret="c::d::e">comment</b> -->',
+      '<script>const s = \'<b data-caret="c::d::e">\';</script>',
+      '<img src="/a.png"><span data-caretaker="kept">k</span>',
+    ].join(""));
   });
 
   it("skips strings without rendered binding attributes", async () => {

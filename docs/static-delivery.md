@@ -29,7 +29,9 @@ Publish (in dev or a staging environment)
 
 Your template markup remains the **seed content**. Until an editor saves an
 override, visitors see the original HTML. After publish and rebuild, stored values
-replace tagged fields in the built files.
+replace tagged fields in the built files. The build also removes the `data-caret*`
+binding attributes: the editor runs only in `astro dev`, so visitors' HTML doesn't
+carry them.
 
 ## Setup
 

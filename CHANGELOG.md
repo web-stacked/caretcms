@@ -150,6 +150,8 @@ first.
 - The formatting bar for rich text stays beside the selected words when the
   page scrolls, and hides while they're out of view. Before, it stayed where it
   first appeared.
+- Static builds remove the `data-caret*` binding attributes from visitors'
+  HTML; the editor only runs in `astro dev`.
 - Packages include their TypeScript sources, so source maps and declaration
   maps resolve. Vite no longer warns about missing source files.
 

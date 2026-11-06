@@ -3,6 +3,7 @@ import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { StorageAdapter } from "../types.js";
 import { rewriteCaretAttributes } from "./rewrite.js";
+import { scanHtmlTags } from "./html-tokens.js";
 
 const BINDING_PROBE_RE = /\bdata-caret(?:-scope)?\s*=\s*"/;
 
@@ -48,6 +49,38 @@ async function listHtmlFiles(root: string): Promise<string[]> {
   return out;
 }
 
+/** CaretCMS's binding attributes: `data-caret`, `data-caret-rich`, `data-caret-md`, … */
+const BINDING_ATTR_RE = /^data-caret(?:-|$)/;
+const SPACE_RE = /[\t\n\f\r ]/;
+
+/**
+ * Remove CaretCMS's binding attributes from built HTML. A static build has no
+ * editor (it runs only in `astro dev`), so visitors' pages don't need them.
+ * Only real tags are touched; raw text, comments and attribute values stay as
+ * they are (see `scanHtmlTags`).
+ */
+export function stripBindingAttributes(html: string): string {
+  const cuts: Array<[number, number]> = [];
+  for (const tag of scanHtmlTags(html)) {
+    if (tag.closing) continue;
+    for (const [name, attribute] of tag.attributes) {
+      if (!BINDING_ATTR_RE.test(name)) continue;
+      let start = attribute.start;
+      while (start > tag.start && SPACE_RE.test(html[start - 1])) start--;
+      cuts.push([start, attribute.end]);
+    }
+  }
+  if (!cuts.length) return html;
+  cuts.sort((a, b) => a[0] - b[0]);
+  let out = "";
+  let cursor = 0;
+  for (const [start, end] of cuts) {
+    out += html.slice(cursor, start);
+    cursor = end;
+  }
+  return out + html.slice(cursor);
+}
+
 export async function bakeStaticHtmlString(
   html: string,
   options: StaticBakeOptions,
@@ -56,9 +89,9 @@ export async function bakeStaticHtmlString(
     return { html, rewritten: false };
   }
 
-  const baked = await rewriteCaretAttributes(html, options.adapter, {
+  const baked = stripBindingAttributes(await rewriteCaretAttributes(html, options.adapter, {
     allowedClasses: options.allowedClasses,
-  });
+  }));
 
   return {
     html: baked,
