@@ -212,6 +212,12 @@ first.
 - caretize prints `npx @caretcms/caretize` everywhere, names prose after its
   heading or landmark (`what_we_bake_text`, `footer_text`), and inserts
   attributes after the last attribute, keeping the tag's own spacing.
+- caretize on a CaretCMS 0.6 project leaves content from `getCollection()` and
+  `getEntry()` to core: `--all` and the interactive offer no longer add
+  `--bind-collections` / `--bind-routes` (the flags still work when passed),
+  and loops over data are summed up in one hint instead of a "consider a dynamic
+  collection" line each. It also names templates with a fixed header or nav and
+  points at `caret-studio-overlay`.
 - The Studio has a collection sidebar, a Go to search (⌘K / Ctrl K) across
   collections and entries, light and dark themes that follow the system with a
   manual switch, collection page headers, a grid and list view with status
