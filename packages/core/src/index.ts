@@ -1108,6 +1108,12 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           }
         }
 
+        // Pages rendered without a request (static builds) read published
+        // values through the configured storage; this loads it into page code.
+        if (resolved.mode !== "cloud") {
+          injectScript("page-ssr", `import ${JSON.stringify(fileURLToPath(new URL("./runtime/build-storage.js", import.meta.url)))};`);
+        }
+
         // Markdown storage reads `file()` collections from wherever the content
         // config says they live; paths there are relative to the project root.
         if (resolved.storage?.entrypoint === MARKDOWN_STORAGE_ENTRYPOINT && resolved.mode !== "cloud") {

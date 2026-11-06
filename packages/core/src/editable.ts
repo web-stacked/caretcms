@@ -28,9 +28,9 @@
  */
 
 import { getRequestContext } from "./runtime/request-context.js";
+import { publishedStorage } from "./runtime/published-storage.js";
 import { stegaCombine } from "./runtime/stega.js";
 import { isEncodableText } from "./runtime/stega-policy.js";
-import type { StorageAdapter } from "./types.js";
 import { getNestedValue as getByPath } from "./runtime/utils.js";
 
 /**
@@ -121,16 +121,6 @@ function encodeLeaves(
     return out;
   }
   return value;
-}
-
-/** The configured storage outside a request, or null without a CaretCMS runtime. */
-async function publishedStorage(): Promise<StorageAdapter | null> {
-  try {
-    const { getStorageAdapter } = await import("./runtime/providers.js");
-    return await getStorageAdapter();
-  } catch {
-    return null;
-  }
 }
 
 export async function editable<T>(key: string, value: T): Promise<T> {

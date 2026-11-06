@@ -4,6 +4,7 @@ import type { DeploymentStatusProvider, IdentityAdapter, StorageAdapter, UploadH
 // `Partial` wrapper below keeps runtime null-safety for environments that load
 // this module without the Vite plugin (every access still has a fallback).
 import * as runtimeProviders from "virtual:caretcms/providers";
+import { registerPublishedStorage } from "./published-storage.js";
 
 type ProviderModule = Partial<typeof runtimeProviders>;
 
@@ -92,6 +93,7 @@ function sharedAdapter(): Promise<StorageAdapter> {
 export function getStorageAdapter(): Promise<StorageAdapter> {
   return sharedAdapter();
 }
+registerPublishedStorage(getStorageAdapter);
 
 export async function getRuntimeServices(): Promise<RuntimeServices> {
   if (!runtimeServicesPromise) {
