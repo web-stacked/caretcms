@@ -92,7 +92,8 @@
 
 .cms-section-editable.cms-section-active .cms-section-chip {
   border-color: rgba(59, 130, 246, 0.65);
-  color: var(--cms-accent);
+  /* The accent blue reads at ~3.7:1 on the chip; this tint passes 4.5:1. */
+  color: #93c5fd;
 }
 
 .cms-section-controls-actions {

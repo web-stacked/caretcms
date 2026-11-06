@@ -182,3 +182,18 @@ test("Studio pages start with a skip link to the content or the form", async ({ 
   await page.keyboard.press("Tab");
   await expect(studio.getByRole("link", { name: "Skip to content" })).toBeFocused();
 });
+
+test("the selected section's name chip has readable contrast", async ({ page }) => {
+  resetCmsStorage();
+  await loginAsEditor(page);
+  await page.goto("/");
+  const section = page.locator(".cms-section-editable").first();
+  await expect(section).toBeVisible();
+  await section.click({ position: { x: 4, y: 4 } });
+  await expect(section).toHaveClass(/cms-section-active/);
+  const chip = section.locator(".cms-section-chip");
+  await expect(chip).toHaveCSS("opacity", "1");
+  const result = await new AxeBuilder({ page }).include(".cms-section-active > .cms-section-chip").withRules(["color-contrast"]).analyze();
+  expect(result.violations).toEqual([]);
+  expect(result.passes.length).toBeGreaterThan(0);
+});
