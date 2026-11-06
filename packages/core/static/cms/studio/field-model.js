@@ -4,6 +4,18 @@
 /** @template T @param {T} v @returns {T} */
 export function deepClone(v) { return JSON.parse(JSON.stringify(v)); }
 
+/**
+ * Whether a missing `key` gets a starting value: only when the schema requires
+ * it or states a default. An optional field the entry doesn't have stays
+ * absent, so saving the form never writes values nobody chose.
+ * @param {Schema} schema @param {string} key @returns {boolean}
+ */
+export function fillsByDefault(schema, key) {
+  var prop = schema.properties?.[key];
+  if (!prop) return false;
+  return prop.default !== undefined || (Array.isArray(schema.required) && schema.required.includes(key));
+}
+
 /** @param {Schema | null | undefined} schema @returns {unknown} */
 export function templateFromSchema(schema) {
   if (!schema || typeof schema !== "object") return "";
@@ -13,14 +25,16 @@ export function templateFromSchema(schema) {
     /** @type {Record<string, unknown>} */
     var objectTemplate = {};
     Object.keys(schema.properties || {}).forEach(function (key) {
-      objectTemplate[key] = templateFromSchema(schema.properties?.[key]);
+      if (fillsByDefault(schema, key)) objectTemplate[key] = templateFromSchema(schema.properties?.[key]);
     });
     return objectTemplate;
   }
   if (schema.type === "array") return [];
   if (schema.type === "boolean") return false;
   if (schema.type === "number" || schema.type === "integer") {
-    return typeof schema.minimum === "number" ? schema.minimum : 0;
+    // Zod's integers carry a minimum of -(2^53 - 1): only a positive minimum
+    // is a sensible starting value.
+    return typeof schema.minimum === "number" && schema.minimum > 0 ? schema.minimum : 0;
   }
   return "";
 }
@@ -40,7 +54,7 @@ export function fillDefaults(data, schema) {
   Object.keys(schema.properties).forEach(function (key) {
     var prop = schema.properties?.[key];
     if (!prop) return;
-    if (record[key] === undefined) record[key] = templateFromSchema(prop);
+    if (record[key] === undefined && fillsByDefault(schema, key)) record[key] = templateFromSchema(prop);
     var value = record[key];
     if (prop.type === "object" && prop.properties) {
       fillDefaults(value, prop);

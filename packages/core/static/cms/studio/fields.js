@@ -1,5 +1,5 @@
 /** Studio field rendering. Persistence and specialized widgets are injected. */
-import { fieldIdFromPath, humanizeKey, templateFromSchema } from './field-model.js';
+import { fieldIdFromPath, fillsByDefault, humanizeKey, templateFromSchema } from './field-model.js';
 import { sanitizeHtml } from '../editor/sanitize.js';
 /** @typedef {import('./field-model.js').Schema} Schema */
 /** @typedef {Record<string, unknown>} Entry */
@@ -366,8 +366,9 @@ export function createFieldRenderer({ updateField, buildSingleImage, buildImageG
       var isRequired = required.has(key);
       var value = data ? data[key] : undefined;
 
-      // Backfill missing keys with sensible defaults
-      if (value === undefined && data) {
+      // Required fields and fields with a default start with a value; an
+      // optional field stays absent until the editor fills it.
+      if (value === undefined && data && fillsByDefault(schema, key)) {
         data[key] = templateFromSchema(prop);
       }
       var current = data ? data[key] : undefined;
@@ -432,10 +433,13 @@ export function createFieldRenderer({ updateField, buildSingleImage, buildImageG
         var num = document.createElement("input");
         num.type = "number";
         num.className = "studio-input";
-        num.value = String(current == null ? 0 : current);
-        if (prop.minimum !== undefined) num.min = String(prop.minimum);
-        if (prop.maximum !== undefined) num.max = String(prop.maximum);
-        num.addEventListener("input", function () { updateField(path, Number(num.value) || 0); });
+        num.value = current == null ? "" : String(current);
+        if (prop.minimum !== undefined && Number.isSafeInteger(prop.minimum)) num.min = String(prop.minimum);
+        if (prop.maximum !== undefined && Number.isSafeInteger(prop.maximum)) num.max = String(prop.maximum);
+        // Emptied, an optional number is removed rather than saved as 0.
+        num.addEventListener("input", function () {
+          updateField(path, num.value === "" ? (isRequired ? 0 : undefined) : Number(num.value));
+        });
         group.appendChild(num);
       } else if (prop.type === "boolean") {
         group = createFieldGroup(label, isRequired, true);

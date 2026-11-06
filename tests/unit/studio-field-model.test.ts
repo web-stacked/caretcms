@@ -82,12 +82,11 @@ describe("fillDefaults", () => {
     },
   };
 
-  it("adds missing keys the form would render, including inside nested objects and list items", () => {
+  it("adds defaults the schema states, inside nested objects and list items, and leaves optional fields absent", () => {
     const data = { title: "Kept", seo: { description: "Kept too" }, details: [{ label: "Medium" }], gallery: [{ src: "/a.png" }] };
     expect(fillDefaults(data, schema as never)).toEqual({
       title: "Kept",
-      published: false,
-      seo: { description: "Kept too", noindex: false },
+      seo: { description: "Kept too" },
       details: [{ label: "Medium", note: "–" }],
       gallery: [{ src: "/a.png" }],
     });
@@ -96,5 +95,35 @@ describe("fillDefaults", () => {
   it("is stable, so a filled entry compares equal to itself after filling again", () => {
     const once = fillDefaults({ details: [{}] }, schema as never);
     expect(fillDefaults(structuredClone(once), schema as never)).toEqual(once);
+  });
+});
+
+describe("optional fields the entry doesn't have", () => {
+  // A team member from a JSON file, as Astro's generated schema describes it.
+  const member = {
+    type: "object",
+    required: ["name", "role"],
+    properties: {
+      name: { type: "string" },
+      role: { type: "string" },
+      since: { type: "integer", minimum: -9007199254740991, maximum: 9007199254740991 },
+      photo: { type: "string" },
+      vegan: { type: "boolean" },
+      order: { type: "integer", minimum: -9007199254740991, default: 3 },
+    },
+  } as const;
+
+  it("stay absent, so saving writes nothing nobody chose", () => {
+    const data = fillDefaults({ name: "June", role: "Baker" }, member as never);
+    expect(data).toEqual({ name: "June", role: "Baker", order: 3 });
+  });
+
+  it("start new list items with required fields and defaults only", () => {
+    expect(templateFromSchema(member as never)).toEqual({ name: "", role: "", order: 3 });
+  });
+
+  it("a number starts at 0 unless its minimum is positive", () => {
+    expect(templateFromSchema({ type: "integer", minimum: -9007199254740991 } as never)).toBe(0);
+    expect(templateFromSchema({ type: "number", minimum: 5 } as never)).toBe(5);
   });
 });

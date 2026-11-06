@@ -44,6 +44,10 @@ first.
   `href`, …) are no longer marked in edit mode, so filters keep working;
   static builds and prerendered pages include published values; and the
   Studio lists every item the page states, with its default text.
+- Studio forms no longer fill optional fields an entry doesn't have. Saving
+  wrote values nobody chose into the content (an empty `photo`, `vegan: false`,
+  and for Zod integers `-9007199254740991`); only required fields and stated
+  defaults start with a value, and an emptied optional number is removed.
 - A Studio address whose page fails for the editor (a saved change can break a
   page for editors only) opens the Studio on its own page with the reason,
   instead of an error page with no way back. The drawer's Back stays in the
