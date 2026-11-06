@@ -248,7 +248,8 @@ async function prepareRequest(
     context.locals.caretIdentity = identity;
     // A downstream 304 has no body to rewrite and may validate a public source
     // representation against a private draft. Render afresh for editors.
-    if (isEditor && context.request && (context.request.headers.has("if-none-match") || context.request.headers.has("if-modified-since"))) {
+    // Prerendered pages have no request headers (Astro warns on reading them).
+    if (isEditor && !context.isPrerendered && context.request && (context.request.headers.has("if-none-match") || context.request.headers.has("if-modified-since"))) {
       const headers = new Headers(context.request.headers);
       headers.delete("if-none-match");
       headers.delete("if-modified-since");

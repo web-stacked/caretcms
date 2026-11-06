@@ -1031,10 +1031,10 @@ function injectMarkdownStamping(args: {
   const processor = config.markdown?.processor;
   if (processor?.name === "satteri" && processor.options) {
     (processor.options.mdastPlugins ??= []).push(caretSatteriPlugin({ contentRoot }));
-    logger.info("[caretcms] Markdown body editing enabled (Sätteri mdast plugin).");
+    logger.info("Markdown body editing enabled (Sätteri mdast plugin).");
   } else {
     updateConfig({ markdown: { remarkPlugins: [[caretRemarkPlugin({ contentRoot }), { caretStampVersion: "paragraphs-v1" }]] } });
-    logger.info("[caretcms] Markdown body editing enabled (remark plugin).");
+    logger.info("Markdown body editing enabled (remark plugin).");
   }
 }
 
@@ -1072,7 +1072,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
         // A typo'd option (`mountpath`) used to silently fall back to its
         // default — the user "configured" something that never took effect.
         for (const unknown of unknownOptionWarnings(options)) {
-          logger.warn(`[caretcms] unknown option ${unknown} — ignored.`);
+          logger.warn(`unknown option ${unknown} — ignored.`);
         }
 
         // Zero-config collection detection: when the user hasn't chosen a storage
@@ -1103,7 +1103,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
               metaRoot: join(projectRoot, ".caretcms"),
             });
             logger.info(
-              `[caretcms] Detected Astro content collections (${detected.join(", ")}) — defaulting storage to markdownStorage(). Pass an explicit \`storage\` to override; add \`schemas\` (e.g. via @caretcms/zod) for typed fields.`,
+              `Detected Astro content collections (${detected.join(", ")}) — defaulting storage to markdownStorage(). Pass an explicit \`storage\` to override; add \`schemas\` (e.g. via @caretcms/zod) for typed fields.`,
             );
           }
         }
@@ -1233,10 +1233,10 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
         if (resolved.mode === "cloud") {
           injectScript("page", buildCloudBootstrapScript(clientConfig, resolved.cloud!));
           logger.warn(
-            "[caretcms] mode: 'cloud' is alpha. The hosted control plane is not yet generally available — bootstrap requests will fail silently against placeholder endpoints. Use embedded mode for production today.",
+            "mode: 'cloud' is alpha. The hosted control plane is not yet generally available — bootstrap requests will fail silently against placeholder endpoints. Use embedded mode for production today.",
           );
           logger.info(
-            `[caretcms] cloud mode loaded (projectId=${resolved.cloud!.projectId}, endpoint=${resolved.cloud!.endpoint}, static=${isStaticOutput})`,
+            `cloud mode loaded (projectId=${resolved.cloud!.projectId}, endpoint=${resolved.cloud!.endpoint}, static=${isStaticOutput})`,
           );
           return;
         }
@@ -1245,16 +1245,16 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           if (effectiveDelivery.mode === "static") {
             if (command !== "dev") {
               logger.info(
-                `[caretcms] static delivery enabled (bake=${effectiveDelivery.bake}) — authoring routes stay out of production static output; generated HTML is baked at build end.`,
+                `static delivery enabled (bake=${effectiveDelivery.bake}) — authoring routes stay out of production static output; generated HTML is baked at build end.`,
               );
               return;
             }
             logger.info(
-              "[caretcms] static delivery dev authoring enabled — injecting editor/API routes for local preview; production builds bake static HTML.",
+              "static delivery dev authoring enabled — injecting editor/API routes for local preview; production builds bake static HTML.",
             );
           } else {
             logger.warn(
-              `[caretcms] delivery: "server" needs Astro output: "server" plus an SSR adapter for local editing routes. Static output detected, so embedded CMS middleware and routes were skipped. Use delivery: "auto" or "static" to bake HTML for a static site.`,
+              `delivery: "server" needs Astro output: "server" plus an SSR adapter for local editing routes. Static output detected, so embedded CMS middleware and routes were skipped. Use delivery: "auto" or "static" to bake HTML for a static site.`,
             );
             return;
           }
@@ -1374,14 +1374,14 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
         }
 
         logger.info(
-          `[caretcms] core loaded (mode=${resolved.mode}, mountPath=${resolved.mountPath}, apiBasePath=${resolved.apiBasePath}, storage=${describeProvider(
+          `core loaded (mode=${resolved.mode}, mountPath=${resolved.mountPath}, apiBasePath=${resolved.apiBasePath}, storage=${describeProvider(
             resolved.storage,
           )}, uploads=${describeProvider(resolved.uploads)}, enableAdmin=${resolved.enableAdmin}, inlineEditor=${resolved.enableInlineEditor})`,
         );
 
         if (devEditorPassword) {
           logger.warn(
-            `[caretcms] No CARET_EDIT_PASSWORD set — temporary dev login enabled so you can sign in now:\n` +
+            `No CARET_EDIT_PASSWORD set — temporary dev login enabled so you can sign in now:\n` +
               `\n` +
               `    password: ${devEditorPassword.password}  (kept in ${DEV_PASSWORD_PATH})\n` +
               `\n` +
@@ -1423,7 +1423,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
         );
         if (!adapter) {
           logger.warn(
-            "[caretcms] static delivery bake skipped: no storage provider configured.",
+            "static delivery bake skipped: no storage provider configured.",
           );
           return;
         }
@@ -1433,7 +1433,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           allowedClasses: resolved.allowedClasses,
         });
         logger.info(
-          `[caretcms] static delivery bake complete (${result.rewritten}/${result.scanned} HTML files rewritten).`,
+          `static delivery bake complete (${result.rewritten}/${result.scanned} HTML files rewritten).`,
         );
       },
 
@@ -1451,7 +1451,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
           );
           if (!hit) continue;
           logger.warn(
-            `[caretcms] your route ${route.pattern} (${route.entrypoint}) overlaps the CMS route space "${hit}" — one of them will be shadowed. ` +
+            `your route ${route.pattern} (${route.entrypoint}) overlaps the CMS route space "${hit}" — one of them will be shadowed. ` +
               `Move your route, or relocate the CMS with caret({ ${hit === resolved.apiBasePath ? 'apiBasePath: "/your-api-path"' : 'mountPath: "/your-admin-path"'} }).`,
           );
         }

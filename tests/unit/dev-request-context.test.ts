@@ -56,6 +56,14 @@ describe("static dev request identity", () => {
     expect(getDevAuthContext(pageRequest(), true)).toBeUndefined();
   });
 
+  it("never reads a prerendered page's own request headers, which Astro warns about", async () => {
+    const cookie = await editorDraft("Draft");
+    const request = pageRequest();
+    Object.defineProperty(request, "headers", { get: () => { throw new Error("headers read on a prerendered page"); } });
+    const response = await withDevRequest({ headers: { cookie } }, () => onRequest({ ...context(), request }, next));
+    expect(await response.text()).toContain("Draft");
+  });
+
   it.each(["caret_session=invalid", "caret_session=%invalid"])(
     "does not authenticate an invalid session cookie: %s", async cookie => {
       const ctx = context();

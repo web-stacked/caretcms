@@ -136,6 +136,9 @@ first.
   `blog/[slug].astro`) are editable on the page like `getCollection()`
   results. Astro resolves those props before middleware runs, so they were
   never bound.
+- `astro dev` no longer warns that `Astro.request.headers` isn't available on
+  prerendered pages, and CaretCMS log lines carry one `[caretcms]` label
+  instead of two.
 - Packages include their TypeScript sources, so source maps and declaration
   maps resolve. Vite no longer warns about missing source files.
 
