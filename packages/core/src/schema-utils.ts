@@ -232,10 +232,16 @@ export function buildTemplate(schema: unknown): Record<string, unknown> | null {
 
   switch (normalized.type) {
     case "object": {
+      // A new entry starts with what the schema requires or states as a
+      // default. Optional fields stay absent: an empty `heroImage: ""` or
+      // `updatedDate: ""` is a value Astro then rejects, so the entry vanishes.
       const obj: Record<string, unknown> = {};
+      const required = new Set(Array.isArray(normalized.required) ? normalized.required : []);
       if (normalized.properties) {
         Object.entries(normalized.properties).forEach(([key, prop]) => {
-          obj[key] = buildTemplate(prop);
+          if (required.has(key) || (prop && typeof prop === "object" && (prop as JsonSchemaNode).default !== undefined)) {
+            obj[key] = buildTemplate(prop);
+          }
         });
       }
       return obj;
@@ -247,7 +253,8 @@ export function buildTemplate(schema: unknown): Record<string, unknown> | null {
       return "" as unknown as Record<string, unknown>;
     case "number":
     case "integer":
-      return 0 as unknown as Record<string, unknown>;
+      // Zod integers carry a minimum of -(2^53 - 1); only a positive one is a start.
+      return (typeof normalized.minimum === "number" && normalized.minimum > 0 ? normalized.minimum : 0) as unknown as Record<string, unknown>;
     case "boolean":
       return false as unknown as Record<string, unknown>;
     default:
