@@ -119,7 +119,7 @@ responses, permission policies, Studio dictionaries and Studio URLs; read the
   `slug`, …) stay unmarked, and `--dry-run` lists which fields become editable.
 - Caretize's lower-confidence count is the same in the interactive offer and
   the closing summary: the bold or linked words inside a paragraph are no
-  longer counted as separate spots. After **Y**, it asks about styled-span
+  longer counted as separate spots. After Y, it asks about styled-span
   blocks and lower-confidence spots one by one instead of hiding them behind
   "customize".
 - Caretize warns about uncommitted changes only in files it is about to edit,
@@ -140,11 +140,11 @@ responses, permission policies, Studio dictionaries and Studio URLs; read the
   gave those images invented keys such as `components::Team::hero`, which then
   replaced the binding the data carried. Literal URLs and imported image files
   are still tagged.
-- After a save conflict, **Keep my edits** applies only the fields changed in
+- After a save conflict, Keep my edits applies only the fields changed in
   the form on top of the newer version. Before, it saved the whole form and
   reverted fields the other editor changed. The conflict dialog names nested
   fields and marks fields both editors changed.
-- The inline toolbar shows **Unsaved changes** while an edit is pending, and
+- The inline toolbar shows Unsaved changes while an edit is pending, and
   restores the previous status when the edit is undone.
 - Studio history shows "You" or "Earlier session" instead of an opaque session
   ID for editors signed in without a name or email.
@@ -171,8 +171,8 @@ responses, permission policies, Studio dictionaries and Studio URLs; read the
   of its first letter.
 - An edit that is undone no longer counts as a change to publish, including
   on an entry that had nothing saved before.
-- History's button on a change says what it does: **Undo this change**, or
-  **Undo this and 2 later changes** when going back to before it also undoes
+- History's button on a change says what it does: Undo this change, or
+  Undo this and 2 later changes when going back to before it also undoes
   newer ones. Before, every row offered "Restore earlier version".
 - The formatting bar for rich text stays beside the selected words when the
   page scrolls, and hides while they're out of view. Before, it stayed where it
@@ -208,7 +208,7 @@ responses, permission policies, Studio dictionaries and Studio URLs; read the
 - `astro dev` and `astro preview` load `CARET_*` settings from `.env` files.
 - `StorageAdapter.isDocumentCollection()` (optional) marks collections whose
   entries are data, not Markdown documents.
-- A `create` authorization action (see **Changed**).
+- A `create` authorization action (see Changed).
 - The dev toolbar flags fields that stay read-only because their markup can't
   be edited as rich text, and names the tags in the way.
 - The Studio lists text and images that templates bind with `data-caret`
@@ -251,7 +251,7 @@ responses, permission policies, Studio dictionaries and Studio URLs; read the
 - Caretize ends with a hint when content comes from props or data, explaining
   what CaretCMS binds on its own and how to bind other data with `editable()`.
 - `CARET_GIT_JOURNAL_RETRY=true` lets an interrupted Git commit finish later
-  without publishing again. The toolbar shows **Retry Git history** while one
+  without publishing again. The toolbar shows Retry Git history while one
   is pending.
 - Opt-in coordinated Durable Object drafts save a multi-entry batch in one
   transaction.
@@ -261,28 +261,28 @@ responses, permission policies, Studio dictionaries and Studio URLs; read the
 
 ### Changed
 
-- **Policies:** creating an entry in the Studio needs both `edit` and the new
-  `create` action. A policy that grants only the actions it knows denies
-  creation until it also returns `true` for `create`. A first save to content
-  a page already shows is still an `edit`.
-- **`@caretcms/zod`:** a `.describe()` that becomes a field's label is no
-  longer repeated as help text. Use `.meta({ title })` with `.describe()` to
-  show both.
-- **Page layouts:** stored layouts keep any well-formed section key, and the
-  section controls offer the kinds the page templates name
+- Creating an entry in the Studio needs both `edit` and the new `create`
+  action. A policy that only allows the actions it knows denies creating until
+  it also returns `true` for `create`. The first save to content a page
+  already shows is still an `edit`.
+- `@caretcms/zod` no longer repeats a `.describe()` text as help when it's
+  already the field's label. Use `.meta({ title })` with `.describe()` to show
+  both.
+- Stored page layouts keep any well-formed section key, and the section
+  controls offer the kinds the page templates name
   (`data-caret-section-label`). The built-in list of section keys and its old
   key renames are gone.
-- **Draft mode** is decided by the server: static delivery and an active
-  policy make every edit a private draft; server delivery without a policy
-  saves live (in production builds, Markdown body edits still wait for
-  Publish). The `caret_preview` cookie is no longer read, so it can't turn on
+- The server decides when edits are drafts. Static delivery and an active
+  policy make every edit a private draft. Server delivery without a policy
+  saves live, except Markdown body edits in production builds, which wait for
+  Publish. The `caret_preview` cookie is no longer read, so it can't turn on
   private drafts for a server-delivered site.
-- **Studio dictionary:** the on-page editor is translated too. Its messages are
-  `editor.*` keys in the same dictionary (English and Spanish), so
-  `caret({ locale: "es" })` covers the toolbar, notices and dialogs on the page,
-  and `dictionary` can override them.
-- **Studio dictionary:** `entry.saveNow` ("Save now") replaces
-  `entry.saveLive` and `entry.saveDraft`. The Save button appears only while
+- The on-page editor uses the Studio dictionary too. Its messages are
+  `editor.*` keys, in English and Spanish, so `caret({ locale: "es" })`
+  translates the toolbar, notices and dialogs on the page, and `dictionary`
+  can override them.
+- In the Studio dictionary, `entry.saveNow` ("Save now") replaces
+  `entry.saveLive` and `entry.saveDraft`. The Save button only appears while
   changes are waiting.
 - Pending Git history and the caretize hint moved from the editor toolbar to
   the Astro developer toolbar.
@@ -290,9 +290,10 @@ responses, permission policies, Studio dictionaries and Studio URLs; read the
   fields, and humanized ids instead of raw ids.
 - New entries are created by name, with the web address filled in and
   editable on request.
-- **Dev password:** the temporary password is kept in `.caret/dev-password`
-  (stable across restarts, git-ignored) and shown by `astro dev logs`; Astro 7
-  runs `astro dev` in the background, so it no longer reached the terminal.
+- The temporary dev password is kept in `.caret/dev-password`, which survives
+  restarts and is git-ignored, and `astro dev logs` shows it. Astro 7 runs
+  `astro dev` in the background, so the password no longer reached the
+  terminal.
 - caretize prints `npx @caretcms/caretize` everywhere, names prose after its
   heading or landmark (`what_we_bake_text`, `footer_text`), and inserts
   attributes after the last attribute, keeping the tag's own spacing.
@@ -306,8 +307,8 @@ responses, permission policies, Studio dictionaries and Studio URLs; read the
   collections and entries, light and dark themes that follow the system with a
   manual switch, collection page headers, a grid and list view with status
   labels, and card-based entry forms. The sign-in page and dialogs match.
-- The Studio opens over the site. **Expand** widens the drawer to two thirds of
-  the window with the page beside it; Shrink, Close, Esc and **View site** keep
+- The Studio opens over the site. Expand widens the drawer to two thirds of
+  the window with the page beside it; Shrink, Close, Esc and View site keep
   you on the page (Esc on an expanded Studio shrinks it first). A Studio URL
   opened in a tab of its own redirects (303) to the page that shows the entry
   (`previewPath`, else `editorHome`) with the Studio expanded on that route. With `enableInlineEditor: false` the Studio is
