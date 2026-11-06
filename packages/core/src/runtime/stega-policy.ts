@@ -79,6 +79,18 @@ function childSchema(schema: JsonSchemaNode | undefined, key: string | number): 
   return schema.properties?.[key];
 }
 
+/**
+ * An Astro `reference()` value, `{ collection, id }` (or `slug`): a lookup key
+ * the theme passes to `getEntry()`. A marker on either string finds nothing.
+ */
+export function isEntryReference(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  const record = value as Record<string, unknown>;
+  return keys.length === 2 && typeof record.collection === "string"
+    && (typeof record.id === "string" || typeof record.slug === "string");
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     && Object.getPrototypeOf(value) === Object.prototype;
@@ -99,6 +111,7 @@ export function encodeContent(value: unknown, prefix: string, path: string, sche
   if (isRecord(value)) {
     // Image metadata (`{ src, width, height, format }`) feeds the image pipeline.
     if (typeof value.src === "string" && typeof value.width === "number" && typeof value.format === "string") return value;
+    if (isEntryReference(value)) return value;
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value)) {
       out[key] = key.startsWith("__")

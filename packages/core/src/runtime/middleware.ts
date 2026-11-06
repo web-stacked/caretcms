@@ -232,11 +232,14 @@ async function prepareRequest(
     // overlayActive), so it can only be resolved here, inside the ALS scope.
     // Mutate the live context object so the loaders see the gate during render.
     requestContext.editor = isEditor;
-    if (isEditor) {
+    // Content read at build time (data files, getStaticPaths props) gets the
+    // stored values on every rendered request: editors see their drafts, and
+    // visitors of a server-rendered site see edits published after the build.
+    if (isEditor || (!context.isPrerendered && !isCmsOwnedPath(context, services.mountPath, services.apiBasePath, true))) {
       try {
         (requestContext as CaretRequestContext).dataFiles = await loadDataFileEntries(adapter);
       } catch (error) {
-        console.warn("[caretcms] Data-file drafts unavailable:", error);
+        console.warn("[caretcms] Stored data-file values unavailable:", error);
       }
       try {
         await bindPageProps((context as { props?: Record<string, unknown> }).props);

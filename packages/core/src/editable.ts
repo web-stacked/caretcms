@@ -30,7 +30,7 @@
 import { getRequestContext } from "./runtime/request-context.js";
 import { publishedStorage } from "./runtime/published-storage.js";
 import { stegaCombine } from "./runtime/stega.js";
-import { isEncodableText } from "./runtime/stega-policy.js";
+import { isEncodableText, isEntryReference } from "./runtime/stega-policy.js";
 import { getNestedValue as getByPath } from "./runtime/utils.js";
 
 /**
@@ -105,7 +105,7 @@ function encodeLeaves(
   }
   // Asset descriptors (ImageMetadata) carry identifiers, not editable text —
   // leave them intact so the image pipeline receives a clean src/format.
-  if (isAssetLike(value)) {
+  if (isAssetLike(value) || isEntryReference(value)) {
     return value;
   }
   if (Array.isArray(value)) {

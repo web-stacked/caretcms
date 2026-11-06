@@ -97,9 +97,13 @@ describe("bindCollectionEntries", () => {
     expect(entries[0].data.description).toBe("Source text");
   });
 
-  it("returns entries untouched for visitors and outside a request", async () => {
+  it("gives visitors the published values without keys, and leaves entries alone outside a request", async () => {
     const { adapter, entries } = await setup();
-    expect(await runWithRequestContext(context(adapter, false), () => bindCollectionEntries(entries))).toBe(entries);
+    // A server-rendered site serves edits published after the build.
+    const [published, unknown] = await runWithRequestContext(context(adapter, false), () => bindCollectionEntries(entries));
+    expect(published.data.description).toBe("Draft text");
+    expect(hasStega(published.data.name)).toBe(false);
+    expect(unknown).toBe(entries[1]);
     expect(await bindCollectionEntries(entries)).toBe(entries);
     expect(await runWithRequestContext(context(adapter, true), () => bindCollectionEntry(undefined))).toBeUndefined();
   });
@@ -125,11 +129,15 @@ describe("bindDataFile", () => {
     });
   });
 
-  it("returns the original values for visitors and when the entry is not stored", async () => {
+  it("gives visitors the stored values without keys, and the original when nothing is stored", async () => {
     const site = bindDataFile(structuredClone(SITE), "site");
     const adapter = new InMemoryAdapter();
     expect(site.name).toBe("Elias");
     await runWithRequestContext(context(adapter, false, { dataFiles: stored }), async () => {
+      expect(site.name).toBe("Elias Vent");
+      expect(hasStega(site.name)).toBe(false);
+    });
+    await runWithRequestContext(context(adapter, false), async () => {
       expect(site.name).toBe("Elias");
     });
     await runWithRequestContext(context(adapter, true, { dataFiles: new Map() }), async () => {
@@ -202,9 +210,12 @@ describe("bindPageProps", () => {
     expect(cached.post).toBe(entry);
     expect(entry.data.title).toBe("Hello");
 
+    // Visitors get the stored values without keys; the cached entry is untouched.
     const visitor = { ...cached };
     await runWithRequestContext(context(adapter, false), () => bindPageProps(visitor));
-    expect(visitor.post).toBe(entry);
+    expect(visitor.post.data.title).toBe("Hello (draft)");
+    expect(hasStega(visitor.post.data.title)).toBe(false);
+    expect(cached.post).toBe(entry);
   });
 });
 
@@ -238,5 +249,17 @@ describe("readAstroCollectionSchemas", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("Astro references", () => {
+  it("are never marked, so getEntry() still finds the referenced entry", async () => {
+    const adapter = new InMemoryAdapter();
+    await adapter.writeEntry("posts", "first", { title: "First post", author: { collection: "authors", id: "ana" } });
+    const entry = { id: "first", collection: "posts", data: { title: "First post", author: { collection: "authors", id: "ana" } } };
+    const [bound] = await runWithRequestContext(context(adapter, true), () => bindCollectionEntries([entry]));
+    expect(keyOf(bound.data.title)).toBe("posts::first::title");
+    expect(bound.data.author).toEqual({ collection: "authors", id: "ana" });
+    expect(hasStega(bound.data.author.collection)).toBe(false);
   });
 });

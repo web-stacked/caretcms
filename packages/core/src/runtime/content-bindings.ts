@@ -33,9 +33,14 @@ function isContentEntry(value: unknown): value is ContentEntry {
     && typeof entry.data === "object" && entry.data !== null;
 }
 
+/**
+ * The entry with what's stored for it: published values for every request
+ * (a server-rendered site serves edits made after the build), and for an
+ * editor also their drafts and the hidden binding keys.
+ */
 async function bindEntry<T>(entry: T): Promise<T> {
   const ctx = getRequestContext();
-  if (!ctx?.editor || !isContentEntry(entry)) return entry;
+  if (!ctx || !isContentEntry(entry)) return entry;
   let stored: Record<string, unknown> | null = null;
   try {
     stored = (await ctx.adapter.getEntry(entry.collection, entry.id))?.data ?? null;
@@ -44,6 +49,7 @@ async function bindEntry<T>(entry: T): Promise<T> {
   }
   if (!stored) return entry;
   const data = mergeStored(entry.data, stored);
+  if (!ctx.editor) return { ...entry, data } as T;
   const schema = getRegisteredSchema(entry.collection)?.schema;
   return { ...entry, data: encodeContent(data, `${entry.collection}::${entry.id}`, "", schema) } as T;
 }
@@ -53,7 +59,7 @@ export async function bindCollectionEntry<T>(entry: T): Promise<T> {
 }
 
 export async function bindCollectionEntries<T>(entries: T): Promise<T> {
-  if (!Array.isArray(entries) || !getRequestContext()?.editor) return entries;
+  if (!Array.isArray(entries) || !getRequestContext()) return entries;
   return (await Promise.all(entries.map((entry) => bindEntry(entry)))) as T;
 }
 
@@ -69,7 +75,7 @@ declare const __ASTRO_CARET_BIND_CONTENT__: boolean | undefined;
  */
 export async function bindPageProps(props: Record<string, unknown> | null | undefined): Promise<void> {
   if (typeof __ASTRO_CARET_BIND_CONTENT__ === "boolean" && !__ASTRO_CARET_BIND_CONTENT__) return;
-  if (!props || typeof props !== "object" || !getRequestContext()?.editor) return;
+  if (!props || typeof props !== "object" || !getRequestContext()) return;
   for (const [key, value] of Object.entries(props)) {
     if (isContentEntry(value)) props[key] = await bindEntry(value);
     else if (Array.isArray(value) && value.some(isContentEntry)) props[key] = await bindCollectionEntries(value);
@@ -99,8 +105,9 @@ const proxies = new WeakMap<object, unknown>();
  * Wrap a data file imported from the content root (`import site from
  * "../content/site.json"`). Theme modules usually keep the import in a
  * module-level constant, so the value is created once; the proxy reads the
- * request on each property access instead. For visitors it returns the
- * original values.
+ * request on each property access instead. Visitors get the published values
+ * (a server-rendered site serves edits made after the build); editors also get
+ * their drafts, with binding keys.
  */
 export function bindDataFile<T>(value: T, collection: string): T {
   const shape = dataFileShape(value);
@@ -115,7 +122,7 @@ export function bindDataFile<T>(value: T, collection: string): T {
         const raw = Reflect.get(object, key, receiver);
         if (typeof key === "symbol" || (Array.isArray(object) && key === "length")) return raw;
         const ctx = getRequestContext();
-        if (!ctx?.editor) return raw;
+        if (!ctx?.dataFiles) return raw;
         const childPath = [...path, key];
         if (typeof raw === "object" && raw !== null) return wrap(raw, childPath);
         const binding = dataFileBinding(shape, collection, root, childPath);
@@ -123,7 +130,7 @@ export function bindDataFile<T>(value: T, collection: string): T {
         const stored = ctx.dataFiles?.get(collection)?.get(binding.id);
         if (!stored) return raw;
         const current = mergeStored(raw, getNestedValue(stored, binding.field));
-        if (typeof current !== "string") return current;
+        if (typeof current !== "string" || !ctx.editor) return current;
         return isEncodableText(current, key)
           ? encodeBound(current, `${collection}::${binding.id}::${binding.field}`)
           : current;
