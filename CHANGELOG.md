@@ -48,6 +48,9 @@ first.
   wrote values nobody chose into the content (an empty `photo`, `vegan: false`,
   and for Zod integers `-9007199254740991`); only required fields and stated
   defaults start with a value, and an emptied optional number is removed.
+- In `astro dev`, a Publish that reloads the page (it writes the site's files)
+  still says how many changes went out. On a phone, waiting changes put Publish
+  and Discard on a row of their own, so every toolbar control stays on screen.
 - A Studio address whose page fails for the editor (a saved change can break a
   page for editors only) opens the Studio on its own page with the reason,
   instead of an error page with no way back. The drawer's Back stays in the
