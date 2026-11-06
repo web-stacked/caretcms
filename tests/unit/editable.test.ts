@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { editable } from "../../packages/core/src/editable";
 import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memory-adapter";
 import { runWithRequestContext } from "../../packages/core/src/runtime/request-context";
+import { __setRuntimeServicesForTests } from "../../packages/core/src/runtime/providers";
+import { mergeStored } from "../../packages/core/src/runtime/stega-policy";
 import type { CaretRequestContext } from "../../packages/core/src/runtime/request-context";
 import type { StorageAdapter, UploadHandler } from "../../packages/core/src/types";
 import {
@@ -102,9 +104,61 @@ describe("editable()", () => {
     expect(stegaDecode(out[0].title)).toBe("components::services::services.0.title");
   });
 
-  it("passes through untouched outside a request context", async () => {
+  it("passes through untouched without a CaretCMS runtime", async () => {
     const out = await editable("pages::home::x", "literal");
     expect(out).toBe("literal");
     expect(hasStega(out)).toBe(false);
+  });
+
+  it("a build (no request) applies published values, unencoded", async () => {
+    const a = new InMemoryAdapter();
+    await a.writeEntry("pages", "home", { hero: "Published headline", features: [null, { title: "Second, edited" }] });
+    __setRuntimeServicesForTests({ adapter: a });
+    try {
+      expect(await editable("pages::home::hero", "Default")).toBe("Published headline");
+      const features = await editable("pages::home::features", [{ title: "One" }, { title: "Two" }]);
+      expect(features).toEqual([{ title: "One" }, { title: "Second, edited" }]);
+      expect(hasStega(features[1].title)).toBe(false);
+    } finally {
+      __setRuntimeServicesForTests(null);
+    }
+  });
+
+  it("an item saved before the first leaves the first untouched", async () => {
+    // Saving features.1.title first stores a sparse list: [null, { title }].
+    const a = new InMemoryAdapter();
+    await a.writeEntry("pages", "home", JSON.parse(JSON.stringify({ features: [, { title: "Edited second" }] })));
+    const out = (await runWithRequestContext(ctx(a, true), () =>
+      editable("pages::home::features", [{ title: "First" }, { title: "Second" }, { title: "Third" }]),
+    )) as { title: string }[];
+    expect(out.map((item) => stegaClean(item.title))).toEqual(["First", "Edited second", "Third"]);
+  });
+
+  it("keeps items added beyond the default list", async () => {
+    const a = new InMemoryAdapter();
+    await a.writeEntry("pages", "home", { features: [null, null, { title: "Added" }] });
+    const out = await runWithRequestContext(ctx(a, false), () =>
+      editable("pages::home::features", [{ title: "First" }, { title: "Second" }]),
+    );
+    expect(out).toEqual([{ title: "First" }, { title: "Second" }, { title: "Added" }]);
+  });
+
+  it("editor: leaves values the page's code compares unmarked", async () => {
+    const sections = [{ key: "bread", label: "Bread", href: "/menu#bread", slug: "sourdough-loaf" }];
+    const out = (await runWithRequestContext(ctx(new InMemoryAdapter(), true), () =>
+      editable("pages::menu::sections", sections),
+    )) as typeof sections;
+    expect(out[0].key).toBe("bread");
+    expect(out[0].href).toBe("/menu#bread");
+    expect(out[0].slug).toBe("sourdough-loaf");
+    expect(stegaDecode(out[0].label)).toBe("pages::menu::sections.0.label");
+  });
+});
+
+describe("mergeStored (content read through getCollection())", () => {
+  it("treats a null item as not edited and keeps the saved list's length", () => {
+    expect(mergeStored([{ t: "a" }, { t: "b" }], [null, { t: "B" }])).toEqual([{ t: "a" }, { t: "B" }]);
+    // A list shortened in the Studio stays shortened.
+    expect(mergeStored([{ t: "a" }, { t: "b" }, { t: "c" }], [{ t: "a" }])).toEqual([{ t: "a" }]);
   });
 });

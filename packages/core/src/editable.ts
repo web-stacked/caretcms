@@ -21,23 +21,33 @@
  * binding key (`collection::id::<dot.path>`), matching the mutation engine's
  * nested-path writes, so edits round-trip to the same store as data-caret.
  *
- * Safe outside a request context (e.g. static build / plain import): returns the
- * value untouched.
+ * Outside a request (a static build, a prerendered page) the published values
+ * still overlay the default, read from the configured storage, so edits reach
+ * built HTML; nothing is encoded there. A plain import with no CaretCMS runtime
+ * (astro.config, a script) returns the value untouched.
  */
 
 import { getRequestContext } from "./runtime/request-context.js";
 import { stegaCombine } from "./runtime/stega.js";
+import { isEncodableText } from "./runtime/stega-policy.js";
+import type { StorageAdapter } from "./types.js";
 import { getNestedValue as getByPath } from "./runtime/utils.js";
 
 /**
  * Overlay `override` onto `base` (override wins where defined). Objects merge by
  * key, arrays merge by index — so a single saved item field overlays only that
  * leaf and untouched defaults survive. Scalars: override replaces base.
+ *
+ * Saved arrays are sparse: saving `items.1.title` first stores
+ * `items: [null, { title }]`. A null or missing item means "not edited", and
+ * items added beyond the default list (in the Studio) are kept.
  */
 function deepMerge(base: unknown, override: unknown): unknown {
-  if (override === undefined) return base;
+  if (override === undefined || override === null) return base;
   if (Array.isArray(base) && Array.isArray(override)) {
-    return base.map((item, i) => deepMerge(item, override[i]));
+    const merged = base.map((item, i) => deepMerge(item, override[i]));
+    for (const added of override.slice(base.length)) if (added !== null && added !== undefined) merged.push(added);
+    return merged;
   }
   if (
     base !== null &&
@@ -74,15 +84,24 @@ function isAssetLike(value: unknown): boolean {
   );
 }
 
-/** Stega-encode every string leaf with its full `collection::id::field` key. */
+/**
+ * Stega-encode every display string with its full `collection::id::field` key.
+ * Values the page's code compares or routes on (a `key`, `id`, `slug`, `href`,
+ * `icon`, a token like `bread` under `key`, a URL) are left as they are, by the
+ * same rules as automatically bound content (stega-policy.ts): a marker on
+ * `category === section.key` would never match.
+ */
 function encodeLeaves(
   value: unknown,
   collection: string,
   id: string,
   fieldPath: string,
+  fieldName = "",
 ): unknown {
   if (typeof value === "string") {
-    return stegaCombine(value, `${collection}::${id}::${fieldPath}`);
+    return isEncodableText(value, fieldName)
+      ? stegaCombine(value, `${collection}::${id}::${fieldPath}`)
+      : value;
   }
   // Asset descriptors (ImageMetadata) carry identifiers, not editable text —
   // leave them intact so the image pipeline receives a clean src/format.
@@ -91,22 +110,31 @@ function encodeLeaves(
   }
   if (Array.isArray(value)) {
     return value.map((v, i) =>
-      encodeLeaves(v, collection, id, fieldPath ? `${fieldPath}.${i}` : `${i}`),
+      encodeLeaves(v, collection, id, fieldPath ? `${fieldPath}.${i}` : `${i}`, fieldName),
     );
   }
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = encodeLeaves(v, collection, id, fieldPath ? `${fieldPath}.${k}` : k);
+      out[k] = encodeLeaves(v, collection, id, fieldPath ? `${fieldPath}.${k}` : k, k);
     }
     return out;
   }
   return value;
 }
 
+/** The configured storage outside a request, or null without a CaretCMS runtime. */
+async function publishedStorage(): Promise<StorageAdapter | null> {
+  try {
+    const { getStorageAdapter } = await import("./runtime/providers.js");
+    return await getStorageAdapter();
+  } catch {
+    return null;
+  }
+}
+
 export async function editable<T>(key: string, value: T): Promise<T> {
   const ctx = getRequestContext();
-  if (!ctx) return value;
 
   const parts = key.split("::");
   const collection = parts[0];
@@ -114,10 +142,13 @@ export async function editable<T>(key: string, value: T): Promise<T> {
   const fieldPrefix = parts.slice(2).join("::");
   if (!collection || !id) return value;
 
+  const adapter = ctx ? ctx.adapter : await publishedStorage();
+  if (!adapter) return value;
+
   // 1. Overlay: merge any saved values over the inline default.
   let result: unknown = value;
   try {
-    const stored = await ctx.adapter.getEntry(collection, id);
+    const stored = await adapter.getEntry(collection, id);
     if (stored && stored.data) {
       const override = fieldPrefix ? getByPath(stored.data, fieldPrefix) : stored.data;
       result = deepMerge(value, override);
@@ -128,8 +159,8 @@ export async function editable<T>(key: string, value: T): Promise<T> {
 
   // 2. Stega: editor only — embed binding keys so it's click-to-edit through
   //    whatever props/loops the value flows through.
-  if (ctx.editor) {
-    result = encodeLeaves(result, collection, id, fieldPrefix);
+  if (ctx?.editor) {
+    result = encodeLeaves(result, collection, id, fieldPrefix, fieldPrefix.split(".").pop() ?? "");
   }
 
   return result as T;

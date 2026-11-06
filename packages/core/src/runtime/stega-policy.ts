@@ -120,7 +120,9 @@ export function mergeStored(base: unknown, stored: unknown): unknown {
   if (stored === undefined) return base;
   if (Array.isArray(base)) {
     if (!Array.isArray(stored)) return base;
-    return stored.map((item, index) => index < base.length ? mergeStored(base[index], item) : item);
+    // A saved list is the whole list (an item removed in the Studio stays
+    // removed); a null item in it means "not edited" and keeps the parsed one.
+    return stored.map((item, index) => index < base.length ? mergeStored(base[index], item ?? undefined) : item);
   }
   if (isRecord(base)) {
     if (!isRecord(stored)) return base;

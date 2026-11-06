@@ -78,3 +78,37 @@ describe("page content by field path", () => {
       .toEqual({ hero: { subtext: "New" } });
   });
 });
+
+describe("editable() defaults", () => {
+  it("lists every string an editable() literal states, at its path", () => {
+    const content = scanTemplate([
+      "---",
+      "import { editable } from '@caretcms/core';",
+      'const heroTitle = await editable("pages::home::hero", "Bread worth waking up for");',
+      "const features = await editable('pages::home::features', [",
+      "  { title: 'Slow dough', body: `Two days, \\`cold\\`.`, order: 1 },",
+      "  { title: \"Local flour\", body: 'From \\'Ruby\\' farm', tags: ['a', 'b'], }, // trailing comma",
+      "]);",
+      "const quote = await editable(\"pages::home::quote\", someVariable);",
+      "const mixed = await editable(\"pages::home::mixed\", [{ title: 'x' }, ...more]);",
+      "const late = await editable<string>(\"pages::home::late\", 'Typed');",
+      "---",
+      "<h1>{heroTitle}</h1>",
+    ].join("\n"));
+    expect(content.pages.home).toEqual({
+      hero: "Bread worth waking up for",
+      "features.0.title": "Slow dough",
+      "features.0.body": "Two days, `cold`.",
+      "features.1.title": "Local flour",
+      "features.1.body": "From 'Ruby' farm",
+      "features.1.tags.0": "a",
+      "features.1.tags.1": "b",
+      late: "Typed",
+    });
+  });
+
+  it("reads an editable() call without a field prefix", () => {
+    const content = scanTemplate("---\nconst data = await editable('components::footer', { note: 'Since 2016', links: [{ label: 'Menu', href: '/menu' }] });\n---\n");
+    expect(content.components.footer).toEqual({ note: "Since 2016", "links.0.label": "Menu", "links.0.href": "/menu" });
+  });
+});

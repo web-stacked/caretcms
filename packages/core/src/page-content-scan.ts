@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { scanHtmlTags } from "./runtime/html-tokens.js";
 import { resolveBinding, REWRITABLE_TEXT_TAGS } from "./runtime/rewrite.js";
 import { RICH_ALLOWED_TAGS } from "./runtime/rich-allowlist.js";
+import { readLiteral, type Literal } from "./runtime/js-literal.js";
 
 /** collection → id → field → the text (or image src) the template itself renders. */
 export type PageContent = Record<string, Record<string, Record<string, string>>>;
@@ -47,7 +48,39 @@ function staticContent(inner: string): string | null {
   return tags.length ? collapsed : decodeEntities(collapsed);
 }
 
-/** Every literal `data-caret` binding in one template, with its own content. */
+/** The frontmatter of an `.astro` file (between its `---` fences), or "". */
+function frontmatterOf(source: string): string {
+  const fence = /^\s*---\r?\n([\s\S]*?)\r?\n---[ \t]*(\r?\n|$)/.exec(source);
+  return fence ? fence[1] : "";
+}
+
+/**
+ * The defaults stated in `editable("collection::id[::prefix]", <literal>)`
+ * calls: every string in the literal, at its dot path. Values that aren't
+ * plain literals are the page's to compute and are skipped.
+ */
+function scanEditableCalls(frontmatter: string, record: (key: { collection: string; id: string; field: string }, value: string) => void): void {
+  const call = /\beditable\s*(?:<[^>()]*>)?\s*\(\s*(["'])([^"'\n]+)\1\s*,/g;
+  for (const match of frontmatter.matchAll(call)) {
+    const [collection, id, ...rest] = match[2].split("::");
+    if (!collection || !id) continue;
+    const read = readLiteral(frontmatter, (match.index ?? 0) + match[0].length);
+    if (!read || !/^\s*\)/.test(frontmatter.slice(read.end))) continue;
+    const prefix = rest.join("::");
+    const visit = (value: Literal, path: string) => {
+      if (typeof value === "string") {
+        if (path && value.trim()) record({ collection, id, field: path }, value);
+      } else if (Array.isArray(value)) {
+        value.forEach((item, index) => visit(item, path ? `${path}.${index}` : `${index}`));
+      } else if (value && typeof value === "object") {
+        for (const [key, child] of Object.entries(value)) visit(child, path ? `${path}.${key}` : key);
+      }
+    };
+    visit(read.value, prefix);
+  }
+}
+
+/** Every literal `data-caret` binding and `editable()` default in one template. */
 export function scanTemplate(source: string, into: PageContent = {}): PageContent {
   const html = templateOf(source);
   type Frame = { name: string; end: number; scope: { collection: string; id: string } | null; binding?: { collection: string; id: string; field: string } };
@@ -84,6 +117,7 @@ export function scanTemplate(source: string, into: PageContent = {}): PageConten
     }
     if (!tag.void) stack.push({ name: tag.name, end: tag.end, scope, binding: key && tag.name !== "img" ? key : undefined });
   }
+  scanEditableCalls(frontmatterOf(source), record);
   return into;
 }
 
