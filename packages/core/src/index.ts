@@ -1364,17 +1364,26 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
   // would miss it.
   // A Studio link opened in a tab arrives as #caret-studio=<route>: load the
   // editor so the Studio opens over this page, bindings or not.
-  if(!document.querySelector('[data-caret],[data-caret-md]') && !/\\u{E0000}/u.test(document.body&&document.body.textContent||'') && location.hash.indexOf('#caret-studio=')!==0)return;
-  fetch(${JSON.stringify(`${resolved.apiBasePath}/auth/session`)},{credentials:'same-origin'})
-    .then(function(response){return response.ok?response.json():null;})
-    .then(function(session){
-      if(!session||session.authenticated!==true)return;
-      var l=document.createElement('link');l.rel='stylesheet';l.href='/__caret/editor.css';document.head.appendChild(l);
-      window.__CARET__=${jsonForInlineScript(clientConfig)};
-      window.__CARET__.draftMode=session.draftMode===true;
-      var s=document.createElement('script');s.type='module';s.src='/__caret/editor.js?v='+Date.now();document.head.appendChild(s);
-    })
-    .catch(function(){});
+  // With Astro view transitions the first page may have nothing to edit; each
+  // client-side navigation checks again until the editor has loaded.
+  var started=false;
+  function start(){
+    if(started)return;
+    if(!document.querySelector('[data-caret],[data-caret-md]') && !/\\u{E0000}/u.test(document.body&&document.body.textContent||'') && location.hash.indexOf('#caret-studio=')!==0)return;
+    started=true;
+    fetch(${JSON.stringify(`${resolved.apiBasePath}/auth/session`)},{credentials:'same-origin'})
+      .then(function(response){return response.ok?response.json():null;})
+      .then(function(session){
+        if(!session||session.authenticated!==true)return;
+        var l=document.createElement('link');l.rel='stylesheet';l.href='/__caret/editor.css';l.setAttribute('data-caret-editor','');document.head.appendChild(l);
+        window.__CARET__=${jsonForInlineScript(clientConfig)};
+        window.__CARET__.draftMode=session.draftMode===true;
+        var s=document.createElement('script');s.type='module';s.src='/__caret/editor.js?v='+Date.now();document.head.appendChild(s);
+      })
+      .catch(function(){ started=false; });
+  }
+  start();
+  document.addEventListener('astro:page-load',start);
 })();`,
           );
         }

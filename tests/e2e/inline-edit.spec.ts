@@ -9,6 +9,7 @@ import {
   loginAsEditor,
   replaceText,
   resetCmsStorage,
+  studioFrame,
 } from "./helpers";
 
 const HEADLINE = 'h1[data-caret="hero.headline"]';
@@ -886,8 +887,8 @@ test.describe("inline editor — click to edit", () => {
 
     await pill.click();
     await panel.getByRole("button", { name: "History" }).click();
-    const iframe = page.locator('iframe[title="Content Studio"]');
-    await expect(iframe).toHaveAttribute("src", /\/admin\/cms\/pages\/home#history$/);
+    // The drawer moves by replacing its page, so check where it is, not its src.
+    await expect.poll(async () => (await studioFrame(page)).url()).toMatch(/\/admin\/cms\/pages\/home#history$/);
     const studio = page.frameLocator('iframe[title="Content Studio"]');
     await expect(studio.getByRole("region", { name: "Version history" })).toBeVisible();
 

@@ -55,7 +55,7 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
   if (!STUDIO_PATH) {
     studioButton?.setAttribute('hidden', 'hidden');
     studioButton?.setAttribute('aria-hidden', 'true');
-    return { iframe: null, closePanel() {}, placeOpposite() {}, openAt() {} };
+    return { iframe: null, closePanel() {}, placeOpposite() {}, openAt() {}, navigateFrame() {} };
   }
   const studioPath = STUDIO_PATH;
 
@@ -113,9 +113,9 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
   if (handoff) rememberPanelRoute(handoff);
   iframe.src = handoff ?? initialPanelRoute();
   iframe.title = t('editor.panel.label');
-  // The Studio pages this drawer has shown, so Back steps through the drawer's
-  // own pages: the frame shares the tab's history, and at the drawer's first
-  // page history.back() would leave the site.
+  // The Studio pages this drawer has shown. The drawer moves with
+  // location.replace, so it never adds to the tab's history (the browser's
+  // Back stays with the site's pages); its own Back steps through this list.
   /** @type {string[]} */
   const visited = [];
   iframe.addEventListener('load', () => {
@@ -379,6 +379,17 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
     }
   }
 
+  /** Move the drawer to `path` without adding to the tab's history. @param {string} path */
+  function navigateFrame(path) {
+    try {
+      const frameWindow = iframe.contentWindow;
+      if (!frameWindow) throw new Error('no frame');
+      frameWindow.location.replace(path);
+    } catch {
+      iframe.src = path;
+    }
+  }
+
   /** @param {string} [path] where to land; defaults to where the drawer is */
   function reloadFrame(path) {
     stale = false;
@@ -388,7 +399,7 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
       if (!frameWindow) throw new Error('no frame');
       // Point src at the target first (a same-document move when only the
       // fragment differs), then load it fresh.
-      if (path) iframe.src = path;
+      if (path) frameWindow.location.replace(path);
       frameWindow.location.reload();
     } catch {
       iframe.src = path || iframe.src;
@@ -456,15 +467,13 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
     // Within the drawer's own pages, step back; from its first page, go to
     // the Studio home rather than out of the site.
     if (visited.length > 1) {
-      try {
-        iframe.contentWindow?.history.back();
-        return;
-      } catch {
-        // A cross-origin Studio: fall through to its home.
-      }
+      visited.pop();
+      const previous = visited.pop() ?? studioPath;
+      navigateFrame(previous);
+      return;
     }
     visited.length = 0;
-    iframe.src = studioPath;
+    navigateFrame(studioPath);
   });
   moveButton.addEventListener('click', () => setPanelSide(panelSide === 'left' ? 'right' : 'left'));
   expandButton.addEventListener('click', () => setExpanded(!panel.classList.contains('expanded')));
@@ -528,9 +537,9 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
     rememberPanelRoute(path);
     // Same entry, new fragment: a stale form must load again, not just scroll.
     if (stale && framePath() === path.split('#')[0]) reloadFrame(path);
-    else iframe.src = path;
+    else navigateFrame(path);
     openPanel();
   }
 
-  return { iframe, closePanel, placeOpposite, openAt };
+  return { iframe, closePanel, placeOpposite, openAt, navigateFrame };
 }

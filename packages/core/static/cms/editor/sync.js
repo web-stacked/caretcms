@@ -254,6 +254,9 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
     }
   }
 
+  /** Where the drawer is being sent for a field selection. @type {string | null} */
+  let navigatingTo = null;
+
   /** @param {SelectionMessage} message */
   function deliverEmbeddedSelection(message) {
     if (!studioIframe?.contentWindow) return;
@@ -263,7 +266,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
     // A normal mouse interaction can emit pointerdown, focusin, and click.
     // Keep the latest field without restarting the same iframe navigation for
     // each event in that sequence.
-    if (pendingStudioSelection && studioIframe.getAttribute('src') === targetPath) {
+    if (pendingStudioSelection && navigatingTo === targetPath) {
       pendingStudioSelection = message;
       return;
     }
@@ -271,7 +274,9 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
     try {
       if (studioIframe.contentWindow.location.pathname !== targetPath) {
         pendingStudioSelection = message;
-        studioIframe.src = targetPath;
+        navigatingTo = targetPath;
+        // Replace, so following a field doesn't add to the tab's history.
+        studioIframe.contentWindow.location.replace(targetPath);
         rememberPanelRoute(targetPath);
         return;
       }
@@ -284,6 +289,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
   }
 
   studioIframe?.addEventListener('load', () => {
+    navigatingTo = null;
     if (!pendingStudioSelection) return;
     const message = pendingStudioSelection;
     pendingStudioSelection = null;

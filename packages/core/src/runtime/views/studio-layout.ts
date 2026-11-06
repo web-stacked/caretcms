@@ -200,7 +200,21 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           var theme = localStorage.getItem('caret-studio-theme');
           if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
         } catch (e) { /* storage may be blocked; follow the system */ }
-        if (window.parent !== window) document.documentElement.classList.add('studio-embedded');
+        if (window.parent !== window) {
+          document.documentElement.classList.add('studio-embedded');
+          // In the drawer, following a link replaces this page, so the drawer
+          // never adds to the tab's history and the browser's Back stays with
+          // the site. The drawer's own Back steps through what it has shown.
+          document.addEventListener('click', function (event) {
+            if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            var link = event.target instanceof Element ? event.target.closest('a[href]') : null;
+            if (!link || link.target || link.hasAttribute('download')) return;
+            var url = new URL(link.href, location.href);
+            if (url.origin !== location.origin || (url.pathname === location.pathname && url.search === location.search && url.hash)) return;
+            event.preventDefault();
+            location.replace(url.href);
+          });
+        }
         // Browsers that don't send Sec-Fetch-Dest reach a Studio page in a tab
         // of its own; open it over the site like the server would.
         else if (overSite) location.replace(overSite.split('#')[0] + ${serializeJsonForScript(STUDIO_HANDOFF)} + encodeURIComponent(location.pathname + location.search + location.hash));

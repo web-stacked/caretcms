@@ -53,7 +53,45 @@ function createObservedSet(onChange) {
   return set;
 }
 
+/**
+ * Astro view transitions (`<ClientRouter />`) swap the page's body without a
+ * reload. CaretCMS's own elements (toolbar, drawer, toasts, layers) move into
+ * the incoming body with the classes that hold edit mode and the drawer's
+ * push, and the new page's bindings are made editable once it's in place.
+ * @param {Set<Element>} siteElementsAtBoot the body's children before the editor added any
+ * @param {() => void} remount
+ */
+function followViewTransitions(siteElementsAtBoot, remount) {
+  /** The site's own top-level elements, so ours are what else carries `cms-`. */
+  let siteElements = siteElementsAtBoot;
+  /** @param {Element} element */
+  const isCaretChrome = (element) => !siteElements.has(element)
+    && !element.localName.startsWith('astro-')
+    && (element.id.startsWith('cms-') || [...element.classList].some((name) => name.startsWith('cms-')));
+  /** @param {Element} from @param {Element} to */
+  const carryClasses = (from, to) => {
+    for (const name of from.classList) if (name.startsWith('cms-') || name.startsWith('caret-')) to.classList.add(name);
+  };
+  document.addEventListener('astro:before-swap', (event) => {
+    const next = /** @type {Event & { newDocument?: Document }} */ (event).newDocument;
+    if (!next?.body) return;
+    siteElements = new Set(next.body.children);
+    carryClasses(document.documentElement, next.documentElement);
+    carryClasses(document.body, next.body);
+    // The editor's stylesheet was added to <head>, which the swap replaces too.
+    for (const sheet of document.head.querySelectorAll('link[data-caret-editor]')) next.head.append(sheet);
+    // The editor's stylesheet was added to <head>, which the swap replaces too.
+    for (const sheet of document.head.querySelectorAll('link[data-caret-editor]')) next.head.append(sheet);
+    for (const element of [...document.body.children]) if (isCaretChrome(element)) next.body.append(element);
+  });
+  document.addEventListener('astro:after-swap', () => {
+    hydrateStega();
+    remount();
+  });
+}
+
 function boot() {
+  const siteElementsAtBoot = new Set(document.body.children);
   /** @type {(unsaved: boolean) => void} */
   let reportUnsaved = () => {};
   // Unsaved text on the page or in the Studio drawer both show on the status.
@@ -230,6 +268,8 @@ function boot() {
       saveField.prime(resolved.collection, resolved.id);
     });
   }
+
+  followViewTransitions(siteElementsAtBoot, () => mountInlineEditors());
 
   mountSectionControls({
     parseCaretAttr,
