@@ -478,7 +478,11 @@ body:has(.cms-toolbar) #back-to-top {
 }
 .cms-dialog h2 {
   margin: 0 0 0.5rem;
-  font-size: 1rem;
+  /* The site's own heading styles mustn't reach the editor's dialogs. */
+  color: #f3f4f6;
+  font: 600 1rem/1.3 var(--cms-font);
+  letter-spacing: normal;
+  text-transform: none;
 }
 .cms-dialog p {
   margin: 0;
