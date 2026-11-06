@@ -197,6 +197,10 @@ first.
   saves live (in production builds, Markdown body edits still wait for
   Publish). The `caret_preview` cookie is no longer read, so it can't turn on
   private drafts for a server-delivered site.
+- **Studio dictionary:** the on-page editor is translated too. Its messages are
+  `editor.*` keys in the same dictionary (English and Spanish), so
+  `caret({ locale: "es" })` covers the toolbar, notices and dialogs on the page,
+  and `dictionary` can override them.
 - **Studio dictionary:** `entry.saveNow` ("Save now") replaces
   `entry.saveLive` and `entry.saveDraft`. The Save button appears only while
   changes are waiting.
