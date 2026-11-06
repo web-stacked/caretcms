@@ -271,9 +271,10 @@ first.
   still a page of its own.
 - The Studio drawer moves the page aside instead of covering it (padding on
   `<html>`, sideways overflow clipped); expanded, it covers the page. Fixed
-  elements don't move with the page: add `caret-studio-overlay` to `<html>` or
-  `<body>` to keep the drawer over it. This replaces the opt-in
-  `caret-push-content` class.
+  bars across the top or bottom (headers, nav and cookie bars) move beside the
+  drawer too and get their own styles back when it closes. A site whose layout
+  can't take the push adds `caret-studio-overlay` to `<html>` or `<body>` to
+  keep the drawer over it. This replaces the opt-in `caret-push-content` class.
 - The on-page toolbar is a floating bar. It re-centers beside the open Studio
   drawer and uses an icon-only Sign out on phones.
 - `theme.tokens` overrides apply in both light and dark mode.

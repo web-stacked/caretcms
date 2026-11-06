@@ -5,7 +5,8 @@
    the Studio covers two thirds of the window and the page stays where it is
    beside it. The push is padding on <html> (sites rarely style it, unlike
    <body>), with sideways overflow clipped so full-width sections don't scroll.
-   Fixed and sticky elements don't move with it: a site whose layout can't take
+   Fixed bars along the top or bottom edge are moved beside the drawer by
+   panel.js (inline styles, restored on close). A site whose layout can't take
    the push adds `caret-studio-overlay` to <html> or <body>, and the drawer
    covers the page instead.
    --------------------------------------------------------------------------- */

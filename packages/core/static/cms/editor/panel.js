@@ -228,6 +228,98 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
     setPanelSide(rect.left + rect.width / 2 < window.innerWidth / 2 ? 'right' : 'left');
   }
 
+  // Fixed bars (headers, nav and cookie bars) don't move with the padding
+  // push, so the drawer would cover their start. While it pushes, each one is
+  // moved into the space beside the drawer with inline styles; its own inline
+  // values are kept and put back exactly when the push ends.
+  const SHIFTED_PROPS = ['left', 'right', 'width', 'transform'];
+  /** @type {Map<HTMLElement, Record<string, [string, string]>>} */
+  const shiftedBars = new Map();
+  /** Shifted bars that had no style attribute of their own. @type {Set<HTMLElement>} */
+  const bareBars = new Set();
+
+  function restoreFixedBars() {
+    for (const [el, saved] of shiftedBars) {
+      for (const [prop, [value, priority]] of Object.entries(saved)) {
+        if (value) el.style.setProperty(prop, value, priority);
+        else el.style.removeProperty(prop);
+      }
+      if (!bareBars.has(el) || el.style.length) continue;
+      // Reading the attribute first settles the browser's lazily written
+      // inline style, which would otherwise come back as style="".
+      el.getAttribute('style');
+      el.removeAttribute('style');
+    }
+    shiftedBars.clear();
+    bareBars.clear();
+  }
+
+  /** Visible fixed elements across most of the width, at the top or bottom edge. */
+  function findFixedBars() {
+    const viewWidth = document.documentElement.clientWidth;
+    const viewHeight = window.innerHeight;
+    /** @type {HTMLElement[]} */
+    const bars = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, {
+      acceptNode(node) {
+        const el = /** @type {HTMLElement} */ (node);
+        // CaretCMS's own UI sits in body-level `cms-*` containers.
+        if (el.parentElement === document.body && [...el.classList].some((name) => name.startsWith('cms-')) && !el.hasAttribute('data-caret')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        const style = getComputedStyle(el);
+        if (style.display === 'none') return NodeFilter.FILTER_REJECT;
+        if (style.position !== 'fixed') return NodeFilter.FILTER_SKIP;
+        const rect = el.getBoundingClientRect();
+        const atEdge = rect.top <= 4 || rect.bottom >= viewHeight - 4;
+        const bar = style.visibility !== 'hidden' && rect.height > 0 && rect.height < viewHeight / 2 &&
+          rect.width >= viewWidth * 0.6 && atEdge;
+        if (bar) bars.push(el);
+        // A fixed element's descendants move with it.
+        return NodeFilter.FILTER_REJECT;
+      },
+    });
+    while (walker.nextNode()) { /* collected in acceptNode */ }
+    return bars;
+  }
+
+  function shiftFixedBars() {
+    restoreFixedBars();
+    const viewWidth = document.documentElement.clientWidth;
+    // The drawer's own width while pushing (not the width it animates from).
+    const drawer = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--cms-panel-width')) || 380;
+    const room = viewWidth - drawer;
+    if (room <= 0) return;
+    const scale = room / viewWidth;
+    const offset = panelSide === 'right' ? 0 : drawer;
+    for (const el of findFixedBars()) {
+      const rect = el.getBoundingClientRect();
+      /** @type {Record<string, [string, string]>} */
+      const saved = {};
+      for (const prop of SHIFTED_PROPS) saved[prop] = [el.style.getPropertyValue(prop), el.style.getPropertyPriority(prop)];
+      shiftedBars.set(el, saved);
+      if (!el.hasAttribute('style')) bareBars.add(el);
+      // The bar keeps its place and share of the width, now within the room
+      // beside the drawer. A sideways translate (centering) is folded in.
+      const transform = getComputedStyle(el).transform;
+      const translate = /^matrix\(1, 0, 0, 1, (-?[\d.e-]+), (-?[\d.e-]+)\)$/.exec(transform);
+      if (translate && Number(translate[1]) !== 0) el.style.setProperty('transform', `translateY(${translate[2]}px)`, 'important');
+      el.style.setProperty('left', `${offset + rect.left * scale}px`, 'important');
+      el.style.setProperty('right', 'auto', 'important');
+      el.style.setProperty('width', `${rect.width * scale}px`, 'important');
+    }
+  }
+
+  /** @type {number | undefined} */
+  let barsFrame;
+  window.addEventListener('resize', () => {
+    if (barsFrame !== undefined) cancelAnimationFrame(barsFrame);
+    barsFrame = requestAnimationFrame(() => {
+      barsFrame = undefined;
+      updatePush();
+    });
+  });
+
   setPanelSide(panelSide);
 
   // The drawer pushes the page aside; expanded, or on a site that opts out
@@ -236,8 +328,11 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
   function updatePush() {
     const root = document.documentElement;
     const optedOut = root.classList.contains('caret-studio-overlay') || document.body.classList.contains('caret-studio-overlay');
-    root.classList.toggle('cms-studio-push', panel.classList.contains('open') && !panel.classList.contains('expanded') && !optedOut);
+    const pushing = panel.classList.contains('open') && !panel.classList.contains('expanded') && !optedOut;
+    root.classList.toggle('cms-studio-push', pushing);
     root.classList.toggle('cms-studio-push-right', panelSide === 'right');
+    if (pushing && window.innerWidth > 768) shiftFixedBars();
+    else restoreFixedBars();
   }
 
   // Expanded, the Studio covers two thirds of the page and the live page stays

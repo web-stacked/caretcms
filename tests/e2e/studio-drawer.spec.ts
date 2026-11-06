@@ -142,3 +142,58 @@ test("toolbar buttons stay under the pointer when the status changes or the draw
   const drawer = await page.locator(".cms-studio-panel").boundingBox();
   expect(toolbar!.x).toBeGreaterThanOrEqual(drawer!.x + drawer!.width);
 });
+
+test("fixed bars move beside the pushing drawer and get their own styles back", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/");
+  await expect(page.locator(".cms-toolbar")).toBeVisible();
+  // A site header, a centered cookie bar, and a small chat bubble.
+  await page.evaluate(() => {
+    const add = (id: string, css: string) => {
+      const el = document.createElement("div");
+      el.id = id;
+      el.style.cssText = css;
+      document.body.append(el);
+    };
+    add("fixed-header", "position: fixed; top: 0; left: 0; right: 0; height: 48px; background: #ddd;");
+    add("cookie-bar", "position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 80%; height: 40px; background: #eee;");
+    add("chat-bubble", "position: fixed; bottom: 16px; right: 16px; width: 56px; height: 56px;");
+    // Styled only by a stylesheet: no style attribute of its own.
+    const style = document.createElement("style");
+    style.textContent = "#nav-bar { position: fixed; top: 0; left: 0; width: 100%; height: 30px; }";
+    document.head.append(style);
+    const nav = document.createElement("nav");
+    nav.id = "nav-bar";
+    document.body.append(nav);
+  });
+  const styles = () => page.evaluate(() =>
+    ["fixed-header", "cookie-bar", "chat-bubble", "nav-bar"].map((id) => document.getElementById(id)!.getAttribute("style")));
+  const box = async (id: string) => (await page.locator(`#${id}`).boundingBox())!;
+  const original = await styles();
+  const viewWidth = await page.evaluate(() => document.documentElement.clientWidth);
+  const room = viewWidth - 380;
+  const bubble = await box("chat-bubble");
+
+  await page.getByRole("button", { name: "Studio", exact: true }).click();
+  await expect(page.locator("html")).toHaveClass(/cms-studio-push/);
+  expect(await box("fixed-header")).toMatchObject({ x: 380, width: room });
+  expect(await box("nav-bar")).toMatchObject({ x: 380, width: room });
+  const cookie = await box("cookie-bar");
+  expect(cookie.x).toBeCloseTo(380 + room * 0.1, 0);
+  expect(cookie.width).toBeCloseTo(room * 0.8, 0);
+  expect(await box("chat-bubble")).toEqual(bubble);
+
+  await page.locator(".cms-panel-move").click();
+  expect(await box("fixed-header")).toMatchObject({ x: 0, width: room });
+
+  await page.locator(".cms-panel-expand").click();
+  await expect.poll(styles).toEqual(original);
+  await page.locator(".cms-panel-expand").click();
+  expect(await box("fixed-header")).toMatchObject({ x: 0, width: room });
+
+  await page.setViewportSize({ width: 1100, height: 800 });
+  await expect.poll(async () => (await box("fixed-header")).width).toBe(await page.evaluate(() => document.documentElement.clientWidth - 380));
+
+  await page.locator(".cms-panel-close").click();
+  await expect.poll(styles).toEqual(original);
+});
