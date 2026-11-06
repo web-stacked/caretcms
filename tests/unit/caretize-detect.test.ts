@@ -35,8 +35,10 @@ describe("detect — synthetic cases", () => {
   it("marks sanitizer-safe inline mixed content as rich-eligible (no --rich)", async () => {
     const r = await detectSource('<main><p>see the <a href="/x">docs</a></p></main>');
     expect(r.skipped.some((s) => s.tag === "p" && s.reason === "rich-eligible")).toBe(true);
-    // not promoted, so the inner <a> is still its own (medium) candidate
-    expect(r.candidates.some((c) => c.tag === "a" && c.text === "docs")).toBe(true);
+    // The block is the unit the rich tier would edit: its inner <a> is not a
+    // field of its own, with or without --rich.
+    expect(r.candidates.some((c) => c.tag === "a")).toBe(false);
+    expect(r.skipped.some((s) => s.tag === "a" && s.reason === "inside-rich")).toBe(true);
   });
 
   it("promotes a sanitizer-safe inline block to a rich candidate under --rich", async () => {

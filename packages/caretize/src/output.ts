@@ -47,6 +47,28 @@ export function formatScanSummary(
   return `✓ ${fileCount} .astro files · ${candidateTotal} ${candidateLabel} · ${wrapTotal} wrap target(s) · ${hoistTotal} prop(s)${bindPart}${priorPart}\n`;
 }
 
+/**
+ * Text tagged inside a component or layout is ONE stored value: every use of
+ * the component shows it, and editing it on one page changes it everywhere.
+ * Said plainly so nobody expects per-use editing.
+ */
+export function sharedScopeNote(plan: Pick<FilePlan, "relPath" | "scope">): string | null {
+  const name = plan.relPath.replace(/\\/g, "/").split("/").pop()?.replace(/\.astro$/i, "") ?? "";
+  if (plan.scope?.collection === "components") return `(shared: one value for every <${name}> on the site)`;
+  if (plan.scope?.collection === "site") return `(shared: one value for every page using the ${name} layout)`;
+  return null;
+}
+
+/** Which of a wrapped literal's fields become editable, and which identifier
+ *  fields (key, id, slug, …) stay exactly as written. */
+function wrapFieldsNote(w: WrapTarget): string {
+  if (!w.fields || (w.fields.text.length === 0 && w.fields.ids.length === 0)) return "";
+  const parts: string[] = [];
+  if (w.fields.text.length) parts.push(`editable: ${w.fields.text.join(", ")}`);
+  if (w.fields.ids.length) parts.push(`kept as-is: ${w.fields.ids.join(", ")}`);
+  return `  (${parts.join(" · ")})`;
+}
+
 /** The full `--dry-run` plan dump, ending with the "nothing written" footer. */
 export function formatPlan(
   plans: FilePlan[],
@@ -61,11 +83,13 @@ export function formatPlan(
     const binds = bindsByFile.get(plan.relPath) ?? [];
     if (plan.tags.length === 0 && plan.flags.length === 0 && wraps.length === 0 && hoists.length === 0 && binds.length === 0) continue;
     out += `\n${plan.relPath}${plan.scopeSkip ? `  (skipped: ${plan.scopeSkip})` : ""}\n`;
+    const shared = sharedScopeNote(plan);
+    if (shared && plan.tags.length) out += `  ${shared}\n`;
     for (const t of plan.tags) out += `  + data-caret="${t.binding}"  ${tagLine(t)}\n`;
     for (const w of wraps) {
       const via = w.origin === "prop" ? " (via component prop)" : w.origin === "import" ? " (via data import)" : "";
       const kind = w.origin === "import" ? "import" : "const";
-      out += `  ~ editable("${w.key}")  wrap ${kind} ${w.varName}${via}\n`;
+      out += `  ~ editable("${w.key}")  wrap ${kind} ${w.varName}${via}${wrapFieldsNote(w)}\n`;
     }
     for (const h of hoists) {
       for (const p of h.props) {
@@ -240,6 +264,20 @@ function collectStyledClasses(node: TagNode | undefined, into: Map<string, Set<s
   }
 }
 
+/** Whether any inline descendant carries a literal class. */
+function hasStyledChild(node: TagNode | undefined): boolean {
+  const found = new Map<string, Set<string>>();
+  collectStyledClasses(node, found);
+  return found.size > 0;
+}
+
+/** "1 <p> block", "3 blocks (<p>, <li>)" — names the elements, not a guess. */
+function describeBlocks(tags: string[]): string {
+  const kinds = [...new Set(tags.map((t) => `<${t.toLowerCase()}>`))];
+  if (tags.length === 1) return `1 ${kinds[0]} block`;
+  return `${tags.length} blocks (${kinds.join(", ")})`;
+}
+
 /** Render `tag → classes` as a copy-pasteable `allowedClasses` object literal. */
 function renderAllowedClasses(byTag: Map<string, Set<string>>): string {
   const entries = [...byTag.entries()]
@@ -266,12 +304,13 @@ function renderAllowedClasses(byTag: Map<string, Set<string>>): string {
 export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
   let eligible = 0; // rich-eligible (would tag with --rich)
   let styled = 0; // rich-unsafe-attrs (sanitizer strips the class)
-  let richClassPromotable = 0; // rich-class-promotable (would tag with --rich-class)
   let inIterator = 0; // inside-iterator (would bind with --bind-collections)
   let belowConfidence = 0; // dropped by the --min-confidence floor
   let fromData = 0; // dynamic-content / dynamic-src (bound where the data loads)
   const styledClasses = new Map<string, Set<string>>(); // tag → classes to bless
   const richClassToBless = new Map<string, Set<string>>(); // classes on rich-class blocks
+  const styledHosts: string[] = []; // the block elements holding those styled spans
+  let sharedTags = 0; // tags in components/layouts: one value for every use
   for (const p of plans) {
     belowConfidence += p.belowConfidence ?? 0;
     for (const s of p.skipped) {
@@ -280,7 +319,6 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
         styled++;
         collectStyledClasses(s.node, styledClasses);
       } else if (s.reason === "rich-class-promotable") {
-        richClassPromotable++;
         collectStyledClasses(s.node, richClassToBless);
       } else if (s.reason === "inside-iterator") inIterator++;
       else if (s.reason === "dynamic-content" || s.reason === "dynamic-src") fromData++;
@@ -290,9 +328,14 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
     // post-apply "now bless these" reminder.
     if (opts.richClass) {
       for (const t of p.tags ?? []) {
-        if (t.candidate?.rich) collectStyledClasses(t.candidate.node, richClassToBless);
+        if (!t.candidate?.rich || !hasStyledChild(t.candidate.node)) continue;
+        collectStyledClasses(t.candidate.node, richClassToBless);
+        styledHosts.push(t.candidate.tag);
       }
+    } else {
+      for (const s of p.skipped) if (s.reason === "rich-class-promotable") styledHosts.push(s.tag ?? s.node?.name ?? "p");
     }
+    if (p.tags?.length && sharedScopeNote(p)) sharedTags += p.tags.length;
   }
   const dynamicRoutes = plans.filter((p) => p.scopeSkip === "dynamic-route").length;
 
@@ -335,15 +378,20 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
   // a "you tagged these — now bless them or the class is lost" reminder.
   if (richClassToBless.size) {
     const snippet = renderAllowedClasses(richClassToBless);
+    const blocks = describeBlocks(styledHosts);
     if (opts.richClass) {
-      out += `↪ Tagged styled-span heading(s) as rich. Keep their classes — add to caret():\n` +
-        `    allowedClasses: ${snippet}\n` +
-        `  Without it, those classes are stripped when an editor saves.\n`;
+      out += `↪ Tagged ${blocks} with styled spans as rich text. To keep those classes when an\n` +
+        `  editor saves, pass them to caret() in your astro.config (caretize leaves this to you):\n` +
+        `    caret({ allowedClasses: ${snippet} })\n`;
     } else {
-      out += `↪ ${richClassPromotable} styled-span heading(s) can be tagged with --rich-class (in --all).\n` +
-        `  They keep their class only once blessed — add to caret():\n` +
-        `    allowedClasses: ${snippet}\n`;
+      out += `↪ ${blocks} with styled spans can be tagged with --rich-class (in --all).\n` +
+        `  They keep their classes once you pass them to caret() in your astro.config:\n` +
+        `    caret({ allowedClasses: ${snippet} })\n`;
     }
+  }
+  if (sharedTags) {
+    out += `↪ Text in components and layouts is one value for every use: editing it on one page\n` +
+      `  changes it wherever that component or layout appears.\n`;
   }
   if (opts.fixedChrome?.length) {
     const [first, ...rest] = opts.fixedChrome;

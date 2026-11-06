@@ -220,7 +220,8 @@ describe("formatHints", () => {
     ];
     const out = formatHints(plans, {}); // richClass off
     expect(out).toContain("--rich-class");
-    expect(out).toContain(`allowedClasses: { span: ["gold"] }`);
+    expect(out).toContain("1 <h1> block with styled spans");
+    expect(out).toContain(`caret({ allowedClasses: { span: ["gold"] } })`);
   });
 
   it("reminds to bless classes after tagging styled-span blocks (post-apply)", () => {
@@ -231,8 +232,9 @@ describe("formatHints", () => {
     const tagged = { candidate: { tag: "h1", rich: true, node: richNode } };
     const plans = [plan({ tags: [tagged] as unknown as FilePlan["tags"] })];
     const out = formatHints(plans, { richClass: true }); // richClass on → post-apply reminder
-    expect(out).toContain("Tagged styled-span");
-    expect(out).toContain(`allowedClasses: { span: ["gold"] }`);
+    expect(out).toContain("Tagged 1 <h1> block with styled spans");
+    expect(out).not.toContain("heading");
+    expect(out).toContain(`caret({ allowedClasses: { span: ["gold"] } })`);
   });
 
   it("says nothing when there is nothing to hint", () => {

@@ -59,10 +59,10 @@ describe("detectPropHoistTargets", () => {
     expect(targets).toHaveLength(1);
     expect(targets[0].componentName).toBe("PageHero");
     const byName = Object.fromEntries(targets[0].props.map((p) => [p.propName, p]));
-    expect(byName.title.key).toBe("pages::about::title");
+    expect(byName.title.key).toBe("pages::about::page_hero_title");
     expect(byName.title.constName).toBe("pageHeroTitle");
     expect(byName.title.isRich).toBe(false);
-    expect(byName.description.key).toBe("pages::about::description");
+    expect(byName.description.key).toBe("pages::about::page_hero_description");
     expect(byName.description.isRich).toBe(true);
   });
 
@@ -112,9 +112,9 @@ describe("hoistPropLiterals + verifyHoistResult", () => {
     expect(r.ok).toBe(true);
     expect(r.propsRewritten).toBe(2);
     expect(r.output).toContain(`import { editable } from '@caretcms/core';`);
-    expect(r.output).toContain(`const pageHeroTitle = await editable("pages::about::title", "ABOUT US");`);
+    expect(r.output).toContain(`const pageHeroTitle = await editable("pages::about::page_hero_title", "ABOUT US");`);
     expect(r.output).toContain(
-      `const pageHeroDescription = await editable("pages::about::description", "<p>Since 2010</p>");`,
+      `const pageHeroDescription = await editable("pages::about::page_hero_description", "<p>Since 2010</p>");`,
     );
     expect(r.output).toContain(`<PageHero title={pageHeroTitle} description={pageHeroDescription} />`);
     // Inverse gate holds.

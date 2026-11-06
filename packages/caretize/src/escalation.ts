@@ -80,6 +80,14 @@ export function recommendedBundle(counts: Partial<Record<TierId, number>>): Tier
   return recOffered.length > 0 ? recOffered : offered;
 }
 
+/** Offered tiers outside the [Y] bundle (styled spans, lower-confidence
+ *  spots). Each is asked about on its own after [Y], defaulting to no, so every
+ *  tier with something to offer gets a question. */
+export function extraOffers(counts: Partial<Record<TierId, number>>): TierId[] {
+  const bundle = new Set(recommendedBundle(counts));
+  return offeredTiers(counts).filter((id) => !bundle.has(id));
+}
+
 /**
  * The escalation-only tags: tags in the FINAL (chosen-tier) analysis at offsets
  * the CONSERVATIVE analysis did not already produce — i.e. the rich promotions

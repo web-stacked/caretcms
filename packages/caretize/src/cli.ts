@@ -15,10 +15,10 @@ import { randomBytes } from "node:crypto";
 import { relative, resolve } from "node:path";
 import { parseAstro } from "./parse.js";
 import { discoverAstroFiles } from "./discover.js";
-import { DIRTY_TREE_WARNING, preflight } from "./preflight.js";
+import { dirtyTreeWarning, preflight } from "./preflight.js";
 import { planFile, type FilePlan, type PlannedTag, type PlanOptions } from "./plan.js";
 import { prepareFileFull, commitRun, readSource, type PreparedFile } from "./run.js";
-import { detectWrapTargetsSafe, type WrapTarget } from "./wrap.js";
+import { detectWrapTargetsSafe, literalFields, type WrapTarget } from "./wrap.js";
 import {
   detectImportWrapTargetsSafe,
   detectNamedImportWrapTargetsSafe,
@@ -34,12 +34,12 @@ import { buildReport } from "./report.js";
 import { applyKeyRegistry } from "./keys.js";
 import { isValidField } from "./name.js";
 import { parseArgs, CliUsageError, HELP, type Args } from "./cli-args.js";
-import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, formatEscalationOffer, formatNextStep, formatDiff, CARETIZE, type HintOpts } from "./output.js";
+import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, formatEscalationOffer, formatNextStep, formatDiff, sharedScopeNote, CARETIZE, type HintOpts } from "./output.js";
 import { selectTiers, type Intent } from "./select-policy.js";
 import { findFixedChrome } from "./layout-notes.js";
 import { tierById, type TierId } from "./tiers.js";
 import {
-  escalationCounts, offerableCounts, offeredTiers, recommendedBundle,
+  escalationCounts, extraOffers, offerableCounts, offeredTiers, recommendedBundle,
   totalOffer, deltaTags, mergeTagMaps, parseAnswer, parseToggle,
 } from "./escalation.js";
 import type { Confidence } from "./detect.js";
@@ -101,6 +101,8 @@ async function reviewFileTags(rl: Readline, plan: FilePlan, acceptAll: boolean):
   if (acceptAll) return { take: [...plan.tags], skipFile: false, quit: false, acceptAll: true };
 
   process.stdout.write(`\n${plan.relPath}\n`);
+  const shared = sharedScopeNote(plan);
+  if (shared) process.stdout.write(`  ${shared}\n`);
   for (const t of plan.tags) {
     process.stdout.write(`  ${tagLine(t)}  → data-caret="${t.binding}" (${t.confidence})\n`);
   }
@@ -295,6 +297,9 @@ async function analyzeFiles(
     ];
     const byName = new Map<string, WrapTarget>();
     for (const t of [...loops, ...props, ...imports]) byName.set(t.varName, t);
+    for (const t of byName.values()) {
+      if (t.origin === "loop" || t.origin === "prop") t.fields = literalFields(src, t.varName) ?? undefined;
+    }
     if (byName.size) wrapsByFile.set(rel, [...byName.values()]);
 
     // Tier-5 (--bind-collections): bind direct-render getCollection().map() loops.
@@ -428,7 +433,16 @@ async function askEscalationAnswer(rl: Readline, counts: Record<TierId, number>)
     top = parseAnswer(await ask(rl, "  [Y/n/customize] "));
   }
   if (top === "no") return [];
-  if (top === "yes") return bundle;
+  if (top === "yes") {
+    // The bundle holds the recommended tiers; the rest are asked one by one so
+    // nothing on offer is reachable only through "customize".
+    const picked = [...bundle];
+    for (const id of extraOffers(counts)) {
+      const t = tierById(id);
+      if (parseToggle(await ask(rl, `  Also include ${counts[id]} ${t.label} (${t.note})? [y/N] `), false)) picked.push(id);
+    }
+    return picked;
+  }
   // customize: ask per offered tier; blank keeps the tier's recommendation.
   const picked: TierId[] = [];
   for (const id of offeredTiers(counts)) {
@@ -559,7 +573,7 @@ function findConfigName(root: string): string | null {
  * via verified pure insertions, falling back to a paste-me snippet when its
  * shape isn't safe to touch.
  */
-async function runInit(root: string, args: Args): Promise<{ tag: boolean; cleanBefore: boolean }> {
+async function runInit(root: string, args: Args): Promise<{ tag: boolean; dirtyBefore: string[] | null }> {
   const pf = preflight(root);
   if (!pf.isAstroProject) {
     for (const e of pf.errors) process.stderr.write(`✗ ${e}\n`);
@@ -677,7 +691,7 @@ async function runInit(root: string, args: Args): Promise<{ tag: boolean; cleanB
     }
     const tagNow = await confirmYes(rl, args, "\nTag your content as editable now? [Y/n] ");
     if (!tagNow) process.stdout.write(`  skipped — run later: ${CARETIZE}\n`);
-    return { tag: tagNow, cleanBefore: pf.gitClean !== false };
+    return { tag: tagNow, dirtyBefore: pf.dirtyPaths };
   } finally {
     rl.close();
   }
@@ -700,21 +714,19 @@ async function main(): Promise<void> {
   if (args.init) {
     // init wires CaretCMS, then tags — one command for the first run.
     const init = await runInit(root, args);
-    // Init's own edits made the tree dirty; that's no reason to warn.
-    if (init.tag) await runTag(root, args, { initMadeDirty: init.cleanBefore });
+    // Init's own edits made the tree dirty; only changes from before it count.
+    if (init.tag) await runTag(root, args, { dirtyBefore: init.dirtyBefore });
     return;
   }
   await runTag(root, args);
 }
 
 /** Scan the project and add data-caret tags (the default command). */
-async function runTag(root: string, args: Args, opts: { initMadeDirty?: boolean } = {}): Promise<void> {
+async function runTag(root: string, args: Args, opts: { dirtyBefore?: string[] | null } = {}): Promise<void> {
   const pf = preflight(root);
+  const dirtyBefore = opts.dirtyBefore !== undefined ? opts.dirtyBefore : pf.dirtyPaths;
   for (const n of pf.notes) process.stdout.write(`• ${n}\n`);
-  for (const w of pf.warnings) {
-    if (opts.initMadeDirty && w === DIRTY_TREE_WARNING) continue;
-    process.stdout.write(`⚠ ${w}\n`);
-  }
+  for (const w of pf.warnings) process.stdout.write(`⚠ ${w}\n`);
   if (pf.errors.length) { for (const e of pf.errors) process.stderr.write(`✗ ${e}\n`); process.exit(1); }
 
   const files = discoverAstroFiles(root, args.target);
@@ -817,6 +829,13 @@ async function runTag(root: string, args: Args, opts: { initMadeDirty?: boolean 
   };
 
   const prepared = await prepareTouched(root, sel);
+  // Uncommitted changes matter only in the files this run edits: there they
+  // mix with caretize's edits and `git checkout` would throw both away.
+  const dirty = dirtyTreeWarning(
+    dirtyBefore,
+    prepared.filter((p) => p.ok && p.output !== p.source).map((p) => p.relPath),
+  );
+  if (dirty) process.stdout.write(`⚠ ${dirty}\n`);
 
   if (args.report) {
     writeFileSync(args.report, JSON.stringify(buildReport(analysis.plans, prepared), null, 2));
@@ -846,17 +865,20 @@ async function runTag(root: string, args: Args, opts: { initMadeDirty?: boolean 
     process.stdout.write(formatHints(summaryPlans, hintOpts));
     return;
   }
-  if (optimistic) {
+  if (optimistic || args.yes) {
     // "Show, don't ask": surface exactly what was just written, then make undo
-    // the most visible next move.
+    // the most visible next move. -y applies without asking, so it shows the
+    // same record.
     process.stdout.write("\napplied — here's what changed:\n");
-    process.stdout.write(formatDiff(prepared));
+    process.stdout.write(formatDiff(prepared.filter((p) => written.includes(p.relPath))));
   }
   printCommit(written, backups.length > 0, prepared, sel, summaryPlans);
   process.stdout.write(formatNextStep(pf));
   process.stdout.write(formatHints(summaryPlans, hintOpts));
   if (optimistic) {
     process.stdout.write(`\n  not what you wanted? ${CARETIZE} --restore  ·  approve each change next time? ${CARETIZE} --review\n`);
+  } else if (args.yes) {
+    process.stdout.write(`\n  not what you wanted? ${CARETIZE} --restore\n`);
   }
 }
 

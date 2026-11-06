@@ -83,7 +83,9 @@ export type SkipReason =
   | "rich-class-promotable" // inline-only but a class needs allowedClasses — tag with --rich-class
   | "rich-unsafe-attrs" // inline-only but carries non-class attrs the sanitizer strips
   | "empty" // no non-whitespace text and no src
-  | "script-hook" // a valueless data-* attribute (data-counter): a script rewrites it
+  | "script-hook" // a script finds it (valueless data-*, or a class/id its <script> selects)
+  | "ui-control" // <button> label (and its contents): interface chrome, not page content
+  | "home-link" // the <a href="/"> home link / logo: the site name, not page content
   | "not-content"; // structural/non-content element
 
 export interface IteratorFlag {
@@ -210,8 +212,83 @@ function classifyRichShape(node: TagNode): RichShape {
   return "rich-safe";
 }
 
-function attr(node: TagNode, name: string): string | undefined {
-  return node.attributes.find((a) => a.name === name)?.value;
+/** Classes and ids a component's own `<script>` looks elements up by. */
+export interface ScriptHooks {
+  classes: Set<string>;
+  ids: Set<string>;
+}
+
+// Optional TS type argument (`querySelectorAll<HTMLElement>(…)`), then a
+// string literal first argument.
+const STRING_ARG = String.raw`(?:<[^<>()]*>)?\s*\(\s*(?:"([^"]*)"|'([^']*)'|\x60([^\x60$]*)\x60)`;
+const SELECTOR_CALL_RE = new RegExp(String.raw`\.\s*(?:querySelector(?:All)?|closest|matches)\s*` + STRING_ARG, "g");
+const CLASS_CALL_RE = new RegExp(String.raw`\.\s*getElementsByClassName\s*` + STRING_ARG, "g");
+const ID_CALL_RE = new RegExp(String.raw`\.\s*getElementById\s*` + STRING_ARG, "g");
+
+/**
+ * The class and id selectors a script uses to find elements:
+ * `querySelector('.counter-value')`, `getElementsByClassName('x')`,
+ * `getElementById('y')`, `closest('.card')`. For a CSS selector only its
+ * subject (the last compound of each comma-separated part) counts, since that
+ * is the element the script gets back.
+ */
+export function scriptSelectorHooks(js: string): ScriptHooks {
+  const hooks: ScriptHooks = { classes: new Set(), ids: new Set() };
+  const arg = (m: RegExpMatchArray): string => m[1] ?? m[2] ?? m[3] ?? "";
+  for (const m of js.matchAll(SELECTOR_CALL_RE)) {
+    for (const part of arg(m).split(",")) {
+      const subject = part
+        .replace(/\[[^\]]*\]|\([^)]*\)/g, " ") // attribute selectors, :not(...) args
+        .trim()
+        .split(/\s*[>+~]\s*|\s+/)
+        .pop() ?? "";
+      for (const c of subject.matchAll(/\.([\w-]+)/g)) hooks.classes.add(c[1]);
+      for (const i of subject.matchAll(/#([\w-]+)/g)) hooks.ids.add(i[1]);
+    }
+  }
+  for (const m of js.matchAll(CLASS_CALL_RE)) {
+    for (const c of arg(m).split(/\s+/)) if (c) hooks.classes.add(c);
+  }
+  for (const m of js.matchAll(ID_CALL_RE)) if (arg(m)) hooks.ids.add(arg(m).trim());
+  return hooks;
+}
+
+/** The hooks of every `<script>` in a parsed file. */
+function collectScriptHooks(
+  root: AstroNode,
+  walk: (root: AstroNode, visit: (n: TagNode, ancestors: AstroNode[]) => void) => void,
+): ScriptHooks {
+  const hooks: ScriptHooks = { classes: new Set(), ids: new Set() };
+  walk(root, (node) => {
+    if (node.name !== "script" || node.type !== "element") return;
+    const js = (node.children ?? [])
+      .map((c) => (c.type === "text" ? ((c as { value?: string }).value ?? "") : ""))
+      .join("");
+    const found = scriptSelectorHooks(js);
+    for (const c of found.classes) hooks.classes.add(c);
+    for (const i of found.ids) hooks.ids.add(i);
+  });
+  return hooks;
+}
+
+/** Does a script find this element by its static class or id? */
+function isScriptTarget(node: TagNode, hooks: ScriptHooks): boolean {
+  if (hooks.classes.size === 0 && hooks.ids.size === 0) return false;
+  for (const a of node.attributes) {
+    if (a.kind !== "quoted" && a.kind !== undefined) continue;
+    if (a.name === "class" && a.value.split(/\s+/).some((c) => hooks.classes.has(c))) return true;
+    if (a.name === "id" && hooks.ids.has(a.value.trim())) return true;
+  }
+  return false;
+}
+
+/** A link to the site root: the header logo / home link carries the site
+ *  name, which is site chrome rather than the page's content. */
+function isHomeLink(node: TagNode): boolean {
+  if (node.name.toLowerCase() !== "a") return false;
+  const href = node.attributes.find((a) => a.name === "href");
+  if (!href || (href.kind !== "quoted" && href.kind !== undefined)) return false;
+  return /^\/(?:index(?:\.html?)?)?$/.test(href.value.trim());
 }
 
 function hasCaretAttr(node: TagNode): boolean {
@@ -284,6 +361,11 @@ export function detect(
   // separately (the rich field owns the whole subtree); walkTags is preorder,
   // so a host is recorded before its descendants are visited.
   const richHosts = new Set<TagNode>();
+  // Elements skipped together with their whole subtree (a button, the home
+  // link, an element a script rewrites, a block left for the rich tier): their
+  // inline children are part of the same unit, not separate content.
+  const ownedHosts = new Map<TagNode, SkipReason>();
+  const scriptHooks = collectScriptHooks(root, walk);
 
   walk(root, (node, ancestors) => {
     const tag = node.name;
@@ -304,6 +386,16 @@ export function detect(
 
     // Inside a node we already promoted to rich → the rich field owns it.
     if (ancestors.some((a) => richHosts.has(a as TagNode))) return skip("inside-rich");
+    for (let i = ancestors.length - 1; i >= 0; i--) {
+      const owned = ownedHosts.get(ancestors[i] as TagNode);
+      if (owned) return skip(owned);
+    }
+    // Descendants inherit the host's reason, except under a block left for a
+    // rich tier: they are "inside-rich" so no tally counts them twice.
+    const skipSubtree = (reason: SkipReason): void => {
+      ownedHosts.set(node, reason === "rich-eligible" || reason === "rich-class-promotable" ? "inside-rich" : reason);
+      skip(reason);
+    };
 
     // astro:assets <Image>/<Picture> are component nodes, but they render to a
     // native <img> that Astro forwards data-caret to — so they're image
@@ -333,8 +425,16 @@ export function detect(
     // script finds the element by, usually to rewrite its text. An edit would
     // be overwritten, or would freeze what the script animates.
     if (node.attributes.some((a) => /^data-(?!caret)/.test(a.name) && (a.kind === "empty" || (a.value === "" && a.kind !== "quoted")))) {
-      return skip("script-hook");
+      return skipSubtree("script-hook");
     }
+    // The same for an element this file's <script> selects by class or id
+    // (`querySelector('.counter-value')`): its text is what the script writes.
+    if (isScriptTarget(node, scriptHooks)) return skipSubtree("script-hook");
+
+    // Interface chrome rather than page content: a button's label, and the
+    // home link / logo that repeats the site name on every page.
+    if (tag.toLowerCase() === "button") return skipSubtree("ui-control");
+    if (isHomeLink(node)) return skipSubtree("home-link");
 
     if (tag === "img" || isImageComponent) {
       const srcAttr = node.attributes.find((a) => a.name === "src");
@@ -368,14 +468,18 @@ export function detect(
       const promotable = CONFIDENCE[tag] !== "low";
       if (richShape === "not-inline" || !promotable) return skip("mixed-children");
       if (richShape === "rich-unsafe-attrs") return skip("rich-unsafe-attrs");
+      // A block left for a rich tier keeps its inline children: the block is
+      // the editable unit, so "family-run bakery" inside a paragraph never
+      // becomes a field of its own. This also keeps the lower-confidence count
+      // the same whichever tiers are chosen.
       if (richShape === "rich-class" && !(options.rich && options.richClass)) {
         // Inline-only except for a class the sanitizer strips unless blessed via
         // allowedClasses. Surfaced (so the hint can name the classes) until both
         // --rich and --rich-class (the latter rides in --all) are on.
-        return skip("rich-class-promotable");
+        return skipSubtree("rich-class-promotable");
       }
       // rich-safe: promote only when opted in; otherwise report it as eligible.
-      if (richShape === "rich-safe" && !options.rich) return skip("rich-eligible");
+      if (richShape === "rich-safe" && !options.rich) return skipSubtree("rich-eligible");
       richHosts.add(node);
       candidates.push({
         decision: "tag", kind: "text", node, tag, startOffset,

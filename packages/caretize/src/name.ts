@@ -154,16 +154,19 @@ export interface FieldContext {
 }
 
 // Preferred base field name: a content slug for short label-like elements (the
-// editor-friendly default); for prose, its landmark or heading, else a role
-// name. Determinism is preserved — the same element always yields the same base.
+// editor-friendly default); for prose and images, its landmark or heading, else
+// a role name. Determinism is preserved — the same element always yields the same base.
 function baseField(candidate: Candidate, seenOfTag: number, context?: FieldContext): string {
   if (candidate.kind === "text" && !PROSE_TAGS.has(candidate.tag)) {
     const slug = slugifyText(candidate.text);
     if (slug) return slug;
   }
-  if (candidate.kind === "text" && PROSE_TAGS.has(candidate.tag)) {
+  // Prose and images are named after where they sit: "our_story_image" says
+  // which picture it is; "hero" or "image_2" doesn't.
+  const suffix = candidate.kind === "image" ? "image" : PROSE_TAGS.has(candidate.tag) ? "text" : null;
+  if (suffix) {
     const named = context?.landmark ?? context?.heading;
-    if (named && isValidField(`${named}_text`)) return `${named}_text`;
+    if (named && isValidField(`${named}_${suffix}`)) return `${named}_${suffix}`;
   }
   return roleField(candidate, seenOfTag);
 }

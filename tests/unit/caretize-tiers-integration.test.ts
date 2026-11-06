@@ -64,7 +64,7 @@ describe("all tiers on one file", () => {
     expect(prepared.output).toContain(`import faqsRaw from "../data/faqs.json"`);
     expect(prepared.output).toContain(`const faqs = await editable("pages::landing::faqs", faqsRaw);`);
     // Tier-4: component prop hoisted + attr rewritten
-    expect(prepared.output).toContain(`const heroTitle = await editable("pages::landing::title", "WELCOME");`);
+    expect(prepared.output).toContain(`const heroTitle = await editable("pages::landing::hero_title", "WELCOME");`);
     expect(prepared.output).toContain(`<Hero title={heroTitle} />`);
     // Consumers untouched
     expect(prepared.output).toContain(`{stats.map((s) => <li>{s.label}: {s.value}</li>)}`);
