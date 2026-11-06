@@ -84,7 +84,27 @@ first.
   the browser requested a URL that did not exist. Such images now get a normal
   `data-caret` binding and can be replaced.
 - Caretize no longer tags elements a script finds by a valueless `data-*`
-  attribute, such as an animated `<span data-counter>`.
+  attribute, such as an animated `<span data-counter>`, or by a class or id its
+  component's `<script>` selects (`querySelector('.counter-value')`). It also
+  leaves `<button>` labels and the `<a href="/">` home link alone.
+- Caretize no longer wraps an array in `editable()` when code compares one of
+  its text fields or uses it as a lookup key. Identifier fields (`key`, `id`,
+  `slug`, …) stay unmarked, and `--dry-run` lists which fields become editable.
+- Caretize's lower-confidence count is the same in the interactive offer and
+  the closing summary: the bold or linked words inside a paragraph are no
+  longer counted as separate spots. After **Y**, it asks about styled-span
+  blocks and lower-confidence spots one by one instead of hiding them behind
+  "customize".
+- Caretize warns about uncommitted changes only in files it is about to edit,
+  so `caretize init` no longer warns about its own edits or a fresh
+  `npm install`. `-y` shows the same "here's what changed" diff as an
+  interactive run.
+- Caretize names hoisted props after their component and which use it is
+  (`testimonial_quote`, `testimonial_2_quote` instead of `quote_2`) and images
+  after their heading (`our_story_image` instead of `hero`). Keys already in a
+  project are kept. The output says that text inside a component or layout is
+  one value for every use, and the `allowedClasses` hint names the element it
+  found instead of calling every block a heading.
 - Publishing a changed frontmatter string keeps the quotes it was written with.
 - Replacing an image no longer wraps it in a new element. Images positioned by
   the page, such as section backgrounds and carousel slides, keep their layout
@@ -103,6 +123,10 @@ first.
   ID for editors signed in without a name or email.
 - Save and link shortcuts work with Caps Lock on. Validation messages use the
   singular for one character or item.
+- Clicking into rich text and out again without typing no longer saves a
+  draft. Saved rich text keeps Astro's `data-astro-cid-*` markers on its
+  `<strong>`, `<a>` and other inline tags, so the component's scoped styles
+  still apply after an edit.
 - Packages include their TypeScript sources, so source maps and declaration
   maps resolve. Vite no longer warns about missing source files.
 

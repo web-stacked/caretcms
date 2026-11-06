@@ -167,7 +167,9 @@ export function mountTextEditors({
       edit += 1;
       editSaved = false;
       if (isRich) {
-        if (!keepSnapshot) snapshots.set(el, el.innerHTML);
+        // Compared with what a save would store: sanitized markup, so attributes
+        // the sanitizer drops never count as a change.
+        if (!keepSnapshot) snapshots.set(el, sanitizeHtml(el.innerHTML));
       } else if (isLinkable) {
         const raw = el.getAttribute('data-caret-raw') || '';
         if (!keepSnapshot) snapshots.set(el, raw);
@@ -181,7 +183,7 @@ export function mountTextEditors({
 
     el.addEventListener('input', () => {
       const snapshot = snapshots.get(el);
-      const current = isRich ? el.innerHTML : (el.textContent || '');
+      const current = isRich ? sanitizeHtml(el.innerHTML) : (el.textContent || '');
       if (current !== snapshot) state.dirtyEls.add(el);
       else state.dirtyEls.delete(el);
       clearTimeout(autosaveTimer);

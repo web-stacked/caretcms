@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import { sanitizeHtml } from "../../packages/core/src/runtime/sanitize-html";
 import {
-  RICH_ALLOWED_TAGS, RICH_ALLOWED_ATTRS, SAFE_HREF_RE,
+  RICH_ALLOWED_TAGS, RICH_ALLOWED_ATTRS, SAFE_HREF_RE, SCOPED_STYLE_ATTR_RE,
 } from "../../packages/core/src/runtime/rich-allowlist";
 
 // Property-based hardening of the rich-text sanitizer — the server-side XSS
@@ -49,6 +49,11 @@ function assertSafe(out: string): void {
     // 2. Every surviving attribute is permitted for its tag (class is gated by
     //    allowedClasses; nothing else outside RICH_ALLOWED_ATTRS — kills on*=, style=, src=).
     for (const attr of attrNames(rawAttrs)) {
+      // Astro's scoped-style marker survives only with an empty value.
+      if (SCOPED_STYLE_ATTR_RE.test(attr)) {
+        expect(rawAttrs, `scoped-style attr kept a value in: ${out}`).toMatch(new RegExp(`\\s${attr}=""(?:\\s|$)`));
+        continue;
+      }
       const permitted = attr === "class" || (RICH_ALLOWED_ATTRS[name]?.has(attr) ?? false);
       expect(permitted, `tag <${name}> kept disallowed attr "${attr}" in: ${out}`).toBe(true);
       expect(/^on/i.test(attr), `event-handler attr survived: ${out}`).toBe(false);
@@ -134,6 +139,11 @@ const ADVERSARIAL = [
   "<a href='/ok' onclick='x'>l</a>",
   '<span onclick="x()" style="z" class="gold">x</span>',
   '<span class="gold">styled</span>',
+  "<strong data-astro-cid-abc123>scoped</strong>",
+  '<em data-astro-cid-x9="javascript:alert(1)" onclick="x()">v</em>',
+  '<a data-astro-cid-q1="\"><script>alert(1)</script>" href="javascript:x">l</a>',
+  '<span data-astro-cid-ABC="x" data-astro-cid-="y" data-astro-cid-a.b data-astro-cidx>n</span>',
+  '<div data-astro-cid-k2>block</div>',
   "<>", "</b>", "<a>", "<b/>", "a < b && c > d",
 ];
 
@@ -162,6 +172,19 @@ const classesOpt = fc.option(
   ),
   { nil: undefined },
 );
+
+describe("sanitizeHtml — Astro scoped-style markers", () => {
+  it("keeps data-astro-cid-* on allowed tags, without its value", () => {
+    expect(sanitizeHtml('<strong data-astro-cid-j7pv25f6>x</strong> <a href="/a" data-astro-cid-j7pv25f6="evil">y</a>'))
+      .toBe('<strong data-astro-cid-j7pv25f6="">x</strong> <a href="/a" data-astro-cid-j7pv25f6="">y</a>');
+    expect(sanitizeHtml(sanitizeHtml("<em data-astro-cid-a1>z</em>"))).toBe('<em data-astro-cid-a1="">z</em>');
+  });
+
+  it("drops look-alikes and the marker on disallowed tags", () => {
+    expect(sanitizeHtml('<b data-astro-cid-="x" data-astro-cidx data-astro-cid-a.b data-astro-cid-a_b data-astro-other>q</b><div data-astro-cid-k2>r</div>'))
+      .toBe("<b>q</b>r");
+  });
+});
 
 describe("sanitizeHtml — fuzzed security invariants", () => {
   it("never lets a disallowed tag, attribute, or unsafe href through", () => {

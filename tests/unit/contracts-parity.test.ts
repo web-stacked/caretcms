@@ -24,6 +24,7 @@ import {
   RICH_ALLOWED_ATTRS,
   RICH_ALLOWED_TAGS,
   SAFE_HREF_RE as CORE_SAFE_HREF_RE,
+  SCOPED_STYLE_ATTR_RE as CORE_SCOPED_STYLE_ATTR_RE,
   classAllowed as coreClassAllowed,
 } from "../../packages/core/src/runtime/rich-allowlist";
 
@@ -34,11 +35,14 @@ import {
   SAFE_HREF_RE as CARETIZE_SAFE_HREF_RE,
 } from "../../packages/caretize/src/detect";
 import { COLLECTION_RE, ID_RE } from "../../packages/caretize/src/name";
+import { MACHINE_FIELD } from "../../packages/caretize/src/usage";
+import { readFileSync } from "node:fs";
 
 import {
   ALLOWED_TAGS as JS_ALLOWED_TAGS,
   ALLOWED_ATTRS as JS_ALLOWED_ATTRS,
   SAFE_HREF_RE as JS_SAFE_HREF_RE,
+  SCOPED_STYLE_ATTR_RE as JS_SCOPED_STYLE_ATTR_RE,
   classAllowed as jsClassAllowed,
 } from "../../packages/core/static/cms/editor/sanitize.js";
 
@@ -69,6 +73,17 @@ describe("contracts parity (core ↔ caretize)", () => {
   });
 });
 
+describe("stega policy parity (core ↔ caretize)", () => {
+  it("identifier fields: caretize keeps exactly the fields core leaves unmarked", () => {
+    // Core keeps MACHINE_FIELD module-private, so read it from the source.
+    const src = readFileSync(new URL("../../packages/core/src/runtime/stega-policy.ts", import.meta.url), "utf8");
+    const m = /const MACHINE_FIELD = \/(.+)\/([a-z]*);/.exec(src);
+    expect(m).not.toBeNull();
+    expect(MACHINE_FIELD.source).toBe(m![1]);
+    expect(MACHINE_FIELD.flags).toBe(m![2]);
+  });
+});
+
 describe("browser sanitizer parity (core ↔ static editor sanitize.js)", () => {
   it("allowed tags: the editor sanitizer keeps exactly the source-of-truth set", () => {
     expect(JS_ALLOWED_TAGS).toEqual(RICH_ALLOWED_TAGS);
@@ -86,6 +101,11 @@ describe("browser sanitizer parity (core ↔ static editor sanitize.js)", () => 
   it("safe-href regex: byte-identical source + flags", () => {
     expect(JS_SAFE_HREF_RE.source).toBe(CORE_SAFE_HREF_RE.source);
     expect(JS_SAFE_HREF_RE.flags).toBe(CORE_SAFE_HREF_RE.flags);
+  });
+
+  it("scoped-style attribute regex: byte-identical source + flags", () => {
+    expect(JS_SCOPED_STYLE_ATTR_RE.source).toBe(CORE_SCOPED_STYLE_ATTR_RE.source);
+    expect(JS_SCOPED_STYLE_ATTR_RE.flags).toBe(CORE_SCOPED_STYLE_ATTR_RE.flags);
   });
 
   it("classAllowed: identical verdicts across a behavioural battery", () => {

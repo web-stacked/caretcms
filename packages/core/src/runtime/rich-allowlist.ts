@@ -26,6 +26,16 @@ export const RICH_ALLOWED_ATTRS: Record<string, Set<string>> = {
   a: new Set(["href", "target", "rel"]),
 };
 
+/**
+ * Astro's scoped-style marker (`data-astro-cid-<hash>`), which Astro adds to
+ * every element a component with a `<style>` renders. It is kept on allowed
+ * tags, always with an empty value, so a component's styles still apply to a
+ * `<strong>` or `<a>` after its rich text is saved. A valueless data attribute
+ * runs nothing and only matches the component's own `[data-astro-cid-…]`
+ * selectors; the name pattern admits no other attribute.
+ */
+export const SCOPED_STYLE_ATTR_RE = /^data-astro-cid-[a-z0-9]+$/;
+
 // Allows absolute http(s), mailto/tel, and root-relative (`/path`) links. The
 // `(?!\/)` after the leading slash rejects protocol-relative URLs (`//evil.com`),
 // which would otherwise navigate off-site (phishing/open-redirect) and, since

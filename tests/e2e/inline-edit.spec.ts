@@ -693,6 +693,40 @@ test.describe("inline editor — click to edit", () => {
     expect(visitorSubtext).toMatch(/<code[^>]*>data-caret<\/code>/);
   });
 
+  test("rich text with Astro's scoped-style markers saves nothing on a click in and out, and keeps them when edited", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const subtext = page.locator('p[data-caret="hero.subtext"]');
+    await expect(subtext).toHaveAttribute("data-caret-rich", "");
+    // The starter's scoped <style> gives <code> Astro's scope marker. Add an
+    // attribute the sanitizer drops, too.
+    const scope = await subtext.locator("code").evaluate((el) => {
+      el.setAttribute("data-note", "x");
+      return [...el.attributes].map((attr) => attr.name).find((name) => name.startsWith("data-astro-cid-"));
+    });
+    expect(scope).toBeTruthy();
+
+    let saves = 0;
+    page.on("request", (request) => {
+      if (request.url().includes("/api/cms/mutate") && request.method() === "POST") saves += 1;
+    });
+    await subtext.click();
+    await subtext.evaluate((el) => (el as HTMLElement).blur());
+    await page.waitForTimeout(800);
+    expect(saves).toBe(0);
+    await expect(subtext).not.toHaveClass(/cms-unsaved/);
+
+    await subtext.click();
+    await page.keyboard.press("ControlOrMeta+ArrowDown");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" Scoped.");
+    await blurToSave(page, subtext);
+    const html = await fetchAnonymousHtml("/");
+    const visitorSubtext = html.match(/<p data-caret="hero\.subtext"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? "";
+    expect(visitorSubtext).toContain("Scoped.");
+    expect(visitorSubtext).toContain(`<code ${scope}="">data-caret</code>`);
+  });
+
   test("an emptied field stays visible and clickable", async ({ page }) => {
     await loginAsEditor(page);
     await page.goto("/");

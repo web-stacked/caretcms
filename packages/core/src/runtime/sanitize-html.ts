@@ -10,6 +10,7 @@ import {
   RICH_ALLOWED_TAGS as ALLOWED_TAGS,
   RICH_ALLOWED_ATTRS as ALLOWED_ATTRS,
   SAFE_HREF_RE,
+  SCOPED_STYLE_ATTR_RE,
   filterClasses,
   type AllowedClasses,
 } from "./rich-allowlist.js";
@@ -51,7 +52,7 @@ export function sanitizeHtml(html: string, options?: SanitizeOptions): string {
 /**
  * Sanitize one opening tag's raw attribute text into a ` name="value"…` string.
  * Keeps only attributes in `allowedAttrSet` (with href gated by SAFE_HREF_RE),
- * plus `class` filtered to `classPatterns` (class is gated separately, by the
+ * Astro's valueless `data-astro-cid-*` marker, plus `class` filtered to `classPatterns` (class is gated separately, by the
  * per-tag allowedClasses — never by ALLOWED_ATTRS). Everything else is dropped.
  */
 function sanitizeAttributes(
@@ -59,10 +60,15 @@ function sanitizeAttributes(
   allowedAttrSet: Set<string> | undefined,
   classPatterns: readonly string[] | undefined,
 ): string {
-  if ((!allowedAttrSet && !classPatterns) || rawAttrs.size === 0) return "";
+  if (rawAttrs.size === 0) return "";
 
   let attrs = "";
   for (const [attrName, attribute] of rawAttrs) {
+    // Astro's scoped-style marker, kept without its value.
+    if (SCOPED_STYLE_ATTR_RE.test(attrName)) {
+      attrs += ` ${attrName}=""`;
+      continue;
+    }
     const attrValue = decodeHtmlEntities(attribute.value, true);
 
     // class is gated by the per-tag allowlist, not ALLOWED_ATTRS
