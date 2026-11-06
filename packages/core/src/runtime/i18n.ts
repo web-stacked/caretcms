@@ -513,6 +513,8 @@ export const EN_STUDIO_MESSAGES = {
   "editor.sections.live": "Layout changes are live",
   // Changes not saved yet
   "editor.unsaved.kept": "Couldn't save your change. It's kept on the page.",
+  "editor.toolbar.publishedAfterReload": "Published {changes}",
+  "editor.toolbar.publishUnconfirmed": "Publishing didn't finish: {changes} still waiting. Try Publish again.",
   "editor.unsaved.offline": "You're offline. Your change is kept and saves when you reconnect.",
   "editor.unsaved.retry": "Retry now",
 } as const;
@@ -1035,6 +1037,8 @@ export const ES_STUDIO_MESSAGES: StudioDictionary = {
   "editor.sections.live": "Los cambios de diseño están publicados",
   // Changes not saved yet
   "editor.unsaved.kept": "No se pudo guardar tu cambio. Se conserva en la página.",
+  "editor.toolbar.publishedAfterReload": "Se publicaron {changes}",
+  "editor.toolbar.publishUnconfirmed": "La publicación no terminó: {changes} siguen pendientes. Vuelve a publicar.",
   "editor.unsaved.offline": "Estás sin conexión. Tu cambio se conserva y se guarda al reconectar.",
   "editor.unsaved.retry": "Reintentar ahora",
 };

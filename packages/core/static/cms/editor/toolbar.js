@@ -8,6 +8,9 @@ import { mountToolbarKeys } from './toolbar-keys.js';
 import { t, tHtml } from './i18n.js';
 /** @typedef {'saving' | 'idle' | 'error'} ToolbarStatusState */
 
+// A Publish in progress, carried across a reload the dev server starts.
+const PUBLISHING_KEY = 'caret:publishing';
+
 /** @param {number} count */
 function changeCount(count) {
   return count === 1 ? t('editor.toolbar.changesOne') : t('editor.toolbar.changesOther', { count });
@@ -252,11 +255,17 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   try {
     const carried = JSON.parse(sessionStorage.getItem('caret:after-reload-toast') || 'null');
     sessionStorage.removeItem('caret:after-reload-toast');
+    const publishing = JSON.parse(sessionStorage.getItem(PUBLISHING_KEY) || 'null');
+    sessionStorage.removeItem(PUBLISHING_KEY);
     if (carried && typeof carried.message === 'string') {
       // Shown as the page comes back, so it stays long enough to be read.
       setTimeout(() => (carried.kind === 'error'
         ? showToast(carried.message, 'error')
         : showToast.saved({ message: carried.message })), 0);
+    } else if (publishing && typeof publishing.count === 'number' && Date.now() - publishing.at < 120000) {
+      // Publishing writes the site's files, and the dev server can reload the
+      // page before the answer arrives: say what happened from the drafts left.
+      setTimeout(() => void confirmPublishAfterReload(publishing.count), 0);
     }
   } catch { /* nothing carried */ }
 
@@ -455,11 +464,26 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     }
   }
 
+  /** After a reload during Publish: the drafts that are gone were published. @param {number} before */
+  async function confirmPublishAfterReload(before) {
+    let left = before;
+    // The publish can still be finishing on the server; give it a few seconds.
+    for (let attempt = 0; attempt < 8; attempt++) {
+      left = await fetchDraftCount();
+      if (left < before) break;
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    }
+    if (left < before) showToast.saved({ message: t('editor.toolbar.publishedAfterReload', { changes: changeCount(before - left) }) });
+    else showToast(t('editor.toolbar.publishUnconfirmed', { changes: changeCount(left) }), 'error');
+  }
+
   /** @param {{ reload?: boolean }} [options] */
   async function publishDrafts({ reload = true } = {}) {
     setStatus('saving', t('editor.toolbar.publishing'));
+    try { sessionStorage.setItem(PUBLISHING_KEY, JSON.stringify({ count: draftCount, at: Date.now() })); } catch { /* not carried */ }
     try {
       const presentation = presentPublishResult(await draftClient.publish());
+      try { sessionStorage.removeItem(PUBLISHING_KEY); } catch { /* nothing to clear */ }
       await fetchDraftCount();
       if (retryRebuildButton) retryRebuildButton.hidden = !presentation.retryAvailable;
       if (presentation.status) {
@@ -469,6 +493,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       else showToast(presentation.toast.message, presentation.toast.kind);
       return presentation.completed;
     } catch {
+      try { sessionStorage.removeItem(PUBLISHING_KEY); } catch { /* nothing to clear */ }
       setStatus('error', t('editor.toolbar.publishFailed'));
       showToast(t('editor.toolbar.publishFailedCopy'), 'error');
       return false;
