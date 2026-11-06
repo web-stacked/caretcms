@@ -85,6 +85,8 @@ export async function GET(context: APIContext): Promise<Response> {
       color: var(--studio-text-dim); font-size: 1.5rem; font-weight: 600;
     }
     .entry-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .entry-thumb-icon { width: 2rem; height: 2rem; opacity: 0.55; }
+    .entries-grid[data-view="list"] .entry-thumb-icon { width: 1.25rem; height: 1.25rem; }
     .entry-card-body { padding: 0.9rem 1rem 1rem; display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; flex: 1; }
     .entry-card-title {
       margin: 0; overflow: hidden; color: var(--studio-text);
@@ -291,6 +293,9 @@ export async function GET(context: APIContext): Promise<Response> {
     var MOUNT = ${serializeJsonForScript(runtime.mountPath)};
     var MSG = ${serializeJsonForScript(messages)};
     var PUBLICATION_FIELD = ${serializeJsonForScript(publicationFieldName)};
+    // An entry without an image gets a quiet picture placeholder, not a letter
+    // that reads as content.
+    var THUMB_PLACEHOLDER = ${serializeJsonForScript(renderIcon("image", "entry-thumb-icon"))};
     var TITLE_FIELD = ${serializeJsonForScript(titleField)};
     var THUMBNAIL_FIELD = ${serializeJsonForScript(collectionConfig.thumbnailField || null)};
     var SUBTITLE_FIELD = ${serializeJsonForScript(collectionConfig.subtitleField || null)};
@@ -403,19 +408,28 @@ export async function GET(context: APIContext): Promise<Response> {
         var thumb = getThumb(entry.data);
         // A search hit inside a field shows the words it matched instead.
         var subtitle = entry.match && typeof entry.match.snippet === 'string' ? entry.match.snippet : getSubtitle(entry.data);
-        var publication = PUBLICATION_FIELD && entry.data && typeof entry.data[PUBLICATION_FIELD] === 'boolean'
-          ? (entry.data[PUBLICATION_FIELD]
+        var published = PUBLICATION_FIELD && entry.data && typeof entry.data[PUBLICATION_FIELD] === 'boolean'
+          ? entry.data[PUBLICATION_FIELD] : null;
+        var publication = published === null ? ''
+          : published
             ? '<span class="entry-card-status studio-chip success">' + htmlEsc(MSG['collection.published']) + '</span>'
-            : '<span class="entry-card-status studio-chip">' + htmlEsc(MSG['collection.unpublished']) + '</span>')
-          : '';
+            : '<span class="entry-card-status studio-chip">' + htmlEsc(MSG['collection.unpublished']) + '</span>';
         // Draft modes: changes visitors won't see until they're published.
         var draft = entry.draft === true
           ? '<span class="entry-card-draft studio-chip warning">' + htmlEsc(MSG['collection.draft']) + '</span>'
           : '';
-        var invalid = Array.isArray(entry.validationIssues) && entry.validationIssues.length
+        var hasIssues = Array.isArray(entry.validationIssues) && entry.validationIssues.length > 0;
+        var invalid = hasIssues
           ? '<span class="studio-chip danger">' + htmlEsc(MSG['collection.invalid']) + '</span>'
           : '';
-        var initial = String(title || entry.id || '?').trim().charAt(0).toUpperCase();
+        // What assistive tech hears after the title, once: the visible
+        // subtitle and chips say the same and are hidden from it.
+        var detail = [
+          subtitle,
+          hasIssues ? MSG['collection.invalid'] : '',
+          entry.draft === true ? MSG['collection.draft'] : '',
+          published === null ? '' : MSG[published ? 'collection.published' : 'collection.unpublished'],
+        ].filter(Boolean).join(', ');
         var card = document.createElement('a');
         card.href = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entry.id);
         card.className = 'entry-card studio-card';
@@ -426,15 +440,15 @@ export async function GET(context: APIContext): Promise<Response> {
         card.setAttribute('aria-describedby', cardId + '-detail');
         card.innerHTML =
           (thumb ? '<div class="entry-thumb"><img src="' + htmlEsc(thumb) + '" alt="" loading="lazy" /></div>'
-            : anyThumb || grid.dataset.view === 'list' ? '<div class="entry-thumb" aria-hidden="true">' + htmlEsc(initial) + '</div>' : '') +
+            : anyThumb || grid.dataset.view === 'list' ? '<div class="entry-thumb" aria-hidden="true">' + THUMB_PLACEHOLDER + '</div>' : '') +
           '<div class="entry-card-body">' +
             '<div class="entry-card-text">' +
               '<h2 class="entry-card-title" id="entry-card-' + i + '-title">' + htmlEsc(title) + '</h2>' +
-              (subtitle ? '<p class="entry-card-subtitle">' + htmlEsc(subtitle) + '</p>' : '') +
+              (subtitle ? '<p class="entry-card-subtitle" aria-hidden="true">' + htmlEsc(subtitle) + '</p>' : '') +
               (entry.readError ? '<p role="note" class="entry-card-subtitle">' + htmlEsc(MSG['collection.unreadable']) + '</p>' : '') +
             '</div>' +
-            '<div class="entry-card-meta">' + invalid + draft + publication + '</div>' +
-            '<span class="studio-sr-only" id="entry-card-' + i + '-detail">' + htmlEsc([subtitle, entry.draft === true ? MSG['collection.draft'] : ''].filter(Boolean).join(', ')) + '</span>' +
+            '<div class="entry-card-meta" aria-hidden="true">' + invalid + draft + publication + '</div>' +
+            '<span class="studio-sr-only" id="entry-card-' + i + '-detail">' + htmlEsc(detail) + '</span>' +
           '</div>';
         grid.appendChild(card);
       }

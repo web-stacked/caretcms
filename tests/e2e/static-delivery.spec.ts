@@ -121,6 +121,9 @@ test("a Studio-only editor drafts, sees what isn't published, and publishes from
 
   await openStudio(page, "/admin/cms/pages");
   await expect(studio.locator(".entry-card-draft")).toHaveText("Not published");
+  // Said once to assistive tech, as the card's description.
+  await expect(studio.locator(".entry-card").first()).toHaveAccessibleDescription("Not published");
+  expect((await studio.locator(".entry-card").first().ariaSnapshot()).match(/Not published/g)).toHaveLength(1);
   await openStudio(page, "/admin/cms");
   const notPublished = studio.getByRole("region", { name: "Not published yet" });
   await expect(notPublished.locator(".studio-page-entry")).toHaveCount(1);
