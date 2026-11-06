@@ -8,14 +8,15 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
-## [0.6.0] - 2026-11-03
+## [0.6.0] - 2026-11-06
 
 Redesigns the Studio and the toolbar, makes editing simpler and safer (edits
 save on their own with Undo, drafts say what Publish will do, the Studio lists
-page content before anything is saved), and fixes 22 bugs found in a review of
-0.5.0. Some changes affect stored data, API responses, permission policies and
-Studio dictionaries; read the [upgrade steps](docs/releases/0.6.0.md#upgrading)
-first.
+page content before anything is saved), opens the Studio over the site, and
+fixes 22 bugs found in a review of 0.5.0 plus the problems two first-time-user
+trials on fresh Astro sites turned up. Some changes affect stored data, API
+responses, permission policies, Studio dictionaries and Studio URLs; read the
+[upgrade steps](docs/releases/0.6.0.md#upgrading) first.
 
 ### Security
 
