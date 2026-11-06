@@ -460,3 +460,27 @@ test("shows a provider-confirmed deployment failure", async ({ page }) => {
     buildId: expect.stringMatching(/^simulated-/),
   });
 });
+
+test("on a phone, a waiting change keeps every toolbar control on screen", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.request.post("/api/cms/auth/login", {
+    data: { password: EDIT_PASSWORD },
+    headers: { Accept: "application/json" },
+  });
+  await page.goto("/");
+  await expect(page.locator(".cms-toolbar")).toBeVisible();
+  await page.locator('h1[data-caret]').fill("A change waiting on a phone");
+  await page.locator('h1[data-caret]').evaluate((el) => (el as HTMLElement).blur());
+  await expect(page.locator(".cms-draft-controls")).toBeVisible();
+  for (const control of [".cms-publish-btn", ".cms-discard-btn", ".cms-mode-switch", ".cms-studio-btn", ".cms-tools-summary", ".cms-exit-btn"]) {
+    const box = (await page.locator(control).boundingBox())!;
+    expect(box.x, control).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width, control).toBeLessThanOrEqual(390);
+  }
+  // Two rows: Publish and Discard above the page controls.
+  const publish = (await page.locator(".cms-publish-btn").boundingBox())!;
+  const studio = (await page.locator(".cms-studio-btn").boundingBox())!;
+  expect(studio.y).toBeGreaterThan(publish.y + publish.height - 2);
+  await page.getByRole("button", { name: /Discard/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /Discard/ }).click();
+});

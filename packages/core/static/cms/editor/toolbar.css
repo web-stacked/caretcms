@@ -559,6 +559,13 @@ body:has(.cms-toolbar) #back-to-top {
    The status pill shows only its dot; the status stays announced and the
    panel still opens from it. */
 @media (max-width: 480px) {
+  /* With changes waiting, Publish and Discard take a row of their own, so the
+     rest stays on screen instead of scrolling out of sight. */
+  /* Two rows: the status dot with Publish and Discard, then the page controls. */
+  .cms-toolbar-inner:has(.cms-draft-controls:not([hidden])) { height: auto; padding-block: 4px; flex-wrap: wrap; row-gap: 4px; justify-content: space-between; }
+  .cms-toolbar-inner:has(.cms-draft-controls:not([hidden])) .cms-toolbar-right { display: contents; }
+  .cms-toolbar-inner .cms-draft-controls:not([hidden]) { display: flex; flex: 1 1 calc(100% - 64px); justify-content: flex-end; gap: 4px; }
+  .cms-toolbar-inner:has(.cms-draft-controls:not([hidden])) .cms-exit-btn { margin-left: 0; }
   .cms-toolbar-inner { gap: 4px; padding: 0 4px 0 10px; }
   .cms-toolbar-left { gap: 6px; }
   .cms-toolbar-right { gap: 4px; }
