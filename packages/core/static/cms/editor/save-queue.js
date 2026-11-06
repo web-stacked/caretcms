@@ -1,5 +1,6 @@
 import { buildCmsUrl, savesDrafts } from './config.js';
 import { mutateHeaders, readHeaders } from './security.js';
+import { t } from './i18n.js';
 
 /** @typedef {{ revision: number, baseRevision?: number, data: Record<string, unknown> }} EntrySnapshot */
 /**
@@ -157,7 +158,7 @@ export function createSaveField({ setStatus, onUnauthorized }) {
    * @returns {Promise<SaveResult>}
    */
   async function execSave(collection, id, field, value, options, isRetry = false) {
-    setStatus('saving', savesToDraft ? 'Saving draft…' : 'Saving live changes…');
+    setStatus('saving', savesToDraft ? t('editor.save.savingDraft') : t('editor.save.savingLive'));
     const key = entryKey(collection, id);
 
     try {
@@ -212,7 +213,7 @@ export function createSaveField({ setStatus, onUnauthorized }) {
           if (!isRetry && typeof latest.currentRevision === 'number' && (untouchedHere || sameText)) {
             return execSave(collection, id, field, value, options, true);
           }
-          setStatus('error', 'Revision conflict');
+          setStatus('error', t('editor.save.conflict'));
           return {
             ok: false,
             reason: 'conflict',
@@ -227,11 +228,11 @@ export function createSaveField({ setStatus, onUnauthorized }) {
         if (res.status >= 400 && res.status < 500) {
           const issue = Array.isArray(json.issues) && isRecord(json.issues[0]) ? json.issues[0] : null;
           const message = typeof issue?.message === 'string' ? issue.message
-            : typeof json.error === 'string' ? json.error : 'This change could not be saved';
-          setStatus('error', 'Not saved');
+            : typeof json.error === 'string' ? json.error : t('editor.save.refused');
+          setStatus('error', t('editor.save.notSaved'));
           return { ok: false, reason: 'invalid', message };
         }
-        setStatus('error', 'Save failed');
+        setStatus('error', t('editor.save.failed'));
         return { ok: false, reason: 'error' };
       }
 
@@ -245,12 +246,12 @@ export function createSaveField({ setStatus, onUnauthorized }) {
         revisionByEntry.set(key, nextRevision);
       }
 
-      setStatus('idle', savesToDraft ? 'Draft saved' : 'Changes are live');
+      setStatus('idle', savesToDraft ? t('editor.save.draftSaved') : t('editor.save.live'));
       if (savesToDraft) window.dispatchEvent(new CustomEvent('cms:draftSaved'));
       window.dispatchEvent(new CustomEvent('cms:entrySaved', { detail: { collection, id } }));
       return { ok: true, revision: nextRevision };
     } catch {
-      setStatus('error', 'Save failed');
+      setStatus('error', t('editor.save.failed'));
       return { ok: false, reason: 'error' };
     }
   }

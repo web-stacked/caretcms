@@ -2,6 +2,7 @@ import { buildCmsUrl } from './config.js';
 import { historyFieldLabel } from '../studio/history-view.js';
 import { readHeaders } from './security.js';
 import { parseCaretAttr, resolveBinding } from './helpers.js';
+import { t, tHtml } from './i18n.js';
 
 /**
  * Content map: every editable binding on the page, grouped by entry, named
@@ -23,12 +24,12 @@ function createPanel() {
   const el = document.createElement('div');
   el.className = 'cms-content-map';
   el.setAttribute('role', 'region');
-  el.setAttribute('aria-label', 'Content map');
+  el.setAttribute('aria-label', t('editor.map.title'));
   el.setAttribute('aria-hidden', 'true');
   el.innerHTML = `
     <div class="cms-content-map-header">
-      <span class="cms-content-map-title">Content map</span>
-      <button type="button" class="cms-content-map-close" aria-label="Close content map">&times;</button>
+      <span class="cms-content-map-title">${tHtml('editor.map.title')}</span>
+      <button type="button" class="cms-content-map-close" aria-label="${tHtml('editor.map.close')}">&times;</button>
     </div>
     <div class="cms-content-map-body"></div>
   `;
@@ -93,10 +94,10 @@ async function refresh() {
   });
 
   if (bindings.length === 0) {
-    body.innerHTML = '<div class="cms-content-map-empty">Nothing on this page is editable yet.</div>';
+    body.innerHTML = `<div class="cms-content-map-empty">${tHtml('editor.map.empty')}</div>`;
     return;
   }
-  body.innerHTML = '<div class="cms-content-map-loading">Loading…</div>';
+  body.innerHTML = `<div class="cms-content-map-loading">${tHtml('editor.map.loading')}</div>`;
 
   /** @type {Map<string, MapBinding[]>} */
   const groups = new Map();
@@ -152,7 +153,7 @@ async function refresh() {
       label.textContent = historyFieldLabel(binding.resolved.field, /** @type {any} */ (info?.schema));
       const value = document.createElement('span');
       value.className = 'cms-content-map-value';
-      value.textContent = shownValue(binding.el) || 'Empty';
+      value.textContent = shownValue(binding.el) || t('editor.map.emptyValue');
       item.append(label, value);
       item.addEventListener('click', () => {
         binding.el.scrollIntoView({ behavior: 'smooth', block: 'center' });

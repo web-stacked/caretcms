@@ -1,6 +1,7 @@
 import { buildCmsUrl } from '../config.js';
 import { isRecord } from './utils.js';
 import { mutateHeaders, readHeaders } from '../security.js';
+import { t } from '../i18n.js';
 
 /** @typedef {import('./model.js').Section} Section */
 
@@ -92,7 +93,7 @@ export async function savePageLayout({
           ? issueDetail
             ? `${json.error} (${issueDetail})`
             : json.error
-          : 'Failed to save layout',
+          : t('editor.sections.saveFailed'),
     };
   }
 

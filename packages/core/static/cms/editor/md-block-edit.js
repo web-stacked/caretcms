@@ -25,6 +25,7 @@ import { serializeBlock, domToSNodes, SerializeError } from './md-serialize.js';
 import { buildCmsUrl } from './config.js';
 import { mutateHeaders } from './security.js';
 import { SESSION_RESTORED_EVENT } from './session-recovery.js';
+import { t } from './i18n.js';
 
 /** @typedef {HTMLElement & { _caretSkipSave?: boolean }} MdEditableElement */
 /** @typedef {{ collection: string, id: string, blockPath: string }} MdBinding */
@@ -320,7 +321,7 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
         if (error instanceof SerializeError) {
           // While typing the block can pass through unsavable states; only
           // say so when the edit ends.
-          if (!autosave) showToast('This formatting cannot be saved in a markdown block', 'error');
+          if (!autosave) showToast(t('editor.md.unsupported'), 'error');
           state.dirtyEls.add(el);
           return null;
         }
@@ -351,8 +352,8 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
         if (el.innerHTML === expected) state.dirtyEls.delete(el);
         if (result.live && !result.refreshed) {
           showToast.saved({
-            message: 'Saved. Refresh before editing this text again.',
-            action: { label: 'Refresh', onClick: () => window.location.reload() },
+            message: t('editor.md.refreshBeforeEditing'),
+            action: { label: t('editor.sync.refresh'), onClick: () => window.location.reload() },
           });
         }
         if (!result.live) window.dispatchEvent(new CustomEvent('cms:draftSaved'));
@@ -363,7 +364,7 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
     /** Put `value` back over `expected` for undo and redo. @param {string} value @param {string} expected */
     const applyUndo = async (value, expected) => {
       if (snapshots.get(el) !== expected || state.dirtyEls.has(el)) {
-        showToast("This text changed since, so it wasn't undone.", 'error');
+        showToast(t('editor.edit.undoConflict'), 'error');
         return false;
       }
       el.innerHTML = value;
@@ -374,7 +375,7 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
       }
       el.innerHTML = expected;
       snapshots.set(el, expected);
-      showToast("Couldn't undo the change. Try again.", 'error');
+      showToast(t('editor.edit.undoFailed'), 'error');
       return false;
     };
 
@@ -411,14 +412,14 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
         if (!autosave) finishEdit();
       } else if (result.reason === 'stale') {
         state.dirtyEls.add(el);
-        showToast('This content changed. Copy your edits, then reload before saving.', 'error');
+        showToast(t('editor.md.stale'), 'error');
       } else if (result.reason === 'unauthorized') {
         state.dirtyEls.add(el);
         awaitingSignIn.set(el, commitBlock);
         onUnauthorized();
       } else {
         state.dirtyEls.add(el);
-        showToast('Failed to save. Your edits are kept here; focus and leave the block to retry.', 'error');
+        showToast(t('editor.md.saveFailed'), 'error');
       }
     };
 
@@ -428,8 +429,8 @@ export function mountMdBlockEditors({ state, flash, showToast, onUnauthorized })
       editSaved = false;
       showToast.saved({
         // Body drafts publish with the rest; fields here may have saved live.
-        message: editLive ? 'Saved' : 'Draft saved. Publish to show it to visitors.',
-        action: { label: 'Undo', onClick: undoLastEdit },
+        message: editLive ? t('editor.edit.saved') : t('editor.edit.draftSaved'),
+        action: { label: t('editor.undo.undo'), onClick: undoLastEdit },
       });
     };
     el.addEventListener('blur', () => { void commitBlock(); });

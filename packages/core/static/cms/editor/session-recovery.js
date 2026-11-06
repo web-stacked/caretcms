@@ -1,4 +1,5 @@
 import { buildCmsUrl, getEditorLoginUrl, isCloudMode } from './config.js';
+import { t } from './i18n.js';
 
 /**
  * Recovers an editor session that ends mid-edit without leaving the page, so
@@ -14,9 +15,6 @@ export const SESSION_RESTORED_EVENT = 'cms:sessionRestored';
  * draw it in their own style.
  * @typedef {{ backdrop: string, dialog: string, label: string, input: string, error: string, actions: string, secondary: string, link: string, primary: string }} DialogLook
  */
-/**
- * @typedef {{ title: string, copy: string, password: string, later: string, signIn: string, signInPage: string, openSignInPage: string, wrongPassword: string, failed: string }} SessionMessages
- */
 
 /** @type {DialogLook} */
 const EDITOR_LOOK = {
@@ -31,19 +29,6 @@ const EDITOR_LOOK = {
   primary: 'cms-dialog-primary',
 };
 
-/** @type {SessionMessages} */
-const EDITOR_MESSAGES = {
-  title: 'Sign in again',
-  copy: 'Your session ended. Your changes are kept on this page and save once you sign in.',
-  password: 'Password',
-  later: 'Not now',
-  signIn: 'Sign in',
-  signInPage: 'Use the sign-in page',
-  openSignInPage: 'Open the sign-in page',
-  wrongPassword: "That password isn't right.",
-  failed: "Couldn't sign in. Check your connection and try again.",
-};
-
 /** @param {(path: string) => string} cmsUrl @returns {Promise<{ authenticated: boolean, passwordLogin: boolean }>} */
 async function readSession(cmsUrl) {
   try {
@@ -56,14 +41,14 @@ async function readSession(cmsUrl) {
 }
 
 /**
- * The defaults are the page editor's; the Studio passes its own paths, look
- * and translated messages.
+ * The defaults are the page editor's; the Studio passes its own paths and look.
+ * Its words come from the editor's messages in the site's locale.
  * @param {object} [options]
  * @param {(path: string) => string} [options.cmsUrl]
  * @param {(returnTo: string) => string} [options.loginUrl]
  * @param {boolean} [options.redirectOnly] sign in only on the sign-in page (cloud mode)
  * @param {DialogLook} [options.look]
- * @param {SessionMessages} [options.messages]
+ * @param {'page' | 'studio'} [options.surface] where the unsaved changes are kept
  * @returns {{ handleExpired: () => void }}
  */
 export function createSessionRecovery({
@@ -71,7 +56,7 @@ export function createSessionRecovery({
   loginUrl = getEditorLoginUrl,
   redirectOnly = isCloudMode(),
   look = EDITOR_LOOK,
-  messages = EDITOR_MESSAGES,
+  surface = 'page',
 } = {}) {
   /** @type {HTMLElement | null} */
   let backdrop = null;
@@ -107,10 +92,10 @@ export function createSessionRecovery({
 
     const title = document.createElement('h2');
     title.id = 'cms-reauth-title';
-    title.textContent = messages.title;
+    title.textContent = t('editor.session.title');
     const copy = document.createElement('p');
     copy.id = 'cms-reauth-copy';
-    copy.textContent = messages.copy;
+    copy.textContent = surface === 'studio' ? t('editor.session.copy') : t('editor.session.copyPage');
     dialog.append(title, copy);
 
     /** @type {HTMLInputElement | null} */
@@ -122,7 +107,7 @@ export function createSessionRecovery({
     if (passwordLogin) {
       const label = document.createElement('label');
       label.className = look.label;
-      label.textContent = messages.password;
+      label.textContent = t('editor.session.password');
       password = document.createElement('input');
       password.type = 'password';
       password.name = 'password';
@@ -138,19 +123,19 @@ export function createSessionRecovery({
     const later = document.createElement('button');
     later.type = 'button';
     if (look.secondary) later.className = look.secondary;
-    later.textContent = messages.later;
+    later.textContent = t('editor.session.later');
     const elsewhere = document.createElement('a');
     elsewhere.className = look.link;
     elsewhere.href = loginUrl(window.location.href);
     elsewhere.target = '_blank';
     elsewhere.rel = 'noopener';
-    elsewhere.textContent = passwordLogin ? messages.signInPage : messages.openSignInPage;
+    elsewhere.textContent = passwordLogin ? t('editor.session.signInPage') : t('editor.session.openSignInPage');
     actions.append(later, elsewhere);
     if (passwordLogin) {
       const submit = document.createElement('button');
       submit.type = 'submit';
       submit.className = look.primary;
-      submit.textContent = messages.signIn;
+      submit.textContent = t('editor.session.signIn');
       actions.append(submit);
     }
     dialog.append(actions);
@@ -180,8 +165,8 @@ export function createSessionRecovery({
       }).catch(() => null);
       if (response?.ok) { restored(); return; }
       const body = response ? await response.json().catch(() => null) : null;
-      error.textContent = response?.status === 401 ? messages.wrongPassword
-        : typeof body?.error === 'string' ? body.error : messages.failed;
+      error.textContent = response?.status === 401 ? t('editor.session.wrongPassword')
+        : typeof body?.error === 'string' ? body.error : t('editor.session.failed');
       error.hidden = false;
       password.select();
     });

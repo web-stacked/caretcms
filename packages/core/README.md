@@ -465,7 +465,7 @@ caret({
   deployment: undefined,        // Optional build/deployment status provider
   schemas: {},                  // Optional JSON Schema map for Studio (default: inferred)
   collections: {},              // Labels, capabilities, preview paths, publication
-  locale: 'en',                 // 'en' | 'es'; dictionary overrides are also supported
+  locale: 'en',                 // 'en' | 'es' — the Studio and the on-page editor; `dictionary` overrides any message
   bodyEditing: true,            // Inline editing for rendered Markdown prose
 })
 ```

@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 /**
  * One undo history for every on-page edit (text fields and Markdown blocks):
  * one step per edit (focus to blur), however many autosaves it took. Steps
@@ -30,7 +32,7 @@ export async function undoLastEdit() {
   if (!step) return;
   if (await step.apply(step.before, step.after)) {
     redoSteps.push(step);
-    toast?.saved({ message: 'Change undone', action: { label: 'Redo', onClick: redoLastEdit } });
+    toast?.saved({ message: t('editor.undo.undone'), action: { label: t('editor.undo.redo'), onClick: redoLastEdit } });
   } else {
     undoSteps.push(step);
   }
@@ -41,7 +43,7 @@ async function redoLastEdit() {
   if (!step) return;
   if (await step.apply(step.after, step.before)) {
     undoSteps.push(step);
-    toast?.saved({ message: 'Change redone', action: { label: 'Undo', onClick: undoLastEdit } });
+    toast?.saved({ message: t('editor.undo.redone'), action: { label: t('editor.undo.undo'), onClick: undoLastEdit } });
   } else {
     redoSteps.push(step);
   }

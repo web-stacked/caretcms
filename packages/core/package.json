@@ -90,9 +90,9 @@
     "editor-runtime.d.ts"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/write-editor-messages.mjs",
     "typecheck": "tsc -p tsconfig.json && npm run typecheck:browser",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist static/cms/editor/messages.js",
     "prepublishOnly": "node scripts/check-version.mjs && npm run clean && npm run build",
     "typecheck:browser": "tsc -p tsconfig.browser.json"
   },

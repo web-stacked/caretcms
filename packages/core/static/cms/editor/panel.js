@@ -1,4 +1,5 @@
 import { STUDIO_PATH } from './config.js';
+import { t, tHtml } from './i18n.js';
 import { entryRoute, initialPanelRoute, isStudioRoute, rememberPanelRoute } from './panel-route.js';
 
 /** @param {string} key @returns {string | null} */
@@ -62,7 +63,7 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
   panel.className = 'cms-studio-panel';
   // A dialog-like region so AT users understand the drawer context.
   panel.setAttribute('role', 'dialog');
-  panel.setAttribute('aria-label', 'Content Studio');
+  panel.setAttribute('aria-label', t('editor.panel.label'));
   panel.setAttribute('aria-hidden', 'true');
   panel.id = 'cms-studio-panel';
   studioButton?.setAttribute('aria-controls', panel.id);
@@ -72,12 +73,12 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
   const panelHeader = document.createElement('div');
   panelHeader.className = 'cms-studio-panel-header';
   panelHeader.innerHTML =
-    '<button type="button" class="cms-panel-back">Back</button>' +
-    '<strong class="cms-panel-title">Studio</strong>' +
+    `<button type="button" class="cms-panel-back">${tHtml('editor.panel.back')}</button>` +
+    `<strong class="cms-panel-title">${tHtml('editor.panel.title')}</strong>` +
     '<div class="cms-panel-actions">' +
-      '<button type="button" class="cms-panel-move">Move right</button>' +
-      '<button type="button" class="cms-panel-expand">Expand</button>' +
-      '<button type="button" class="cms-panel-close">Close</button>' +
+      `<button type="button" class="cms-panel-move">${tHtml('editor.panel.moveRight')}</button>` +
+      `<button type="button" class="cms-panel-expand">${tHtml('editor.panel.expand')}</button>` +
+      `<button type="button" class="cms-panel-close">${tHtml('editor.panel.close')}</button>` +
     '</div>';
   // Tab from the drawer's last control goes on to the toolbar, and from the
   // toolbar's last back to the drawer, instead of through the page behind it.
@@ -102,7 +103,7 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
   loading.className = 'cms-studio-panel-loading';
   loading.innerHTML =
     '<span class="cms-studio-panel-spinner" aria-hidden="true"></span>' +
-    '<span class="cms-studio-panel-loading-text">Loading Studio…</span>';
+    `<span class="cms-studio-panel-loading-text">${tHtml('editor.panel.loading')}</span>`;
   panel.appendChild(loading);
 
   const iframe = document.createElement('iframe');
@@ -111,7 +112,7 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
   const handoff = takeHandoff();
   if (handoff) rememberPanelRoute(handoff);
   iframe.src = handoff ?? initialPanelRoute();
-  iframe.title = 'Content Studio';
+  iframe.title = t('editor.panel.label');
   iframe.addEventListener('load', () => {
     loading.setAttribute('hidden', 'hidden');
     try {
@@ -119,7 +120,7 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
       if (!iframeWindow) return;
       rememberPanelRoute(`${iframeWindow.location.pathname}${iframeWindow.location.search}`);
       // The Studio keeps its <title> current as the entry's title field changes.
-      const showTitle = () => { titleElement.textContent = iframeWindow.document.title.split(' — ')[0]?.trim() || 'Studio'; };
+      const showTitle = () => { titleElement.textContent = iframeWindow.document.title.split(' — ')[0]?.trim() || t('editor.panel.title'); };
       showTitle();
       const titleNode = iframeWindow.document.querySelector('title');
       if (titleNode) new MutationObserver(showTitle).observe(titleNode, { childList: true, characterData: true, subtree: true });
@@ -196,8 +197,8 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
     const onRight = side === 'right';
     panel.classList.toggle('side-right', onRight);
     document.body.classList.toggle('cms-panel-right', onRight);
-    moveButton.textContent = onRight ? 'Move left' : 'Move right';
-    moveButton.setAttribute('aria-label', onRight ? 'Move Studio panel left' : 'Move Studio panel right');
+    moveButton.textContent = onRight ? t('editor.panel.moveLeft') : t('editor.panel.moveRight');
+    moveButton.setAttribute('aria-label', onRight ? t('editor.panel.moveLeftLabel') : t('editor.panel.moveRightLabel'));
     writeSessionValue('cms-panel-side', side);
     updatePush();
     reportLayout();
@@ -237,8 +238,8 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
   function setExpanded(expanded) {
     panel.classList.toggle('expanded', expanded);
     document.body.classList.toggle('cms-panel-expanded', expanded);
-    expandButton.textContent = expanded ? 'Shrink' : 'Expand';
-    expandButton.setAttribute('aria-label', expanded ? 'Shrink the Studio to a drawer' : 'Expand the Studio');
+    expandButton.textContent = expanded ? t('editor.panel.shrink') : t('editor.panel.expand');
+    expandButton.setAttribute('aria-label', expanded ? t('editor.panel.shrinkLabel') : t('editor.panel.expandLabel'));
     expandButton.setAttribute('aria-pressed', String(expanded));
     writeSessionValue('cms-panel-size', expanded ? 'expanded' : 'drawer');
     updatePush();

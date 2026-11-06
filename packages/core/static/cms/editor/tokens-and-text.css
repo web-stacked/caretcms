@@ -118,7 +118,7 @@ body.cms-preview-mode .cms-link-follow {
 }
 
 [data-caret-md-draft]::after {
-  content: 'Draft';
+  content: var(--cms-text-draft, 'Draft');
   position: absolute;
   top: -0.6em;
   right: 0;
@@ -171,7 +171,7 @@ body.cms-preview-mode .cms-link-follow {
   min-height: 1lh;
 }
 .cms-edit-mode:not(.cms-preview-mode) .cms-editable:empty::before {
-  content: "Add text";
+  content: var(--cms-text-add, "Add text");
   opacity: 0.45;
   font-style: italic;
   pointer-events: none;

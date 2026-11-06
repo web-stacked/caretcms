@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 /**
  * What assistive technology hears about editable content. Editable text
  * inside a heading or link stops counting toward its name, so headings and
@@ -7,14 +9,13 @@
  */
 
 const HINT_ID = 'cms-edit-hint';
-const HINT = 'Editable. Changes save when you leave it; Esc puts back what was there.';
 
 function hintId() {
   if (!document.getElementById(HINT_ID)) {
     const hint = document.createElement('span');
     hint.id = HINT_ID;
     hint.hidden = true;
-    hint.textContent = HINT;
+    hint.textContent = t('editor.a11y.hint');
     document.body.appendChild(hint);
   }
   return HINT_ID;
@@ -59,5 +60,5 @@ export function describeEditableText(el) {
 export function describeEditableImage(img) {
   if (img.closest('a, button')) return;
   img.setAttribute('role', 'button');
-  img.setAttribute('aria-label', `Replace image: ${img.alt.trim() || 'image without a description'}`);
+  img.setAttribute('aria-label', img.alt.trim() ? t('editor.a11y.replaceImage', { alt: img.alt.trim() }) : t('editor.a11y.replaceUndescribed'));
 }

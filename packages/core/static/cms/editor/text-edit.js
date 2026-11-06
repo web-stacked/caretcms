@@ -5,6 +5,7 @@ import { resolveBinding } from './helpers.js';
 import { sanitizeHtml, unsupportedTags } from './sanitize.js';
 import { bindUndo, dropEdit, recordEdit, undoLastEdit } from './undo-stack.js';
 import { bindUnsavedChanges, clearUnsaved, isUnsaved, markUnsaved } from './unsaved.js';
+import { t } from './i18n.js';
 
 /** @typedef {HTMLElement & { _caretSkipSave?: boolean }} EditableElement */
 /** @typedef {{ collection: string, id: string, field: string }} ResolvedCaretBinding */
@@ -116,7 +117,7 @@ export function mountTextEditors({
         el.setAttribute('data-caret-rich', '');
       } else {
         el.classList.add('cms-locked');
-        el.title = "This text includes layout that can't be edited on the page.";
+        el.title = t('editor.text.locked');
         return;
       }
     }
@@ -201,8 +202,8 @@ export function mountTextEditors({
         return true;
       }
       showToast(result.reason === 'conflict'
-        ? "This text changed since, so it wasn't undone."
-        : "Couldn't undo the change. Try again.", 'error');
+        ? t('editor.edit.undoConflict')
+        : t('editor.edit.undoFailed'), 'error');
       return false;
     };
 
@@ -218,9 +219,9 @@ export function mountTextEditors({
       editSaved = false;
       // In draft modes a save isn't public yet; say so, as Markdown blocks do.
       showToast.saved({
-        message: savesDrafts() ? 'Draft saved. Publish to show it to visitors.'
-          : retried ? 'Your change is saved' : 'Saved',
-        action: { label: 'Undo', onClick: undoLastEdit },
+        message: savesDrafts() ? t('editor.edit.draftSaved')
+          : retried ? t('editor.text.changeSaved') : t('editor.edit.saved'),
+        action: { label: t('editor.undo.undo'), onClick: undoLastEdit },
       });
     };
 
@@ -238,7 +239,7 @@ export function mountTextEditors({
       state.dirtyEls.add(el);
       el.classList.add('cms-conflict');
       showToast.conflict({
-        message: 'This content changed elsewhere while you were editing.',
+        message: t('editor.text.conflict'),
         onKeepMine: async () => {
           el.classList.remove('cms-conflict');
           el.classList.add('cms-saving');
@@ -248,11 +249,11 @@ export function mountTextEditors({
           if (retry.ok) {
             state.dirtyEls.delete(el);
             syncBoundText(attr, mine);
-            showToast('Your version saved', 'success');
+            showToast(t('editor.text.mineSaved'), 'success');
           } else if (retry.reason === 'conflict') {
             runConflict(resolved, mine, retry.latestValue);
           } else if (retry.reason !== 'unauthorized') {
-            showToast('Failed to save. Try again.', 'error');
+            showToast(t('editor.text.saveFailed'), 'error');
           }
         },
         onLoadLatest: () => {
@@ -262,7 +263,7 @@ export function mountTextEditors({
           applyTextValue(el, value);
           snapshots.set(el, isRich ? sanitizeHtml(value) : value);
           syncBoundText(attr, value);
-          showToast('Loaded latest version', 'success');
+          showToast(t('editor.text.loadedLatest'), 'success');
         },
       });
     };
@@ -338,7 +339,7 @@ export function mountTextEditors({
         markSaved();
         state.dirtyEls.delete(el);
         syncBoundText(attr, snapshot);
-        showToast(`${result.message.replace(/\.$/, '')}. The previous text is back.`, 'error');
+        showToast(t('editor.text.refused', { reason: result.message.replace(/\.$/, '') }), 'error');
       } else {
         // Never throw the editor's text away: keep it, mark the field, and
         // retry on the next blur, when the browser comes back online or the

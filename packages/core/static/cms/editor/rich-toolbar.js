@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 /**
  * Floating rich text format toolbar for [data-caret-rich] elements.
  *
@@ -22,11 +24,11 @@ let editorState = null;
 
 /** @type {ToolbarItem[]} */
 const BUTTONS = [
-  { cmd: 'bold', label: 'B', title: 'Bold (Ctrl+B)', style: 'font-weight:700' },
-  { cmd: 'italic', label: 'I', title: 'Italic (Ctrl+I)', style: 'font-style:italic' },
+  { cmd: 'bold', label: 'B', title: t('editor.rich.bold'), style: 'font-weight:700' },
+  { cmd: 'italic', label: 'I', title: t('editor.rich.italic'), style: 'font-style:italic' },
   { sep: true },
-  { cmd: 'createLink', label: '\u{1F517}', title: 'Link (Ctrl+K)', isLink: true },
-  { cmd: 'removeFormat', label: 'T\u2093', title: 'Clear formatting' },
+  { cmd: 'createLink', label: '\u{1F517}', title: t('editor.rich.link'), isLink: true },
+  { cmd: 'removeFormat', label: 'T\u2093', title: t('editor.rich.clear') },
 ];
 
 /** @returns {HTMLDivElement} */

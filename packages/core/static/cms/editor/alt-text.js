@@ -1,6 +1,7 @@
 import { buildCmsUrl } from './config.js';
 import { readHeaders } from './security.js';
 import { parseCaretAttr, resolveBinding } from './helpers.js';
+import { t, tHtml } from './i18n.js';
 
 /**
  * After an image is replaced on the page, ask for its description (alt text)
@@ -65,12 +66,12 @@ export function createAltPrompt({ saveField, showToast }) {
     el.hidden = true;
     el.innerHTML = `
       <form class="cms-dialog" role="dialog" aria-modal="true" aria-labelledby="cms-alt-title" aria-describedby="cms-alt-copy">
-        <h2 id="cms-alt-title">Describe this image</h2>
-        <p id="cms-alt-copy">For people who can't see it, and for search. Say what matters about it, not "image of".</p>
+        <h2 id="cms-alt-title">${tHtml('editor.alt.title')}</h2>
+        <p id="cms-alt-copy">${tHtml('editor.alt.copy')}</p>
         <input class="cms-alt-input" type="text" aria-labelledby="cms-alt-title" autocomplete="off" />
         <div class="cms-dialog-actions">
-          <button type="button" class="cms-alt-skip">Skip</button>
-          <button type="submit" class="cms-alt-save">Save description</button>
+          <button type="button" class="cms-alt-skip">${tHtml('editor.alt.skip')}</button>
+          <button type="submit" class="cms-alt-save">${tHtml('editor.alt.save')}</button>
         </div>
       </form>`;
     document.body.appendChild(el);
@@ -135,7 +136,7 @@ export function createAltPrompt({ saveField, showToast }) {
       const bound = resolveBinding(node, parseCaretAttr(node.getAttribute('data-caret') || ''));
       if (bound && bound.collection === image.collection && bound.id === image.id && bound.field === field) node.textContent = answer;
     });
-    showToast('Description saved', 'success');
+    showToast(t('editor.alt.saved'), 'success');
   }
 
   return { ask };

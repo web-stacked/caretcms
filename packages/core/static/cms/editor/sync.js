@@ -2,6 +2,7 @@ import { sanitizeHtml } from './sanitize.js';
 import { parseCaretAttr, resolveBinding } from './helpers.js';
 import { STUDIO_PATH } from './config.js';
 import { entryRoute, rememberPanelRoute } from './panel-route.js';
+import { t } from './i18n.js';
 
 const SYNC_CHANNEL = 'caretcms:content';
 const PENDING_SELECTION_KEY = 'caretcms:pending-preview-selection';
@@ -209,7 +210,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
     const target = previewTarget(message.previewPath);
     if (!target || target.href === window.location.href) return;
     if (state.dirtyEls.size > 0) {
-      showToast('Finish or cancel your inline edit before opening another page', 'error');
+      showToast(t('editor.sync.finishInline'), 'error');
       return;
     }
 
@@ -338,11 +339,11 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
     rememberStudioPath(msg);
 
     if (state.dirtyEls.size > 0) {
-      showToast('Saved in Studio — finish your inline edit before refreshing', 'success');
+      showToast(t('editor.sync.savedFinishInline'), 'success');
       return;
     }
 
-    showToast('Saved — refreshing visual preview…', 'success');
+    showToast(t('editor.sync.refreshingVisual'), 'success');
     window.clearTimeout(refreshTimer);
     refreshTimer = window.setTimeout(() => window.location.reload(), 280);
   }
@@ -456,8 +457,8 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
       rememberStudioPath(msg);
       if (msg.structural === true) {
         showToast.saved({
-          message: 'Saved. Refresh to see the layout change.',
-          action: { label: 'Refresh', onClick: () => window.location.reload() },
+          message: t('editor.sync.refreshForLayout'),
+          action: { label: t('editor.sync.refresh'), onClick: () => window.location.reload() },
         });
       } else if (msg.structural === undefined) {
         scheduleEmbeddedRefresh(msg);
@@ -494,7 +495,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
         noteStudioChange();
 
         if (state.dirtyEls.size > 0) {
-          showToast('Saved in Studio — finish your inline edit before refreshing', 'success');
+          showToast(t('editor.sync.savedFinishInline'), 'success');
           return;
         }
 
@@ -503,7 +504,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
           // Text changes apply in place; only layout changes need a reload.
           if (msg.structural === false) return;
         }
-        showToast('Saved — refreshing preview…', 'success');
+        showToast(t('editor.sync.refreshing'), 'success');
         window.clearTimeout(refreshTimer);
         refreshTimer = window.setTimeout(() => window.location.reload(), 280);
       });

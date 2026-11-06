@@ -5,6 +5,7 @@ import { whenServed } from './image-utils.js';
 import { createAltPrompt } from './alt-text.js';
 import { describeEditableImage } from './a11y.js';
 import { clearUnsaved, markUnsaved } from './unsaved.js';
+import { t, tHtml } from './i18n.js';
 
 /** @typedef {{ collection: string, id: string, field: string }} ResolvedCaretBinding */
 /** @typedef {{ collection: string | null, id: string | null, field: string }} ParsedCaretBinding */
@@ -36,11 +37,11 @@ const OVERLAY_HTML = `
       <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z"/>
       <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z"/>
     </svg>
-    <span class="cms-img-overlay-text">Replace image</span>
+    <span class="cms-img-overlay-text">${tHtml('editor.image.replace')}</span>
   </span>
   <span class="cms-img-overlay-content cms-img-state-uploading">
     <span class="cms-img-spinner"></span>
-    <span class="cms-img-overlay-text">Uploading…</span>
+    <span class="cms-img-overlay-text">${tHtml('editor.image.uploading')}</span>
   </span>
 `;
 
@@ -126,7 +127,7 @@ export function mountImageEditors({
   input.type = 'file';
   input.className = 'cms-img-input';
   input.accept = 'image/jpeg,image/png,image/webp,image/avif';
-  input.setAttribute('aria-label', 'Upload replacement image');
+  input.setAttribute('aria-label', t('editor.image.uploadLabel'));
   input.hidden = true;
   layer.append(overlay, input);
   document.body.appendChild(layer);
@@ -222,7 +223,7 @@ export function mountImageEditors({
   const runImageConflict = (img, resolved, marker, mineUrl, latestValue) => {
     state.dirtyEls.add(img);
     showToast.conflict({
-      message: 'This image changed elsewhere while you were editing.',
+      message: t('editor.image.conflict'),
       onKeepMine: async () => {
         const retry = await saveField(resolved.collection, resolved.id, resolved.field, mineUrl);
         flash(img, retry.ok);
@@ -230,11 +231,11 @@ export function mountImageEditors({
           state.dirtyEls.delete(img);
           savedSrc.set(marker, mineUrl);
           syncBoundImages(marker, mineUrl);
-          showToast('Your image saved', 'success');
+          showToast(t('editor.image.mineSaved'), 'success');
         } else if (retry.reason === 'conflict') {
           runImageConflict(img, resolved, marker, mineUrl, retry.latestValue);
         } else if (retry.reason !== 'unauthorized') {
-          showToast('Failed to save image. Try again.', 'error');
+          showToast(t('editor.image.saveFailed'), 'error');
         }
       },
       onLoadLatest: () => {
@@ -242,7 +243,7 @@ export function mountImageEditors({
         state.dirtyEls.delete(img);
         savedSrc.set(marker, src);
         syncBoundImages(marker, src);
-        showToast('Loaded latest image', 'success');
+        showToast(t('editor.image.loadedLatest'), 'success');
       },
     });
   };
@@ -273,7 +274,7 @@ export function mountImageEditors({
       settle(img);
       savedSrc.set(marker, url);
       syncBoundImages(marker, url);
-      showToast(savesDrafts() ? 'Image saved as a draft. Publish to show it to visitors.' : 'Image updated', 'success');
+      showToast(savesDrafts() ? t('editor.image.draftSaved') : t('editor.image.updated'), 'success');
       await altPrompt.ask(img, resolved);
     } else if (result.reason === 'conflict') {
       settle(img);
@@ -282,7 +283,7 @@ export function mountImageEditors({
       // The server refused the image, so a retry can't help.
       settle(img);
       syncBoundImages(marker, savedSrc.get(marker) ?? '');
-      showToast(`${result.message.replace(/\.$/, '')}. The previous image is back.`, 'error');
+      showToast(t('editor.image.refused', { reason: result.message.replace(/\.$/, '') }), 'error');
     } else {
       keepUnsaved(img, () => saveImage(img, resolved, marker, url), result.reason === 'unauthorized');
     }
@@ -309,7 +310,7 @@ export function mountImageEditors({
 
     uploading = true;
     overlay.classList.add('uploading');
-    setStatus('saving', 'Uploading…');
+    setStatus('saving', t('editor.image.uploading'));
 
     try {
       const compressed = await compressImage(file);
@@ -329,7 +330,7 @@ export function mountImageEditors({
         keptPreviews.set(img, previewUrl);
         const expired = uploadRes?.status === 401;
         keepUnsaved(img, () => replaceImage(file, img), expired);
-        setStatus('error', 'Not saved');
+        setStatus('error', t('editor.save.notSaved'));
         if (expired) onUnauthorized();
         return;
       }
@@ -351,9 +352,9 @@ export function mountImageEditors({
       settle(img);
       img.setAttribute('src', originalSrc);
       flash(img, false);
-      setStatus('error', 'Upload failed');
+      setStatus('error', t('editor.image.uploadFailed'));
       const reason = error instanceof Error && error.message ? error.message : '';
-      showToast(reason || 'The image couldn’t be uploaded. Try again.', 'error');
+      showToast(reason || t('editor.image.uploadFailedCopy'), 'error');
     } finally {
       if (!keepPreview) URL.revokeObjectURL(previewUrl);
       uploading = false;

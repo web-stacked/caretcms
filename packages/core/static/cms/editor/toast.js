@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 const SUCCESS_SVG =
   '<svg class="cms-toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
 const ERROR_SVG =
@@ -116,7 +118,7 @@ export function createToast() {
       const close = document.createElement('button');
       close.type = 'button';
       close.className = 'cms-toast-close';
-      close.setAttribute('aria-label', 'Dismiss');
+      close.setAttribute('aria-label', t('editor.toast.dismiss'));
       close.textContent = '×';
       close.addEventListener('click', () => dismiss(toast));
       toast.appendChild(close);
@@ -131,12 +133,12 @@ export function createToast() {
   // one stays listed in the status pill's panel (`onProblem`).
   /** @type {ToastController} */
   const showToast = (message, type) => {
-    const t = type === 'error' ? 'error' : type || 'success';
-    if (t === 'error') showToast.onProblem?.(message);
-    return render(t, {
+    const kind = type === 'error' ? 'error' : type || 'success';
+    if (kind === 'error') showToast.onProblem?.(message);
+    return render(kind, {
       message,
-      role: t === 'error' ? 'alert' : undefined,
-      duration: t === 'error' ? 10000 : 2500,
+      role: kind === 'error' ? 'alert' : undefined,
+      duration: kind === 'error' ? 10000 : 2500,
     });
   };
 
@@ -146,8 +148,8 @@ export function createToast() {
     message,
     onKeepMine,
     onLoadLatest,
-    keepLabel = 'Keep mine',
-    latestLabel = 'Load latest',
+    keepLabel = t('editor.toast.keepMine'),
+    latestLabel = t('editor.toast.loadLatest'),
   }) =>
     render('warning', {
       message,

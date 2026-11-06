@@ -1,4 +1,5 @@
 import { SESSION_RESTORED_EVENT } from './session-recovery.js';
+import { t } from './i18n.js';
 
 /**
  * @typedef {{
@@ -47,10 +48,8 @@ export function markUnsaved(el, retry, { quiet = false } = {}) {
   el.classList.add('cms-unsaved');
   if (quiet || !toasts || (notice && document.body.contains(notice))) return;
   notice = toasts.pending({
-    message: navigator.onLine
-      ? "Couldn't save your change. It's kept on the page."
-      : "You're offline. Your change is kept and saves when you reconnect.",
-    actions: [{ label: 'Retry now', primary: true, onClick: retryAll }],
+    message: navigator.onLine ? t('editor.unsaved.kept') : t('editor.unsaved.offline'),
+    actions: [{ label: t('editor.unsaved.retry'), primary: true, onClick: retryAll }],
   });
 }
 

@@ -95,17 +95,7 @@ import { createSessionRecovery, SESSION_RESTORED_EVENT } from './editor/session-
       link: "studio-btn-ghost",
       primary: "studio-btn-primary",
     },
-    messages: {
-      title: msg("session.title", "Sign in again"),
-      copy: msg("session.copy", "Your session ended. Your changes are kept here and save once you sign in."),
-      password: msg("session.password", "Password"),
-      later: msg("session.later", "Not now"),
-      signIn: msg("session.signIn", "Sign in"),
-      signInPage: msg("session.signInPage", "Use the sign-in page"),
-      openSignInPage: msg("session.openSignInPage", "Open the sign-in page"),
-      wrongPassword: msg("session.wrongPassword", "That password isn't right."),
-      failed: msg("session.failed", "Couldn't sign in. Check your connection and try again."),
-    },
+    surface: "studio",
   });
   function sessionExpired() { sessionRecovery.handleExpired(); }
 

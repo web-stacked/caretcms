@@ -1,6 +1,20 @@
 export const prerender = false;
 
 import type { APIContext } from "astro";
+import { getRuntimeConfig } from "../config.js";
+import { EN_STUDIO_MESSAGES, editorMessages } from "../i18n.js";
+
+// The editor's messages in the site's locale, with `dictionary` overrides:
+// a module built from the resolved Studio dictionary (see editor/i18n.js).
+const EDITOR_MESSAGES_PATH = "editor/messages.js";
+let _editorMessages: string | null = null;
+function editorMessagesModule(): string {
+  if (_editorMessages) return _editorMessages;
+  // English underneath, so a key missing from the configured dictionary still reads.
+  const messages = { ...editorMessages(EN_STUDIO_MESSAGES), ...editorMessages(getRuntimeConfig().messages) };
+  _editorMessages = `export default ${JSON.stringify(messages).replace(/</g, "\\u003c")};\n`;
+  return _editorMessages;
+}
 
 // Bundle every static asset as a raw string at build time. The literal
 // import.meta.glob call is transformed by Vite into an inline Object.assign of
@@ -86,7 +100,7 @@ export async function GET(context: APIContext): Promise<Response> {
     return new Response("Not found", { status: 404 });
   }
 
-  const body = getAssets()[safePath];
+  const body = safePath === EDITOR_MESSAGES_PATH ? editorMessagesModule() : getAssets()[safePath];
   if (body === undefined) {
     return new Response("Not found", { status: 404 });
   }

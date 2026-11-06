@@ -1,14 +1,13 @@
 import { buildCmsUrl, isPolicyDraftMode } from './config.js';
 import { readHeaders } from './security.js';
 import { parseCaretAttr, resolveBinding } from './helpers.js';
+import { t } from './i18n.js';
 
 /**
  * With an authorization policy, an editor may be allowed to edit only some of
  * a page's entries. Bindings for the others are shown read-only, with the
  * reason, instead of accepting typing that can't be saved.
  */
-
-export const PERMISSION_MESSAGE = "You don't have permission to edit this.";
 
 /** The entry a binding belongs to, as collection::id. @param {Element} el */
 function entryKey(el) {
@@ -60,11 +59,11 @@ export function lockDeniedBindings(denied, showToast) {
     if (!key || !denied.has(key)) return;
     el.setAttribute('data-caret-locked', 'permission');
     el.classList.add('cms-locked');
-    if (el instanceof HTMLElement) el.title = PERMISSION_MESSAGE;
+    if (el instanceof HTMLElement) el.title = t('editor.permissions.denied');
     if (explained.has(el)) return;
     explained.add(el);
     el.addEventListener('click', () => {
-      if (document.body.classList.contains('cms-edit-mode')) showToast(PERMISSION_MESSAGE, 'error');
+      if (document.body.classList.contains('cms-edit-mode')) showToast(t('editor.permissions.denied'), 'error');
     });
   });
 }

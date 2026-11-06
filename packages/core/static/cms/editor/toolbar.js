@@ -5,11 +5,12 @@ import { createDeploymentStatusPoller } from './deployment-status.js';
 import { presentPublishResult } from './publish-result.js';
 import { createDraftClient } from './draft-client.js';
 import { mountToolbarKeys } from './toolbar-keys.js';
+import { t, tHtml } from './i18n.js';
 /** @typedef {'saving' | 'idle' | 'error'} ToolbarStatusState */
 
 /** @param {number} count */
 function changeCount(count) {
-  return count === 1 ? '1 unpublished change' : `${count} unpublished changes`;
+  return count === 1 ? t('editor.toolbar.changesOne') : t('editor.toolbar.changesOther', { count });
 }
 
 /** @param {boolean} staticDelivery */
@@ -18,37 +19,38 @@ function renderDraftControls(staticDelivery) {
   // refreshDraftControls): static delivery and policies always draft, and
   // server delivery drafts inline body-block edits until they're published.
   const publishTitle = staticDelivery
-    ? 'Publish your drafts; visitors see them the next time the site updates'
-    : 'Publish your drafts so visitors see them';
+    ? tHtml('editor.toolbar.publishTitleStatic')
+    : tHtml('editor.toolbar.publishTitle');
   return `
         <span class="cms-draft-controls" hidden>
           <button class="cms-publish-btn cms-go-live-btn" type="button" title="${publishTitle}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/></svg>
-            <span class="cms-go-live-label">Publish</span>
+            <span class="cms-go-live-label">${tHtml('editor.toolbar.publish')}</span>
           </button>
-          <button class="cms-discard-btn" type="button" title="Discard your draft changes">
+          <button class="cms-discard-btn" type="button" title="${tHtml('editor.toolbar.discardTitle')}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            Discard
+            ${tHtml('editor.toolbar.discard')}
           </button>
         </span>`;
 }
 
 /** @param {boolean} staticDelivery */
 function renderToolbar(staticDelivery) {
-  const badgeLabel = staticDelivery || isPolicyDraftMode() ? 'Draft' : 'Live';
+  const mode = staticDelivery || isPolicyDraftMode() ? 'draft' : 'live';
+  const badgeLabel = tHtml(mode === 'draft' ? 'editor.toolbar.draft' : 'editor.toolbar.live');
   const badgeHint = staticDelivery
-    ? 'Your changes are a draft. Visitors see them after you publish and the site updates.'
+    ? tHtml('editor.toolbar.hintStatic')
     : isPolicyDraftMode()
-      ? 'Your changes are a private draft until they’re published.'
-      : 'Changes save directly to your site.';
+      ? tHtml('editor.toolbar.hintPolicy')
+      : tHtml('editor.toolbar.hintLive');
 
   const toolbar = document.createElement('div');
   toolbar.className = 'cms-toolbar';
   toolbar.dataset.delivery = staticDelivery ? 'static' : 'server';
   toolbar.innerHTML = `
-    <div class="cms-toolbar-inner" role="toolbar" aria-label="Site editor">
+    <div class="cms-toolbar-inner" role="toolbar" aria-label="${tHtml('editor.toolbar.label')}">
       <div class="cms-toolbar-left">
-        <button type="button" class="cms-status-pill" data-mode="${badgeLabel.toLowerCase()}" aria-haspopup="dialog" aria-expanded="false" aria-controls="cms-status-panel">
+        <button type="button" class="cms-status-pill" data-mode="${mode}" aria-haspopup="dialog" aria-expanded="false" aria-controls="cms-status-panel">
           <span class="cms-status-dot cms-status-idle" aria-hidden="true"></span>
           <span class="cms-status-text">${badgeLabel}</span>
         </button>
@@ -56,35 +58,35 @@ function renderToolbar(staticDelivery) {
       </div>
       <div class="cms-toolbar-right">
         ${renderDraftControls(staticDelivery)}
-        <button type="button" class="cms-retry-rebuild-btn" hidden>Retry update</button>
-        <div class="cms-mode-switch" role="group" aria-label="Page mode">
-          <button type="button" class="cms-mode-edit" aria-pressed="true">Edit</button>
-          <button type="button" class="cms-mode-preview" aria-pressed="false">Preview</button>
+        <button type="button" class="cms-retry-rebuild-btn" hidden>${tHtml('editor.toolbar.retryUpdate')}</button>
+        <div class="cms-mode-switch" role="group" aria-label="${tHtml('editor.toolbar.pageMode')}">
+          <button type="button" class="cms-mode-edit" aria-pressed="true">${tHtml('editor.toolbar.edit')}</button>
+          <button type="button" class="cms-mode-preview" aria-pressed="false">${tHtml('editor.toolbar.preview')}</button>
         </div>
-        <button type="button" class="cms-studio-btn" title="Toggle Content Studio panel">
+        <button type="button" class="cms-studio-btn" title="${tHtml('editor.toolbar.studioTitle')}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="9" y1="9" x2="21" y2="9"/></svg>
-          Studio
+          ${tHtml('editor.toolbar.studio')}
         </button>
         <details class="cms-tools-menu">
-          <summary class="cms-tools-summary">Tools</summary>
+          <summary class="cms-tools-summary">${tHtml('editor.toolbar.tools')}</summary>
           <div class="cms-tools-popover">
-            <button class="cms-highlight-btn" type="button" aria-label="Show editable areas" aria-pressed="false">
+            <button class="cms-highlight-btn" type="button" aria-label="${tHtml('editor.highlight.show')}" aria-pressed="false">
               <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-              <span class="cms-highlight-label">Show editable areas</span>
+              <span class="cms-highlight-label">${tHtml('editor.highlight.show')}</span>
             </button>
-            <button class="cms-map-btn" type="button" aria-label="Content map">
+            <button class="cms-map-btn" type="button" aria-label="${tHtml('editor.map.title')}">
               <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-              Content map
+              ${tHtml('editor.map.title')}
             </button>
           </div>
         </details>
-        <button class="cms-exit-btn" type="button" title="Sign out" aria-label="Sign out">
+        <button class="cms-exit-btn" type="button" title="${tHtml('editor.toolbar.signOut')}" aria-label="${tHtml('editor.toolbar.signOut')}">
           <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          <span class="cms-btn-label">Sign out</span>
+          <span class="cms-btn-label">${tHtml('editor.toolbar.signOut')}</span>
         </button>
       </div>
     </div>
-    <div id="cms-status-panel" class="cms-status-panel" role="dialog" aria-label="Save status" hidden>
+    <div id="cms-status-panel" class="cms-status-panel" role="dialog" aria-label="${tHtml('editor.toolbar.statusPanel')}" hidden>
       <p class="cms-status-panel-mode"><strong>${badgeLabel}</strong></p>
       <p class="cms-status-panel-hint">${badgeHint}</p>
       <p class="cms-status-panel-line" data-line="status" hidden></p>
@@ -93,19 +95,19 @@ function renderToolbar(staticDelivery) {
       <p class="cms-status-panel-line" data-line="drafts" hidden></p>
       <p class="cms-status-panel-line" data-line="build" hidden></p>
       <div class="cms-status-panel-actions">
-        <button type="button" data-action="undo" hidden>Undo last change</button>
-        <button type="button" data-action="history">History</button>
+        <button type="button" data-action="undo" hidden>${tHtml('editor.toolbar.undoLast')}</button>
+        <button type="button" data-action="history">${tHtml('editor.toolbar.history')}</button>
       </div>
     </div>
     <div class="cms-dialog-backdrop" hidden>
       <div class="cms-dialog" role="dialog" aria-modal="true" aria-labelledby="cms-signout-title" aria-describedby="cms-signout-copy">
-        <h2 id="cms-signout-title">Unpublished changes</h2>
+        <h2 id="cms-signout-title">${tHtml('editor.toolbar.unpublishedTitle')}</h2>
         <p id="cms-signout-copy"></p>
         <div class="cms-dialog-actions">
-          <button class="cms-signout-cancel" type="button">Cancel</button>
-          <button class="cms-signout-discard" type="button">Discard and sign out</button>
-          <button class="cms-signout-keep" type="button">Keep drafts and sign out</button>
-          <button class="cms-signout-publish" type="button">Publish and sign out</button>
+          <button class="cms-signout-cancel" type="button">${tHtml('editor.toolbar.cancel')}</button>
+          <button class="cms-signout-discard" type="button">${tHtml('editor.toolbar.discardAndSignOut')}</button>
+          <button class="cms-signout-keep" type="button">${tHtml('editor.toolbar.keepAndSignOut')}</button>
+          <button class="cms-signout-publish" type="button">${tHtml('editor.toolbar.publishAndSignOut')}</button>
         </div>
       </div>
     </div>
@@ -131,7 +133,7 @@ function renderToolbar(staticDelivery) {
 export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onOpenHistory, onLogout }) {
   const staticDelivery = isStaticDelivery();
   const toolbar = renderToolbar(staticDelivery);
-  const modeLabel = staticDelivery || isPolicyDraftMode() ? 'Draft' : 'Live';
+  const modeLabel = staticDelivery || isPolicyDraftMode() ? t('editor.toolbar.draft') : t('editor.toolbar.live');
 
   const statusDot = toolbar.querySelector('.cms-status-dot');
   const statusText = toolbar.querySelector('.cms-status-text');
@@ -177,10 +179,10 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   /** @param {number} at */
   function savedAgo(at) {
     const seconds = Math.round((Date.now() - at) / 1000);
-    if (seconds < 45) return 'Last saved just now';
+    if (seconds < 45) return t('editor.toolbar.savedJustNow');
     const minutes = Math.round(seconds / 60);
-    if (minutes < 60) return `Last saved ${minutes} min ago`;
-    return `Last saved at ${new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+    if (minutes < 60) return t('editor.toolbar.savedMinutesAgo', { minutes });
+    return t('editor.toolbar.savedAt', { time: new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) });
   }
 
   /** @param {string} name @param {string} text */
@@ -194,7 +196,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   function renderPanel() {
     setLine('status', current.state === 'idle' ? '' : current.text);
     const problemRecent = lastProblem && Date.now() - lastProblem.at < 10 * 60 * 1000;
-    setLine('problem', problemRecent && lastProblem ? `Last problem: ${lastProblem.message}` : '');
+    setLine('problem', problemRecent && lastProblem ? t('editor.toolbar.lastProblem', { message: lastProblem.message }) : '');
     setLine('saved', lastSavedAt ? savedAgo(lastSavedAt) : '');
     setLine('build', buildLabel);
     const undoButton = /** @type {HTMLElement | null} */ (panel.querySelector('[data-action="undo"]'));
@@ -213,7 +215,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     renderPanel();
     positionPanel();
     const count = await fetchDraftCount();
-    setLine('drafts', count > 0 ? `${count} unpublished change${count === 1 ? '' : 's'}` : '');
+    setLine('drafts', count > 0 ? changeCount(count) : '');
     positionPanel();
   }
 
@@ -277,7 +279,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   function setUnsaved(unsaved) {
     if (unsaved && !beforeUnsaved) {
       beforeUnsaved = { dot: statusDot?.className ?? '', text: statusText?.textContent ?? '' };
-      showStatus('dirty', 'Unsaved changes');
+      showStatus('dirty', t('editor.toolbar.unsaved'));
     } else if (!unsaved && beforeUnsaved) {
       if (statusDot) statusDot.className = beforeUnsaved.dot;
       if (statusText) statusText.textContent = beforeUnsaved.text;
@@ -293,10 +295,10 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
         headers: { 'x-caret-request': '1' },
       }),
     setStatus: (state, text) => (rebuildPending && state === 'idle'
-      ? setStatus('error', 'Site update failed')
+      ? setStatus('error', t('editor.deploy.failed'))
       : setStatus(state, text)),
     setBuildId(buildId) {
-      buildLabel = buildId ? `Build ${buildId}` : '';
+      buildLabel = buildId ? t('editor.toolbar.build', { id: buildId }) : '';
       if (!panel.hidden) renderPanel();
     },
   });
@@ -322,14 +324,14 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     const discard = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-discard'));
     const cancel = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-cancel'));
     const title = /** @type {HTMLElement} */ (backdrop.querySelector('#cms-signout-title'));
-    title.textContent = 'Unpublished changes';
-    publish.textContent = 'Publish and sign out';
+    title.textContent = t('editor.toolbar.unpublishedTitle');
+    publish.textContent = t('editor.toolbar.publishAndSignOut');
     publish.classList.remove('is-danger');
-    keep.textContent = 'Keep drafts and sign out';
-    discard.textContent = 'Discard and sign out';
+    keep.textContent = t('editor.toolbar.keepAndSignOut');
+    discard.textContent = t('editor.toolbar.discardAndSignOut');
     copy.textContent = canKeep
-      ? `You have ${count} unpublished change${count === 1 ? '' : 's'}. Publish now, keep the drafts for your next sign-in, or discard them.`
-      : `You have ${count} unpublished change${count === 1 ? '' : 's'}. Drafts from this session can't be reopened after signing out, so publish, discard, or cancel.`;
+      ? t(count === 1 ? 'editor.toolbar.signOutKeepOne' : 'editor.toolbar.signOutKeepOther', { count })
+      : t(count === 1 ? 'editor.toolbar.signOutLoseOne' : 'editor.toolbar.signOutLoseOther', { count });
     publish.hidden = !canPublishDrafts;
     keep.hidden = !canKeep;
     discard.hidden = false;
@@ -445,7 +447,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       if (publishButton) publishButton.hidden = !data.canPublish;
       if (retryRebuildButton) retryRebuildButton.hidden = !data.retryRebuild || !data.canPublish;
       rebuildPending = data.retryRebuild && data.canPublish;
-      if (rebuildPending && current.state === 'idle') setStatus('error', 'Published, site not updated');
+      if (rebuildPending && current.state === 'idle') setStatus('error', t('editor.publish.notUpdated'));
       draftCount = data.count;
       return data.count;
     } catch {
@@ -455,7 +457,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
 
   /** @param {{ reload?: boolean }} [options] */
   async function publishDrafts({ reload = true } = {}) {
-    setStatus('saving', 'Publishing…');
+    setStatus('saving', t('editor.toolbar.publishing'));
     try {
       const presentation = presentPublishResult(await draftClient.publish());
       await fetchDraftCount();
@@ -467,8 +469,8 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       else showToast(presentation.toast.message, presentation.toast.kind);
       return presentation.completed;
     } catch {
-      setStatus('error', 'Publish failed');
-      showToast('Publication could not finish. Some content may already be published. Retry Publish to recover.', 'error');
+      setStatus('error', t('editor.toolbar.publishFailed'));
+      showToast(t('editor.toolbar.publishFailedCopy'), 'error');
       return false;
     }
   }
@@ -477,9 +479,9 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     // Text on the page that hasn't saved yet (still being edited, or kept after
     // a failed save) is gone once the page unloads.
     if (hasUnsavedEdits() && !(await confirmToolbarAction({
-      title: 'Unsaved changes',
-      copy: 'Some text on this page hasn’t saved yet. Signing out now loses it.',
-      confirmLabel: 'Sign out anyway',
+      title: t('editor.toolbar.unsaved'),
+      copy: t('editor.toolbar.unsavedSignOutCopy'),
+      confirmLabel: t('editor.toolbar.signOutAnyway'),
       danger: true,
     }))) return;
 
@@ -495,7 +497,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
         try {
           await draftClient.discard();
         } catch {
-          showToast('Some drafts need publish recovery. Retry Publish before discarding.', 'error');
+          showToast(t('editor.toolbar.discardNeedsRecovery'), 'error');
           return;
         }
       } else if (action !== 'keep') {
@@ -511,13 +513,13 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   publishBtn?.addEventListener('click', async () => {
     const changes = changeCount(draftCount);
     if (!(await confirmToolbarAction({
-      title: `Publish ${draftCount === 1 ? '1 change' : `${draftCount} changes`}?`,
+      title: draftCount === 1 ? t('editor.toolbar.publishConfirmOne') : t('editor.toolbar.publishConfirmOther', { count: draftCount }),
       // When visitors see it depends on the server (a Markdown source can need
       // a rebuild), so only static delivery says it here; the result says it.
       copy: staticDelivery
-        ? `This publishes ${changes}. Visitors see ${draftCount === 1 ? 'it' : 'them'} the next time the site updates.`
-        : `This publishes ${changes}.`,
-      confirmLabel: 'Publish',
+        ? t(draftCount === 1 ? 'editor.toolbar.publishCopyStaticOne' : 'editor.toolbar.publishCopyStaticOther', { changes })
+        : t('editor.toolbar.publishCopy', { changes }),
+      confirmLabel: t('editor.toolbar.publish'),
       restoreFocus: publishBtn,
     }))) return;
     await publishDrafts();
@@ -527,17 +529,17 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   discardBtn?.addEventListener('click', async () => {
     const changes = changeCount(draftCount);
     if (!(await confirmToolbarAction({
-      title: `Discard ${changes}?`,
-      copy: `This permanently removes ${changes}.`,
-      confirmLabel: 'Discard',
+      title: t('editor.toolbar.discardConfirm', { changes }),
+      copy: t('editor.toolbar.discardCopy', { changes }),
+      confirmLabel: t('editor.toolbar.discard'),
       danger: true,
       restoreFocus: discardBtn,
     }))) return;
     try {
       await draftClient.discard();
-      reloadWithToast(`Discarded ${changes}`, 'success');
+      reloadWithToast(t('editor.toolbar.discarded', { changes }), 'success');
     } catch {
-      showToast('Discard failed', 'error');
+      showToast(t('editor.toolbar.discardFailed'), 'error');
     }
   });
 
@@ -550,8 +552,8 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     const count = await fetchDraftCount();
     if (draftControls) draftControls.hidden = count === 0;
     const label = toolbar.querySelector('.cms-go-live-label');
-    if (label) label.textContent = count > 0 ? `Publish ${count}` : 'Publish';
-    publishBtn?.setAttribute('aria-label', count > 0 ? `Publish ${changeCount(count)}` : 'Publish');
+    if (label) label.textContent = count > 0 ? t('editor.toolbar.publishCount', { count }) : t('editor.toolbar.publish');
+    publishBtn?.setAttribute('aria-label', count > 0 ? t('editor.toolbar.publishChanges', { changes: changeCount(count) }) : t('editor.toolbar.publish'));
   }
   refreshDraftControls();
   window.addEventListener('cms:draftSaved', refreshDraftControls);
@@ -561,22 +563,22 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   });
   retryRebuildButton?.addEventListener('click', async () => {
     retryRebuildButton.disabled = true;
-    setStatus('saving', 'Retrying update…');
+    setStatus('saving', t('editor.toolbar.retryingUpdate'));
     try {
       const data = await draftClient.retryDeployment();
       retryRebuildButton.hidden = true;
-      setStatus(data.deploymentTracked ? 'saving' : 'idle', data.deploymentTracked ? 'Updating site…' : 'Site update requested');
-      showToast('Site update requested. Your published content is unchanged.', 'success');
+      setStatus(data.deploymentTracked ? 'saving' : 'idle', data.deploymentTracked ? t('editor.deploy.updating') : t('editor.toolbar.updateRequested'));
+      showToast(t('editor.toolbar.updateRequestedCopy'), 'success');
       if (data.deploymentTracked) deploymentStatus.schedule();
     } catch {
-      setStatus('error', 'Published, site not updated');
-      showToast('The site still couldn’t start updating. Try again later, or ask your developer to check how the site is deployed.', 'error');
+      setStatus('error', t('editor.publish.notUpdated'));
+      showToast(t('editor.toolbar.retryUpdateFailed'), 'error');
     } finally { retryRebuildButton.disabled = false; }
   });
 
   void deploymentStatus.refresh();
 
-  const keys = mountToolbarKeys(/** @type {HTMLElement} */ (toolbar.querySelector('.cms-toolbar-inner')), { skipLabel: 'Skip to editor toolbar' });
+  const keys = mountToolbarKeys(/** @type {HTMLElement} */ (toolbar.querySelector('.cms-toolbar-inner')), { skipLabel: t('editor.toolbar.skip') });
   const studioButton = toolbar.querySelector('.cms-studio-btn');
   const mapButton = toolbar.querySelector('.cms-map-btn');
   const editModeButton = toolbar.querySelector('.cms-mode-edit');

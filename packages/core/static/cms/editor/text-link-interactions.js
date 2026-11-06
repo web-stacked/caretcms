@@ -1,4 +1,5 @@
 import { escapeHtml } from './linkify.js';
+import { t, tHtml } from './i18n.js';
 
 /** @typedef {HTMLElement & { _caretSkipSave?: boolean }} EditableElement */
 /** @typedef {{ dirtyEls: Set<Element>, linkPopupEl: HTMLElement | null }} TextEditorState */
@@ -54,13 +55,13 @@ export function createTextLinkInteractions({
           <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
           <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
         </svg>
-        <input type="text" class="cms-link-popover-input" placeholder="Paste URL or path (e.g. /contact)" value="${escapeHtml(initialUrl)}" />
+        <input type="text" class="cms-link-popover-input" placeholder="${tHtml('editor.link.placeholder')}" value="${escapeHtml(initialUrl)}" />
       </div>
       <div class="cms-link-popover-actions">
         <span class="cms-link-popover-hint">${navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl'}+K</span>
         <div class="cms-link-popover-btns">
-          <button type="button" class="cms-link-popover-cancel">Cancel</button>
-          <button type="button" class="cms-link-popover-apply">Apply</button>
+          <button type="button" class="cms-link-popover-cancel">${tHtml('editor.link.cancel')}</button>
+          <button type="button" class="cms-link-popover-apply">${tHtml('editor.link.apply')}</button>
         </div>
       </div>
     `;
@@ -133,7 +134,7 @@ export function createTextLinkInteractions({
     removeLinkHint();
     const hint = document.createElement('div');
     hint.className = 'cms-link-hint';
-    hint.textContent = `${navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl'}+K to link`;
+    hint.textContent = t('editor.link.hint', { modifier: navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl' });
     document.body.appendChild(hint);
     activeLinkHint = hint;
 
@@ -270,7 +271,7 @@ export function createTextLinkInteractions({
         e.preventDefault();
         focused._caretSkipSave = true;
         focused.blur();
-        showToast('Edit cancelled', 'success');
+        showToast(t('editor.edit.cancelled'), 'success');
         return;
       }
 
@@ -293,7 +294,7 @@ export function createTextLinkInteractions({
         focused._caretSkipSave = true;
         focused.blur();
         removeLinkHint();
-        showToast('Edit cancelled', 'success');
+        showToast(t('editor.edit.cancelled'), 'success');
       }
     }
   }

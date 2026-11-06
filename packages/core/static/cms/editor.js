@@ -33,6 +33,7 @@ import { revealAndFade } from './editor/highlight.js';
 import { findDeniedEntries, lockDeniedBindings } from './editor/permissions.js';
 import { hydrateStega } from './editor/stega-hydrate.js';
 import { createSessionRecovery } from './editor/session-recovery.js';
+import { applyCssMessages } from './editor/i18n.js';
 
 /**
  * A Set that reports its size after every change.
@@ -72,6 +73,7 @@ function boot() {
   // Promote stega-tagged (loader-fed) content into data-caret bindings before
   // any scanner runs, so prop/component/loop content is click-to-edit too.
   hydrateStega();
+  applyCssMessages();
 
   const sessionRecovery = createSessionRecovery();
   const onUnauthorized = () => sessionRecovery.handleExpired();

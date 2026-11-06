@@ -1,4 +1,5 @@
 import { imageUnderControl } from './image-edit.js';
+import { t } from './i18n.js';
 
 /**
  * Floating "Open page" affordance for editable elements that are or sit inside
@@ -149,14 +150,14 @@ function show(anchor, { fromHover = false } = {}) {
     btn.target = "_blank";
     btn.rel = "noopener noreferrer";
   }
-  btn.setAttribute('aria-label', `Open ${external ? "link" : "page"}: ${shortLabel(href)}`);
+  btn.setAttribute('aria-label', t(external ? 'editor.follow.linkLabel' : 'editor.follow.pageLabel', { destination: shortLabel(href) }));
   const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   icon.setAttribute('viewBox', '0 0 16 16');
   icon.setAttribute('fill', 'none');
   icon.setAttribute('aria-hidden', 'true');
   icon.innerHTML = '<path d="M5 11 L11 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/><path d="M6 5 L11 5 L11 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/>';
   const label = document.createElement('span');
-  label.textContent = `Open ${external ? "link" : "page"}`;
+  label.textContent = external ? t('editor.follow.link') : t('editor.follow.page');
   const destination = document.createElement('em');
   destination.textContent = shortLabel(href);
   btn.append(icon, label, destination);
