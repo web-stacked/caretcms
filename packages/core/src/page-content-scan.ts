@@ -65,7 +65,8 @@ function scanEditableCalls(frontmatter: string, record: (key: { collection: stri
     const [collection, id, ...rest] = match[2].split("::");
     if (!collection || !id) continue;
     const read = readLiteral(frontmatter, (match.index ?? 0) + match[0].length);
-    if (!read || !/^\s*\)/.test(frontmatter.slice(read.end))) continue;
+    // `as const` (which caretize writes) and `satisfies T` don't change the value.
+    if (!read || !/^\s*(?:(?:as\s+const|satisfies\s+[\w.<>[\], |]+)\s*)?\)/.test(frontmatter.slice(read.end))) continue;
     const prefix = rest.join("::");
     const visit = (value: Literal, path: string) => {
       if (typeof value === "string") {

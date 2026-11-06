@@ -107,6 +107,11 @@ describe("editable() defaults", () => {
     });
   });
 
+  it("reads literals marked as const or satisfies", () => {
+    const content = scanTemplate("---\nconst s = await editable('pages::menu::sections', [{ key: 'bread', label: 'Bread' }] as const);\nconst n = await editable('pages::menu::note', 'Baked daily' satisfies string);\n---\n");
+    expect(content.pages.menu).toEqual({ "sections.0.key": "bread", "sections.0.label": "Bread", note: "Baked daily" });
+  });
+
   it("reads an editable() call without a field prefix", () => {
     const content = scanTemplate("---\nconst data = await editable('components::footer', { note: 'Since 2016', links: [{ label: 'Menu', href: '/menu' }] });\n---\n");
     expect(content.components.footer).toEqual({ note: "Since 2016", "links.0.label": "Menu", "links.0.href": "/menu" });
