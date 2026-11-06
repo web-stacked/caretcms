@@ -17,7 +17,7 @@ import {
   htmlResponse,
   humanizeCollection,
   redirectResponse,
-  studioOverSite,
+  placeStudio,
   renderCollectionIcon,
   renderIcon,
   renderStudioPage,
@@ -33,8 +33,8 @@ export async function GET(context: APIContext): Promise<Response> {
   if (!isEditorAuthenticated(context)) {
     return redirectResponse(loginRedirect);
   }
-  const overSite = studioOverSite(context, runtime);
-  if (overSite) return overSite;
+  const placement = await placeStudio(context, runtime);
+  if ("redirect" in placement) return placement.redirect;
 
   if (!collection) {
     return redirectResponse(`${runtime.mountPath}/cms`);
@@ -867,6 +867,7 @@ export async function GET(context: APIContext): Promise<Response> {
       body,
       extraStyles,
       inlineScript,
+      siteError: placement.siteError,
     }),
   );
 }

@@ -20,7 +20,7 @@ import {
   htmlResponse,
   humanizeCollection,
   redirectResponse,
-  studioOverSite,
+  placeStudio,
   renderCollectionIcon,
   renderStudioPage,
   serializeJsonForScript,
@@ -73,8 +73,8 @@ export async function GET(context: APIContext): Promise<Response> {
   if (!isEditorAuthenticated(context)) {
     return redirectResponse(loginRedirect);
   }
-  const overSite = studioOverSite(context, runtime);
-  if (overSite) return overSite;
+  const placement = await placeStudio(context, runtime);
+  if ("redirect" in placement) return placement.redirect;
 
   const adapter = await resolveReadAdapter();
   const configuredCollections = await getStudioCollections(adapter);
@@ -233,6 +233,7 @@ export async function GET(context: APIContext): Promise<Response> {
       navigation,
       body,
       inlineScript,
+      siteError: placement.siteError,
     }),
   );
 }

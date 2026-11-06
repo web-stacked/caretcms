@@ -113,18 +113,26 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
   if (handoff) rememberPanelRoute(handoff);
   iframe.src = handoff ?? initialPanelRoute();
   iframe.title = t('editor.panel.label');
+  // The Studio pages this drawer has shown, so Back steps through the drawer's
+  // own pages: the frame shares the tab's history, and at the drawer's first
+  // page history.back() would leave the site.
+  /** @type {string[]} */
+  const visited = [];
   iframe.addEventListener('load', () => {
     loading.setAttribute('hidden', 'hidden');
     try {
       const iframeWindow = iframe.contentWindow;
       if (!iframeWindow) return;
-      rememberPanelRoute(`${iframeWindow.location.pathname}${iframeWindow.location.search}`);
+      const here = `${iframeWindow.location.pathname}${iframeWindow.location.search}`;
+      if (visited.at(-2) === here) visited.pop();
+      else if (visited.at(-1) !== here) visited.push(here);
+      rememberPanelRoute(here);
       // The Studio keeps its <title> current as the entry's title field changes.
       const showTitle = () => { titleElement.textContent = iframeWindow.document.title.split(' — ')[0]?.trim() || t('editor.panel.title'); };
       showTitle();
       const titleNode = iframeWindow.document.querySelector('title');
       if (titleNode) new MutationObserver(showTitle).observe(titleNode, { childList: true, characterData: true, subtree: true });
-      backButton.disabled = iframeWindow.location.pathname === studioPath;
+      backButton.disabled = visited.length < 2 && iframeWindow.location.pathname === studioPath;
       iframeWindow.document.addEventListener('keydown', handleEscape);
       // After navigating inside the drawer, start the next Tab at the new
       // page's heading rather than at the top of the Studio chrome.
@@ -350,11 +358,18 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
   }
 
   backButton.addEventListener('click', () => {
-    try {
-      iframe.contentWindow?.history.back();
-    } catch {
-      iframe.src = studioPath;
+    // Within the drawer's own pages, step back; from its first page, go to
+    // the Studio home rather than out of the site.
+    if (visited.length > 1) {
+      try {
+        iframe.contentWindow?.history.back();
+        return;
+      } catch {
+        // A cross-origin Studio: fall through to its home.
+      }
     }
+    visited.length = 0;
+    iframe.src = studioPath;
   });
   moveButton.addEventListener('click', () => setPanelSide(panelSide === 'left' ? 'right' : 'left'));
   expandButton.addEventListener('click', () => setExpanded(!panel.classList.contains('expanded')));

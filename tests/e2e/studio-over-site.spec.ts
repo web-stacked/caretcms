@@ -222,3 +222,24 @@ test("on a phone the drawer fills the screen and pushes nothing", async ({ page 
   await openStudio(page, "/admin/cms/pages/home");
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).paddingLeft)).toBe("0px");
 });
+
+test("Back steps through the drawer's own pages and never leaves the site", async ({ page }) => {
+  // Arriving from a Studio address, the entry is the drawer's first page.
+  await openStudio(page, "/admin/cms/pages/about");
+  await expectStudioURL(page, "/admin/cms/pages/about");
+  const back = panel(page).locator(".cms-panel-back");
+
+  await back.click();
+  await expectStudioURL(page, "/admin/cms");
+  await expect(page).toHaveURL(/\/about$/);
+  await expect(back).toBeDisabled();
+
+  // Within the drawer, Back returns to where it was.
+  const studio = page.frameLocator(`${STUDIO_PANEL} iframe`);
+  await studio.locator('a[href="/admin/cms/pages"]').first().click();
+  await expectStudioURL(page, "/admin/cms/pages");
+  await expect(back).toBeEnabled();
+  await back.click();
+  await expectStudioURL(page, "/admin/cms");
+  await expect(page).toHaveURL(/\/about$/);
+});

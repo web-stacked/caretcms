@@ -18,7 +18,7 @@ import {
   htmlResponse,
   humanizeCollection,
   redirectResponse,
-  studioOverSite,
+  placeStudio,
   renderStudioPage,
 } from "../views/studio-layout.js";
 import { studioNavigation } from "../views/studio-navigation.js";
@@ -59,8 +59,8 @@ export async function GET(context: APIContext): Promise<Response> {
   const previewPath = resolvePreviewPath(collectionConfig, id);
   // Opened in a tab of its own, the entry opens over the page that shows it.
   const sitePath = previewPath ?? runtime.editorHome;
-  const overSite = studioOverSite(context, runtime, sitePath);
-  if (overSite) return overSite;
+  const placement = await placeStudio(context, runtime, sitePath);
+  if ("redirect" in placement) return placement.redirect;
   // More actions only when there is something to do in it.
   const hasMoreActions = Boolean(previewPath) || (savingToPreview && editable) || deletable;
   const publicationFieldName = publicationField(collectionConfig);
@@ -388,6 +388,7 @@ export async function GET(context: APIContext): Promise<Response> {
       body,
       extraStyles,
       sitePath,
+      siteError: placement.siteError,
     }),
   );
 }

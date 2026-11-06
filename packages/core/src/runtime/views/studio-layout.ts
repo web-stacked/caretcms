@@ -47,6 +47,8 @@ export type StudioLayoutOptions = {
   skipLink?: { label: string; href: string };
   /** The site page this screen opens over when loaded outside the drawer; defaults to `editorHome`. */
   sitePath?: string;
+  /** The site page failed for the editor (its status): the Studio stays here and says so. */
+  siteError?: number | null;
 };
 
 export function humanizeCollection(name: string): string {
@@ -193,7 +195,7 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
     ${favicon}
     <script>
       (function () {
-        var overSite = ${serializeJsonForScript(runtime.inlineEditor ? (opts.sitePath ?? runtime.editorHome) : null)};
+        var overSite = ${serializeJsonForScript(runtime.inlineEditor && !opts.siteError ? (opts.sitePath ?? runtime.editorHome) : null)};
         try {
           var theme = localStorage.getItem('caret-studio-theme');
           if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
@@ -222,6 +224,7 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
           </button>
         </header>
         <main id="studio-main" class="studio-main studio-scroll" tabindex="-1">
+          ${opts.siteError ? `<div class="studio-site-error" role="alert"><p>${escapeHtml(m["studio.siteError"].replace("{status}", String(opts.siteError)))}</p><a class="studio-btn-ghost" href="${escapeHtml(opts.sitePath ?? runtime.editorHome)}">${escapeHtml(m["studio.siteErrorRetry"])}</a></div>` : ""}
           ${body}
         </main>
       </div>
@@ -571,27 +574,54 @@ function studioOverSiteUrl(sitePath: string, route: string): string {
   return `${sitePath.split("#")[0]}${STUDIO_HANDOFF}${encodeURIComponent(route)}`;
 }
 
+/** Where a Studio page renders: over its site page, or here (with why). */
+export type StudioPlacement = { redirect: Response } | { siteError: number | null };
+
+/** The status the editor would get for `path`, or null when it can't be checked. */
+async function editorPageStatus(context: { request: Request; url: URL }, path: string): Promise<number | null> {
+  try {
+    const response = await fetch(new URL(path, context.url), {
+      headers: { cookie: context.request.headers.get("cookie") ?? "", accept: "text/html" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(8000),
+    });
+    await response.body?.cancel().catch(() => undefined);
+    return response.status;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The Studio lives over the site, in the editor's drawer. A Studio page opened
  * in a tab of its own (a bookmark, a typed URL, the dev toolbar) sends the
  * browser to `sitePath` with the Studio open on this route, expanded. Pages
  * loaded inside the drawer are frames and render as usual. Without the inline
  * editor there is no drawer, so the Studio stays a page.
+ *
+ * The site page is loaded first, as the editor would see it: when it fails
+ * (a saved change can break a page for editors only), the Studio renders here
+ * with the reason, so the editor can undo the change instead of being sent to
+ * an error page with no way back.
  */
-export function studioOverSite(
+export async function placeStudio(
   context: { request: Request; url: URL },
   runtime: CaretRuntimeConfig,
   sitePath: string = runtime.editorHome,
-): Response | null {
-  if (!runtime.inlineEditor) return null;
-  if (context.request.headers.get("sec-fetch-dest") !== "document") return null;
-  return new Response(null, {
-    status: 303,
-    headers: {
-      Location: studioOverSiteUrl(sitePath, `${context.url.pathname}${context.url.search}`),
-      "Cache-Control": "private, no-store",
-    },
-  });
+): Promise<StudioPlacement> {
+  if (!runtime.inlineEditor) return { siteError: null };
+  if (context.request.headers.get("sec-fetch-dest") !== "document") return { siteError: null };
+  const status = await editorPageStatus(context, sitePath.split("#")[0]);
+  if (status !== null && status >= 500) return { siteError: status };
+  return {
+    redirect: new Response(null, {
+      status: 303,
+      headers: {
+        Location: studioOverSiteUrl(sitePath, `${context.url.pathname}${context.url.search}`),
+        "Cache-Control": "private, no-store",
+      },
+    }),
+  };
 }
 
 export function redirectResponse(location: string): Response {

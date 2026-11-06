@@ -291,6 +291,25 @@ kbd {
   .studio-embedded .studio-main { --studio-main-pad-top: var(--space-theme-lg); padding: var(--studio-main-pad-top) var(--space-theme-lg) var(--space-theme-lg); }
 }
 
+/* A Studio address whose site page failed for the editor: the Studio renders on
+   its own page and says why, so the change can be undone. */
+.studio-site-error {
+  max-width: 72rem;
+  margin: 0 auto var(--space-theme-lg);
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid var(--studio-red);
+  border-radius: var(--radius-theme-sm);
+  background: var(--studio-surface);
+  color: var(--studio-text);
+  font-size: 0.875rem;
+}
+.studio-site-error p { margin: 0; max-width: 52rem; }
+
 /* Page header shared by Studio pages */
 .studio-page { max-width: 72rem; margin: 0 auto; }
 
