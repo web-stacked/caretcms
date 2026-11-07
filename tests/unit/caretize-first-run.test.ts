@@ -84,7 +84,7 @@ describe("interface chrome is not content", () => {
   });
 
   it("skips the home link / logo, but keeps ordinary content links", async () => {
-    const src = `<header><a href="/" class="logo">Crumb <span>&</span> Kettle</a></header>
+    const src = `<header><a href="/" class="logo">Acme <span>&</span> Co</a></header>
 <ul><li><a href="/about">About us</a></li></ul>`;
     const plan = await planFile(src, "src/layouts/Base.astro", { minConfidence: "low", rich: true });
     expect(plan.tags.map((t) => t.candidate.text)).toEqual(["About us"]);
