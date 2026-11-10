@@ -197,5 +197,4 @@ These are baselines without hard pass/fail thresholds or remote-latency models.
 Use provider-specific costs and distributions before designing optional query
 capabilities. The original filesystem fallback parsed the whole shared revision
 map for each entry; the new batch method preserves the content/version locks
-while avoiding those repeated reads. Local before/after measurements and their
-limitations are recorded in the [release notes](product/release-hardening-2026-09.md).
+while avoiding those repeated reads.

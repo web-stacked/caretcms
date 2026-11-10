@@ -8,14 +8,16 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
-## [0.6.0] - 2026-11-06
+## [0.6.0] - 2026-11-10
 
-Redesigns the Studio and the toolbar, makes editing simpler and safer (edits
-save on their own with Undo, drafts say what Publish will do, the Studio lists
-page content before anything is saved), opens the Studio over the site, and
-fixes 22 bugs found in a review of 0.5.0 plus the problems two first-time-user
-trials on fresh Astro sites turned up. Some changes affect stored data, API
-responses, permission policies, Studio dictionaries and Studio URLs; read the
+Redesigns the Studio and the toolbar and opens the Studio over the site.
+Edits save on their own with Undo, drafts say what Publish will do, and the
+Studio lists page content before anything is saved. Text from content
+collections and data files is editable on the page, and CaretCMS works with
+view transitions, server rendering, `file()` collections, `getStaticPaths`
+pages and `reference()` fields. Fixes 22 bugs from 0.5.0, six of them security
+bugs. Some changes affect stored data, API responses, permission policies,
+Studio dictionaries and Studio URLs; read the
 [upgrade steps](docs/releases/0.6.0.md#upgrading) first.
 
 ### Security
@@ -27,10 +29,10 @@ responses, permission policies, Studio dictionaries and Studio URLs; read the
 - Editor, Studio, and API responses send `Cache-Control: private, no-store`.
 - Login and upload limit request size while reading the body and cancel
   oversized requests.
-- KV editor and session overlays use the site's `keyPrefix`. Prefixed sites in
-  one namespace no longer share drafts.
-- Worker session cookies are verified before a private overlay is chosen.
-  Forged cookies get public content.
+- KV drafts and sessions are stored under the site's `keyPrefix`. Sites with
+  different prefixes in one namespace no longer share drafts.
+- On Cloudflare, session cookies are verified before drafts are shown. A
+  forged cookie gets the public site.
 
 ### Fixed
 
@@ -100,8 +102,8 @@ responses, permission policies, Studio dictionaries and Studio URLs; read the
   when Git closes an unused input pipe.
 - Caretize writes files atomically and refuses to overwrite a file that changed
   after the scan, or a symlink.
-- Collection create and delete by real editors write to base storage in
-  preview, static, and policy modes.
+- Creating or deleting a collection in the Studio changes the site's content
+  even when edits are drafts. Before, it only changed the editor's drafts.
 - Studio forms for collections without a schema are inferred from the entry
   being edited. Before, every entry used the first entry's fields, so a page
   with different sections opened as an empty form whose save replaced it.
@@ -217,8 +219,8 @@ responses, permission policies, Studio dictionaries and Studio URLs; read the
   template.
 - `caretize init` offers to tag your content right after wiring CaretCMS, so
   the first run is one command.
-- Merged draft views include `baseRevision`. Send it as `expectedBaseRevision`;
-  a stale value returns 409 with `currentBaseRevision`.
+- Entries returned with an editor's draft include `baseRevision`. Send it as
+  `expectedBaseRevision`; a stale value returns 409 with `currentBaseRevision`.
 - Optional `StorageAdapter` members: `guarantees`, `getEntrySnapshot`,
   `getEntrySnapshots`, `committableEntryPaths`, `preparePublicationSources`,
   `makeRecoveryOverlay`, and Git receipt methods on editor overlays. The file
@@ -230,7 +232,7 @@ responses, permission policies, Studio dictionaries and Studio URLs; read the
   files imported from `src/content`, is editable on the page without
   annotations when Markdown storage is used. Editors see their drafts after a
   reload. Values a schema restricts to a list, dates, URLs, ids, and numbers
-  are never marked, and text the page splits or rewrites is bound only where
+  are never made editable, and text the page splits or rewrites is bound only where
   the whole value appears. `caret({ bindContent: false })` turns it off.
 - Studio forms use the JSON Schemas Astro generates for content collections,
   `file()` collections included, so enums, defaults, and required fields
@@ -253,11 +255,9 @@ responses, permission policies, Studio dictionaries and Studio URLs; read the
 - `CARET_GIT_JOURNAL_RETRY=true` lets an interrupted Git commit finish later
   without publishing again. The toolbar shows Retry Git history while one
   is pending.
-- Opt-in coordinated Durable Object drafts save a multi-entry batch in one
-  transaction.
-- CI tests the packed packages in a separate project on Astro 6.0.0 and 7.2.4
-  with Node 22.12 and 24, runs native Cloudflare storage tests, and reopens
-  data written by 0.5.0.
+- `cloudflareDurableStorage({ editorDrafts: "coordinated" })` saves drafts
+  that change several entries in one transaction, so a save either changes
+  them all or none. See [Durable Object storage](docs/cloudflare-durable-storage.md).
 
 ### Changed
 
