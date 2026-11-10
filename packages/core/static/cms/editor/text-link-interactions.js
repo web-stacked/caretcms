@@ -1,4 +1,5 @@
 import { escapeHtml } from './linkify.js';
+import { t, tHtml } from './i18n.js';
 
 /** @typedef {HTMLElement & { _caretSkipSave?: boolean }} EditableElement */
 /** @typedef {{ dirtyEls: Set<Element>, linkPopupEl: HTMLElement | null }} TextEditorState */
@@ -10,13 +11,13 @@ import { escapeHtml } from './linkify.js';
  * @param {TextEditorState} options.state
  * @param {(text: string) => string} options.clientLinkify
  * @param {ShowToast} options.showToast
- * @param {WeakMap<HTMLElement, string>} options.snapshots
+ * @param {WeakMap<HTMLElement, string>} options.editStarts Each field's text when editing began; Escape restores it.
  */
 export function createTextLinkInteractions({
   state,
   clientLinkify,
   showToast,
-  snapshots,
+  editStarts,
 }) {
   /** @type {HTMLDivElement | null} */
   let activePopover = null;
@@ -54,13 +55,13 @@ export function createTextLinkInteractions({
           <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
           <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
         </svg>
-        <input type="text" class="cms-link-popover-input" placeholder="Paste URL or path (e.g. /contact)" value="${escapeHtml(initialUrl)}" />
+        <input type="text" class="cms-link-popover-input" placeholder="${tHtml('editor.link.placeholder')}" value="${escapeHtml(initialUrl)}" />
       </div>
       <div class="cms-link-popover-actions">
         <span class="cms-link-popover-hint">${navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl'}+K</span>
         <div class="cms-link-popover-btns">
-          <button type="button" class="cms-link-popover-cancel">Cancel</button>
-          <button type="button" class="cms-link-popover-apply">Apply</button>
+          <button type="button" class="cms-link-popover-cancel">${tHtml('editor.link.cancel')}</button>
+          <button type="button" class="cms-link-popover-apply">${tHtml('editor.link.apply')}</button>
         </div>
       </div>
     `;
@@ -133,7 +134,7 @@ export function createTextLinkInteractions({
     removeLinkHint();
     const hint = document.createElement('div');
     hint.className = 'cms-link-hint';
-    hint.textContent = `${navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl'}+K to link`;
+    hint.textContent = t('editor.link.hint', { modifier: navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl' });
     document.body.appendChild(hint);
     activeLinkHint = hint;
 
@@ -161,16 +162,16 @@ export function createTextLinkInteractions({
       : null;
 
     // Ctrl+S / Cmd+S — save focused element by triggering blur save
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
       e.preventDefault();
-      if (focused && focused.matches('[data-caret]')) {
+      if (focused && focused.matches('[data-caret], [data-caret-md]')) {
         focused.blur();
       }
       return;
     }
 
     // Ctrl+K / Cmd+K — insert link in a rich or linkable field
-    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
       if (focused && focused.matches('[data-caret]') && focused.hasAttribute('data-caret-rich')) {
         // Rich text mode — use execCommand('createLink')
         e.preventDefault();
@@ -259,30 +260,41 @@ export function createTextLinkInteractions({
       return;
     }
 
-    // Escape — revert to snapshot and blur without saving
+    // Escape — put back the text from when editing began, then blur; the blur
+    // saves that text if part of the edit had already autosaved.
     if (e.key === 'Escape') {
       if (activePopover) return;
 
+      // Markdown body blocks keep their own snapshot; their blur handler
+      // restores it when the save is skipped.
+      if (focused && focused.matches('[data-caret-md]')) {
+        e.preventDefault();
+        focused._caretSkipSave = true;
+        focused.blur();
+        showToast(t('editor.edit.cancelled'), 'success');
+        return;
+      }
+
       if (focused && focused.matches('[data-caret]')) {
         e.preventDefault();
-        const snapshot = snapshots.get(focused);
-        if (snapshot !== undefined) {
+        const start = editStarts.get(focused);
+        if (start !== undefined) {
           const isRich = focused.hasAttribute('data-caret-rich');
           const isLinkable = focused.hasAttribute('data-caret-raw');
           if (isRich) {
-            focused.innerHTML = snapshot;
+            focused.innerHTML = start;
           } else if (isLinkable) {
-            focused.innerHTML = clientLinkify(snapshot);
-            focused.setAttribute('data-caret-raw', snapshot);
+            focused.innerHTML = clientLinkify(start);
+            focused.setAttribute('data-caret-raw', start);
           } else {
-            focused.textContent = snapshot;
+            focused.textContent = start;
           }
           state.dirtyEls.delete(focused);
         }
         focused._caretSkipSave = true;
         focused.blur();
         removeLinkHint();
-        showToast('Edit cancelled', 'success');
+        showToast(t('editor.edit.cancelled'), 'success');
       }
     }
   }

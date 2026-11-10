@@ -1,12 +1,13 @@
 import { canPerform } from "../authorization.js";
+import { isPageCollection, loadPageContent } from "../page-content.js";
 export const prerender = false;
 
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { getRuntimeConfig } from "../config.js";
-import { resolveAdapter } from "./_helpers.js";
+import { resolveReadAdapter } from "./_helpers.js";
 import {
-  getStudioCollections,
+  getRegisteredSchema,
   isKnownStudioCollection,
   resolveCollectionStudioConfig,
 } from "../schema-registry.js";
@@ -15,13 +16,13 @@ import { publicationField, resolvePreviewPath } from "../collection-policy.js";
 import {
   escapeHtml,
   htmlResponse,
+  humanizeCollection,
   redirectResponse,
+  placeStudio,
   renderStudioPage,
 } from "../views/studio-layout.js";
-
-function humanize(name: string): string {
-  return name.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
+import { studioNavigation } from "../views/studio-navigation.js";
+import { entryDisplayTitle, humanizeEntryId } from "../entry-title.js";
 
 export async function GET(context: APIContext): Promise<Response> {
   const runtime = getRuntimeConfig();
@@ -37,7 +38,7 @@ export async function GET(context: APIContext): Promise<Response> {
     return redirectResponse(`${runtime.mountPath}/cms`);
   }
 
-  const adapter = await resolveAdapter();
+  const adapter = await resolveReadAdapter();
   if (!(await isKnownStudioCollection(adapter, collection))) {
     return redirectResponse(`${runtime.mountPath}/cms`);
   }
@@ -48,23 +49,28 @@ export async function GET(context: APIContext): Promise<Response> {
       `${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(collectionConfig.singletonId)}`,
     );
   }
-  const label = collectionConfig.label || humanize(collection);
-  const studioCollections = await getStudioCollections(adapter);
-  const collectionSwitcher = studioCollections.map(({ name, config }) => ({
-    label: config.label || humanize(name),
-    href: config.singletonId
-      ? `${runtime.mountPath}/cms/${encodeURIComponent(name)}/${encodeURIComponent(config.singletonId)}`
-      : `${runtime.mountPath}/cms/${encodeURIComponent(name)}`,
-    selected: name === collection,
-  }));
+  const label = collectionConfig.label || humanizeCollection(collection);
+  const navigation = await studioNavigation(runtime, adapter, collection);
   const editable = await canPerform("edit", collection, id);
-  const deletable = editable && collectionConfig.deletable !== false && !collectionConfig.singletonId && await canPerform("delete", collection, id);
+  const pageCollection = isPageCollection(await loadPageContent(), collection, Boolean(getRegisteredSchema(collection)));
+  const deletable = editable && (collectionConfig.deletable ?? !pageCollection) && !collectionConfig.singletonId && await canPerform("delete", collection, id);
   const canRestore = editable && await canPerform("publish", collection, id);
   const savingToPreview = getRequestContext()?.overlayActive === true;
   const previewPath = resolvePreviewPath(collectionConfig, id);
+  // Opened in a tab of its own, the entry opens over the page that shows it.
+  const sitePath = previewPath ?? runtime.editorHome;
+  const placement = await placeStudio(context, runtime, sitePath);
+  if ("redirect" in placement) return placement.redirect;
+  // More actions only when there is something to do in it.
+  const hasMoreActions = Boolean(previewPath) || (savingToPreview && editable) || deletable;
   const publicationFieldName = publicationField(collectionConfig);
   const messages = runtime.messages;
   const isNew = context.url.searchParams.get("new") === "1";
+  // Named as on every other screen; the page keeps it current as fields change.
+  const stored = isNew ? null : await adapter.getEntry(collection, id).catch(() => null);
+  // A new entry is called what the editor typed in the create dialog.
+  const givenTitle = isNew ? context.url.searchParams.get("title")?.trim() : "";
+  const entryTitle = givenTitle || entryDisplayTitle(collection, id, stored?.data, collectionConfig);
 
   const config = {
     apiBasePath: runtime.apiBasePath,
@@ -78,32 +84,31 @@ export async function GET(context: APIContext): Promise<Response> {
     saveTarget: savingToPreview ? "preview" : "live",
     previewPath,
     titleField: collectionConfig.titleField ?? null,
-    fallbackTitle: collectionConfig.singletonId ? label : null,
+    fallbackTitle: collectionConfig.singletonId ? label : humanizeEntryId(id),
     publicationField: publicationFieldName,
     messages,
   };
 
-  const extraStyles = `@import "/__caret/admin-entry.css?v=studio-ux-20260913";
+  const extraStyles = `@import "/__caret/admin-entry.css";
     .editor-action-bar {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 0.75rem;
       position: sticky;
-      top: 0;
+      top: calc(var(--studio-main-pad-top, 0px) * -1);
       z-index: 8;
-      padding: 0.75rem 0;
-      margin: -0.75rem 0 0.75rem;
+      padding: calc(var(--studio-main-pad-top, 0px) + 0.25rem) 0 1rem;
+      margin: calc(var(--studio-main-pad-top, 0px) * -1) 0 1.25rem;
       border-bottom: 1px solid var(--studio-border);
       background: var(--studio-bg);
-      background: color-mix(in srgb, var(--studio-bg) 92%, transparent);
-      backdrop-filter: blur(14px);
     }
     .editor-heading { min-width: 0; }
     .editor-action-bar h1 {
       font-family: var(--studio-font-heading);
-      font-size: 1.125rem;
-      font-weight: 600;
+      font-size: clamp(1.25rem, 2.4vw, 1.5rem);
+      font-weight: 650;
+      letter-spacing: -0.02em;
       margin: 0;
       color: var(--studio-text);
       overflow: hidden;
@@ -177,17 +182,38 @@ export async function GET(context: APIContext): Promise<Response> {
       right: 0;
       display: grid;
       gap: 0.25rem;
-      width: min(17rem, calc(100vw - 2rem));
-      padding: 0.5rem;
+      width: min(16rem, calc(100vw - 2rem));
+      padding: 0.35rem;
       border: 1px solid var(--studio-border-hover);
       border-radius: var(--radius-theme-sm);
       background: var(--studio-surface);
-      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.35);
+      box-shadow: var(--studio-shadow);
     }
     .editor-more-menu > a,
     .editor-more-menu > button {
       width: 100%;
+      justify-content: flex-start;
+      border-color: transparent;
+      background: transparent;
+      color: var(--studio-text);
       text-align: left;
+    }
+    .editor-more-menu > a:hover,
+    .editor-more-menu > button:hover {
+      border-color: transparent;
+      background: var(--studio-overlay);
+      color: var(--studio-text);
+    }
+    .editor-more-menu > .studio-btn-danger {
+      margin-top: 0.25rem;
+      border-top: 1px solid var(--studio-border);
+      border-radius: 0 0 var(--radius-theme-xs) var(--radius-theme-xs);
+      color: var(--studio-red);
+    }
+    .editor-more-menu > .studio-btn-danger:hover {
+      border-top-color: var(--studio-border);
+      background: var(--studio-red-soft);
+      color: var(--studio-red);
     }
     .editor-help {
       margin-bottom: 0.75rem;
@@ -212,7 +238,7 @@ export async function GET(context: APIContext): Promise<Response> {
     @media (max-width: 640px) {
       .editor-action-bar {
         flex-wrap: wrap;
-        padding: 0.625rem 0;
+        padding: calc(var(--studio-main-pad-top, 0px) + 0.25rem) 0 0.625rem;
       }
       .editor-heading { flex-basis: 100%; }
       .editor-action-bar h1 {
@@ -222,7 +248,9 @@ export async function GET(context: APIContext): Promise<Response> {
         -webkit-box-orient: vertical;
         -webkit-line-clamp: 2;
       }
-      .editor-actions { width: 100%; }
+      /* History and More actions stay at the start, where their menu opens
+         rightward; Save (only while changes are pending) sits at the end. */
+      .editor-actions { width: 100%; justify-content: flex-start; }
       .editor-more-menu {
         right: auto;
         left: 0;
@@ -233,40 +261,11 @@ export async function GET(context: APIContext): Promise<Response> {
         padding-inline: 0.75rem;
       }
     }
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.6);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-      padding: 1rem;
-    }
-    .modal-backdrop[hidden] { display: none; }
-    .modal-card {
-      width: 100%;
-      max-width: 24rem;
-      background: var(--studio-bg);
-      border: 1px solid var(--studio-border);
-      padding: 1.5rem;
-      text-align: center;
-    }
-    .modal-card .icon-wrap {
-      width: 48px;
-      height: 48px;
-      margin: 0 auto 1rem;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: rgba(239, 68, 68, 0.12);
-      border-radius: 50%;
-    }
-    .modal-card h2 { font-size: 0.875rem; font-weight: 600; margin: 0 0 0.5rem; color: var(--studio-text); }
-    .modal-card p { font-size: 0.75rem; color: var(--studio-text-muted); margin: 0 0 1.5rem; }
     .history-panel {
-      margin-bottom: 1.5rem;
+      margin-bottom: 1.25rem;
+      overflow: hidden;
       border: 1px solid var(--studio-border);
+      border-radius: var(--radius-theme-md);
       background: var(--studio-surface);
     }
     .history-panel-header {
@@ -279,7 +278,7 @@ export async function GET(context: APIContext): Promise<Response> {
     .history-panel-body { padding: 1rem; }
   `;
 
-  const body = `<div class="studio-fade-in" style="max-width:48rem;margin:0 auto;" id="cms-entry-page" data-collection="${escapeHtml(collection)}" data-id="${escapeHtml(id)}">
+  const body = `<div class="studio-fade-in" style="max-width:52rem;margin:0 auto;" id="cms-entry-page" data-collection="${escapeHtml(collection)}" data-id="${escapeHtml(id)}">
     <div id="loading" style="display:flex;justify-content:center;padding:5rem 0;">
       <div class="studio-spinner" style="width:24px;height:24px;"></div>
     </div>
@@ -297,12 +296,14 @@ export async function GET(context: APIContext): Promise<Response> {
     <div id="editor" hidden>
       <div class="editor-action-bar">
         <div class="editor-heading">
-          <h1 id="entry-title">…</h1>
+          <h1 id="entry-title">${escapeHtml(entryTitle)}</h1>
           <span id="status-msg" hidden></span>
+          <button id="btn-undo" type="button" class="studio-btn-ghost entry-undo" hidden>${escapeHtml(messages["entry.undo"])}</button>
           ${publicationFieldName ? `<span id="visibility-status" class="entry-visibility" aria-live="polite"></span>` : ""}
         </div>
         <div class="editor-actions">
-          <details id="entry-more" class="editor-more">
+          <button id="btn-history" ${canRestore && !isNew ? "" : "hidden"} data-available="${canRestore}" type="button" class="studio-btn-ghost" aria-controls="history-panel" aria-expanded="false">${escapeHtml(messages["entry.history"])}</button>
+          ${hasMoreActions ? `<details id="entry-more" class="editor-more" ${isNew ? "hidden" : ""}>
             <summary class="studio-btn-ghost">${escapeHtml(messages["common.more"])}</summary>
             <div class="editor-more-menu">
               <div class="editor-context">
@@ -310,20 +311,28 @@ export async function GET(context: APIContext): Promise<Response> {
                 <span id="save-target">${escapeHtml(savingToPreview ? messages["entry.savingPreview"] : messages["entry.savingLive"])}</span>
               </div>
               ${previewPath ? `<a id="btn-preview" class="studio-btn-ghost" href="${escapeHtml(previewPath)}" target="_blank" rel="noopener">${escapeHtml(messages["entry.preview"])}</a>` : ""}
-              <button id="btn-history" ${canRestore ? "" : "hidden"} type="button" class="studio-btn-ghost" aria-controls="history-panel" aria-expanded="false">${escapeHtml(messages["entry.history"])}</button>
+              ${savingToPreview && editable ? `<button id="btn-discard-draft" type="button" class="studio-btn-ghost" hidden>${escapeHtml(messages["entry.discardDraft"])}</button>` : ""}
               ${deletable ? `<button id="btn-delete" type="button" class="studio-btn-danger">${escapeHtml(messages["entry.delete"])}</button>` : ""}
             </div>
-          </details>
-          <button id="btn-save" ${editable ? "" : "hidden"} type="button" class="studio-save-clean" disabled>${escapeHtml(savingToPreview ? messages["entry.saveDraft"] : messages["entry.saveLive"])}</button>
+          </details>` : ""}
+          ${savingToPreview && editable ? `<button id="btn-publish" type="button" class="studio-btn-primary" hidden>${escapeHtml(messages["entry.publish"])}</button>` : ""}
+          <button id="btn-save" hidden type="button" class="studio-save-clean" disabled>${escapeHtml(messages["entry.saveNow"])}</button>
         </div>
       </div>
 
-      <details class="editor-help" id="editor-guide"${isNew ? " open" : ""}>
+      <details class="editor-help" id="editor-guide">
         <summary id="editor-guide-title">${escapeHtml(messages["entry.guideTitle"])}</summary>
         <p id="editor-guide-copy">${escapeHtml(messages["entry.guideCopy"])}</p>
       </details>
 
-      <div id="validation-warning" role="alert" hidden style="margin-bottom:1.5rem;padding:1rem;border:1px solid var(--studio-red);background:rgba(239,68,68,0.08);color:var(--studio-text);font-size:0.75rem;"></div>
+      ${savingToPreview ? `<details id="draft-changes" class="draft-changes" hidden>
+        <summary id="draft-changes-title"></summary>
+        <ul id="draft-changes-list" class="caret-history-diff"></ul>
+      </details>` : ""}
+
+      ${editable ? "" : `<p id="read-only-note" class="studio-read-only-note" role="note">${escapeHtml(messages["entry.readOnly"])}</p>`}
+
+      <div id="validation-warning" role="alert" hidden style="margin-bottom:1.25rem;padding:1rem;border:1px solid var(--studio-red);border-radius:var(--radius-theme-md);background:var(--studio-red-soft);color:var(--studio-text);font-size:0.85rem;"></div>
 
       <div id="history-panel" class="history-panel" role="region" aria-labelledby="history-panel-title" hidden>
         <div class="history-panel-header">
@@ -335,28 +344,12 @@ export async function GET(context: APIContext): Promise<Response> {
         </div>
       </div>
 
-      <div id="fields"></div>
-    </div>
-  </div>
-
-  <div id="delete-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" aria-describedby="delete-dialog-copy" hidden>
-    <div class="modal-card">
-      <div class="icon-wrap">
-        <svg style="width:24px;height:24px;color:var(--studio-red);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-        </svg>
-      </div>
-      <h2 id="delete-dialog-title">${escapeHtml(messages["entry.deleteTitle"])}</h2>
-      <p id="delete-dialog-copy">${escapeHtml(messages["entry.deleteCopy"])} <strong id="delete-entry-name" style="color:var(--studio-text);"></strong></p>
-      <div style="display:flex;justify-content:center;gap:0.75rem;">
-        <button id="btn-delete-cancel" type="button" class="studio-btn-ghost">${escapeHtml(messages["common.cancel"])}</button>
-        <button id="btn-delete-confirm" type="button" class="studio-btn-danger studio-btn-danger-confirm">${escapeHtml(messages["entry.delete"])}</button>
-      </div>
+      <div id="fields" tabindex="-1"></div>
     </div>
   </div>
 
   <div id="confirm-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-copy" hidden>
-    <div class="modal-card">
+    <div class="modal-card modal-card-confirm">
       <h2 id="confirm-dialog-title"></h2>
       <p id="confirm-dialog-copy"></p>
       <div style="display:flex;justify-content:flex-end;gap:0.75rem;">
@@ -367,7 +360,7 @@ export async function GET(context: APIContext): Promise<Response> {
   </div>
 
   <div id="conflict-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="conflict-dialog-title" aria-describedby="conflict-dialog-copy" hidden>
-    <div class="modal-card">
+    <div class="modal-card modal-card-confirm">
       <h2 id="conflict-dialog-title">${escapeHtml(messages["entry.conflictTitle"])}</h2>
       <p id="conflict-dialog-copy">${escapeHtml(messages["entry.conflictCopy"])}</p>
       <ul id="conflict-fields" class="conflict-fields"></ul>
@@ -380,19 +373,22 @@ export async function GET(context: APIContext): Promise<Response> {
   </div>
 
   <script type="application/json" id="caret-entry-config">${JSON.stringify(config).replace(/</g, "\\u003c")}</script>
-  <script type="module" src="/__caret/admin-entry.js?v=studio-ux-20260913"></script>`;
+  <script type="module" src="/__caret/admin-entry.js"></script>`;
 
   return htmlResponse(
     renderStudioPage({
       runtime,
-      title: `Edit ${id}`,
+      title: `Edit ${entryTitle}`,
       breadcrumb: [
-        { label: messages["nav.entries"], href: `${runtime.mountPath}/cms/${encodeURIComponent(collection)}` },
-        { label: id },
+        { label, href: `${runtime.mountPath}/cms/${encodeURIComponent(collection)}` },
+        { label: entryTitle },
       ],
-      collectionSwitcher,
+      navigation,
+      skipLink: { label: messages["entry.skipToForm"], href: "#fields" },
       body,
       extraStyles,
+      sitePath,
+      siteError: placement.siteError,
     }),
   );
 }

@@ -31,14 +31,17 @@ function isObjectSchema(node: JsonSchema): boolean {
 }
 
 /**
- * Promote Zod `description` → JSON Schema `title` (the Studio renders `title` as
- * the field label). Recurses into nested object properties and array items.
- * Non-destructive: an explicit `title` wins, and `description` is left intact.
+ * Move Zod `description` → JSON Schema `title` (the Studio renders `title` as
+ * the field label and `description` as help text below it). Recurses into
+ * nested object properties and array items. A description that became the
+ * label is removed, so the form doesn't repeat it as help. With an explicit
+ * `.meta({ title })` the description stays and is shown as help text.
  */
 function promoteTitles(node: JsonSchema): void {
   if (!node || typeof node !== "object") return;
   if (typeof node.description === "string" && typeof node.title !== "string") {
     node.title = node.description;
+    delete node.description;
   }
   const props = node.properties as Record<string, JsonSchema> | undefined;
   if (props && typeof props === "object") {
@@ -55,7 +58,8 @@ function promoteTitles(node: JsonSchema): void {
  *  - `z.date()` / `z.coerce.date()` → `{ type: "string", format: "date" }`.
  *    (Raw conversion throws "Date cannot be represented in JSON Schema" — the
  *    stored value is an ISO string, so a string with a date widget is correct.)
- *  - `description` → `title`, so each field gets a friendly label.
+ *  - `description` → `title`, so each field gets a friendly label (and no
+ *    duplicate help text; pair `.meta({ title })` with `.describe()` for help).
  *  - Custom widget hints (`image`, `html`, …) travel via `.meta({ format: "…" })`.
  *
  * Throws if the schema is not a Zod object — a collection schema must be an object.

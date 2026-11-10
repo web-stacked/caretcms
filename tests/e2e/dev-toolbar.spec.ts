@@ -144,6 +144,32 @@ test.describe("dev toolbar — binding inspector", () => {
     await expect(notification).not.toHaveAttribute("data-active", "");
   });
 
+  test("flags fields that stay read-only because of their markup", async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(() => {
+      const main = document.querySelector("main[data-caret-scope]")!;
+      const card = document.createElement("div");
+      card.setAttribute("data-caret", "card_body");
+      card.innerHTML = "<div>Layout</div><strong>text</strong>";
+      main.appendChild(card);
+      // Inline formatting alone is editable as rich text.
+      const formatted = document.createElement("p");
+      formatted.setAttribute("data-caret", "formatted");
+      formatted.innerHTML = "Some <em>formatted</em> text";
+      main.appendChild(formatted);
+    });
+
+    await openPanel(page);
+    await expect(page.getByText(/1 field can't be edited on the page/)).toBeVisible();
+    await expect(page.getByText("pages::home::card_body")).toBeVisible();
+    await expect(page.getByText("<div>", { exact: true })).toBeVisible();
+    await expect(page.getByText("read-only", { exact: true })).toHaveCount(1);
+    await expect(page.getByText("pages::home::formatted")).toHaveCount(0);
+    await expect(page
+      .getByRole("button", { name: TOOLBAR_BUTTON, exact: true })
+      .locator(".notification")).toHaveAttribute("data-active", "");
+  });
+
   test("shows an empty state when the page has no bindings", async ({ page }) => {
     await page.goto("/");
 

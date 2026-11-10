@@ -2,18 +2,31 @@ import { fileURLToPath } from "node:url";
 import { Buffer } from "node:buffer";
 import { test, expect } from "@playwright/test";
 import {
+  EDIT_PASSWORD,
   blurToSave,
   fetchAnonymousHtml,
   isMutatePost,
   loginAsEditor,
   replaceText,
   resetCmsStorage,
+  studioFrame,
 } from "./helpers";
 
 const HEADLINE = 'h1[data-caret="hero.headline"]';
 const TEMPLATE_HEADLINE = "Launch an Astro site with live inline editing.";
 const HERO_IMAGE = 'img[data-caret="hero.image"]';
 const SAMPLE_PNG = fileURLToPath(new URL("./fixtures/sample.png", import.meta.url));
+
+/** Mirrors contentHash in runtime/stega-policy.ts. */
+function contentHash(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < normalized.length; i++) {
+    hash ^= normalized.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
 
 function stegaTag(value: string, payload: unknown): string {
   const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
@@ -83,6 +96,12 @@ test.describe("inline editor — click to edit", () => {
   test("stega hydration promotes only valid bindings and removes hidden metadata", async ({ page }) => {
     const valid = stegaTag("Hydrated headline", "pages::home::hero.headline");
     const invalid = stegaTag("Invalid metadata", "not-a-binding");
+    // Automatic bindings carry a content hash: they bind the element holding the
+    // whole value (the heading around per-word spans), and never a fragment.
+    const statement = "Motion with meaning";
+    const hashed = { k: "pages::home::hero.subtext", h: contentHash(statement) };
+    const splitWords = `<span>Motion</span> <span>with</span> <span>${stegaTag("meaning", hashed)}</span>`;
+    const fragment = stegaTag("meaning", hashed);
     await page.route("**/*", async (route) => {
       const request = route.request();
       const url = new URL(request.url());
@@ -93,7 +112,8 @@ test.describe("inline editor — click to edit", () => {
       const response = await route.fetch();
       const body = (await response.text()).replace(
         /(<main\b[^>]*data-caret-scope="pages::home"[^>]*>)/,
-        `$1<p id="stega-valid">${valid}</p><p id="stega-invalid">${invalid}</p>`,
+        `$1<p id="stega-valid">${valid}</p><p id="stega-invalid">${invalid}</p>` +
+          `<h2 id="stega-split">${splitWords}</h2><p id="stega-fragment">Only ${fragment}</p>`,
       );
       await route.fulfill({ response, body });
     });
@@ -107,6 +127,10 @@ test.describe("inline editor — click to edit", () => {
     const invalidElement = page.locator("#stega-invalid");
     await expect(invalidElement).toHaveText("Invalid metadata");
     await expect(invalidElement).not.toHaveAttribute("data-caret", /.*/);
+    await expect(page.locator("#stega-split")).toHaveAttribute("data-caret", "pages::home::hero.subtext");
+    await expect(page.locator("#stega-split span").first()).not.toHaveAttribute("data-caret", /.*/);
+    await expect(page.locator("#stega-fragment")).toHaveText("Only meaning");
+    await expect(page.locator("#stega-fragment")).not.toHaveAttribute("data-caret", /.*/);
   });
 
   test("Studio panel survives blocked session storage and closes from iframe Escape", async ({ page }) => {
@@ -140,15 +164,26 @@ test.describe("inline editor — click to edit", () => {
     const studio = page.frameLocator('iframe[title="Content Studio"]');
     await expect(studio.getByRole("button", { name: "Sign out" })).toBeHidden();
     await expect(studio.locator(".studio-header")).toBeHidden();
-    await studio.getByRole("link", { name: /Pages/ }).focus();
+    // Opening the drawer moves focus into the Studio page: its heading, else its main area.
+    await expect(studio.locator("h1:focus, main:focus")).toHaveCount(1);
     await page.keyboard.press("Escape");
     await expect(page.locator(".cms-studio-panel")).toHaveAttribute("aria-hidden", "true");
     await expect(studioButton).toBeFocused();
     expect(pageErrors).toEqual([]);
 
+    // Expand widens the Studio over the same page, where it has room for its
+    // own header; the page and the Studio's place in it stay.
     await studioButton.click();
-    await panel.getByRole("button", { name: "Expand" }).click();
-    await expect(page).toHaveURL(/\/admin\/cms$/);
+    const expand = panel.getByRole("button", { name: "Expand the Studio" });
+    await expect(expand).toHaveAttribute("aria-pressed", "false");
+    await expand.click();
+    await expect(panel).toHaveClass(/\bexpanded\b/);
+    await expect(panel.getByRole("button", { name: "Shrink the Studio to a drawer" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page).toHaveURL("/");
+    await expect(page.locator('iframe[title="Content Studio"]')).toHaveAttribute("src", "/admin/cms/pages/home");
+    await expect(studio.locator(".studio-header")).toBeVisible();
+    await expect(page.locator(".cms-toolbar")).toBeHidden();
+    expect(pageErrors).toEqual([]);
   });
 
   test("Studio panel controls preserve work and keep selected content beside the drawer", async ({ page }) => {
@@ -244,8 +279,10 @@ test.describe("inline editor — click to edit", () => {
     const panel = page.locator(".cms-content-map");
     const map = page.getByRole("region", { name: "Content map" });
     await expect(map).toHaveAttribute("aria-hidden", "false");
-    await expect(map.getByText("pages::home", { exact: true })).toBeVisible();
-    const rows = map.getByRole("button", { name: /hero\.headline/ });
+    // Entries are named as in the Studio, never by their storage key.
+    await expect(map.getByText("Home", { exact: true })).toBeVisible();
+    await expect(map.getByText("pages::home")).toHaveCount(0);
+    const rows = map.getByRole("button", { name: /^Hero › Headline/ });
     await expect(rows).toHaveCount(2);
     await rows.nth(1).focus();
     await page.keyboard.press("Enter");
@@ -284,6 +321,9 @@ test.describe("inline editor — click to edit", () => {
     const insertDialog = page.getByRole("dialog", { name: "Insert section" });
     await expect(insertDialog).toBeVisible();
     await expect(insertDialog.getByRole("button", { name: "Hero", exact: true })).toBeFocused();
+    // Only kinds this page has templates for, by readable names.
+    await expect(insertDialog.locator(".cms-section-add-option")).toHaveText(["Hero", "Features"]);
+    await expect(hero.locator(".cms-section-chip")).toHaveText("1. Hero");
     const [insertBox, toolbarBox] = await Promise.all([
       insertDialog.boundingBox(),
       page.locator(".cms-toolbar").boundingBox(),
@@ -339,6 +379,28 @@ test.describe("inline editor — click to edit", () => {
     expect(pageErrors).toEqual([]);
   });
 
+  test("deleting a section can be undone", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const hero = page.locator('section[data-caret-section-id="hero"]');
+    await expect(hero).toHaveClass(/cms-section-editable/);
+
+    await hero.hover();
+    await hero.getByText("More", { exact: true }).click();
+    const deleted = page.waitForResponse(isMutatePost);
+    await hero.getByRole("button", { name: "Delete", exact: true }).click();
+    expect((await deleted).ok()).toBe(true);
+    const toast = page.locator(".cms-toast", { hasText: "Section deleted" });
+    await expect(toast).toBeVisible();
+
+    const undone = page.waitForResponse(isMutatePost);
+    await toast.getByRole("button", { name: "Undo" }).click();
+    expect((await undone).ok()).toBe(true);
+    await expect(page.getByText("Change undone")).toBeVisible();
+    const stored = await (await page.request.get("/api/cms/entries?collection=pages&id=home")).json();
+    expect(stored.entries[0].data.layout.sections.map((section: { id: string }) => section.id)).toEqual(["hero", "philosophy"]);
+  });
+
   test("editing a headline persists and is served to anonymous visitors", async ({ page }) => {
     const NEW_HEADLINE = "Edited inline by the E2E suite";
 
@@ -351,13 +413,15 @@ test.describe("inline editor — click to edit", () => {
     await replaceText(page, headline, NEW_HEADLINE);
     // Confirm the typing actually replaced the live text before we rely on blur.
     await expect(headline).toHaveText(NEW_HEADLINE);
+    await expect(page.locator(".cms-status-text")).toHaveText("Unsaved changes");
 
     // Blur fires the save. Assert the write actually hit the mutate endpoint.
     const mutate = await blurToSave(page, headline);
     expect(mutate.ok()).toBeTruthy();
 
     // The save-confirmation toast appears.
-    await expect(page.getByText("Content saved")).toBeVisible();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+    await expect(page.locator(".cms-status-text")).toHaveText("Changes are live");
 
     // The override is persisted and rendered by the rewrite middleware for an
     // anonymous visitor — independent of this page's live DOM mutation.
@@ -380,7 +444,7 @@ test.describe("inline editor — click to edit", () => {
     await replaceText(page, headline, newHeadline);
     const mutate = await blurToSave(page, headline);
     expect(mutate.ok()).toBeTruthy();
-    await expect(page.getByText("Content saved")).toBeVisible();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
     await expect(headline).toHaveText(newHeadline);
 
     const anonHtml = await fetchAnonymousHtml("/");
@@ -397,7 +461,7 @@ test.describe("inline editor — click to edit", () => {
     // First edit: revision 0 → 1. The editor now caches revision 1 for this entry.
     await replaceText(page, headline, "First edit");
     await blurToSave(page, headline);
-    await expect(page.getByText("Content saved")).toBeVisible();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 
     // A concurrent writer bumps the entry to revision 2 out-of-band, exactly as
     // a second editor (or another tab) would. The browser editor still believes
@@ -448,7 +512,7 @@ test.describe("inline editor — click to edit", () => {
     // Seed a cached revision (0 → 1) for this entry.
     await replaceText(page, headline, "Local first");
     await blurToSave(page, headline);
-    await expect(page.getByText("Content saved")).toBeVisible();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 
     // Out-of-band concurrent write bumps the revision behind the editor's back.
     const conflict = await page.request.post("/api/cms/mutate", {
@@ -479,6 +543,383 @@ test.describe("inline editor — click to edit", () => {
     expect(anonHtml).not.toContain("Remote value");
   });
 
+  test("a stale tab's first save asks instead of overwriting a newer edit", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    // Another editor saves the same field after this page loaded, before this
+    // tab has saved anything.
+    const elsewhere = await page.request.post("/api/cms/mutate", {
+      headers: { "x-caret-request": "1" },
+      data: { type: "save_field", collection: "pages", id: "home", field: "hero.headline", value: "Saved in another tab", expectedRevision: 0 },
+    });
+    expect(elsewhere.ok()).toBeTruthy();
+
+    await replaceText(page, headline, "Stale tab edit");
+    const stale = await blurToSave(page, headline);
+    expect(stale.status()).toBe(409);
+    await expect(page.getByText("This content changed elsewhere while you were editing.")).toBeVisible();
+    await expect(headline).toHaveText("Stale tab edit");
+    expect(await fetchAnonymousHtml("/")).toContain("Saved in another tab");
+  });
+
+  test("a newer edit to another field of the entry doesn't interrupt the save", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    const elsewhere = await page.request.post("/api/cms/mutate", {
+      headers: { "x-caret-request": "1" },
+      data: { type: "save_field", collection: "pages", id: "home", field: "our_teaching_philosophy", value: "Heading from another tab", expectedRevision: 0 },
+    });
+    expect(elsewhere.ok()).toBeTruthy();
+
+    await replaceText(page, headline, "Headline from this tab");
+    await headline.evaluate((el) => (el as HTMLElement).blur());
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+    await expect(page.getByText("This content changed elsewhere while you were editing.")).toHaveCount(0);
+
+    const html = await fetchAnonymousHtml("/");
+    expect(html).toContain("Headline from this tab");
+    expect(html).toContain("Heading from another tab");
+  });
+
+  test("a failed save keeps the text on the page and Retry saves it", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await page.route("**/api/cms/mutate", (route) => route.fulfill({ status: 500, body: "{}" }));
+    await replaceText(page, headline, "Kept after a failure");
+    await headline.evaluate((el) => (el as HTMLElement).blur());
+
+    await expect(page.getByText("Couldn't save your change. It's kept on the page.")).toBeVisible();
+    await expect(headline).toHaveText("Kept after a failure");
+    await expect(headline).toHaveClass(/cms-unsaved/);
+    await expect(page.locator(".cms-status-text")).toHaveText("Unsaved changes");
+
+    await page.unroute("**/api/cms/mutate");
+    await page.getByRole("button", { name: "Retry now" }).click();
+    await expect(page.getByText("Your change is saved")).toBeVisible();
+    await expect(headline).not.toHaveClass(/cms-unsaved/);
+    expect(await fetchAnonymousHtml("/")).toContain("Kept after a failure");
+  });
+
+  test("signing out with unsaved text on the page asks first", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await page.route("**/api/cms/mutate", (route) => route.fulfill({ status: 500, body: "{}" }));
+    await replaceText(page, headline, "Not saved yet");
+    await headline.evaluate((el) => (el as HTMLElement).blur());
+    await expect(headline).toHaveClass(/cms-unsaved/);
+
+    await page.getByRole("button", { name: "Sign out" }).click();
+    const dialog = page.getByRole("dialog", { name: "Unsaved changes" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(headline).toHaveText("Not saved yet");
+    await expect(page.locator(".cms-toolbar")).toBeVisible();
+  });
+
+  test("an edit made offline saves itself when the connection returns", async ({ page, context }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await context.setOffline(true);
+    await replaceText(page, headline, "Written while offline");
+    await headline.evaluate((el) => (el as HTMLElement).blur());
+    await expect(page.getByText("You're offline. Your change is kept and saves when you reconnect.")).toBeVisible();
+    await expect(headline).toHaveText("Written while offline");
+
+    await context.setOffline(false);
+    await expect(page.getByText("Your change is saved")).toBeVisible();
+    expect(await fetchAnonymousHtml("/")).toContain("Written while offline");
+  });
+
+  test("an expired session asks to sign in again and then saves the kept edit", async ({ page, context }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await context.clearCookies();
+    await replaceText(page, headline, "Saved after signing in again");
+    await headline.evaluate((el) => (el as HTMLElement).blur());
+
+    const dialog = page.getByRole("dialog", { name: "Sign in again" });
+    await expect(dialog).toBeVisible();
+    await expect(headline).toHaveText("Saved after signing in again");
+    await expect(headline).toHaveClass(/cms-unsaved/);
+    await expect(dialog.getByLabel("Password")).toBeFocused();
+
+    await dialog.getByLabel("Password").fill("not-the-password");
+    await dialog.getByRole("button", { name: "Sign in" }).click();
+    await expect(dialog.getByText("That password isn't right.")).toBeVisible();
+
+    await dialog.getByLabel("Password").fill(EDIT_PASSWORD);
+    await dialog.getByRole("button", { name: "Sign in" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByText("Your change is saved")).toBeVisible();
+    await expect(headline).not.toHaveClass(/cms-unsaved/);
+    expect(await fetchAnonymousHtml("/")).toContain("Saved after signing in again");
+  });
+
+  test("a field with inline formatting saves as rich text and reaches visitors", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const subtext = page.locator('p[data-caret="hero.subtext"]');
+    await expect(subtext).toHaveClass(/cms-editable/);
+    await expect(subtext).toHaveAttribute("data-caret-rich", "");
+
+    await subtext.click();
+    await page.keyboard.press("ControlOrMeta+ArrowDown");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" Visitors see this.");
+    await blurToSave(page, subtext);
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+
+    const html = await fetchAnonymousHtml("/");
+    const visitorSubtext = html.match(/<p data-caret="hero\.subtext"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? "";
+    expect(visitorSubtext).toContain("Visitors see this.");
+    expect(visitorSubtext).toMatch(/<code[^>]*>data-caret<\/code>/);
+  });
+
+  test("rich text with Astro's scoped-style markers saves nothing on a click in and out, and keeps them when edited", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const subtext = page.locator('p[data-caret="hero.subtext"]');
+    await expect(subtext).toHaveAttribute("data-caret-rich", "");
+    // The starter's scoped <style> gives <code> Astro's scope marker. Add an
+    // attribute the sanitizer drops, too.
+    const scope = await subtext.locator("code").evaluate((el) => {
+      el.setAttribute("data-note", "x");
+      return [...el.attributes].map((attr) => attr.name).find((name) => name.startsWith("data-astro-cid-"));
+    });
+    expect(scope).toBeTruthy();
+
+    let saves = 0;
+    page.on("request", (request) => {
+      if (request.url().includes("/api/cms/mutate") && request.method() === "POST") saves += 1;
+    });
+    await subtext.click();
+    await subtext.evaluate((el) => (el as HTMLElement).blur());
+    await page.waitForTimeout(800);
+    expect(saves).toBe(0);
+    await expect(subtext).not.toHaveClass(/cms-unsaved/);
+
+    await subtext.click();
+    await page.keyboard.press("ControlOrMeta+ArrowDown");
+    await page.keyboard.press("End");
+    await page.keyboard.type(" Scoped.");
+    await blurToSave(page, subtext);
+    const html = await fetchAnonymousHtml("/");
+    const visitorSubtext = html.match(/<p data-caret="hero\.subtext"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? "";
+    expect(visitorSubtext).toContain("Scoped.");
+    expect(visitorSubtext).toContain(`<code ${scope}="">data-caret</code>`);
+  });
+
+  test("the formatting bar sits by the selected words and follows them when the page scrolls", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 600 });
+    await loginAsEditor(page);
+    await page.goto("/");
+    const subtext = page.locator('p[data-caret="hero.subtext"]');
+    await expect(subtext).toHaveAttribute("data-caret-rich", "");
+    // Room to scroll.
+    await page.evaluate(() => { document.body.style.paddingBottom = "2000px"; });
+    await subtext.click();
+    const word = await subtext.evaluate((el) => {
+      const text = [...el.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && /normal/.test(node.textContent ?? ""))!;
+      const range = document.createRange();
+      const at = text.textContent!.indexOf("normal");
+      range.setStart(text, at);
+      range.setEnd(text, at + 3);
+      const box = range.getBoundingClientRect();
+      return { x: box.x + 2, y: box.y + box.height / 2 };
+    });
+    await page.mouse.dblclick(word.x, word.y);
+    const bar = page.locator(".cms-rich-toolbar");
+    await expect(bar).toBeVisible();
+    const gap = () => page.evaluate(() => {
+      const selected = window.getSelection()!.getRangeAt(0).getBoundingClientRect();
+      const toolbar = document.querySelector(".cms-rich-toolbar")!.getBoundingClientRect();
+      return Math.min(Math.abs(toolbar.top - selected.bottom), Math.abs(selected.top - toolbar.bottom));
+    });
+    expect(await gap()).toBeLessThan(24);
+    await page.mouse.wheel(0, 120);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
+    await expect.poll(gap).toBeLessThan(24);
+  });
+
+  test("an emptied field stays visible and clickable", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const heading = page.locator('h2[data-caret="pages::home::our_teaching_philosophy"]');
+    await expect(heading).toHaveClass(/cms-editable/);
+    await heading.click();
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press("Backspace");
+    await blurToSave(page, heading);
+
+    await page.reload();
+    await expect(heading).toHaveClass(/cms-editable/);
+    await expect(heading).toBeEmpty();
+    const box = await heading.boundingBox();
+    expect(box!.width).toBeGreaterThan(20);
+    expect(box!.height).toBeGreaterThan(10);
+    expect(await heading.evaluate((el) => getComputedStyle(el, "::before").content)).toBe('"Add text"');
+    await heading.click();
+    await expect(heading).toBeFocused();
+  });
+
+  test("typing saves on its own after a pause, without leaving the field", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await replaceText(page, headline, "Saved while typing");
+    const autosave = await page.waitForResponse(isMutatePost);
+    expect(autosave.ok()).toBe(true);
+    await expect(headline).toBeFocused();
+    expect(await fetchAnonymousHtml("/")).toContain("Saved while typing");
+  });
+
+  test("Undo puts the previous text back, and Cmd+Z and Cmd+Shift+Z undo and redo", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await replaceText(page, headline, "A headline to undo");
+    await blurToSave(page, headline);
+    const saved = page.locator(".cms-toast", { hasText: "Saved" });
+    await expect(saved).toBeVisible();
+    // Undo sits on the message's row, not on a row of its own.
+    const message = await saved.locator(".cms-toast-msg").boundingBox();
+    const button = await saved.getByRole("button", { name: "Undo" }).boundingBox();
+    expect(Math.abs((button!.y + button!.height / 2) - (message!.y + message!.height / 2))).toBeLessThan(4);
+    const undo = page.waitForResponse(isMutatePost);
+    await saved.getByRole("button", { name: "Undo" }).click();
+    expect((await undo).ok()).toBe(true);
+    await expect(headline).toHaveText(TEMPLATE_HEADLINE);
+    await expect(page.getByText("Change undone")).toBeVisible();
+    expect(await fetchAnonymousHtml("/")).not.toContain("A headline to undo");
+
+    const redo = page.waitForResponse(isMutatePost);
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    expect((await redo).ok()).toBe(true);
+    await expect(headline).toHaveText("A headline to undo");
+
+    const undoAgain = page.waitForResponse(isMutatePost);
+    await page.keyboard.press("ControlOrMeta+z");
+    expect((await undoAgain).ok()).toBe(true);
+    await expect(headline).toHaveText(TEMPLATE_HEADLINE);
+  });
+
+  test("an edit that autosaved several times is one undo step", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await replaceText(page, headline, "First draft");
+    await page.waitForResponse(isMutatePost);
+    await page.keyboard.type(" and more");
+    await page.waitForResponse(isMutatePost);
+    await headline.evaluate((el) => (el as HTMLElement).blur());
+    await expect(page.locator(".cms-toast", { hasText: "Saved" })).toBeVisible();
+
+    const undo = page.waitForResponse(isMutatePost);
+    await page.keyboard.press("ControlOrMeta+z");
+    expect((await undo).ok()).toBe(true);
+    await expect(headline).toHaveText(TEMPLATE_HEADLINE);
+    expect(await fetchAnonymousHtml("/")).toContain(TEMPLATE_HEADLINE);
+  });
+
+  test("Escape after an autosave takes the whole edit back", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await replaceText(page, headline, "Not wanted after all");
+    await page.waitForResponse(isMutatePost);
+    const revert = page.waitForResponse(isMutatePost);
+    await page.keyboard.press("Escape");
+    expect((await revert).ok()).toBe(true);
+    await expect(headline).toHaveText(TEMPLATE_HEADLINE);
+    expect(await fetchAnonymousHtml("/")).not.toContain("Not wanted after all");
+  });
+
+  test("the status pill shows the save state and opens details, Undo and History", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+    const pill = page.locator(".cms-status-pill");
+    await expect(pill).toHaveAttribute("data-mode", "live");
+    await expect(pill).toHaveText("Live");
+
+    await replaceText(page, headline, "Shown on the status pill");
+    await blurToSave(page, headline);
+    await expect(pill).toHaveText("Changes are live");
+    await expect(pill).toHaveText("Live", { timeout: 6_000 });
+
+    await pill.click();
+    const panel = page.getByRole("dialog", { name: "Save status" });
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("Changes save directly to your site");
+    await expect(panel).toContainText("Last saved just now");
+    const undo = page.waitForResponse(isMutatePost);
+    await panel.getByRole("button", { name: "Undo last change" }).click();
+    expect((await undo).ok()).toBe(true);
+    await expect(headline).toHaveText(TEMPLATE_HEADLINE);
+
+    await pill.click();
+    await panel.getByRole("button", { name: "History" }).click();
+    // The drawer moves by replacing its page, so check where it is, not its src.
+    await expect.poll(async () => (await studioFrame(page)).url()).toMatch(/\/admin\/cms\/pages\/home#history$/);
+    const studio = page.frameLocator('iframe[title="Content Studio"]');
+    await expect(studio.getByRole("region", { name: "Version history" })).toBeVisible();
+
+    await studio.getByRole("textbox", { name: "Headline", exact: true }).fill("Typed in the drawer");
+    await expect(pill).toHaveText("Unsaved changes");
+  });
+
+  test("an error sits above the toolbar and stays listed in the status panel", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await page.route("**/api/cms/mutate", (route) => route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Entry does not match collection schema", issues: [{ path: "hero.headline", code: "required", message: "This field can't be empty" }] }),
+    }));
+    await replaceText(page, headline, "Refused by the server");
+    await headline.evaluate((el) => (el as HTMLElement).blur());
+    const toast = page.locator(".cms-toast", { hasText: "This field can't be empty. The previous text is back." });
+    await expect(toast).toBeVisible();
+    const [toastBox, toolbarBox] = await Promise.all([toast.boundingBox(), page.locator(".cms-toolbar").boundingBox()]);
+    expect(toastBox!.y + toastBox!.height).toBeLessThanOrEqual(toolbarBox!.y);
+    await expect(toast.getByRole("button", { name: "Dismiss" })).toBeVisible();
+
+    await page.locator(".cms-status-pill").click();
+    await expect(page.getByRole("dialog", { name: "Save status" }))
+      .toContainText("Last problem: This field can't be empty. The previous text is back.");
+  });
+
   test("swapping a hero image uploads, persists, and serves the new src", async ({ page }) => {
     await loginAsEditor(page);
     await page.goto("/");
@@ -486,8 +927,11 @@ test.describe("inline editor — click to edit", () => {
     const image = page.locator(HERO_IMAGE);
     await expect(image).toHaveAttribute("src", "/initial.png");
 
-    // The image editor wraps each bound <img> and injects a hidden file input.
-    const fileInput = page.locator(".cms-img-wrapper input[type='file']");
+    // Hovering a bound <img> places the shared Replace control over it.
+    await expect(image).toHaveAttribute("data-caret-img-mounted", "true");
+    await image.hover({ force: true });
+    await expect(page.locator(".cms-img-overlay")).toBeVisible();
+    const fileInput = page.locator(".cms-img-input");
     await expect(fileInput).toBeAttached();
 
     // Selecting a file kicks off compress → /upload → save_field(url).
@@ -513,6 +957,72 @@ test.describe("inline editor — click to edit", () => {
     expect(anonHtml).not.toContain('src="/initial.png"');
   });
 
+  test("a failed image save keeps the new image on the page and Retry saves it", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const image = page.locator(HERO_IMAGE);
+    await expect(image).toHaveAttribute("data-caret-img-mounted", "true");
+    await image.hover({ force: true });
+
+    await page.route("**/api/cms/mutate", (route) => route.fulfill({ status: 500, body: "{}" }));
+    await page.locator(".cms-img-input").setInputFiles(SAMPLE_PNG);
+
+    await expect(page.getByText("Couldn't save your change. It's kept on the page.")).toBeVisible();
+    await expect(image).toHaveAttribute("src", /^\/uploads\/.+\.(webp|png|jpe?g)$/);
+    await expect(image).toHaveClass(/cms-unsaved/);
+    await expect(page.locator(".cms-status-text")).toHaveText("Unsaved changes");
+    const uploaded = await image.getAttribute("src");
+
+    await page.unroute("**/api/cms/mutate");
+    await page.getByRole("button", { name: "Retry now" }).click();
+    await expect(page.getByText("Image updated")).toBeVisible();
+    await expect(image).not.toHaveClass(/cms-unsaved/);
+    expect(await fetchAnonymousHtml("/")).toContain(`src="${uploaded}"`);
+  });
+
+  test("a newer edit to another field of the entry doesn't interrupt an image save", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const image = page.locator(HERO_IMAGE);
+    await expect(image).toHaveAttribute("data-caret-img-mounted", "true");
+
+    const elsewhere = await page.request.post("/api/cms/mutate", {
+      headers: { "x-caret-request": "1" },
+      data: { type: "save_field", collection: "pages", id: "home", field: "hero.headline", value: "Headline from another tab", expectedRevision: 0 },
+    });
+    expect(elsewhere.ok()).toBeTruthy();
+
+    await image.hover({ force: true });
+    await page.locator(".cms-img-input").setInputFiles(SAMPLE_PNG);
+    await expect(page.getByText("Image updated")).toBeVisible();
+    await expect(page.getByText("This image changed elsewhere while you were editing.")).toHaveCount(0);
+
+    const html = await fetchAnonymousHtml("/");
+    expect(html).toContain(`src="${await image.getAttribute("src")}"`);
+    expect(html).toContain("Headline from another tab");
+  });
+
+  test("an image upload interrupted by an expired session finishes after signing in again", async ({ page, context }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const image = page.locator(HERO_IMAGE);
+    await expect(image).toHaveAttribute("data-caret-img-mounted", "true");
+    await image.hover({ force: true });
+
+    await context.clearCookies();
+    await page.locator(".cms-img-input").setInputFiles(SAMPLE_PNG);
+    const dialog = page.getByRole("dialog", { name: "Sign in again" });
+    await expect(dialog).toBeVisible();
+    await expect(image).toHaveClass(/cms-unsaved/);
+
+    await dialog.getByLabel("Password").fill(EDIT_PASSWORD);
+    await dialog.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByText("Image updated")).toBeVisible();
+    await expect(image).not.toHaveClass(/cms-unsaved/);
+    await expect(image).toHaveAttribute("src", /^\/uploads\/.+\.(webp|png|jpe?g)$/);
+    expect(await fetchAnonymousHtml("/")).toContain(`src="${await image.getAttribute("src")}"`);
+  });
+
   test("uploads the original image when canvas compression is unavailable", async ({ page }) => {
     await page.addInitScript(() => {
       Object.defineProperty(window, "createImageBitmap", {
@@ -528,7 +1038,9 @@ test.describe("inline editor — click to edit", () => {
     await page.goto("/");
 
     const image = page.locator(HERO_IMAGE);
-    const fileInput = page.locator(".cms-img-wrapper input[type='file']");
+    await expect(image).toHaveAttribute("data-caret-img-mounted", "true");
+    await image.hover({ force: true });
+    const fileInput = page.locator(".cms-img-input");
     await expect(fileInput).toBeAttached();
 
     const [upload, mutate] = await Promise.all([
@@ -552,9 +1064,14 @@ test.describe("inline editor — click to edit", () => {
     const headline = page.locator(HEADLINE);
     await expect(headline).toHaveClass(/cms-editable/);
 
+    const status = page.locator(".cms-status-text");
+    const statusBefore = await status.textContent();
     await replaceText(page, headline, "This should be discarded");
+    await expect(status).toHaveText("Unsaved changes");
     await page.keyboard.press("Escape");
     await page.locator("body").click();
+    // Undoing the edit restores the status shown before it.
+    await expect(status).toHaveText(statusBefore ?? "");
 
     // Live DOM reverts to the template value…
     await expect(headline).toHaveText(TEMPLATE_HEADLINE);
@@ -564,4 +1081,23 @@ test.describe("inline editor — click to edit", () => {
     expect(anonHtml).toContain(TEMPLATE_HEADLINE);
     expect(anonHtml).not.toContain("This should be discarded");
   });
+});
+
+test("editable headings and links keep their names, and say how editing works", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/");
+  const headline = page.locator(HEADLINE);
+  await expect(headline).toHaveClass(/cms-editable/);
+  await expect(page.getByRole("heading", { level: 1, name: TEMPLATE_HEADLINE })).toBeVisible();
+  await expect(headline).toHaveAccessibleDescription(/Editable\. Changes save when you leave it/);
+  await headline.click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" now");
+  await expect(page.getByRole("heading", { level: 1, name: `${TEMPLATE_HEADLINE} now` })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await expect(page.getByRole("button", { name: /^Replace image: / }).first()).toBeVisible();
+
+  await page.goto("/links");
+  await expect(page.getByRole("link", { name: "Home" })).toBeVisible();
 });

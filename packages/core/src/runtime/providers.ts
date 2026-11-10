@@ -4,6 +4,7 @@ import type { DeploymentStatusProvider, IdentityAdapter, StorageAdapter, UploadH
 // `Partial` wrapper below keeps runtime null-safety for environments that load
 // this module without the Vite plugin (every access still has a fallback).
 import * as runtimeProviders from "virtual:caretcms/providers";
+import { registerPublishedStorage } from "./published-storage.js";
 
 type ProviderModule = Partial<typeof runtimeProviders>;
 
@@ -75,10 +76,29 @@ async function createDeploymentStatusProvider(): Promise<DeploymentStatusProvide
   return await providerModule?.loadConfiguredDeploymentStatus?.() ?? null;
 }
 
+// One adapter instance for the process: the in-process locks and caches live on it.
+let adapterPromise: Promise<StorageAdapter> | null = null;
+function sharedAdapter(): Promise<StorageAdapter> {
+  if (!adapterPromise) {
+    const pending = createAdapter();
+    pending.catch(() => {
+      if (adapterPromise === pending) adapterPromise = null;
+    });
+    adapterPromise = pending;
+  }
+  return adapterPromise;
+}
+
+/** Only the configured storage, for reads outside a request (a static build). */
+export function getStorageAdapter(): Promise<StorageAdapter> {
+  return sharedAdapter();
+}
+registerPublishedStorage(getStorageAdapter);
+
 export async function getRuntimeServices(): Promise<RuntimeServices> {
   if (!runtimeServicesPromise) {
     const inflight = Promise.all([
-      createAdapter(),
+      sharedAdapter(),
       createUploadHandler(),
       createIdentityAdapter(),
       createDeploymentStatusProvider(),
@@ -123,4 +143,5 @@ export function __setRuntimeServicesForTests(
 ): void {
   testServicesOverride = services;
   runtimeServicesPromise = null;
+  adapterPromise = null;
 }

@@ -175,6 +175,119 @@ function attrReferences(attr: TagNode["attributes"][number], names: string[]): b
 }
 
 /**
+ * Field names whose values CaretCMS core never marks with a binding key — they
+ * are identifiers, not prose. Mirrors core's MACHINE_FIELD
+ * (runtime/stega-policy.ts); held identical by tests/unit/contracts-parity.test.ts.
+ */
+export const MACHINE_FIELD = /^(id|uid|uuid|slug|key|lang|locale|type|kind|variant|layout|template|icon|class|classname|color|colour|theme|target|rel|format|currency|status|mode|code|tag|tags|hash|anchor|component)$/i;
+
+/** Whether core leaves a field of this name unmarked (an identifier field). */
+export function isMachineField(name: string): boolean {
+  return MACHINE_FIELD.test(name);
+}
+
+const ARRAY_CALLBACK_METHODS = "map|flatMap|filter|find|findIndex|findLast|findLastIndex|some|every|forEach|sort|toSorted|reduce";
+
+/**
+ * Locals bound by a destructuring param, each with the field it reads:
+ * `{ key, label: name }` → key→key, name→label. Nested patterns and array
+ * destructuring map to no field (null), which callers treat as unprovable.
+ */
+function destructuredFields(param: string): Map<string, string | null> {
+  const out = new Map<string, string | null>();
+  if (!param.startsWith("{")) {
+    for (const id of paramIdents(param)) out.set(id, null);
+    return out;
+  }
+  const body = param.slice(1, param.lastIndexOf("}"));
+  let depth = 0;
+  let part = "";
+  const parts: string[] = [];
+  for (const c of body) {
+    if (c === "{" || c === "[" || c === "(") depth++;
+    else if (c === "}" || c === "]" || c === ")") depth--;
+    if (c === "," && depth === 0) { parts.push(part); part = ""; } else part += c;
+  }
+  parts.push(part);
+  for (const raw of parts) {
+    const p = raw.trim().replace(/\s*=.*$/s, "");
+    if (!p) continue;
+    if (p.startsWith("...")) { out.set(p.slice(3).trim(), null); continue; }
+    const colon = p.indexOf(":");
+    if (colon < 0) { if (IDENT.test(p)) out.set(p, p); continue; }
+    const field = p.slice(0, colon).trim();
+    const local = p.slice(colon + 1).trim();
+    if (IDENT.test(local)) out.set(local, IDENT.test(field) ? field : null);
+    else for (const id of paramIdents(local)) out.set(id, null); // nested pattern
+  }
+  return out;
+}
+
+/** Contexts where a value is used as an identifier rather than shown. */
+const COMPARE_AFTER = /^\s*(?:===|!==|==|!=)/;
+const COMPARE_BEFORE = /(?:===|!==|==|!=|\bcase|\bswitch\s*\(|[\w$\])]\s*\[|\.\s*(?:includes|has|get|indexOf|lastIndexOf|startsWith|endsWith)\s*\()\s*$/;
+
+/**
+ * Where a value of `varName` is used as an identifier — compared
+ * (`=== s.key`), switched on, or used as a lookup key (`map[s.key]`,
+ * `.includes(s.key)`, `.get(s.key)`) — across the frontmatter and every
+ * template expression. Each use reports the field it reads (`key`), or null
+ * when the whole value (or an unprovable part of it) is used.
+ *
+ * Locals follow the value through array callbacks on it (`sections.map((s) =>`,
+ * `s.items.filter((it) =>`), plain or destructured.
+ */
+export function identifierUses(root: AstroNode, varName: string): Array<string | null> {
+  const chunks: string[] = [];
+  const collect = (node: AstroNode): void => {
+    if (node.type === "frontmatter") chunks.push((node as { value?: string }).value ?? "");
+    if (node.type === "expression") chunks.push(exprJs(node));
+    for (const child of node.children ?? []) collect(child);
+  };
+  collect(root);
+  const js = chunks.join("\n;\n");
+
+  // local → the field it holds (null = the value itself / an element of it).
+  const locals = new Map<string, string | null>([[varName, null]]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const name of [...locals.keys()]) {
+      const head = new RegExp(
+        `${identRefRe(name).source}(?:\\s*\\??\\.\\s*[A-Za-z_$][\\w$]*)*\\s*\\??\\.\\s*(?:${ARRAY_CALLBACK_METHODS})\\s*\\(`,
+        "g",
+      );
+      for (const m of js.matchAll(head)) {
+        const param = readCallbackFirstParam(js, (m.index ?? 0) + m[0].length);
+        for (const [local, field] of destructuredFields(param)) {
+          if (!locals.has(local)) { locals.set(local, field); grew = true; }
+        }
+      }
+    }
+  }
+
+  const uses: Array<string | null> = [];
+  for (const [name, heldField] of locals) {
+    const ref = new RegExp(
+      `${identRefRe(name).source}((?:\\s*\\??\\.\\s*[A-Za-z_$][\\w$]*|\\[\\s*["'][^"']+["']\\s*\\])*)`,
+      "g",
+    );
+    for (const m of js.matchAll(ref)) {
+      const start = m.index ?? 0;
+      // A member of something else (`obj.key`), or a declaration/param, is not
+      // a read of this local.
+      if (/\.\s*$/.test(js.slice(Math.max(0, start - 4), start))) continue;
+      const end = start + m[0].length;
+      // A method call on the value (`s.label.toUpperCase()`) reads it as text.
+      if (/^\s*\(/.test(js.slice(end, end + 4)) && m[1]) continue;
+      if (!COMPARE_AFTER.test(js.slice(end, end + 6)) && !COMPARE_BEFORE.test(js.slice(Math.max(0, start - 40), start))) continue;
+      const members = [...(m[1] ?? "").matchAll(/[A-Za-z_$][\w$]*|["']([^"']+)["']/g)].map((x) => x[1] ?? x[0]);
+      uses.push(members.length ? members[members.length - 1] : heldField);
+    }
+  }
+  return uses;
+}
+
+/**
  * Classify how a literal const `varName` is consumed in a parsed template.
  *
  * For every tag node, the field-carrying identifiers in scope are `varName`
@@ -223,6 +336,19 @@ export function classifyConstUsage(
       }
     }
   });
+
+  // A field used as an identifier (compared, switched on, a lookup key) must
+  // come out of editable() byte-for-byte. Core leaves identifier-named fields
+  // (key, id, slug, …) unmarked, so those are fine; any other field — or the
+  // value itself — would carry a hidden binding key into the comparison.
+  if (!unsafe) {
+    const compared = identifierUses(root, varName).find((f) => f === null || !isMachineField(f));
+    if (compared !== undefined) {
+      unsafe = compared === null
+        ? `"${varName}" is compared or used as a lookup key`
+        : `field "${compared}" of "${varName}" is compared or used as a lookup key`;
+    }
+  }
 
   if (unsafe) return { safe: false, reason: unsafe, handoffs };
   return { safe: true, handoffs };

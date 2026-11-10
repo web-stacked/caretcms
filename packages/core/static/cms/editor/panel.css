@@ -1,18 +1,20 @@
 /* ---------------------------------------------------------------------------
    Studio Panel — sliding left drawer with iframe
 
-   The panel is an OVERLAY drawer: it slides over the page and does not reflow
-   host layout. Earlier versions pushed `body` and shifted a hard-coded
-   `#main-header`, which silently broke on any site not using that selector or
-   using absolute/transformed layout. The only element still shifted is the CMS
-   toolbar, which is our own chrome (always present) — no host coupling.
-
-   Hosts that DO want content pushed aside (rather than overlaid) can opt in by
-   adding the `caret-push-content` class to <body>. See docs.
+   The 380px drawer moves the page aside so all of it stays visible; expanded,
+   the Studio covers two thirds of the window and the page stays where it is
+   beside it. The push is padding on <html> (sites rarely style it, unlike
+   <body>), with sideways overflow clipped so full-width sections don't scroll.
+   Fixed bars along the top or bottom edge are moved beside the drawer by
+   panel.js (inline styles, restored on close). A site whose layout can't take
+   the push adds `caret-studio-overlay` to <html> or <body>, and the drawer
+   covers the page instead.
    --------------------------------------------------------------------------- */
 
 :root {
   --cms-panel-width: 380px;
+  /* Expanded: two thirds of the window, leaving at least 320px of live page. */
+  --cms-panel-expanded-width: clamp(var(--cms-panel-width), 66.667vw, calc(100vw - 320px));
 }
 
 .cms-studio-panel {
@@ -27,7 +29,9 @@
   border-right: 1px solid rgba(59, 130, 246, 0.12);
   box-shadow: 4px 0 30px rgba(0, 0, 0, 0.3);
   transform: translateX(-100%);
-  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  /* Hidden once the close animation ends, so its shadow and controls leave the page. */
+  visibility: hidden;
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), width 0.35s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear 0.5s;
   display: flex;
   flex-direction: column;
 }
@@ -43,7 +47,15 @@
 .cms-studio-panel.open,
 .cms-studio-panel.side-right.open {
   transform: translateX(0);
+  visibility: visible;
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), width 0.35s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s;
 }
+
+.cms-studio-panel.expanded { width: var(--cms-panel-expanded-width); }
+
+/* Expanded, the Studio has its own Shrink and Close; the page's toolbar would
+   only crowd the strip of live page beside it. */
+body.cms-panel-open.cms-panel-expanded .cms-toolbar { visibility: hidden; }
 
 .cms-studio-panel.no-transition {
   transition: none;
@@ -88,7 +100,7 @@
 .cms-studio-panel-header button {
   padding: 5px 6px;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: 8px;
   background: transparent;
   color: rgba(255, 255, 255, 0.68);
   font: inherit;
@@ -148,28 +160,35 @@
   to { transform: rotate(360deg); }
 }
 
-/* Shift the CMS toolbar (our chrome) so the drawer doesn't cover it. */
-body.cms-panel-open .cms-toolbar {
-  left: var(--cms-panel-width);
-  transition: left 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-body.cms-panel-open.cms-panel-right .cms-toolbar {
-  right: var(--cms-panel-width);
-  left: 0;
-}
-
-body.cms-panel-open.no-transition .cms-toolbar {
+/* The toolbar stays put when the drawer opens and moves only to clear it
+   (toolbar-anchor.js). */
+body.no-transition .cms-toolbar {
   transition: none;
 }
 
-/* Opt-in: push host content aside instead of overlaying it. */
-body.cms-panel-open.caret-push-content {
-  padding-left: var(--cms-panel-width);
-  transition: padding-left 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+/* Visually hidden stops that carry Tab between the drawer and the toolbar. */
+.cms-focus-guard {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-body.cms-panel-open.caret-push-content.no-transition {
+/* The drawer pushes the page aside (see the top of this file). */
+html.cms-studio-pushable {
+  transition: padding-left 0.5s cubic-bezier(0.16, 1, 0.3, 1), padding-right 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+html.cms-studio-push {
+  padding-left: var(--cms-panel-width);
+  overflow-x: clip;
+}
+html.cms-studio-push.cms-studio-push-right {
+  padding-left: 0;
+  padding-right: var(--cms-panel-width);
+}
+html.cms-studio-pushable.no-transition {
   transition: none;
 }
 
@@ -181,18 +200,19 @@ body.cms-panel-open.caret-push-content.no-transition {
   box-shadow: 0 0 8px rgba(59, 130, 246, 0.15);
 }
 
-/* Mobile: full-width overlay, no toolbar shift. */
+/* Mobile: full-width overlay; the toolbar keeps its full-width phone layout. */
 @media (max-width: 768px) {
-  .cms-studio-panel {
+  .cms-studio-panel,
+  .cms-studio-panel.expanded {
     width: 100%;
     box-shadow: none;
   }
 
-  body.cms-panel-open .cms-toolbar,
-  body.cms-panel-open.caret-push-content {
-    right: 0;
-    left: 0;
+  /* The drawer fills a phone's screen; nothing is beside it to push. */
+  html.cms-studio-push,
+  html.cms-studio-push.cms-studio-push-right {
     padding-left: 0;
+    padding-right: 0;
   }
 
   .cms-panel-move { display: none; }
@@ -200,10 +220,47 @@ body.cms-panel-open.caret-push-content.no-transition {
 
 @media (prefers-reduced-motion: reduce) {
   .cms-studio-panel,
-  body.cms-panel-open .cms-toolbar,
-  body.cms-panel-open.caret-push-content,
+  html.cms-studio-pushable,
   .cms-studio-panel-spinner {
     transition: none;
     animation: none;
   }
+}
+
+/* Light drawer chrome, matching the Studio's light theme: follows the system
+   unless the editor picked a theme in the Studio (data-theme from storage). */
+@media (prefers-color-scheme: light) {
+  .cms-studio-panel:not([data-theme="dark"]) {
+    --cms-panel-bg: #f5f6f8;
+    --cms-panel-text: #0f172a;
+    --cms-panel-text-muted: #3d4757;
+    --cms-panel-border: rgba(15, 23, 42, 0.1);
+  }
+}
+.cms-studio-panel[data-theme="light"] {
+  --cms-panel-bg: #f5f6f8;
+  --cms-panel-text: #0f172a;
+  --cms-panel-text-muted: #3d4757;
+  --cms-panel-border: rgba(15, 23, 42, 0.1);
+}
+.cms-studio-panel { background: var(--cms-panel-bg, #0c0e12); }
+.cms-studio-panel-header {
+  border-bottom-color: var(--cms-panel-border, rgba(255, 255, 255, 0.09));
+  color: var(--cms-panel-text-muted, rgba(255, 255, 255, 0.78));
+}
+.cms-panel-title { color: var(--cms-panel-text, rgba(255, 255, 255, 0.9)); }
+.cms-studio-panel-header button { color: var(--cms-panel-text-muted, rgba(255, 255, 255, 0.68)); }
+.cms-studio-panel-header button:hover { color: var(--cms-panel-text, rgba(255, 255, 255, 0.92)); }
+.cms-studio-panel-loading {
+  background: var(--cms-panel-bg, #0c0e12);
+  color: var(--cms-panel-text-muted, rgba(255, 255, 255, 0.5));
+}
+
+/* The drawer is already full-screen on a phone: no Expand. Touch targets
+   in its header are 44px. */
+@media (max-width: 768px) {
+  .cms-panel-expand { display: none; }
+}
+@media (pointer: coarse) {
+  .cms-studio-panel-header button { min-height: 44px; min-width: 44px; }
 }

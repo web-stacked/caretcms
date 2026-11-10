@@ -39,13 +39,16 @@ The actions are:
 
 | Action | Protected operations |
 | --- | --- |
-| `edit` | field/body saves, entry creation, reordering, and layout changes |
+| `edit` | field/body saves, reordering, and layout changes |
+| `create` | creating a new entry in the Studio |
 | `publish` | publishing drafts, deployment retries, and history restore |
 | `delete` | drafting an entry deletion and publishing that deletion |
 | `manageCollections` | creating or deleting collection definitions |
 | `upload` | file uploads |
 
-Deletion requires both `edit` and `delete`. History restore requires both
+Creating an entry requires both `edit` and `create`; the Studio offers Create
+only when both are granted for the collection. A first save to content a page
+already shows (an entry not stored yet) is an `edit`. Deletion requires both `edit` and `delete`. History restore requires both
 `edit` and `publish`. A bulk reorder checks every entry. A bulk publish checks
 every targeted draft, including delete permission for tombstones, before the
 first content or history write. Collection metadata, entry reads, schemas, and

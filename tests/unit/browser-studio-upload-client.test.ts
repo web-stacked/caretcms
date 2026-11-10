@@ -1,18 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { createStudioUploadClient, isSupportedImage, StudioUploadError } from "../../packages/core/static/cms/studio/upload-client.js";
+import { createStudioUploadClient, StudioUploadError } from "../../packages/core/static/cms/studio/upload-client.js";
 
 function image(name = "photo.webp", type = "image/webp", size = 10) {
   return new File([new Uint8Array(size)], name, { type });
 }
 
 describe("Studio upload client", () => {
-  it("recognizes the image types accepted by Studio", () => {
-    for (const type of ["image/jpeg", "image/png", "image/webp", "image/avif"]) {
-      expect(isSupportedImage({ type })).toBe(true);
-    }
-    expect(isSupportedImage({ type: "image/svg+xml" })).toBe(false);
-  });
-
   it("uploads a prepared file with same-origin editor headers", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ url: "/uploads/photo.webp" }));
     const file = image();
@@ -56,6 +49,15 @@ describe("Studio upload client", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
+  it("sends a file it can't decode unchanged, so the server can say why", async () => {
+    const api = createStudioUploadClient({
+      apiBasePath: "/api/cms",
+      createBitmap: vi.fn().mockRejectedValue(new Error("decode failed")),
+    });
+    const file = image("notes.png", "image/png", 300000);
+    await expect(api.compress(file)).resolves.toBe(file);
+  });
+
   it("returns null when dimensions cannot be decoded", async () => {
     const api = createStudioUploadClient({
       apiBasePath: "/api/cms",
@@ -72,11 +74,14 @@ describe("Studio upload client", () => {
       fetchImpl: vi.fn<typeof fetch>()
         .mockResolvedValueOnce(new Response(null, { status: 401 }))
         .mockResolvedValueOnce(new Response(null, { status: 500 }))
+        .mockResolvedValueOnce(Response.json({ error: "This image is larger than 10 MB. Use a smaller image." }, { status: 400 }))
         .mockResolvedValueOnce(Response.json({ ok: true })),
     });
     await expect(api.upload(image())).rejects.toMatchObject({ kind: "unauthorized" });
     expect(onUnauthorized).toHaveBeenCalledOnce();
     await expect(api.upload(image())).rejects.toBeInstanceOf(StudioUploadError);
+    // The server's reason is kept for the editor.
+    await expect(api.upload(image())).rejects.toMatchObject({ kind: "failed", reason: "This image is larger than 10 MB. Use a smaller image." });
     await expect(api.upload(image())).rejects.toMatchObject({ kind: "invalid-response" });
   });
 });

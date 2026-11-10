@@ -6,6 +6,7 @@ import {
   isValidField,
 } from "../../packages/caretize/src/name";
 import type { Candidate } from "../../packages/caretize/src/detect";
+import { planFile } from "../../packages/caretize/src/plan";
 
 function textCandidate(tag: string, text: string, startOffset = 0): Candidate {
   return { decision: "tag", kind: "text", node: {} as never, tag, startOffset, confidence: "high", text };
@@ -84,5 +85,25 @@ describe("deriveScope (sanity)", () => {
     expect(deriveScope("src/pages/contact.astro")).toEqual({ scope: { collection: "pages", id: "contact" } });
     expect(deriveScope("src/components/Footer.astro")).toEqual({ scope: { collection: "components", id: "footer" } });
     expect(deriveScope("src/pages/blog/[slug].astro")).toEqual({ skip: "dynamic-route" });
+  });
+});
+
+describe("prose names from where the text sits", () => {
+  const fields = async (source: string, relPath = "src/pages/index.astro") =>
+    (await planFile(source, relPath)).tags.map((t) => t.field);
+
+  it("names a paragraph after the heading above it", async () => {
+    expect(await fields(`<section><h2>What we bake</h2><p>Long-fermented loaves.</p></section>`))
+      .toEqual(["what_we_bake", "what_we_bake_text"]);
+  });
+
+  it("names text in a footer or header after the landmark", async () => {
+    expect(await fields(`<footer><p>© 2026 Northwind. Open daily.</p></footer>`, "src/layouts/Base.astro"))
+      .toEqual(["footer_text"]);
+  });
+
+  it("starts each section without the previous section's heading", async () => {
+    expect(await fields(`<section><h2>Menu</h2></section><section><p>Open daily from seven.</p></section>`))
+      .toEqual(["menu", "intro"]);
   });
 });

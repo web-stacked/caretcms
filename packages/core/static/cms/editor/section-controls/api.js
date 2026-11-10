@@ -1,6 +1,7 @@
 import { buildCmsUrl } from '../config.js';
 import { isRecord } from './utils.js';
 import { mutateHeaders, readHeaders } from '../security.js';
+import { t } from '../i18n.js';
 
 /** @typedef {import('./model.js').Section} Section */
 
@@ -11,7 +12,7 @@ function isRevision(value) {
 
 /**
  * @param {{ collection: string, id: string, onUnauthorized: () => void }} options
- * @returns {Promise<{ data: Record<string, unknown>, revision: number } | null>}
+ * @returns {Promise<{ data: Record<string, unknown>, revision: number, baseRevision?: number } | null>}
  */
 export async function fetchPageEntry({ collection, id, onUnauthorized }) {
   const res = await fetch(buildCmsUrl('/entries', { collection, id }), {
@@ -31,12 +32,13 @@ export async function fetchPageEntry({ collection, id, onUnauthorized }) {
 
   return {
     data: entry.data,
+    ...(isRevision(entry.baseRevision) ? { baseRevision: entry.baseRevision } : {}),
     revision: isRevision(entry.revision) ? entry.revision : 0,
   };
 }
 
 /**
- * @param {{ collection: string, id: string, sections: Section[], expectedRevision: number, onUnauthorized: () => void }} options
+ * @param {{ collection: string, id: string, sections: Section[], expectedRevision: number, expectedBaseRevision?: number, onUnauthorized: () => void }} options
  * @returns {Promise<{ ok: true, revision: number } | { ok: false, reason: 'unauthorized' | 'conflict' | 'error', currentRevision?: number | null, error?: string }>}
  */
 export async function savePageLayout({
@@ -44,6 +46,7 @@ export async function savePageLayout({
   id,
   sections,
   expectedRevision,
+  expectedBaseRevision,
   onUnauthorized,
 }) {
   const res = await fetch(buildCmsUrl('/mutate'), {
@@ -55,6 +58,7 @@ export async function savePageLayout({
       id,
       sections,
       expectedRevision,
+      ...(expectedBaseRevision !== undefined ? { expectedBaseRevision } : {}),
     }),
   });
 
@@ -89,7 +93,7 @@ export async function savePageLayout({
           ? issueDetail
             ? `${json.error} (${issueDetail})`
             : json.error
-          : 'Failed to save layout',
+          : t('editor.sections.saveFailed'),
     };
   }
 

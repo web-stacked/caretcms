@@ -187,4 +187,22 @@ describe("CloudflareDurableStorageAdapter", () => {
     expect(await storage.discoverCollections()).toEqual([]);
     expect(await storage.listEntryIds("pages")).toEqual([]);
   });
+  it("reads a coherent snapshot across concurrent transactions and retains deleted revisions", async () => {
+    const first = adapter(); const second = adapter();
+    const writer = async () => {
+      for (let revision = 0; revision < 10; revision++) {
+        expect((await first.commitEntries([{ collection: "pages", id: "home", expectedRevision: revision, expectedExists: revision !== 0, data: { version: revision + 1 } }])).ok).toBe(true);
+      }
+    };
+    const reader = async () => {
+      for (let i = 0; i < 10; i++) {
+        const snapshot = await second.getEntrySnapshot("pages", "home");
+        expect(snapshot.entry?.data.version ?? 0).toBe(snapshot.revision);
+      }
+    };
+    await Promise.all([writer(), reader()]);
+    await first.commitEntries([{ collection: "pages", id: "home", expectedRevision: 10, expectedExists: true, data: null }]);
+    expect(await second.getEntrySnapshot("pages", "home")).toEqual({ entry: null, revision: 11 });
+  });
+
 });

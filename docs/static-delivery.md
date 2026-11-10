@@ -29,7 +29,9 @@ Publish (in dev or a staging environment)
 
 Your template markup remains the **seed content**. Until an editor saves an
 override, visitors see the original HTML. After publish and rebuild, stored values
-replace tagged fields in the built files.
+replace tagged fields in the built files. The build also removes the `data-caret*`
+binding attributes: the editor runs only in `astro dev`, so visitors' HTML doesn't
+carry them.
 
 ## Setup
 
@@ -87,9 +89,9 @@ Same binding model as server delivery — see
 npm run dev
 ```
 
-Sign in at `/admin`. With no `CARET_EDIT_PASSWORD` set, a temporary dev password is
-printed in the terminal. Edit inline or in Studio; use Preview / Publish / Discard as
-usual.
+Sign in at `/admin`. With no `CARET_EDIT_PASSWORD` set, dev uses a temporary password
+kept in `.caret/dev-password` (also shown by `astro dev logs`). Edit inline or in
+Studio; use Publish / Discard as usual.
 
 ### 4. Ship baked HTML
 

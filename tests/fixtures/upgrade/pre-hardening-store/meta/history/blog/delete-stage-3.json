@@ -1,0 +1,14 @@
+[
+  {
+    "operationId": "frozen-blog-delete-stage-3",
+    "ts": 1700000000000,
+    "action": "publish",
+    "data": {
+      "title": "Original"
+    },
+    "editor": {
+      "id": "alice"
+    },
+    "bodySource": "---\ntitle: Original\n---\n\nOriginal paragraph.\n"
+  }
+]

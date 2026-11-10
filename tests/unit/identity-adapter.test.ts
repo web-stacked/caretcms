@@ -7,7 +7,7 @@ import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memo
 import { GET as getSession } from "../../packages/core/src/runtime/routes/auth-session";
 import { executeMutation } from "../../packages/core/src/runtime/mutations/engine";
 import { runWithRequestContext } from "../../packages/core/src/runtime/request-context";
-import { issueEditorSessionCookie } from "../../packages/core/src/runtime/auth/session";
+import { issueEditorSessionCookies } from "../../packages/core/src/runtime/auth/session";
 
 describe("identity adapter", () => {
   afterEach(() => __setRuntimeServicesForTests(null));
@@ -47,7 +47,7 @@ describe("identity adapter", () => {
     };
 
     const response = await onRequest(context, () => getSession(context as unknown as APIContext));
-    expect(await response.json()).toEqual({ authenticated: true, identity, draftsSurviveSignOut: true });
+    expect(await response.json()).toEqual({ authenticated: true, identity, draftsSurviveSignOut: true, passwordLogin: false });
     expect(context.locals.isEditor).toBe(true);
     expect(context.locals.caretIdentity).toEqual(identity);
   });
@@ -86,7 +86,7 @@ describe("identity adapter", () => {
       },
     });
     const cookieValue = decodeURIComponent(
-      issueEditorSessionCookie().split(";")[0].split("=")[1],
+      issueEditorSessionCookies()[0].split(";")[0].split("=")[1],
     );
     const context = {
       locals: {} as Record<string, unknown>,
@@ -96,7 +96,7 @@ describe("identity adapter", () => {
       },
     };
     const response = await onRequest(context, () => getSession(context as unknown as APIContext));
-    expect(await response.json()).toEqual({ authenticated: false, identity: null, draftsSurviveSignOut: false });
+    expect(await response.json()).toEqual({ authenticated: false, identity: null, draftsSurviveSignOut: false, passwordLogin: false });
     expect(context.locals.isEditor).toBe(false);
   });
 

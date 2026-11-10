@@ -5,6 +5,7 @@ import type {
   HistoryEntry,
   RebuildReceipt,
   StorageAdapter,
+  StorageGuarantees,
 } from "@caretcms/core";
 import { COLLECTION_NAME_RE, assertSafeEditorId } from "@caretcms/core/contracts";
 import { getCloudflareRuntimeEnv } from "../runtime/env.js";
@@ -20,23 +21,7 @@ const COLLECTIONS_KEY = "collections";
 const META_PREFIX = "meta::";
 const SESSION_OVERLAY_TTL_SECONDS = 60 * 60 * 2; // 2h, matches demo cookie
 
-// Bundled-data discovery: Vite transforms the syntactic glob call at build time
-// and inlines the result. The try/catch covers the plain-Node import path used by
-// astro.config.mjs loaders, where `import.meta.glob` is not defined.
-type GlobMap = Record<string, Record<string, unknown>>;
-let _bundled: GlobMap | null = null;
-function getDataModules(): GlobMap {
-  if (_bundled) return _bundled;
-  try {
-    _bundled = import.meta.glob<Record<string, unknown>>(
-      "/.caret/data/**/*.json",
-      { eager: true, import: "default" },
-    );
-  } catch {
-    _bundled = {};
-  }
-  return _bundled;
-}
+import { getDataModules } from "../runtime/bundled-data.js";
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -108,12 +93,15 @@ export interface CloudflareKvStorageOptions extends Record<string, unknown> {
 }
 
 export class CloudflareKvStorageAdapter implements StorageAdapter {
+  readonly guarantees: Readonly<StorageGuarantees>;
   private readonly binding: string;
   private readonly keyPrefix: string;
   private readonly expirationTtl: number | undefined;
   private readonly bundledFallback: boolean;
 
   constructor(options: CloudflareKvStorageOptions = {}) {
+    this.guarantees = Object.freeze({ persistence: options.expirationTtl ? "expiring" : "durable",
+      snapshots: "eventual", commits: "single-writer", collectionDeletion: "content" });
     this.binding = options.binding ?? "CMS_KV";
     this.keyPrefix = options.keyPrefix ?? "";
     this.expirationTtl = options.expirationTtl;
@@ -152,6 +140,9 @@ export class CloudflareKvStorageAdapter implements StorageAdapter {
   private historyKey(c: string, id: string) { return this.k(`history::${c}::${id}`); }
   private entryKey(c: string, id: string)   { return this.k(`${c}::${id}`); }
   private metaKey(c: string)                { return this.k(`${META_PREFIX}${c}`); }
+  private entryTombstoneKey(c: string, id: string) { return this.k(`~caret::deleted-entry::${c}::${id}`); }
+  private collectionTombstoneKey(c: string) { return this.k(`~caret::deleted-collection::${c}`); }
+  private collectionFallbackKey(c: string) { return this.k(`~caret::bundled-disabled::${c}`); }
   private collectionsKey()                  { return this.k(COLLECTIONS_KEY); }
 
   private async put(kv: KvBindingLike, key: string, value: string): Promise<void> {
@@ -189,7 +180,7 @@ export class CloudflareKvStorageAdapter implements StorageAdapter {
       return existing.filter((value): value is string => typeof value === "string");
     }
 
-    if (!this.bundledFallback) return [];
+    if (!this.bundledFallback || await kv.get(this.collectionFallbackKey(c), "json") === true) return [];
 
     const bundled = listBundledEntryIds(c);
     await this.put(kv, this.indexKey(c), JSON.stringify(bundled));
@@ -251,9 +242,14 @@ export class CloudflareKvStorageAdapter implements StorageAdapter {
   async discoverCollections(): Promise<string[]> {
     const kv = await this.requireKv();
     const known = await this.getKnownCollections(kv);
-    if (!this.bundledFallback) return known;
-    const bundled = discoverBundledCollections();
-    return [...new Set([...known, ...bundled])].sort((a, b) => a.localeCompare(b));
+    if (!this.bundledFallback) {
+      const visible = await Promise.all(known.map(async c => await kv.get(this.collectionTombstoneKey(c), "json") === true ? null : c));
+      return visible.filter((c): c is string => c !== null);
+    }
+    const bundled = (await Promise.all(discoverBundledCollections().map(async c => await kv.get(this.collectionFallbackKey(c), "json") === true ? null : c))).filter((c): c is string => c !== null);
+    const candidates = [...new Set([...known, ...bundled])];
+    const visible = await Promise.all(candidates.map(async c => await kv.get(this.collectionTombstoneKey(c), "json") === true ? null : c));
+    return visible.filter((c): c is string => c !== null).sort((a, b) => a.localeCompare(b));
   }
 
   async isKnownCollection(collection: string): Promise<boolean> {
@@ -264,19 +260,24 @@ export class CloudflareKvStorageAdapter implements StorageAdapter {
 
   async getEntry(collection: string, id: string): Promise<EntryData | null> {
     const kv = await this.requireKv();
+    if (await kv.get(this.collectionTombstoneKey(collection), "json") === true
+      || await kv.get(this.entryTombstoneKey(collection, id), "json") === true) return null;
     const raw = await kv.get(this.entryKey(collection, id), "json");
     if (isObjectRecord(raw)) {
       return { id, data: structuredClone(raw) };
     }
 
-    if (!this.bundledFallback) return null;
+    if (!this.bundledFallback || await kv.get(this.collectionFallbackKey(collection), "json") === true) return null;
     const bundled = readBundledEntry(collection, id);
     return bundled ? { id, data: bundled } : null;
   }
 
   async listEntryIds(collection: string): Promise<string[]> {
     const kv = await this.requireKv();
-    return this.getCollectionIndex(kv, collection);
+    if (await kv.get(this.collectionTombstoneKey(collection), "json") === true) return [];
+    const ids = await this.getCollectionIndex(kv, collection);
+    const visible = await Promise.all(ids.map(async id => await kv.get(this.entryTombstoneKey(collection, id), "json") === true ? null : id));
+    return visible.filter((id): id is string => id !== null);
   }
 
   async listEntries(collection: string): Promise<EntryData[]> {
@@ -287,13 +288,16 @@ export class CloudflareKvStorageAdapter implements StorageAdapter {
 
   async writeEntry(collection: string, id: string, data: Record<string, unknown>): Promise<void> {
     const kv = await this.requireKv();
-    await this.addKnownCollection(kv, collection);
     await this.put(kv, this.entryKey(collection, id), JSON.stringify(data));
+    await kv.delete(this.entryTombstoneKey(collection, id));
+    await kv.delete(this.collectionTombstoneKey(collection));
+    await this.addKnownCollection(kv, collection);
     await this.addToIndex(kv, collection, id);
   }
 
   async deleteEntry(collection: string, id: string): Promise<void> {
     const kv = await this.requireKv();
+    await this.put(kv, this.entryTombstoneKey(collection, id), "true");
     await kv.delete(this.entryKey(collection, id));
     await this.removeFromIndex(kv, collection, id);
   }
@@ -345,6 +349,7 @@ export class CloudflareKvStorageAdapter implements StorageAdapter {
     }
     const kv = await this.requireKv();
     await this.put(kv, this.metaKey(metadata.id), JSON.stringify(metadata));
+    await kv.delete(this.collectionTombstoneKey(metadata.id));
     await this.addKnownCollection(kv, metadata.id);
     const existingIndex = await kv.get(this.indexKey(metadata.id), "json");
     if (!Array.isArray(existingIndex)) {
@@ -357,17 +362,20 @@ export class CloudflareKvStorageAdapter implements StorageAdapter {
     const kv = await this.requireKv();
 
     const ids = await this.getCollectionIndex(kv, collection);
+    await this.put(kv, this.collectionFallbackKey(collection), "true");
+    await this.put(kv, this.collectionTombstoneKey(collection), "true");
     await Promise.all(
       ids.map((id) =>
         Promise.all([
+          this.put(kv, this.entryTombstoneKey(collection, id), "true"),
           kv.delete(this.entryKey(collection, id)),
-          kv.delete(this.revisionKey(collection, id)),
+          this.getRevisionRaw(kv, collection, id).then(revision => this.setRevisionRaw(kv, collection, id, revision + 1)),
           kv.delete(this.historyKey(collection, id)),
         ]),
       ),
     );
 
-    await kv.delete(this.indexKey(collection));
+    await this.put(kv, this.indexKey(collection), "[]");
     await kv.delete(this.metaKey(collection));
     await this.removeKnownCollection(kv, collection);
   }
@@ -375,6 +383,7 @@ export class CloudflareKvStorageAdapter implements StorageAdapter {
   async getCollectionMetadata(collection: string): Promise<CollectionMetadata | null> {
     if (!COLLECTION_NAME_RE.test(collection)) return null;
     const kv = await this.requireKv();
+    if (await kv.get(this.collectionTombstoneKey(collection), "json") === true) return null;
     const raw = await kv.get(this.metaKey(collection), "json");
     return isCollectionMetadata(raw) ? structuredClone(raw) : null;
   }
@@ -391,7 +400,7 @@ export class CloudflareKvStorageAdapter implements StorageAdapter {
   async makeSessionOverlay(sessionId: string): Promise<StorageAdapter> {
     return new CloudflareKvStorageAdapter({
       binding: this.binding,
-      keyPrefix: `session/${sessionId}/`,
+      keyPrefix: this.k(`session/${sessionId}/`),
       expirationTtl: SESSION_OVERLAY_TTL_SECONDS,
       bundledFallback: false,
     });
@@ -403,7 +412,7 @@ export class CloudflareKvStorageAdapter implements StorageAdapter {
     // (unlike the 2h ephemeral demo session overlay above).
     return new CloudflareKvStorageAdapter({
       binding: this.binding,
-      keyPrefix: `draft/${editorId}/`,
+      keyPrefix: this.k(`draft/${editorId}/`),
       bundledFallback: false,
     });
   }

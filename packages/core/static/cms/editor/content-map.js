@@ -1,14 +1,16 @@
 import { buildCmsUrl } from './config.js';
+import { historyFieldLabel } from '../studio/history-view.js';
 import { readHeaders } from './security.js';
 import { parseCaretAttr, resolveBinding } from './helpers.js';
+import { t, tHtml } from './i18n.js';
 
 /**
- * Content Map dev panel.
- * Lists all data-caret bindings on the current page with override status.
+ * Content map: every editable binding on the page, grouped by entry, named
+ * the way the Studio form names it, with the value the page shows now.
  */
 
 /** @typedef {{ collection: string, id: string, field: string }} ResolvedBinding */
-/** @typedef {{ el: Element, resolved: ResolvedBinding, isImg: boolean, isScoped: boolean, index: number }} MapBinding */
+/** @typedef {{ el: Element, resolved: ResolvedBinding, index: number }} MapBinding */
 
 /** @type {HTMLElement | null} */
 let panel = null;
@@ -22,12 +24,12 @@ function createPanel() {
   const el = document.createElement('div');
   el.className = 'cms-content-map';
   el.setAttribute('role', 'region');
-  el.setAttribute('aria-label', 'Content map');
+  el.setAttribute('aria-label', t('editor.map.title'));
   el.setAttribute('aria-hidden', 'true');
   el.innerHTML = `
     <div class="cms-content-map-header">
-      <span class="cms-content-map-title">Content Map</span>
-      <button type="button" class="cms-content-map-close" aria-label="Close content map">&times;</button>
+      <span class="cms-content-map-title">${tHtml('editor.map.title')}</span>
+      <button type="button" class="cms-content-map-close" aria-label="${tHtml('editor.map.close')}">&times;</button>
     </div>
     <div class="cms-content-map-body"></div>
   `;
@@ -45,50 +47,37 @@ function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** @param {unknown} payload @returns {Record<string, unknown> | null} */
-export function readOverrideData(payload) {
+/** The display title the entries API sends, or null. @param {unknown} payload */
+export function readEntryTitle(payload) {
   if (!isRecord(payload) || !Array.isArray(payload.entries)) return null;
   const entry = payload.entries[0];
-  return isRecord(entry) && isRecord(entry.data) ? entry.data : null;
+  return isRecord(entry) && typeof entry.title === 'string' && entry.title ? entry.title : null;
 }
 
-/** @param {Iterable<string>} entryKeys @returns {Promise<Map<string, Record<string, unknown>>>} */
-async function loadOverrides(entryKeys) {
-  /** @type {Map<string, Record<string, unknown>>} */
-  const overrides = new Map();
-  for (const key of entryKeys) {
-    const [collection, id] = key.split('::');
-    if (!collection || !id) continue;
-    try {
-      const res = await fetch(buildCmsUrl('/entries', { collection, id }), {
-        headers: readHeaders(),
-      });
-      if (res.ok) {
-        const data = readOverrideData(await res.json());
-        if (data) overrides.set(key, data);
-      }
-    } catch {
-      // Skip failed loads
-    }
-  }
-  return overrides;
+/** "01-mara" -> "01 mara": the fallback when the server can't be asked. @param {string} id */
+function readableId(id) {
+  const text = id.replace(/[-_]+/g, ' ').trim();
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** @param {unknown} data @param {string} path @returns {unknown} */
-function getNestedValue(data, path) {
-  const keys = path.split('.');
-  /** @type {unknown} */
-  let current = data;
-  for (const key of keys) {
-    if (Array.isArray(current)) {
-      if (!/^\d+$/.test(key)) return undefined;
-      current = current[Number(key)];
-    } else if (isRecord(current)) {
-      if (!Object.hasOwn(current, key)) return undefined;
-      current = current[key];
-    } else return undefined;
+/** @param {string} path @returns {Promise<unknown>} */
+async function getJson(path) {
+  try {
+    const res = await fetch(path, { headers: readHeaders() });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
   }
-  return current;
+}
+
+/** What the page shows for a binding, as one short line. @param {Element} el */
+function shownValue(el) {
+  if (el instanceof HTMLImageElement) {
+    const file = (el.getAttribute('src') || '').split('?')[0].split('/').pop() || '';
+    return el.alt.trim() || file;
+  }
+  const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+  return text.length > 70 ? `${text.slice(0, 69)}…` : text;
 }
 
 async function refresh() {
@@ -97,95 +86,83 @@ async function refresh() {
   const body = panel.querySelector('.cms-content-map-body');
   if (!body) return;
 
-  const elements = document.querySelectorAll('[data-caret]');
   /** @type {MapBinding[]} */
   const bindings = [];
-  /** @type {Set<string>} */
-  const entryKeys = new Set();
-
-  elements.forEach((el) => {
-    const attr = el.getAttribute('data-caret') || '';
-    const parsed = parseCaretAttr(attr);
-    const resolved = resolveBinding(el, parsed);
-    if (!resolved) return;
-
-    const key = `${resolved.collection}::${resolved.id}`;
-    entryKeys.add(key);
-
-    const isScoped = parsed?.collection === null;
-    bindings.push({
-      el,
-      resolved,
-      isImg: el instanceof HTMLImageElement,
-      isScoped,
-      index: bindings.length,
-    });
+  document.querySelectorAll('[data-caret]').forEach((el) => {
+    const resolved = resolveBinding(el, parseCaretAttr(el.getAttribute('data-caret') || ''));
+    if (resolved) bindings.push({ el, resolved, index: bindings.length });
   });
 
-  body.innerHTML = `<div class="cms-content-map-loading">Loading...</div>`;
-
-  const overrides = await loadOverrides(entryKeys);
-  if (!isOpen || generation !== refreshGeneration) return;
-
   if (bindings.length === 0) {
-    body.innerHTML = `<div class="cms-content-map-empty">No data-caret bindings found on this page.</div>`;
+    body.innerHTML = `<div class="cms-content-map-empty">${tHtml('editor.map.empty')}</div>`;
     return;
   }
+  body.innerHTML = `<div class="cms-content-map-loading">${tHtml('editor.map.loading')}</div>`;
 
-  // Group by collection::id
   /** @type {Map<string, MapBinding[]>} */
   const groups = new Map();
-  for (const b of bindings) {
-    const groupKey = `${b.resolved.collection}::${b.resolved.id}`;
-    const group = groups.get(groupKey) ?? [];
-    group.push(b);
-    groups.set(groupKey, group);
+  for (const binding of bindings) {
+    const key = `${binding.resolved.collection}::${binding.resolved.id}`;
+    groups.set(key, [...(groups.get(key) ?? []), binding]);
   }
+  const collections = [...new Set(bindings.map((binding) => binding.resolved.collection))];
+  const [schemas, titles] = await Promise.all([
+    Promise.all(collections.map((collection) => getJson(buildCmsUrl('/schema', { collection })))),
+    Promise.all([...groups.keys()].map((key) => {
+      const [collection, id] = key.split('::');
+      return getJson(buildCmsUrl('/entries', { collection, id })).then(readEntryTitle);
+    })),
+  ]);
+  if (!isOpen || generation !== refreshGeneration) return;
 
-  let html = '';
-  for (const [entryKey, fields] of groups) {
-    const entryData = overrides.get(entryKey);
-    html += `<div class="cms-content-map-group">`;
-    html += `<div class="cms-content-map-group-title">${escapeHtml(entryKey)}</div>`;
+  /** @type {Map<string, { schema: unknown, label: string | null }>} */
+  const collectionInfo = new Map(collections.map((collection, index) => {
+    const payload = schemas[index];
+    const metadata = isRecord(payload) && isRecord(payload.metadata) ? payload.metadata : null;
+    return [collection, {
+      schema: isRecord(payload) ? payload.schema : null,
+      label: metadata && typeof metadata.label === 'string' ? metadata.label : null,
+    }];
+  }));
 
-    for (const f of fields) {
-      const hasOverride = entryData
-        ? getNestedValue(entryData, f.resolved.field) !== undefined
-        : false;
-
-      const statusClass = hasOverride ? 'cms-map-saved' : 'cms-map-default';
-      const statusLabel = hasOverride ? 'saved' : 'default';
-      const scopeTag = f.isScoped ? '<span class="cms-map-scoped">scoped</span>' : '';
-      const typeTag = f.isImg ? '<span class="cms-map-type">img</span>' : '';
-
-      html += `
-        <button type="button" class="cms-content-map-item" data-caret-map-index="${f.index}">
-          <span class="cms-content-map-field">${escapeHtml(f.resolved.field)}</span>
-          <span class="cms-content-map-tags">
-            ${typeTag}${scopeTag}
-            <span class="cms-map-status ${statusClass}">${statusLabel}</span>
-          </span>
-        </button>
-      `;
+  body.innerHTML = '';
+  [...groups.entries()].forEach(([key, fields], groupIndex) => {
+    const [collection, id] = key.split('::');
+    const info = collectionInfo.get(collection);
+    const group = document.createElement('div');
+    group.className = 'cms-content-map-group';
+    const heading = document.createElement('div');
+    heading.className = 'cms-content-map-group-title';
+    const name = document.createElement('span');
+    name.textContent = titles[groupIndex] ?? readableId(id);
+    heading.appendChild(name);
+    if (info?.label && info.label !== name.textContent) {
+      const kind = document.createElement('span');
+      kind.className = 'cms-content-map-kind';
+      kind.textContent = info.label;
+      heading.appendChild(kind);
     }
+    group.appendChild(heading);
 
-    html += `</div>`;
-  }
-
-  body.innerHTML = html;
-
-  // Click to scroll to element
-  body.querySelectorAll('.cms-content-map-item').forEach((item) => {
-    item.addEventListener('click', () => {
-      const rawIndex = item.getAttribute('data-caret-map-index');
-      const index = rawIndex !== null && /^\d+$/.test(rawIndex) ? Number(rawIndex) : -1;
-      const target = bindings[index];
-      if (target?.el) {
-        target.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        target.el.classList.add('cms-map-highlight');
-        setTimeout(() => target.el.classList.remove('cms-map-highlight'), 2000);
-      }
-    });
+    for (const binding of fields) {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'cms-content-map-item';
+      const label = document.createElement('span');
+      label.className = 'cms-content-map-field';
+      label.textContent = historyFieldLabel(binding.resolved.field, /** @type {any} */ (info?.schema));
+      const value = document.createElement('span');
+      value.className = 'cms-content-map-value';
+      value.textContent = shownValue(binding.el) || t('editor.map.emptyValue');
+      item.append(label, value);
+      item.addEventListener('click', () => {
+        binding.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        binding.el.classList.add('cms-map-highlight');
+        setTimeout(() => binding.el.classList.remove('cms-map-highlight'), 2000);
+      });
+      group.appendChild(item);
+    }
+    body.appendChild(group);
   });
 }
 
@@ -196,11 +173,6 @@ function toggle() {
   panel.setAttribute('aria-hidden', String(!isOpen));
   if (isOpen) refresh();
   else refreshGeneration++;
-}
-
-/** @param {string} str @returns {string} */
-function escapeHtml(str) {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /** @param {{ mapButton: Element | null }} options */

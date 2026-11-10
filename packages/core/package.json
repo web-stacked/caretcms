@@ -1,6 +1,6 @@
 {
   "name": "@caretcms/core",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "description": "Platform-neutral core for CaretCMS: attribute-first inline editing, mutation engine, studio admin, StorageAdapter interface.",
   "license": "MIT",
@@ -69,6 +69,10 @@
       "types": "./dist/schema-utils.d.ts",
       "import": "./dist/schema-utils.js"
     },
+    "./testing/storage": {
+      "types": "./dist/testing/storage-conformance.d.ts",
+      "import": "./dist/testing/storage-conformance.js"
+    },
     "./browser-runtime": {
       "types": "./dist/browser-runtime.d.ts",
       "import": "./dist/browser-runtime.js"
@@ -80,14 +84,15 @@
   },
   "files": [
     "dist",
+    "src",
     "static",
     "editor-runtime.js",
     "editor-runtime.d.ts"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/write-editor-messages.mjs",
     "typecheck": "tsc -p tsconfig.json && npm run typecheck:browser",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist static/cms/editor/messages.js",
     "prepublishOnly": "node scripts/check-version.mjs && npm run clean && npm run build",
     "typecheck:browser": "tsc -p tsconfig.browser.json"
   },

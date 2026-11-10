@@ -1,7 +1,9 @@
 import {
+  humanizeSectionKey,
   normalizeSpacingY,
   spacingButtonLabel,
-  spacingToken,
+  spacingHandleLabel,
+  spacingName,
   isRecord,
 } from './utils.js';
 import {
@@ -23,6 +25,7 @@ import { createSpacingDragController } from './spacing-drag.js';
 import { bindDragSourceHandlers, bindDropTargetHandlers } from './reorder.js';
 import { bindSectionActivation } from './activation.js';
 import { isPolicyDraftMode, isStaticDelivery } from '../config.js';
+import { t } from '../i18n.js';
 
 /** @typedef {import('./model.js').Section} Section */
 /** @typedef {import('./page-context.js').PageContext} PageContext */
@@ -35,7 +38,9 @@ import { isPolicyDraftMode, isStaticDelivery } from '../config.js';
  * @param {{
  *   parseCaretAttr: (value: string) => ParsedCaretBinding | null,
  *   setStatus: (type: ToolbarStatusState, message: string) => void,
- *   showToast: (message: string, type?: ToastType) => void,
+ *   showToast: ((message: string, type?: ToastType) => void) & {
+ *     saved: (options: { message: string, action?: { label: string, onClick: () => void | Promise<void> } }) => unknown,
+ *   },
  *   onUnauthorized: () => void,
  *   onCanvasStructureChanged?: () => void,
  * }} options
@@ -61,9 +66,13 @@ export function mountSectionControls({
 
   /** @type {Section[]} */
   let sections = sectionsFromDom(sectionNodes);
+  // The layout as last saved, so Undo can put it back after the next save.
+  let savedLayout = structuredClone(sections);
   /** @type {Record<string, unknown>} */
   let entryData = {};
   let revision = 0;
+  /** @type {number | undefined} */
+  let baseRevision;
   let busy = false;
   /** @type {string | null} */
   let dragSourceId = null;
@@ -84,8 +93,8 @@ export function mountSectionControls({
 
   sectionNodes.forEach((sectionNode) => {
     if (!(sectionNode instanceof HTMLElement)) return;
-    const sectionKey = sectionNode.getAttribute('data-caret-section') || 'home.hero';
-    if (sectionTemplateByKey.has(sectionKey)) return;
+    const sectionKey = sectionNode.getAttribute('data-caret-section');
+    if (!sectionKey || sectionTemplateByKey.has(sectionKey)) return;
     const cloned = sectionNode.cloneNode(true);
     if (cloned instanceof HTMLElement) sectionTemplateByKey.set(sectionKey, cloned);
   });
@@ -105,7 +114,16 @@ export function mountSectionControls({
       if (cloned instanceof HTMLElement) sectionTemplateByKey.set(sectionKey, cloned);
     });
 
+  // Kinds of section this page can show, named by the template's
+  // data-caret-section-label or, failing that, its key made readable.
+  /** @type {Map<string, string>} */
+  const kinds = new Map([...sectionTemplateByKey].map(([key, template]) =>
+    [key, template.getAttribute('data-caret-section-label')?.trim() || humanizeSectionKey(key)]));
+  /** @param {string} key */
+  const kindName = (key) => kinds.get(key) ?? humanizeSectionKey(key);
+
   const addPicker = createAddPicker({
+    kinds,
     onPick: (sectionId, key) => {
       if (!canEditLayout()) return;
       const result = mutateSections('add', sectionId, { sectionKey: key });
@@ -186,7 +204,7 @@ export function mountSectionControls({
 
   function canEditLayout() {
     if (!refreshRequired) return true;
-    showToast('Refresh page to continue editing section structure.', 'error');
+    showToast(t('editor.sections.refreshToContinue'), 'error');
     return false;
   }
 
@@ -212,7 +230,6 @@ export function mountSectionControls({
     const section = sections.find((item) => item.id === sectionId);
     if (!section) return;
 
-    const token = spacingToken(section.spacing_y);
     const spacingBtn = spacingButtonsById.get(sectionId);
     if (spacingBtn instanceof HTMLButtonElement) {
       spacingBtn.textContent = spacingButtonLabel(section.spacing_y);
@@ -222,7 +239,7 @@ export function mountSectionControls({
     if (gapHandle instanceof HTMLButtonElement) {
       const label = gapHandle.querySelector('.cms-section-gap-label');
       if (label) {
-        label.textContent = token === 'default' ? 'Default spacing' : `${token} spacing`;
+        label.textContent = spacingHandleLabel(section.spacing_y);
       }
     }
   }
@@ -233,7 +250,7 @@ export function mountSectionControls({
     if (!section) return;
     const toggleBtn = toggleButtonsById.get(sectionId);
     if (toggleBtn instanceof HTMLButtonElement) {
-      toggleBtn.textContent = section.enabled ? 'Hide' : 'Show';
+      toggleBtn.textContent = section.enabled ? t('editor.sections.hide') : t('editor.sections.show');
     }
   }
 
@@ -261,7 +278,7 @@ export function mountSectionControls({
     const chip = node.querySelector('.cms-section-chip');
     if (chip instanceof HTMLElement) {
       const snapshot = getSectionSnapshot(sectionId, sectionKey);
-      const nextChip = createSectionBadge(snapshot, order);
+      const nextChip = createSectionBadge(order, kindName(snapshot.key));
       chip.textContent = nextChip.textContent;
     }
   }
@@ -272,7 +289,8 @@ export function mountSectionControls({
 
     const sectionId = sectionNode.getAttribute('data-caret-section-id');
     if (!sectionId) return;
-    const sectionKey = sectionNode.getAttribute('data-caret-section') || 'home.hero';
+    const sectionKey = sectionNode.getAttribute('data-caret-section');
+    if (!sectionKey) return;
     const sectionSnapshot = getSectionSnapshot(sectionId, sectionKey);
 
     sectionNodeById.set(sectionId, sectionNode);
@@ -284,7 +302,7 @@ export function mountSectionControls({
     }
 
     if (sectionNode.dataset.caretSectionControlsMounted !== 'true') {
-      const badge = createSectionBadge(sectionSnapshot, sectionIndex + 1);
+      const badge = createSectionBadge(sectionIndex + 1, kindName(sectionSnapshot.key));
       const controls = createSectionControlsElement();
 
       controls.addEventListener('click', (event) => {
@@ -348,7 +366,7 @@ export function mountSectionControls({
           sections = nextSections;
         },
         clearDropIndicators,
-        onReordered: () => persistWithReload('Section reordered'),
+        onReordered: () => persistWithReload(t('editor.sections.reordered')),
       });
 
       sectionNode.classList.add('cms-section-editable');
@@ -512,20 +530,22 @@ export function mountSectionControls({
 
     entryData = loaded.data;
     revision = loaded.revision;
+    baseRevision = loaded.baseRevision;
 
     const latestSections = normalizeSectionsFromData(entryData, sectionsFromDom(sectionNodes));
     if (!applySectionsToCanvas(latestSections)) {
       sections = latestSections;
       markRefreshRequired({
-        statusMessage: 'Layout changed',
-        toastMessage: 'Layout changed structurally. Refresh page to see latest sections.',
+        statusMessage: t('editor.sections.layoutChanged'),
+        toastMessage: t('editor.sections.layoutChangedCopy'),
       });
       return;
     }
 
     sections = latestSections;
-    setStatus('idle', 'Layout synced');
-    showToast('Layout conflict resolved with latest content.', 'success');
+    savedLayout = structuredClone(sections);
+    setStatus('idle', t('editor.sections.layoutSynced'));
+    showToast(t('editor.sections.conflictResolved'), 'success');
   }
 
   /** @param {string} sectionId @param {unknown} spacingValue @returns {boolean} */
@@ -554,6 +574,7 @@ export function mountSectionControls({
       sectionId,
       payload,
       applySpacing: (id, spacingY) => applySectionSpacing(id, spacingY),
+      kinds,
     });
     if (result.ok && Array.isArray(result.sections)) {
       sections = result.sections;
@@ -572,13 +593,20 @@ export function mountSectionControls({
     onCommitted: (sectionId) => {
       if (!canEditLayout()) return;
       const section = sections.find((item) => item.id === sectionId);
-      showToast(`Spacing: ${section?.spacing_y ? section.spacing_y : 'default'}`, 'success');
-      persistWithReload('Section spacing updated');
+      showToast(t('editor.sections.spacingIs', { spacing: spacingName(section?.spacing_y) }), 'success');
+      persistWithReload(t('editor.sections.spacingUpdated'));
     },
   });
 
-  /** @param {string} successMessage */
-  async function persistWithReload(successMessage) {
+  // Undo saves the layout as it was before the last change.
+  /** @param {import('./model.js').Section[]} previous */
+  function undoLayout(previous) {
+    sections = structuredClone(previous);
+    void persistWithReload(t('editor.undo.undone'), { undo: true });
+  }
+
+  /** @param {string} successMessage @param {{ undo?: boolean }} [options] */
+  async function persistWithReload(successMessage, { undo = false } = {}) {
     if (!canEditLayout()) return;
     if (busy) return;
 
@@ -586,7 +614,7 @@ export function mountSectionControls({
     busy = true;
     setControlsDisabled(true);
     closePickers();
-    setStatus('saving', savesToDraft ? 'Saving layout draft…' : 'Saving live layout…');
+    setStatus('saving', savesToDraft ? t('editor.sections.savingDraft') : t('editor.sections.savingLive'));
 
     try {
       const result = await savePageLayout({
@@ -594,6 +622,7 @@ export function mountSectionControls({
         id: pageContext.id,
         sections,
         expectedRevision: revision,
+        expectedBaseRevision: baseRevision,
         onUnauthorized,
       });
 
@@ -606,8 +635,8 @@ export function mountSectionControls({
           const errorMessage =
             typeof result.error === 'string' && result.error.trim()
               ? result.error
-              : 'Failed to save layout';
-          setStatus('error', 'Layout save failed');
+              : t('editor.sections.saveFailed');
+          setStatus('error', t('editor.sections.layoutSaveFailed'));
           showToast(errorMessage, 'error');
         }
         return;
@@ -615,23 +644,27 @@ export function mountSectionControls({
 
       revision = result.revision;
       syncEntryDataSections();
+      const previousLayout = savedLayout;
+      savedLayout = structuredClone(sections);
 
       if (!applySectionsToCanvas(sections)) {
         markRefreshRequired({
           statusType: 'idle',
-          statusMessage: savesToDraft ? 'Layout draft saved (refresh required)' : 'Live layout saved (refresh required)',
+          statusMessage: savesToDraft ? t('editor.sections.draftSavedRefresh') : t('editor.sections.liveSavedRefresh'),
           toastType: 'success',
-          toastMessage: `${successMessage}. Refresh page to render structural changes.`,
+          toastMessage: t('editor.sections.refreshToRender', { message: successMessage }),
         });
         return;
       }
 
-      setStatus('idle', savesToDraft ? 'Layout draft saved' : 'Layout changes are live');
+      setStatus('idle', savesToDraft ? t('editor.sections.draftSaved') : t('editor.sections.live'));
       if (savesToDraft) window.dispatchEvent(new CustomEvent('cms:draftSaved'));
-      showToast(successMessage, 'success');
+      showToast.saved(undo
+        ? { message: successMessage }
+        : { message: successMessage, action: { label: t('editor.undo.undo'), onClick: () => undoLayout(previousLayout) } });
     } catch {
-      setStatus('error', 'Layout save failed');
-      showToast('Failed to save layout', 'error');
+      setStatus('error', t('editor.sections.layoutSaveFailed'));
+      showToast(t('editor.sections.saveFailed'), 'error');
     } finally {
       busy = false;
       setControlsDisabled(false);
@@ -668,7 +701,9 @@ export function mountSectionControls({
 
       entryData = loaded.data;
       revision = loaded.revision;
+    baseRevision = loaded.baseRevision;
       sections = normalizeSectionsFromData(entryData, sections);
+      savedLayout = structuredClone(sections);
       mountControls();
       syncEntryDataSections();
     } catch (error) {

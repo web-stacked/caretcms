@@ -4,6 +4,18 @@
 /** @template T @param {T} v @returns {T} */
 export function deepClone(v) { return JSON.parse(JSON.stringify(v)); }
 
+/**
+ * Whether a missing `key` gets a starting value: only when the schema requires
+ * it or states a default. An optional field the entry doesn't have stays
+ * absent, so saving the form never writes values nobody chose.
+ * @param {Schema} schema @param {string} key @returns {boolean}
+ */
+export function fillsByDefault(schema, key) {
+  var prop = schema.properties?.[key];
+  if (!prop) return false;
+  return prop.default !== undefined || (Array.isArray(schema.required) && schema.required.includes(key));
+}
+
 /** @param {Schema | null | undefined} schema @returns {unknown} */
 export function templateFromSchema(schema) {
   if (!schema || typeof schema !== "object") return "";
@@ -13,16 +25,45 @@ export function templateFromSchema(schema) {
     /** @type {Record<string, unknown>} */
     var objectTemplate = {};
     Object.keys(schema.properties || {}).forEach(function (key) {
-      objectTemplate[key] = templateFromSchema(schema.properties?.[key]);
+      if (fillsByDefault(schema, key)) objectTemplate[key] = templateFromSchema(schema.properties?.[key]);
     });
     return objectTemplate;
   }
   if (schema.type === "array") return [];
   if (schema.type === "boolean") return false;
   if (schema.type === "number" || schema.type === "integer") {
-    return typeof schema.minimum === "number" ? schema.minimum : 0;
+    // Zod's integers carry a minimum of -(2^53 - 1): only a positive minimum
+    // is a sensible starting value.
+    return typeof schema.minimum === "number" && schema.minimum > 0 ? schema.minimum : 0;
   }
   return "";
+}
+
+/**
+ * Fills keys the schema defines but the data lacks, exactly as rendering the
+ * form does. Applying it before taking the clean snapshot keeps an untouched
+ * form from counting as changed.
+ * @template T
+ * @param {T} data
+ * @param {Schema | null | undefined} schema
+ * @returns {T}
+ */
+export function fillDefaults(data, schema) {
+  if (!data || typeof data !== "object" || Array.isArray(data) || !schema || !schema.properties) return data;
+  var record = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (data));
+  Object.keys(schema.properties).forEach(function (key) {
+    var prop = schema.properties?.[key];
+    if (!prop) return;
+    if (record[key] === undefined && fillsByDefault(schema, key)) record[key] = templateFromSchema(prop);
+    var value = record[key];
+    if (prop.type === "object" && prop.properties) {
+      fillDefaults(value, prop);
+    } else if (prop.type === "array" && prop.format !== "image-gallery" && prop.items && prop.items.type === "object" && Array.isArray(value)) {
+      var itemSchema = prop.items;
+      value.forEach(function (item) { fillDefaults(item, itemSchema); });
+    }
+  });
+  return data;
 }
 
 /** @param {string} path @param {number} index @returns {string} */
@@ -62,7 +103,8 @@ export function singularItemLabel(path) {
 /** @param {Record<string, unknown> | null | undefined} data @returns {string} */
 export function getTitle(data) {
   if (!data) return "Untitled";
-  var keys = ["name", "title", "question", "company_name", "headline", "label"];
+  // Mirrors ENTRY_TITLE_KEYS in src/runtime/entry-search.ts.
+  var keys = ["title", "headline", "heading", "name", "label", "question", "company_name"];
   for (var i = 0; i < keys.length; i++) {
     const value = data[keys[i]];
     if (typeof value === "string" && value) return value;
@@ -75,6 +117,7 @@ export function humanizeKey(key) {
   return key
     .replace(/_/g, " ")
     .replace(/\bcta\b/gi, "call to action")
+    .replace(/\bfaq\b/gi, "FAQ")
     .replace(/\bseo\b/gi, "SEO")
     .replace(/\burl\b/gi, "URL")
     .replace(/\bid\b/gi, "ID")

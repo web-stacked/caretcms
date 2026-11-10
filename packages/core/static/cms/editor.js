@@ -9,17 +9,20 @@
  * - image editing
  * - content map
  */
-import { buildCmsUrl, clearCloudSessionToken, getEditorLoginUrl } from './editor/config.js';
-import { parseCaretAttr, flash } from './editor/helpers.js';
+import { STUDIO_PATH, buildCmsUrl, clearCloudSessionToken } from './editor/config.js';
+import { parseCaretAttr, resolveBinding, flash } from './editor/helpers.js';
 import { clientLinkify } from './editor/linkify.js';
 import { createSaveField } from './editor/save-queue.js';
 import { compressImage, updateEmblaCarousel } from './editor/image-utils.js';
 import { createToast } from './editor/toast.js';
 import { mountEditorGuards } from './editor/guards.js';
-import { mountToolbar, normalizePreviewForDelivery } from './editor/toolbar.js';
+import { mountToolbar } from './editor/toolbar.js';
 import { mountStudioPanel } from './editor/panel.js';
+import { pageEntryRoute } from './editor/panel-route.js';
+import { anchorToolbar } from './editor/toolbar-anchor.js';
 import { mountStudioSync } from './editor/sync.js';
 import { mountTextEditors } from './editor/text-edit.js';
+import { canUndoLastEdit, undoLastEdit } from './editor/undo-stack.js';
 import { mountImageEditors } from './editor/image-edit.js';
 import { mountSectionControls } from './editor/section-controls.js';
 import { mountContentMap } from './editor/content-map.js';
@@ -27,38 +30,105 @@ import { mountRichToolbar } from './editor/rich-toolbar.js';
 import { mountMdBlockEditors } from './editor/md-block-edit.js';
 import { mountLinkFollowAffordances } from './editor/link-follow.js';
 import { revealAndFade } from './editor/highlight.js';
+import { findDeniedEntries, lockDeniedBindings } from './editor/permissions.js';
 import { hydrateStega } from './editor/stega-hydrate.js';
+import { createSessionRecovery } from './editor/session-recovery.js';
+import { applyCssMessages } from './editor/i18n.js';
 
-function redirectToEditorLogin() {
-  window.location.href = getEditorLoginUrl(window.location.href);
+/**
+ * A Set that reports its size after every change.
+ * @template T
+ * @param {(size: number) => void} onChange
+ * @returns {Set<T>}
+ */
+function createObservedSet(onChange) {
+  /** @type {Set<T>} */
+  const set = new Set();
+  const add = set.add.bind(set);
+  const remove = set.delete.bind(set);
+  const clear = set.clear.bind(set);
+  set.add = (value) => { add(value); onChange(set.size); return set; };
+  set.delete = (value) => { const removed = remove(value); onChange(set.size); return removed; };
+  set.clear = () => { clear(); onChange(set.size); };
+  return set;
+}
+
+/**
+ * Astro view transitions (`<ClientRouter />`) swap the page's body without a
+ * reload. CaretCMS's own elements (toolbar, drawer, toasts, layers) move into
+ * the incoming body with the classes that hold edit mode and the drawer's
+ * push, and the new page's bindings are made editable once it's in place.
+ * @param {Set<Element>} siteElementsAtBoot the body's children before the editor added any
+ * @param {() => void} remount
+ */
+function followViewTransitions(siteElementsAtBoot, remount) {
+  /** The site's own top-level elements, so ours are what else carries `cms-`. */
+  let siteElements = siteElementsAtBoot;
+  /** @param {Element} element */
+  const isCaretChrome = (element) => !siteElements.has(element)
+    && !element.localName.startsWith('astro-')
+    && (element.id.startsWith('cms-') || [...element.classList].some((name) => name.startsWith('cms-')));
+  /** @param {Element} from @param {Element} to */
+  const carryClasses = (from, to) => {
+    for (const name of from.classList) if (name.startsWith('cms-') || name.startsWith('caret-')) to.classList.add(name);
+  };
+  document.addEventListener('astro:before-swap', (event) => {
+    const next = /** @type {Event & { newDocument?: Document }} */ (event).newDocument;
+    if (!next?.body) return;
+    siteElements = new Set(next.body.children);
+    carryClasses(document.documentElement, next.documentElement);
+    carryClasses(document.body, next.body);
+    // The editor's stylesheet was added to <head>, which the swap replaces too.
+    for (const sheet of document.head.querySelectorAll('link[data-caret-editor]')) next.head.append(sheet);
+    // The editor's stylesheet was added to <head>, which the swap replaces too.
+    for (const sheet of document.head.querySelectorAll('link[data-caret-editor]')) next.head.append(sheet);
+    for (const element of [...document.body.children]) if (isCaretChrome(element)) next.body.append(element);
+  });
+  document.addEventListener('astro:after-swap', () => {
+    hydrateStega();
+    remount();
+  });
 }
 
 function boot() {
-  if (normalizePreviewForDelivery()) return;
+  const siteElementsAtBoot = new Set(document.body.children);
+  /** @type {(unsaved: boolean) => void} */
+  let reportUnsaved = () => {};
+  // Unsaved text on the page or in the Studio drawer both show on the status.
+  let inlineUnsaved = false;
+  let studioUnsaved = false;
 
   /** @type {{ dirtyEls: Set<Element>, linkPopupEl: HTMLElement | null }} */
   const state = {
     // Every element with unsaved edits. A Set (not a single element) so a save
     // completing on field A can't clear the dirty flag for field B the user has
     // since moved to — that would let the beforeunload guard miss B's edits.
-    dirtyEls: new Set(),
+    // Every change is reported so the toolbar can show "Unsaved changes".
+    dirtyEls: createObservedSet(size => { inlineUnsaved = size > 0; reportUnsaved(inlineUnsaved || studioUnsaved); }),
     linkPopupEl: null,
   };
 
   // Promote stega-tagged (loader-fed) content into data-caret bindings before
   // any scanner runs, so prop/component/loop content is click-to-edit too.
   hydrateStega();
+  applyCssMessages();
+
+  const sessionRecovery = createSessionRecovery();
+  const onUnauthorized = () => sessionRecovery.handleExpired();
 
   mountEditorGuards(state);
   mountLinkFollowAffordances();
 
   const showToast = createToast();
 
-  const { studioButton, mapButton, editModeButton, previewModeButton, setStatus } = mountToolbar({
+  const { studioButton, mapButton, editModeButton, previewModeButton, setStatus, setUnsaved, reportProblem, toolbarTabStop } = mountToolbar({
     showToast,
     clearDirty: () => {
       state.dirtyEls.clear();
     },
+    hasUnsavedEdits: () => state.dirtyEls.size > 0,
+    undo: { available: canUndoLastEdit, run: undoLastEdit },
+    onOpenHistory: () => openHistory(),
     onLogout: async () => {
       const response = await fetch(buildCmsUrl('/auth/logout'), {
         method: 'POST',
@@ -72,12 +142,30 @@ function boot() {
     },
   });
 
+  reportUnsaved = setUnsaved;
+  showToast.onProblem = reportProblem;
+
   const saveField = createSaveField({
     setStatus,
-    onUnauthorized: redirectToEditorLogin,
+    onUnauthorized,
   });
 
-  const { iframe: studioIframe, placeOpposite } = mountStudioPanel({ studioButton });
+  const toolbarElement = studioButton?.closest('.cms-toolbar');
+  const toolbarAnchor = toolbarElement instanceof HTMLElement ? anchorToolbar(toolbarElement) : null;
+  const { iframe: studioIframe, placeOpposite, openAt } = mountStudioPanel({
+    studioButton,
+    toolbar: toolbarElement instanceof HTMLElement ? toolbarElement : null,
+    toolbarTabStop,
+    onLayoutChange: toolbarAnchor?.setDrawer,
+    isStudioDirty: () => studioUnsaved,
+  });
+
+  // History for the entry the drawer has open on this page, else the page's own.
+  function openHistory() {
+    if (!STUDIO_PATH) return;
+    const entryPath = pageEntryRoute();
+    if (entryPath) openAt(`${entryPath}#history`);
+  }
 
   mountStudioSync({
     studioIframe,
@@ -85,6 +173,7 @@ function boot() {
     showToast,
     clientLinkify,
     onInlineSelection: placeOpposite,
+    onStudioDirty: (dirty) => { studioUnsaved = dirty; reportUnsaved(inlineUnsaved || studioUnsaved); },
   });
 
   mountContentMap({ mapButton });
@@ -126,7 +215,10 @@ function boot() {
   editModeButton?.addEventListener('click', () => setPageMode('edit'));
   previewModeButton?.addEventListener('click', () => setPageMode('preview'));
 
+  /** Entries this editor may not edit (with an authorization policy). @type {Set<string>} */
+  let deniedEntries = new Set();
   const mountInlineEditors = () => {
+    lockDeniedBindings(deniedEntries, showToast);
     const { showLinkPopup } = mountTextEditors({
       state,
       parseCaretAttr,
@@ -145,10 +237,11 @@ function boot() {
       state,
       flash,
       showToast,
-      onUnauthorized: redirectToEditorLogin,
+      onUnauthorized,
     });
 
     mountImageEditors({
+      state,
       parseCaretAttr,
       flash,
       compressImage,
@@ -156,29 +249,50 @@ function boot() {
       saveField,
       setStatus,
       showToast,
-      onUnauthorized: redirectToEditorLogin,
+      onUnauthorized,
     });
     applyPageMode();
+    primeRenderedRevisions();
   };
+
+  // Each entry's revision as of page load is the base its inline edits are
+  // checked against; see `saveField.prime`.
+  function primeRenderedRevisions() {
+    const seen = new Set();
+    document.querySelectorAll('[data-caret]').forEach((element) => {
+      const resolved = resolveBinding(element, parseCaretAttr(element.getAttribute('data-caret') || ''));
+      if (!resolved) return;
+      const key = `${resolved.collection}::${resolved.id}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      saveField.prime(resolved.collection, resolved.id);
+    });
+  }
+
+  followViewTransitions(siteElementsAtBoot, () => mountInlineEditors());
 
   mountSectionControls({
     parseCaretAttr,
     setStatus,
     showToast,
-    onUnauthorized: redirectToEditorLogin,
+    onUnauthorized,
     onCanvasStructureChanged: mountInlineEditors,
   });
 
-  mountInlineEditors();
-
-  // First load after login: flash every editable region once, then fade out.
-  // The flag is set by the login form just before it redirects here.
-  try {
-    if (sessionStorage.getItem('caret:welcome')) {
-      sessionStorage.removeItem('caret:welcome');
-      revealAndFade(2500);
-    }
-  } catch (e) {}
+  // With a policy, find what this editor may not edit before making anything
+  // editable; without one this resolves at once.
+  void findDeniedEntries().then((denied) => {
+    deniedEntries = denied;
+    mountInlineEditors();
+    // First load after login: flash every editable region once, then fade
+    // out. The flag is set by the login form just before it redirects here.
+    try {
+      if (sessionStorage.getItem('caret:welcome')) {
+        sessionStorage.removeItem('caret:welcome');
+        revealAndFade(2500);
+      }
+    } catch (e) {}
+  });
 }
 
 if (document.readyState === 'loading') {

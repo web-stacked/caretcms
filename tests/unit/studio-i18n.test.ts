@@ -8,8 +8,8 @@ describe("Studio localization", () => {
     const spanish = resolveStudioDictionary("es");
 
     expect(Object.keys(spanish)).toEqual(Object.keys(english));
-    expect(english["entry.saveLive"]).toBe("Save live");
-    expect(spanish["entry.saveLive"]).toBe("Guardar en vivo");
+    expect(english["entry.saveNow"]).toBe("Save now");
+    expect(spanish["entry.saveNow"]).toBe("Guardar ahora");
     expect(spanish["collection.search"]).toBe("Buscar");
   });
 

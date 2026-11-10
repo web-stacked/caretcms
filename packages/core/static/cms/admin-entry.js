@@ -1,10 +1,15 @@
-import { deepClone, templateFromSchema, generatedId, friendlyFileTitle, singularItemLabel, getTitle, humanizeKey, fieldIdFromPath, getNestedValue, setNestedValue } from './studio/field-model.js';
+import { deepClone, fillDefaults, templateFromSchema, generatedId, friendlyFileTitle, singularItemLabel, getTitle, humanizeKey, fieldIdFromPath, getNestedValue, setNestedValue } from './studio/field-model.js';
 import { createFieldGroup, createFieldRenderer } from './studio/fields.js';
 import { createStudioMutationClient } from './studio/mutation-client.js';
 import { createStudioHistoryClient } from './studio/history-client.js';
-import { createStudioUploadClient, isSupportedImage } from './studio/upload-client.js';
+import { createStudioUploadClient } from './studio/upload-client.js';
 import { createStudioEntryLoader } from './studio/entry-loader.js';
 import { createStudioSync } from './studio/sync-client.js';
+import { rebaseEdits } from './studio/merge.js';
+import { historyChanges, historyFieldLabel, historyValueText, relativeTime } from './studio/history-view.js';
+import { presentPublishResult } from './editor/publish-result.js';
+import { whenServed } from './editor/image-utils.js';
+import { createSessionRecovery, SESSION_RESTORED_EVENT } from './editor/session-recovery.js';
 
 /** @typedef {import('../../src/schema-utils.js').JsonSchemaNode} Schema */
 /** @typedef {{ path: string, message: string }} ValidationIssue */
@@ -23,7 +28,7 @@ import { createStudioSync } from './studio/sync-client.js';
  *
  * API surface used:
  *   GET  ${api}/entries?collection=&id=
- *   GET  ${api}/schema?collection=
+ *   GET  ${api}/schema?collection=&id=   (id: infer a schemaless entry from itself)
  *   POST ${api}/mutate   { type: "put_entry" | "delete_entry", ... }
  *   POST ${api}/upload   FormData(file)
  *   GET  ${api}/history?collection=&id=
@@ -73,7 +78,28 @@ import { createStudioSync } from './studio/sync-client.js';
   if (!API || !COLLECTION || !ID) return;
   var mutationClient = createStudioMutationClient({ apiBasePath: API });
   var historyClient = createStudioHistoryClient({ apiBasePath: API });
-  var uploadClient = createStudioUploadClient({ apiBasePath: API, onUnauthorized: loginRedirect });
+  // A session that ends mid-edit is renewed in a dialog, so the form keeps
+  // what the editor typed; it saves again once they're signed in.
+  var sessionRecovery = createSessionRecovery({
+    cmsUrl: function (path) { return API + path; },
+    loginUrl: function (returnTo) { return MOUNT + "?redirect=" + encodeURIComponent(returnTo); },
+    redirectOnly: false,
+    look: {
+      backdrop: "modal-backdrop",
+      dialog: "modal-card modal-card-confirm studio-reauth",
+      label: "studio-reauth-label",
+      input: "studio-input",
+      error: "studio-reauth-error",
+      actions: "modal-actions",
+      secondary: "studio-btn-ghost",
+      link: "studio-btn-ghost",
+      primary: "studio-btn-primary",
+    },
+    surface: "studio",
+  });
+  function sessionExpired() { sessionRecovery.handleExpired(); }
+
+  var uploadClient = createStudioUploadClient({ apiBasePath: API, onUnauthorized: sessionExpired });
   var entryLoader = createStudioEntryLoader({ apiBasePath: API });
 
   /* ─── State ─────────────────────────────────────────────────────── */
@@ -83,6 +109,8 @@ import { createStudioSync } from './studio/sync-client.js';
   var entrySchema = null;
   /** @type {number | undefined} */
   var entryRevision = undefined;
+  /** @type {number | undefined} */
+  var entryBaseRevision = undefined;
   var originalJson = "";
   var saving = false;
   var dirtyTimer = 0;
@@ -91,6 +119,10 @@ import { createStudioSync } from './studio/sync-client.js';
   var pendingRemoteSelection = null;
   /** @type {string | null} */
   var publicationFieldName = null;
+  /** What visitors see when edits go to a private draft (null: not published
+   * yet; undefined: edits save live, or the server didn't say).
+   * @type {Record<string, unknown> | null | undefined} */
+  var liveData = undefined;
   var studioSync = createStudioSync({
     collection: COLLECTION,
     id: ID,
@@ -116,14 +148,24 @@ import { createStudioSync } from './studio/sync-client.js';
   var validationWarningEl = /** @type {HTMLElement | null} */ (document.getElementById("validation-warning"));
   var saveBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-save"));
   var deleteBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-delete"));
+  var publishBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-publish"));
+  var discardDraftBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-discard-draft"));
+  // In the on-page drawer, the entry's page opens behind the Studio, which
+  // stays open on this entry, instead of in another tab.
+  var previewLink = document.getElementById("btn-preview");
+  if (previewLink && window.parent !== window) {
+    var previewHref = previewLink.getAttribute("href") || "";
+    previewLink.removeAttribute("target");
+    previewLink.addEventListener("click", function (event) {
+      event.preventDefault();
+      window.parent.postMessage({ type: "cms:show-page", path: previewHref }, window.location.origin);
+    });
+  }
+  var draftChangesEl = /** @type {HTMLDetailsElement | null} */ (document.getElementById("draft-changes"));
   var historyBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-history"));
   var historyPanel = /** @type {HTMLElement} */ (document.getElementById("history-panel"));
   var historyList = /** @type {HTMLElement} */ (document.getElementById("history-list"));
   var historyCloseBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-history-close"));
-  var deleteDialog = /** @type {HTMLElement} */ (document.getElementById("delete-dialog"));
-  var deleteNameEl = /** @type {HTMLElement} */ (document.getElementById("delete-entry-name"));
-  var deleteCancelBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-delete-cancel"));
-  var deleteConfirmBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-delete-confirm"));
   var confirmDialog = /** @type {HTMLElement} */ (document.getElementById("confirm-dialog"));
   var confirmTitleEl = /** @type {HTMLElement} */ (document.getElementById("confirm-dialog-title"));
   var confirmCopyEl = /** @type {HTMLElement} */ (document.getElementById("confirm-dialog-copy"));
@@ -134,8 +176,6 @@ import { createStudioSync } from './studio/sync-client.js';
   var conflictCancelBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-conflict-cancel"));
   var conflictLatestBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-conflict-latest"));
   var conflictKeepBtn = /** @type {HTMLButtonElement} */ (document.getElementById("btn-conflict-keep"));
-  /** @type {HTMLElement | null} */
-  var deleteRestoreFocus = null;
 
   /* ─── Helpers ───────────────────────────────────────────────────── */
 
@@ -143,42 +183,248 @@ import { createStudioSync } from './studio/sync-client.js';
     return entryData !== null && JSON.stringify(entryData) !== originalJson;
   }
 
-  /** @param {Record<string, unknown> | null} data */
-  function displayTitle(data) {
-    if (data && CFG.titleField) {
-      var configured = getNestedValue(data, CFG.titleField);
-      if (typeof configured === "string" && configured.trim()) return configured;
+  // A new entry opened from the create dialog: nothing is stored until the
+  // editor presses Create with the required fields filled in.
+  var creating = false;
+
+  // Edits save on their own ~1.5s after the last change. A save requested
+  // while one is running goes out as soon as it finishes.
+  var AUTOSAVE_DELAY_MS = 1500;
+  var AUTOSAVE = { auto: true };
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  var autosaveTimer;
+  var saveAgain = false;
+  // The entry as it was before the last save, for Undo.
+  /** @type {Record<string, unknown> | null} */
+  var undoData = null;
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  var undoTimer;
+  var undoBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-undo"));
+
+  /** Whether a change goes beyond text the page can update in place.
+   * @param {unknown} before @param {unknown} after @returns {boolean} */
+  function hasStructuralChange(before, after) {
+    if (typeof before === "string" && typeof after === "string") return false;
+    if (Array.isArray(before) || Array.isArray(after)) {
+      if (!Array.isArray(before) || !Array.isArray(after) || before.length !== after.length) return true;
+      return before.some(function (item, index) { return hasStructuralChange(item, after[index]); });
     }
-    var inferred = getTitle(data);
-    return inferred === "Untitled" && CFG.fallbackTitle ? CFG.fallbackTitle : inferred;
+    if (before && after && typeof before === "object" && typeof after === "object") {
+      var a = /** @type {Record<string, unknown>} */ (before), b = /** @type {Record<string, unknown>} */ (after);
+      var keys = Object.keys(a).concat(Object.keys(b).filter(function (key) { return !(key in a); }));
+      return keys.some(function (key) { return hasStructuralChange(a[key], b[key]); });
+    }
+    return before !== after;
+  }
+
+  /** @param {Record<string, unknown> | null} previous */
+  function offerUndo(previous) {
+    undoData = previous;
+    if (!undoBtn) return;
+    undoBtn.hidden = previous === null;
+    clearTimeout(undoTimer);
+    if (previous) undoTimer = setTimeout(function () { if (undoBtn) undoBtn.hidden = true; undoData = null; }, 10000);
+  }
+
+  /** Empty required text fields, so a new entry never starts with placeholder content.
+   * @param {Record<string, unknown>} data @param {Schema | null} schema */
+  function blankRequiredText(data, schema) {
+    if (!schema || !schema.properties) return;
+    var required = schema.required || [];
+    Object.keys(schema.properties).forEach(function (key) {
+      var prop = /** @type {Schema} */ (schema.properties && schema.properties[key]);
+      if (!prop) return;
+      if (prop.type === "string" && required.indexOf(key) !== -1) data[key] = "";
+      else if (prop.type === "object" && data[key] && typeof data[key] === "object" && !Array.isArray(data[key])) {
+        blankRequiredText(/** @type {Record<string, unknown>} */ (data[key]), prop);
+      }
+    });
+  }
+
+  /** Text a reader sees in a title value. @param {unknown} value */
+  function titleText(value) {
+    return typeof value === "string" ? value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() : "";
+  }
+
+  /** Mirrors the server's entryDisplayTitle, kept current as fields change. @param {Record<string, unknown> | null} data */
+  function displayTitle(data) {
+    // A singleton (site settings) is named by its collection, as on the server.
+    if (INITIALIZE_IF_MISSING && CFG.fallbackTitle) return CFG.fallbackTitle;
+    var configured = data && CFG.titleField ? titleText(getNestedValue(data, CFG.titleField)) : "";
+    if (configured) return configured;
+    var inferred = titleText(getTitle(data));
+    if (inferred && inferred !== "Untitled") return inferred;
+    return CFG.fallbackTitle || (IS_NEW ? inferred : ID);
   }
 
   function updateDisplayedTitle() {
     var title = displayTitle(entryData);
     titleEl.textContent = title;
+    // The breadcrumb and tab title follow the name as it's typed.
+    var crumb = document.querySelector(".studio-breadcrumb .studio-breadcrumb-current:last-child");
+    if (crumb) crumb.textContent = title;
     document.title = document.title.replace(/^Edit .*?(?= — )/, "Edit " + title);
+  }
+
+  /** @param {unknown} value @returns {string} */
+  function stableJson(value) {
+    if (Array.isArray(value)) return "[" + value.map(stableJson).join(",") + "]";
+    if (value && typeof value === "object") {
+      var record = /** @type {Record<string, unknown>} */ (value);
+      return "{" + Object.keys(record).sort().map(function (key) { return JSON.stringify(key) + ":" + stableJson(record[key]); }).join(",") + "}";
+    }
+    return JSON.stringify(value);
+  }
+
+  /** Whether the saved draft differs from what visitors see. */
+  function hasUnpublishedDraft() {
+    if (SAVE_TARGET !== "preview" || liveData === undefined) return true;
+    if (liveData === null) return true;
+    return stableJson(fillDefaults(deepClone(liveData), entrySchema)) !== stableJson(JSON.parse(originalJson || "{}"));
+  }
+
+  function savedStatusMessage() {
+    if (SAVE_TARGET !== "preview") return msg("entry.allLive", "All changes live");
+    return hasUnpublishedDraft() ? msg("entry.draftSaved", "Draft saved") : msg("entry.matchesLive", "Matches live");
   }
 
   function updateVisibility() {
     if (!visibilityEl || !entryData || !CFG.publicationField) return;
     var visible = getNestedValue(entryData, CFG.publicationField) === true;
-    visibilityEl.textContent = visible ? msg("entry.public", "Public") : msg("entry.hidden", "Hidden");
+    var label = visible ? msg("entry.public", "Public") : msg("entry.hidden", "Hidden");
+    // In draft modes the switch only takes effect when the draft is published.
+    if (SAVE_TARGET === "preview" && liveData !== undefined) {
+      var liveVisible = liveData !== null && getNestedValue(liveData, CFG.publicationField) === true;
+      if (visible !== liveVisible) {
+        label = visible ? msg("entry.publicAfterPublish", "Public after publish") : msg("entry.hiddenAfterPublish", "Hidden after publish");
+      }
+    }
+    visibilityEl.textContent = label;
     visibilityEl.dataset.visible = visible ? "true" : "false";
+  }
+
+  // Draft modes: what this entry's draft changes compared with what visitors
+  // see, and the Publish and Discard actions for it.
+  var canPublish = true;
+  var publishing = false;
+
+  function updateDraftUi() {
+    if (!draftChangesEl || SAVE_TARGET !== "preview" || liveData === undefined || !entryData || creating) return;
+    var saved = /** @type {Record<string, unknown>} */ (JSON.parse(originalJson || "{}"));
+    var unpublished = hasUnpublishedDraft();
+    var title = /** @type {HTMLElement} */ (document.getElementById("draft-changes-title"));
+    var list = /** @type {HTMLElement} */ (document.getElementById("draft-changes-list"));
+    list.innerHTML = "";
+    if (unpublished) {
+      if (liveData === null) {
+        title.textContent = msg("entry.newNotPublished", "New, not published yet");
+      } else {
+        var changes = historyChanges(fillDefaults(deepClone(liveData), entrySchema), saved, entrySchema, msg("history.empty", "Empty"));
+        title.textContent = changes.length === 1
+          ? msg("entry.draftChangesOne", "1 change not published yet")
+          : msg("entry.draftChanges", "{count} changes not published yet").replace("{count}", String(changes.length));
+        changes.forEach(function (change) { list.appendChild(historyChangeItem(change)); });
+      }
+    }
+    draftChangesEl.hidden = !unpublished;
+    if (publishBtn) {
+      publishBtn.hidden = !unpublished || !canPublish;
+      publishBtn.disabled = publishing || isDirty() || saving;
+    }
+    if (discardDraftBtn) discardDraftBtn.hidden = !unpublished;
+  }
+
+  function publishEntry() {
+    if (!publishBtn || publishing) return;
+    publishing = true;
+    publishBtn.textContent = msg("entry.publishing", "Publishing…");
+    updateDraftUi();
+    showStatus("saving", msg("entry.publishing", "Publishing…"));
+    fetch(API + "/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-caret-request": "1" },
+      credentials: "same-origin",
+      body: JSON.stringify({ collection: COLLECTION, id: ID }),
+    }).then(function (response) {
+      if (response.status === 401) { sessionExpired(); return; }
+      return response.json().catch(function () { return {}; }).then(function (body) {
+        if (!response.ok) {
+          showStatus("error", typeof body.error === "string" ? body.error : msg("common.error", "Error"));
+          return;
+        }
+        var result = presentPublishResult(body);
+        showStatus(result.toast.kind === "error" ? "error" : "saved", result.toast.message);
+        studioSync.announceChange("cms:published", entryData);
+        // Publishing moves the draft into what visitors see, which changes this
+        // entry's versions: take the new ones so the next save isn't stale.
+        return entryLoader.load({ collection: COLLECTION, id: ID, isNew: false, initializeIfMissing: false }).then(function (latest) {
+          if (latest.kind !== "ready") return;
+          entryRevision = latest.revision;
+          entryBaseRevision = latest.baseRevision;
+          liveData = latest.live;
+        });
+      });
+    }).catch(function () {
+      showStatus("error", msg("common.error", "Error"));
+    }).then(function () {
+      publishing = false;
+      if (publishBtn) publishBtn.textContent = msg("entry.publish", "Publish");
+      updateVisibility();
+      updateDraftUi();
+    });
+  }
+
+  async function discardEntryDraft() {
+    var moreMenu = document.getElementById("entry-more");
+    if (moreMenu) moreMenu.removeAttribute("open");
+    if (!(await confirmAction({
+      title: msg("entry.discardTitle", "Discard your draft?"),
+      copy: msg("entry.discardCopy", "This entry goes back to what visitors see now, and your unpublished changes are removed."),
+      action: msg("entry.discardDraft", "Discard draft"),
+    }))) return;
+    var response = await fetch(API + "/draft?collection=" + encodeURIComponent(COLLECTION) + "&id=" + encodeURIComponent(ID), {
+      method: "DELETE",
+      headers: { "x-caret-request": "1" },
+      credentials: "same-origin",
+    }).catch(function () { return null; });
+    if (response && response.status === 401) { sessionExpired(); return; }
+    if (!response || !response.ok) {
+      var body = response ? await response.json().catch(function () { return {}; }) : {};
+      showStatus("error", typeof body.error === "string" ? body.error : msg("common.error", "Error"));
+      return;
+    }
+    // The entry is now what visitors see; load it fresh.
+    window.location.reload();
+  }
+
+  /** History and More actions only once the entry exists. @param {boolean} exists */
+  function showEntryActions(exists) {
+    historyBtn.hidden = !exists || historyBtn.dataset.available !== "true";
+    var more = document.getElementById("entry-more");
+    if (more) more.hidden = !exists;
   }
 
   /** @param {boolean} [preserveStatus] */
   function updateSaveButton(preserveStatus) {
     var dirty = isDirty();
-    saveBtn.disabled = CFG.editable === false || !dirty || saving;
+    // Changes save on their own; the button is there only while some are
+    // pending (to save at once) or to create a new entry.
+    saveBtn.hidden = CFG.editable === false || (!dirty && !creating && !saving);
+    saveBtn.disabled = CFG.editable === false || (!dirty && !creating) || saving;
     saveBtn.classList.remove("studio-save-dirty", "studio-save-clean", "studio-save-saving");
-    saveBtn.classList.add(saving ? "studio-save-saving" : (dirty ? "studio-save-dirty" : "studio-save-clean"));
-    saveBtn.textContent = saving ? msg("common.saving", "Saving…") : (SAVE_TARGET === "preview" ? msg("entry.saveDraft", "Save draft") : msg("entry.saveLive", "Save live"));
+    saveBtn.classList.add(saving ? "studio-save-saving" : (dirty || creating ? "studio-save-dirty" : "studio-save-clean"));
+    saveBtn.textContent = saving ? msg("common.saving", "Saving…")
+      : creating ? msg("entry.create", "Create")
+      : msg("entry.saveNow", "Save now");
     updateDisplayedTitle();
     updateVisibility();
+    updateDraftUi();
+    studioSync.announceStatus(dirty);
     if (entryData !== null && !preserveStatus) {
       if (saving) showStatus("saving", SAVE_TARGET === "preview" ? msg("entry.savingDraft", "Saving draft…") : msg("entry.savingLiveChanges", "Saving live changes…"));
+      else if (creating) showStatus("dirty", msg("entry.notCreated", "Not created yet"));
       else if (dirty) showStatus("dirty", msg("entry.unsaved", "Unsaved changes"));
-      else showStatus("saved", SAVE_TARGET === "preview" ? msg("entry.draftSaved", "Draft saved") : msg("entry.allLive", "All changes live"));
+      else showStatus("saved", savedStatusMessage());
     }
   }
 
@@ -198,22 +444,21 @@ import { createStudioSync } from './studio/sync-client.js';
     setNestedValue(entryData, path, value);
     if (!saving) {
       saveBtn.disabled = CFG.editable === false;
+      saveBtn.hidden = CFG.editable === false;
+      if (!creating) saveBtn.textContent = msg("entry.saveNow", "Save now");
       saveBtn.classList.remove("studio-save-clean", "studio-save-saving");
       saveBtn.classList.add("studio-save-dirty");
     }
     clearTimeout(dirtyTimer);
     dirtyTimer = setTimeout(updateSaveButton, 300);
     studioSync.queuePreview(entryData);
+    offerUndo(null);
+    clearTimeout(autosaveTimer);
+    if (!creating && CFG.editable !== false) autosaveTimer = setTimeout(function () { save(AUTOSAVE); }, AUTOSAVE_DELAY_MS);
   }
 
   function loginRedirect() {
     window.location.href = MOUNT + "?redirect=" + encodeURIComponent(window.location.pathname);
-  }
-
-  /** @param {Response} res */
-  function handleAuth(res) {
-    if (res.status === 401) { loginRedirect(); return true; }
-    return false;
   }
 
   /** @param {{ title: string, copy: string, action: string, danger?: boolean }} options */
@@ -257,17 +502,48 @@ import { createStudioSync } from './studio/sync-client.js';
     });
   }
 
-  /** @param {Record<string, unknown>} latest */
-  function resolveConflict(latest) {
+  /** A field as the form labels it, e.g. "Team › #2 › Name". @param {string} path */
+  function humanizePath(path) {
+    return historyFieldLabel(path, entrySchema);
+  }
+
+  /**
+   * Show what the other person saved next to your version, field by field.
+   * @param {string[]} theirChanges @param {string[]} overlapping
+   * @param {unknown} theirData @param {unknown} myData
+   */
+  function resolveConflict(theirChanges, overlapping, theirData, myData) {
     var restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : saveBtn;
-    var local = entryData || {};
-    var changed = Array.from(new Set(Object.keys(local).concat(Object.keys(latest)))).filter(function (key) {
-      return JSON.stringify(local[key]) !== JSON.stringify(latest[key]);
-    });
+    var empty = msg("history.empty", "Empty");
     conflictFieldsEl.innerHTML = "";
-    (changed.length ? changed : ["entry"]).forEach(function (key) {
+    /** @param {HTMLElement} item @param {string} label @param {unknown} value */
+    function version(item, label, value) {
+      var line = document.createElement("span");
+      line.className = "conflict-version";
+      var name = document.createElement("span");
+      name.className = "conflict-version-label";
+      name.textContent = label;
+      line.appendChild(name);
+      line.appendChild(document.createTextNode(historyValueText(value, empty)));
+      item.appendChild(line);
+    }
+    (theirChanges.length ? theirChanges : [""]).forEach(function (path) {
       var item = document.createElement("li");
-      item.textContent = key === "entry" ? "The entry revision changed" : humanizeKey(key);
+      if (path === "") {
+        item.textContent = msg("entry.conflictRevision", "The entry revision changed");
+      } else {
+        var field = document.createElement("strong");
+        field.textContent = humanizePath(path);
+        item.appendChild(field);
+        version(item, msg("entry.conflictTheirs", "Saved by someone else:"), getNestedValue(theirData, path));
+        if (overlapping.indexOf(path) >= 0) version(item, msg("entry.conflictYours", "Yours:"), getNestedValue(myData, path));
+        else {
+          var kept = document.createElement("span");
+          kept.className = "conflict-version conflict-version-note";
+          kept.textContent = msg("entry.conflictKept", "You didn't change this, so it's kept either way.");
+          item.appendChild(kept);
+        }
+      }
       conflictFieldsEl.appendChild(item);
     });
     conflictDialog.hidden = false;
@@ -321,7 +597,8 @@ import { createStudioSync } from './studio/sync-client.js';
       next.id = generatedId(parentPath, Number(parts[parts.length - 2]) || 0);
     }
     if (Object.prototype.hasOwnProperty.call(next, "title") && !next.title) next.title = title;
-    if (Object.prototype.hasOwnProperty.call(next, "alt") && !next.alt) next.alt = title;
+    // A file name isn't a description: alt text is left for the editor, who
+    // is taken to its field below.
     if (dimensions && Object.prototype.hasOwnProperty.call(next, "width")) next.width = dimensions.width;
     if (dimensions && Object.prototype.hasOwnProperty.call(next, "height")) next.height = dimensions.height;
     updateField(parentPath, next);
@@ -331,38 +608,50 @@ import { createStudioSync } from './studio/sync-client.js';
       var control = document.getElementById(fieldIdFromPath(parentPath + "." + key));
       if (control && "value" in control) control.value = String(next[key]);
     });
+    var altControl = Object.prototype.hasOwnProperty.call(next, "alt") && !next.alt
+      ? document.getElementById(fieldIdFromPath(parentPath + ".alt")) : null;
+    if (altControl instanceof HTMLElement) {
+      var focusAlt = altControl;
+      requestAnimationFrame(function () { focusAlt.focus(); });
+    }
   }
 
   /* ─── Save / Delete ─────────────────────────────────────────────── */
-  async function save() {
-    if (!entryData || saving) return;
-    if (SAVE_TARGET === "live") {
-      var liveConfirmationKey = "caretcms:confirmed-live-save";
-      var confirmed = false;
-      try { confirmed = sessionStorage.getItem(liveConfirmationKey) === "1"; } catch (e) { /* storage may be disabled */ }
-      if (!confirmed && !(await confirmAction({
-        title: msg("entry.liveConfirmTitle", "Save live changes?"),
-        copy: msg("entry.liveConfirm", "These changes will be visible on the live site as soon as saving finishes."),
-        action: msg("entry.saveLive", "Save live"),
-      }))) return;
-      try { sessionStorage.setItem(liveConfirmationKey, "1"); } catch (e) { /* confirmation still applies to this save */ }
-    }
+  /** @param {unknown} [options] `AUTOSAVE` for a save the editor didn't ask for. */
+  async function save(options) {
+    var auto = options === AUTOSAVE;
+    clearTimeout(autosaveTimer);
+    if (!entryData) return;
+    if (saving) { saveAgain = true; return; }
+    if (auto && (!isDirty() || creating)) return;
     saving = true;
     updateSaveButton();
     var preserveSaveStatus = false;
-    /** @type {{ collection: string, id: string, data: Record<string, unknown>, expectedRevision?: number }} */
+    /** @type {{ collection: string, id: string, data: Record<string, unknown>, expectedRevision?: number, expectedBaseRevision?: number, createOnly?: boolean }} */
     var payload = {
       collection: COLLECTION,
       id: ID,
       data: entryData,
     };
     if (typeof entryRevision === "number") payload.expectedRevision = entryRevision;
+    if (typeof entryBaseRevision === "number") payload.expectedBaseRevision = entryBaseRevision;
+    if (creating) payload.createOnly = true;
 
     mutationClient.save(payload).then(async function (result) {
-      if (result.kind === "unauthorized") { loginRedirect(); return; }
+      if (result.kind === "unauthorized") {
+        preserveSaveStatus = true;
+        showStatus("error", msg("entry.signInToSave", "Not saved — sign in to save your changes"));
+        sessionExpired();
+        return;
+      }
       if (result.kind === "validation") {
           preserveSaveStatus = true;
           var firstInvalid = showValidationErrors(result.issues);
+          if (auto) {
+            // Point at the fields without moving the editor's cursor.
+            showStatus("error", msg("entry.fixFields", "Not saved — fix the highlighted fields"));
+            return;
+          }
           showStatus("error", msg("entry.validationFailed", "Validation failed") + " (" + result.issues.length + ")");
           if (firstInvalid) {
             firstInvalid.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -372,23 +661,38 @@ import { createStudioSync } from './studio/sync-client.js';
       }
       if (result.kind === "conflict") {
           preserveSaveStatus = true;
-          entryRevision = result.currentRevision;
+          // The newer revision is adopted only once the editor chooses a
+          // version. Until then saves keep conflicting, so this stale copy can
+          // never overwrite what someone else saved.
           var latest = await entryLoader.load({ collection: COLLECTION, id: ID, isNew: false, initializeIfMissing: false });
           if (latest.kind !== "ready") {
             showStatus("error", msg("entry.changedElsewhere", "Changed elsewhere — your edits are still here"));
             return;
           }
-          entryRevision = latest.revision;
-          var choice = await resolveConflict(latest.data);
+          var theirs = fillDefaults(deepClone(latest.data), entrySchema);
+          var rebase = rebaseEdits(JSON.parse(originalJson || "{}"), entryData || {}, theirs);
+          showStatus("dirty", msg("entry.conflictStatus", "Someone else saved this entry. Choose which version to keep."));
+          var choice = await resolveConflict(rebase.theirChanges, rebase.overlapping, theirs, entryData);
+          if (choice === "latest" || choice === "keep") {
+            entryRevision = latest.revision;
+            entryBaseRevision = latest.baseRevision;
+          }
           if (choice === "latest") {
-            entryData = deepClone(latest.data);
-            originalJson = JSON.stringify(latest.data);
+            entryData = fillDefaults(deepClone(latest.data), entrySchema);
+            originalJson = JSON.stringify(entryData);
             fieldsEl.innerHTML = "";
             renderFields(fieldsEl, entryData, entrySchema, "");
             studioSync.queuePreview(entryData);
             showStatus("saved", msg("entry.loadedLatest", "Loaded latest changes"));
           } else if (choice === "keep") {
-            showStatus("dirty", msg("entry.keptMine", "Your edits are kept — Save again to overwrite"));
+            // Apply only this form's edits on top of the newer entry, so
+            // fields changed elsewhere and untouched here are not reverted.
+            entryData = fillDefaults(rebase.merged, entrySchema);
+            originalJson = JSON.stringify(fillDefaults(deepClone(latest.data), entrySchema));
+            fieldsEl.innerHTML = "";
+            renderFields(fieldsEl, entryData, entrySchema, "");
+            studioSync.queuePreview(entryData);
+            showStatus("dirty", msg("entry.keptMine", "Your edits are on the latest version — Save to apply them"));
           } else {
             showStatus("dirty", msg("entry.unsaved", "Unsaved changes"));
           }
@@ -397,47 +701,80 @@ import { createStudioSync } from './studio/sync-client.js';
       if (result.kind === "error") throw new Error("save failed");
       clearFieldErrors();
       if (typeof result.revision === "number") entryRevision = result.revision;
+      if (creating) {
+        creating = false;
+        showEntryActions(true);
+        history.replaceState(null, "", window.location.pathname);
+      }
+      var previous = /** @type {Record<string, unknown>} */ (JSON.parse(originalJson || "{}"));
+      var wasUndo = Boolean(options && /** @type {{ undo?: boolean }} */ (options).undo);
       originalJson = JSON.stringify(entryData);
-      studioSync.announceChange("cms:saved", entryData);
-      showStatus("saved", SAVE_TARGET === "preview" ? msg("entry.draftSaved", "Draft saved") : msg("entry.savedLive", "Changes are live"));
+      studioSync.announceChange("cms:saved", entryData, { structural: hasStructuralChange(previous, entryData) });
+      if (wasUndo) {
+        offerUndo(null);
+        preserveSaveStatus = true;
+        showStatus("saved", msg("entry.undone", "Change undone"));
+      } else {
+        offerUndo(previous);
+        showStatus("saved", SAVE_TARGET === "preview" ? savedStatusMessage() : msg("entry.savedLive", "Changes are live"));
+      }
     }).catch(function () {
+      // The edits stay in the form and save again on reconnecting.
       preserveSaveStatus = true;
-      showStatus("error", msg("common.error", "Error"));
+      showStatus("error", navigator.onLine
+        ? msg("entry.saveFailed", "Couldn't save. Your changes are still here — Save now to try again")
+        : msg("entry.offline", "You're offline. Your changes are kept and save when you reconnect"));
     }).then(function () {
       saving = false;
       updateSaveButton(preserveSaveStatus);
+      if (saveAgain) {
+        saveAgain = false;
+        if (isDirty()) save(AUTOSAVE);
+      }
     });
   }
 
+  // Undo puts back the entry as it was before the last save, and saves it.
+  if (undoBtn) undoBtn.addEventListener("click", function () {
+    if (!undoData || saving) return;
+    entryData = fillDefaults(deepClone(undoData), entrySchema);
+    offerUndo(null);
+    fieldsEl.innerHTML = "";
+    renderFields(fieldsEl, entryData, entrySchema, "");
+    studioSync.queuePreview(entryData);
+    save({ undo: true });
+  });
+
+  // Deleting hands the entry to the collection page, which hides it, offers
+  // Undo and sends the deletion a few seconds later; see collection-list.ts.
   function deleteEntry() {
-    deleteNameEl.textContent = displayTitle(entryData);
-    deleteRestoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : deleteBtn;
-    deleteDialog.hidden = false;
-    deleteCancelBtn.focus();
+    var moreMenu = document.getElementById("entry-more");
+    if (moreMenu && moreMenu.hasAttribute("open")) moreMenu.removeAttribute("open");
+    var pending = {
+      collection: COLLECTION, id: ID, title: displayTitle(entryData), at: Date.now(),
+      revision: entryRevision, baseRevision: entryBaseRevision,
+    };
+    try {
+      sessionStorage.setItem("caret:pending-delete", JSON.stringify(pending));
+    } catch (e) {
+      // Without session storage there's no way to offer Undo; delete now.
+      deleteNow();
+      return;
+    }
+    window.location.href = MOUNT + "/cms/" + encodeURIComponent(COLLECTION);
   }
 
-  function closeDeleteDialog() {
-    deleteDialog.hidden = true;
-    var restore = deleteRestoreFocus || deleteBtn;
-    deleteRestoreFocus = null;
-    if (restore instanceof HTMLElement && restore.isConnected) restore.focus();
-  }
-
-  function confirmDelete() {
-    deleteConfirmBtn.disabled = true;
-    deleteConfirmBtn.textContent = msg("entry.deleting", "Deleting…");
-    /** @type {{ collection: string, id: string, expectedRevision?: number }} */
+  function deleteNow() {
+    /** @type {{ collection: string, id: string, expectedRevision?: number, expectedBaseRevision?: number }} */
     var payload = { collection: COLLECTION, id: ID };
     if (typeof entryRevision === "number") payload.expectedRevision = entryRevision;
+    if (typeof entryBaseRevision === "number") payload.expectedBaseRevision = entryBaseRevision;
     mutationClient.remove(payload).then(function (result) {
-      if (result === "unauthorized") { loginRedirect(); return; }
+      if (result === "unauthorized") { sessionExpired(); return; }
       if (result !== "deleted") throw new Error("delete failed");
       studioSync.announceChange("cms:deleted", null);
       window.location.href = MOUNT + "/cms/" + encodeURIComponent(COLLECTION);
     }).catch(function () {
-      closeDeleteDialog();
-      deleteConfirmBtn.disabled = false;
-      deleteConfirmBtn.textContent = msg("entry.delete", "Delete");
       showStatus("error", msg("entry.deleteFailed", "Delete failed"));
     });
   }
@@ -563,6 +900,20 @@ import { createStudioSync } from './studio/sync-client.js';
 
   /* ─── Field rendering ───────────────────────────────────────────── */
 
+  // Without permission to edit, the form is for reading: every control is
+  // disabled, including ones rendered later (list items, re-renders).
+  if (CFG.editable === false) {
+    var lockFields = function () {
+      fieldsEl.querySelectorAll("input, textarea, select, button").forEach(function (control) {
+        /** @type {HTMLInputElement} */ (control).disabled = true;
+      });
+      fieldsEl.querySelectorAll("[contenteditable='true'], [contenteditable='plaintext-only']").forEach(function (element) {
+        element.setAttribute("contenteditable", "false");
+      });
+    };
+    new MutationObserver(lockFields).observe(fieldsEl, { childList: true, subtree: true });
+  }
+
   const { renderFields, renderFieldsFallback } = createFieldRenderer({
     updateField,
     buildSingleImage,
@@ -571,12 +922,20 @@ import { createStudioSync } from './studio/sync-client.js';
     buildTagList,
     getPublicationField: () => publicationFieldName,
     getMessage: msg,
+    savesDraft: SAVE_TARGET === "preview",
   });
+
+  /** Why an upload was refused, as the server explains it to editors. @param {unknown} error */
+  function uploadErrorMessage(error) {
+    var reason = error && typeof error === "object" && "reason" in error ? /** @type {{ reason: unknown }} */ (error).reason : null;
+    return typeof reason === "string" && reason ? reason : msg("field.uploadFailed", "The image couldn't be uploaded. Try again.");
+  }
 
   /* ─── Image gallery ─────────────────────────────────────────────── */
   /** @param {unknown} images @param {string} path */
   function buildImageGallery(images, path) {
     var wrapper = document.createElement("div");
+    var galleryError = "";
 
     function rerender() {
       wrapper.innerHTML = "";
@@ -642,15 +1001,15 @@ import { createStudioSync } from './studio/sync-client.js';
       fileInput.type = "file";
       fileInput.multiple = true;
       fileInput.accept = "image/jpeg,image/png,image/webp,image/avif";
-      fileInput.setAttribute("aria-label", "Upload images for " + humanizeKey(path.split(".").pop() || "images"));
+      fileInput.setAttribute("aria-label", "Upload images for " + historyFieldLabel(path, entrySchema));
       fileInput.style.display = "none";
 
       /** @param {ArrayLike<File>} files */
       function handleFiles(files) {
-        var valid = Array.from(files).filter(function (f) {
-          return isSupportedImage(f);
-        });
+        // Every file goes to the server, which says why any is refused.
+        var valid = Array.from(files);
         if (!valid.length) return;
+        galleryError = "";
         dropzone.innerHTML =
           '<div class="studio-spinner" style="margin-bottom:0.5rem;"></div>' +
           '<p style="margin:0;font-size:0.75rem;color:var(--studio-text-muted);">Uploading ' + valid.length + " image" + (valid.length > 1 ? "s" : "") + "…</p>";
@@ -660,8 +1019,16 @@ import { createStudioSync } from './studio/sync-client.js';
         var imgs = Array.isArray(existingImages)
           ? existingImages.filter(function (value) { return typeof value === "string"; })
           : [];
-        Promise.allSettled(valid.map(function (f) { return uploadClient.upload(f); })).then(function (results) {
-          results.forEach(function (r) { if (r.status === "fulfilled") imgs.push(r.value); });
+        Promise.allSettled(valid.map(function (f) {
+          return uploadClient.upload(f).then(function (url) { return whenServed(url).then(function () { return url; }); });
+        })).then(function (results) {
+          /** @type {string[]} */
+          var refused = [];
+          results.forEach(function (r, index) {
+            if (r.status === "fulfilled") imgs.push(r.value);
+            else refused.push(valid[index].name + ": " + uploadErrorMessage(r.reason));
+          });
+          galleryError = refused.join(" ");
           updateField(path, imgs);
           rerender();
         });
@@ -683,6 +1050,13 @@ import { createStudioSync } from './studio/sync-client.js';
 
       wrapper.appendChild(dropzone);
       wrapper.appendChild(fileInput);
+      if (galleryError) {
+        var refusedNote = document.createElement("p");
+        refusedNote.className = "caret-image-help is-error";
+        refusedNote.setAttribute("role", "status");
+        refusedNote.textContent = galleryError;
+        wrapper.appendChild(refusedNote);
+      }
     }
 
     rerender();
@@ -771,11 +1145,14 @@ import { createStudioSync } from './studio/sync-client.js';
           else uploadAction.textContent = msg("field.uploading", "Uploading…");
         }
         Promise.all([uploadClient.upload(selectedFile), uploadClient.readDimensions(selectedFile)]).then(function (results) {
+          // Show the new image only once it's actually served.
+          return whenServed(results[0]).then(function () { return results; });
+        }).then(function (results) {
           updateField(path, results[0]);
           populateImageObject(path, selectedFile, results[1]);
           rerender();
-        }).catch(function () {
-          errorMessage = msg("field.uploadFailed", "Upload failed. Check the image type and try again.");
+        }).catch(function (error) {
+          errorMessage = uploadErrorMessage(error);
           rerender();
         });
         fileInput.value = "";
@@ -812,6 +1189,7 @@ import { createStudioSync } from './studio/sync-client.js';
           var btn = document.createElement("button");
           btn.type = "button";
           btn.title = msg("field.remove", "Remove");
+          btn.setAttribute("aria-label", msg("field.remove", "Remove") + " " + item);
           btn.textContent = "×";
           btn.addEventListener("click", function () {
             var next = current.slice();
@@ -950,7 +1328,10 @@ import { createStudioSync } from './studio/sync-client.js';
         var idxLabel = document.createElement("button");
         idxLabel.type = "button";
         idxLabel.className = "caret-object-array-index caret-object-array-toggle";
-        idxLabel.textContent = itemSummary(item, idx);
+        var idxText = document.createElement("span");
+        idxText.className = "caret-object-array-title";
+        idxText.textContent = itemSummary(item, idx);
+        idxLabel.appendChild(idxText);
         idxLabel.setAttribute("aria-expanded", expandedIndex === idx ? "true" : "false");
         idxLabel.setAttribute("aria-controls", fieldIdFromPath(path + "." + idx) + "-fields");
         idxLabel.addEventListener("click", function () {
@@ -1108,30 +1489,52 @@ import { createStudioSync } from './studio/sync-client.js';
   }
 
   /* ─── History ───────────────────────────────────────────────────── */
-  /** @param {unknown} value */
-  function historyValue(value) {
-    if (typeof value === "string") return value.length > 100 ? value.slice(0, 97) + "…" : (value || "Empty");
-    if (typeof value === "boolean") return value ? "Yes" : "No";
-    if (typeof value === "number") return String(value);
-    if (Array.isArray(value)) return value.length + (value.length === 1 ? " item" : " items");
-    if (value && typeof value === "object") return Object.keys(value).length + " fields";
-    return "Empty";
-  }
-
-  /** @param {Record<string, unknown> | undefined} snapshot */
-  function changedHistoryFields(snapshot) {
-    if (!snapshot || !entryData) return [];
-    return Array.from(new Set(Object.keys(snapshot).concat(Object.keys(entryData)))).filter(function (key) {
-      return JSON.stringify(snapshot[key]) !== JSON.stringify(entryData && entryData[key]);
-    });
-  }
-
   /** @param {string} action */
   function historyActionLabel(action) {
-    if (action === "restore") return "Restored";
-    if (action === "delete") return "Deleted";
-    if (action === "publish") return "Published";
-    return "Saved";
+    if (action === "restore") return msg("history.restored", "Restored");
+    if (action === "delete") return msg("history.deleted", "Deleted");
+    if (action === "publish") return msg("history.published", "Published");
+    if (action === "reorder") return msg("history.reordered", "Reordered");
+    return msg("history.saved", "Saved");
+  }
+
+  var HISTORY_SHOWN_CHANGES = 4;
+
+  /**
+   * One change: "Intro label  Studio of two → A studio of two people".
+   * @param {import('./studio/history-view.js').HistoryChange} change
+   */
+  function historyChangeItem(change) {
+    var item = document.createElement("li");
+    var label = document.createElement("span");
+    label.className = "caret-history-field";
+    label.textContent = change.label;
+    var before = document.createElement("del");
+    before.textContent = change.before;
+    var arrow = document.createElement("span");
+    arrow.className = "caret-history-arrow";
+    arrow.setAttribute("aria-hidden", "true");
+    arrow.textContent = "→";
+    var after = document.createElement("ins");
+    after.textContent = change.after;
+    item.appendChild(label);
+    if (change.diff) {
+      // Text that was edited, not rewritten: the changed words in place.
+      var words = document.createElement("span");
+      words.className = "caret-history-words";
+      change.diff.forEach(function (part) {
+        if (part.op === "=") { words.appendChild(document.createTextNode(part.text)); return; }
+        var mark = document.createElement(part.op === "-" ? "del" : "ins");
+        mark.textContent = part.text;
+        words.appendChild(mark);
+      });
+      item.appendChild(words);
+      return item;
+    }
+    item.appendChild(before);
+    item.appendChild(arrow);
+    item.appendChild(after);
+    return item;
   }
 
   function loadHistory() {
@@ -1143,7 +1546,7 @@ import { createStudioSync } from './studio/sync-client.js';
     historyCloseBtn.focus();
 
     historyClient.list({ collection: COLLECTION, id: ID }).then(function (result) {
-      if (result.kind === "unauthorized") { loginRedirect(); return; }
+      if (result.kind === "unauthorized") { sessionExpired(); return; }
       if (result.kind === "error") throw new Error("history failed");
       var items = result.items;
       if (items.length === 0) {
@@ -1151,11 +1554,17 @@ import { createStudioSync } from './studio/sync-client.js';
         return;
       }
       historyList.innerHTML = "";
-      items.forEach(function (item) {
+      // Each snapshot is the entry as it was before a change. What the change
+      // made is the next newer snapshot, or the saved entry for the newest.
+      var saved = /** @type {Record<string, unknown>} */ (JSON.parse(originalJson || "{}"));
+      var now = Date.now();
+      var empty = msg("history.empty", "Empty");
+      items.forEach(function (item, index) {
+        var afterChange = index === 0 ? saved : items[index - 1].data;
         var row = document.createElement("div");
         row.className = "caret-history-row";
-        var date = new Date(item.ts);
-        var timeStr = date.toLocaleString();
+        var fullTime = new Date(item.ts).toLocaleString(document.documentElement.lang || undefined);
+        var when = relativeTime(item.ts, now, document.documentElement.lang || undefined);
 
         var summary = document.createElement("div");
         summary.className = "caret-history-summary";
@@ -1167,54 +1576,66 @@ import { createStudioSync } from './studio/sync-client.js';
         actionSpan.dataset.action = item.action || "save";
         actionSpan.textContent = historyActionLabel(item.action || "save");
 
-        var timeSpan = document.createElement("span");
-        timeSpan.style.cssText = "font-size:0.75rem;color:var(--studio-text-muted);";
-        timeSpan.textContent = timeStr;
+        var timeEl = document.createElement("time");
+        timeEl.className = "caret-history-time";
+        timeEl.dateTime = new Date(item.ts).toISOString();
+        timeEl.title = fullTime;
+        timeEl.textContent = when;
 
         info.appendChild(actionSpan);
-        info.appendChild(timeSpan);
+        info.appendChild(timeEl);
         if (item.editor && typeof item.editor.id === "string") {
           var editorSpan = document.createElement("span");
-          editorSpan.style.cssText = "font-size:0.7rem;color:var(--studio-text-dim);";
-          editorSpan.textContent = item.editor.name || item.editor.email || item.editor.id;
+          editorSpan.className = "caret-history-editor";
+          editorSpan.textContent = item.editor.name || item.editor.email
+            // Password sessions carry only an id, renewed at each sign-in, so a
+            // different id is an earlier session, not necessarily another person.
+            || (item.editor.current ? msg("history.you", "You") : msg("history.otherSession", "Earlier session"));
+          editorSpan.title = item.editor.id;
           info.appendChild(editorSpan);
         }
         summary.appendChild(info);
 
-        var changed = changedHistoryFields(item.data);
-        var changes = document.createElement("p");
-        changes.className = "caret-history-changes";
-        changes.textContent = changed.length > 0
-          ? "Differs in " + changed.slice(0, 4).map(humanizeKey).join(", ") + (changed.length > 4 ? " and " + (changed.length - 4) + " more" : "")
-          : "Matches the current version";
-        summary.appendChild(changes);
-
-        if (item.data) {
-          var preview = document.createElement("details");
-          preview.className = "caret-history-preview";
-          var previewSummary = document.createElement("summary");
-          previewSummary.textContent = "Review version";
-          preview.appendChild(previewSummary);
-          var values = document.createElement("dl");
-          Object.keys(item.data).slice(0, 8).forEach(function (key) {
-            var term = document.createElement("dt");
-            term.textContent = humanizeKey(key);
-            var description = document.createElement("dd");
-            description.textContent = historyValue(item.data && item.data[key]);
-            values.appendChild(term);
-            values.appendChild(description);
-          });
-          preview.appendChild(values);
-          summary.appendChild(preview);
+        var changes = item.data ? historyChanges(item.data, afterChange, entrySchema, empty) : [];
+        if (changes.length === 0) {
+          var none = document.createElement("p");
+          none.className = "caret-history-changes";
+          none.textContent = msg("history.noFieldChanges", "No field changes");
+          summary.appendChild(none);
+        } else {
+          var list = document.createElement("ul");
+          list.className = "caret-history-diff";
+          changes.slice(0, HISTORY_SHOWN_CHANGES).forEach(function (change) { list.appendChild(historyChangeItem(change)); });
+          summary.appendChild(list);
+          if (changes.length > HISTORY_SHOWN_CHANGES) {
+            var more = document.createElement("details");
+            more.className = "caret-history-more";
+            var moreSummary = document.createElement("summary");
+            var hidden = changes.length - HISTORY_SHOWN_CHANGES;
+            moreSummary.textContent = msg(hidden === 1 ? "history.moreChangesOne" : "history.moreChanges", "{count} more changes").replace("{count}", String(hidden));
+            var moreList = document.createElement("ul");
+            moreList.className = "caret-history-diff";
+            changes.slice(HISTORY_SHOWN_CHANGES).forEach(function (change) { moreList.appendChild(historyChangeItem(change)); });
+            more.appendChild(moreSummary);
+            more.appendChild(moreList);
+            summary.appendChild(more);
+          }
         }
         row.appendChild(summary);
 
         var restoreBtn = document.createElement("button");
         restoreBtn.type = "button";
         restoreBtn.className = "studio-btn-ghost";
-        restoreBtn.textContent = "Restore";
-        restoreBtn.setAttribute("aria-label", "Restore version from " + timeStr);
-        restoreBtn.addEventListener("click", function () { restoreSnapshot(item.ts); });
+        // Going back to before a change also undoes every newer one (rows are
+        // newest first), so the button says how many.
+        var later = index;
+        var undoText = later === 0 ? msg("history.undoChange", "Undo this change")
+          : msg(later === 1 ? "history.undoWithLaterOne" : "history.undoWithLater", "Undo this and {count} later changes");
+        var undoLabel = later === 0 ? msg("history.undoChangeLabel", "Undo the change {time}")
+          : msg(later === 1 ? "history.undoWithLaterLabelOne" : "history.undoWithLaterLabel", "Undo the change {time} and the {count} changes after it");
+        restoreBtn.textContent = undoText.replace("{count}", String(later));
+        restoreBtn.setAttribute("aria-label", undoLabel.replace("{time}", when).replace("{count}", String(later)));
+        restoreBtn.addEventListener("click", function () { restoreSnapshot(item.ts, later); });
         row.appendChild(restoreBtn);
 
         historyList.appendChild(row);
@@ -1228,28 +1649,33 @@ import { createStudioSync } from './studio/sync-client.js';
     historyPanel.hidden = true;
     historyBtn.setAttribute("aria-expanded", "false");
     historyList.innerHTML = "";
-    var moreSummary = document.querySelector("#entry-more > summary");
-    if (moreSummary instanceof HTMLElement) moreSummary.focus();
+    historyBtn.focus();
   }
 
-  /** @param {number} ts */
-  async function restoreSnapshot(ts) {
+  /** @param {number} ts @param {number} later changes made after this one, undone with it */
+  async function restoreSnapshot(ts, later) {
+    var count = String(later);
     if (!(await confirmAction({
-      title: msg("entry.restoreTitle", "Restore this version?"),
-      copy: msg("entry.restoreCopy", "The current version will remain in History so you can restore it again."),
-      action: msg("entry.restore", "Restore"),
+      title: (later === 0 ? msg("entry.restoreTitle", "Undo this change?")
+        : msg(later === 1 ? "entry.restoreTitleWithLaterOne" : "entry.restoreTitleWithLater", "Undo this and {count} later changes?")).replace("{count}", count),
+      copy: (later === 0 ? msg("entry.restoreCopy", "The fields go back to how they were before this change. The current version stays in History, so you can come back to it.")
+        : msg(later === 1 ? "entry.restoreCopyWithLaterOne" : "entry.restoreCopyWithLater", "The fields go back to how they were before this change, so the {count} changes made after it are undone too. The current version stays in History, so you can come back to it.")).replace("{count}", count),
+      action: msg("entry.restore", "Undo"),
     }))) return;
     historyClient.restore({ collection: COLLECTION, id: ID, ts: ts }).then(function (result) {
-      if (result.kind === "unauthorized") { loginRedirect(); return; }
-      if (result.kind === "error") throw new Error("restore failed");
+      if (result.kind === "unauthorized") { sessionExpired(); return; }
+      if (result.kind === "error") {
+        showStatus("error", result.message || "Restore failed");
+        return;
+      }
       var prevData = entryData;
       var prevJson = originalJson;
       try {
         if (!result.data || typeof result.data !== "object" || Array.isArray(result.data)) {
           throw new Error("invalid restored entry data");
         }
-        entryData = deepClone(/** @type {Record<string, unknown>} */ (result.data));
-        originalJson = JSON.stringify(result.data);
+        entryData = fillDefaults(deepClone(/** @type {Record<string, unknown>} */ (result.data)), entrySchema);
+        originalJson = JSON.stringify(entryData);
         if (typeof result.revision === "number") entryRevision = result.revision;
         fieldsEl.innerHTML = "";
         renderFields(fieldsEl, entryData, entrySchema, "");
@@ -1274,29 +1700,42 @@ import { createStudioSync } from './studio/sync-client.js';
   /* ─── Wire events ───────────────────────────────────────────────── */
   saveBtn.addEventListener("click", save);
   if (deleteBtn) deleteBtn.addEventListener("click", deleteEntry);
+  if (publishBtn) publishBtn.addEventListener("click", publishEntry);
+  if (discardDraftBtn) discardDraftBtn.addEventListener("click", discardEntryDraft);
+  // With an authorization policy, Publish appears only for editors allowed to publish.
+  if (publishBtn) {
+    fetch(API + "/draft", { headers: { "x-caret-request": "1" }, credentials: "same-origin" })
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (body) {
+        if (body && body.canPublish === false) { canPublish = false; updateDraftUi(); }
+      }).catch(function () {});
+  }
   historyBtn.addEventListener("click", loadHistory);
+  // More actions closes on Esc (focus back on its button) and when focus leaves it.
+  var moreMenuEl = document.getElementById("entry-more");
+  if (moreMenuEl instanceof HTMLDetailsElement) {
+    var moreMenu = moreMenuEl;
+    moreMenu.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape" || !moreMenu.open) return;
+      event.preventDefault();
+      event.stopPropagation();
+      moreMenu.open = false;
+      var summary = moreMenu.querySelector("summary");
+      if (summary instanceof HTMLElement) summary.focus();
+    });
+    moreMenu.addEventListener("focusout", function (event) {
+      var next = event.relatedTarget;
+      if (moreMenu.open && next instanceof Node && !moreMenu.contains(next)) moreMenu.open = false;
+    });
+  }
+  // The ⌘K palette offers this entry's history.
+  var studioWindow = /** @type {Window & { caretStudioActions?: Array<{ label: string, keywords: string, run: () => void }> }} */ (window);
+  (studioWindow.caretStudioActions = studioWindow.caretStudioActions || []).push({
+    label: msg("entry.versionHistory", "Version history"),
+    keywords: "history versions revisions restore",
+    run: function () { if (!creating && !historyBtn.hidden) loadHistory(); },
+  });
   historyCloseBtn.addEventListener("click", closeHistoryPanel);
-  deleteCancelBtn.addEventListener("click", closeDeleteDialog);
-  deleteConfirmBtn.addEventListener("click", confirmDelete);
-  deleteDialog.addEventListener("click", function (e) {
-    if (e.target === deleteDialog) closeDeleteDialog();
-  });
-  deleteDialog.addEventListener("keydown", function (e) {
-    if (deleteDialog.hidden) return;
-    if (e.key !== "Tab") return;
-    var controls = Array.from(deleteDialog.querySelectorAll("button:not([disabled])"));
-    var first = controls[0];
-    var last = controls[controls.length - 1];
-    if (!(first instanceof HTMLElement) || !(last instanceof HTMLElement)) return;
-    var active = document.activeElement;
-    if (e.shiftKey && (active === first || !deleteDialog.contains(active))) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  });
 
   // Focusing a Studio control locates its live-page counterpart without
   // stealing focus from the editor. The temporary blue cue is distinct from
@@ -1314,18 +1753,23 @@ import { createStudioSync } from './studio/sync-client.js';
   });
 
   window.addEventListener("keydown", function (e) {
-    if (e.key === "Escape" && (!deleteDialog.hidden || !historyPanel.hidden)) {
+    if (e.key === "Escape" && !historyPanel.hidden) {
       e.preventDefault();
       e.stopPropagation();
-      if (!deleteDialog.hidden) closeDeleteDialog();
-      else closeHistoryPanel();
+      closeHistoryPanel();
       return;
     }
-    if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
       e.preventDefault();
       if (isDirty()) save();
     }
   }, true);
+
+  function saveKeptChanges() {
+    if (isDirty() && !creating && CFG.editable !== false) save(AUTOSAVE);
+  }
+  window.addEventListener("online", saveKeptChanges);
+  window.addEventListener(SESSION_RESTORED_EVENT, saveKeptChanges);
 
   window.addEventListener("beforeunload", function (e) {
     if (isDirty()) { e.preventDefault(); e.returnValue = ""; }
@@ -1346,13 +1790,27 @@ import { createStudioSync } from './studio/sync-client.js';
         publicationFieldName = result.publicationFieldName;
         loadingEl.hidden = true;
         if (result.kind === "missing") {
+          // The on-page drawer opens entries the page shows, which may not be
+          // stored until their first edit.
+          var notFoundText = notFoundEl.querySelector("p");
+          if (window.parent !== window && notFoundText) notFoundText.textContent = msg("entry.notSavedYet", "Nothing is saved for this content yet. Edit it on the page and it will show up here.");
           notFoundEl.hidden = false;
           return;
         }
         var initialData = result.data;
-        entryData = deepClone(initialData);
+        entryData = fillDefaults(deepClone(initialData), entrySchema);
         entryRevision = result.revision;
-        originalJson = JSON.stringify(initialData);
+        entryBaseRevision = result.baseRevision;
+        liveData = result.live;
+        if (IS_NEW && result.initialized) {
+          creating = true;
+          showEntryActions(false);
+          blankRequiredText(entryData, entrySchema);
+          var givenTitle = new URLSearchParams(window.location.search).get("title");
+          if (CFG.titleField && givenTitle) setNestedValue(entryData, CFG.titleField, givenTitle);
+          if (publicationFieldName) setNestedValue(entryData, publicationFieldName, false);
+        }
+        originalJson = JSON.stringify(entryData);
         updateDisplayedTitle();
         renderFields(fieldsEl, entryData, entrySchema, "");
         if (validationWarningEl && result.validationIssues.length > 0) {
@@ -1362,16 +1820,15 @@ import { createStudioSync } from './studio/sync-client.js';
           validationWarningEl.hidden = false;
         }
         updateSaveButton();
-        if (IS_NEW || result.initialized) {
-          var guide = document.getElementById("editor-guide");
-          var guideTitle = document.getElementById("editor-guide-title");
-          var guideCopy = document.getElementById("editor-guide-copy");
-          if (guide) guide.setAttribute("open", "");
-          if (guideTitle) guideTitle.textContent = msg("entry.newGuideTitle", "Entry created with safe defaults");
-          if (guideCopy) guideCopy.textContent = msg("entry.newGuideCopy", "Fill in the fields below. Save becomes available after your first change. In the sidebar Studio, text and image edits preview on the page as you work; Save confirms them and refreshes the visual preview for structural changes. When publication is enabled, new entries stay private until Published is turned on.");
-        }
         editorEl.hidden = false;
         studioSync.announceReady();
+        // The toolbar's History link opens the entry with #history (a reload,
+        // or only a hash change when the drawer already shows this entry).
+        var openHistoryFromHash = function () {
+          if (window.location.hash === "#history" && !creating && !historyBtn.hidden && historyPanel.hidden) loadHistory();
+        };
+        openHistoryFromHash();
+        window.addEventListener("hashchange", openHistoryFromHash);
         if (pendingRemoteSelection) {
           var pending = pendingRemoteSelection;
           pendingRemoteSelection = null;

@@ -4,9 +4,9 @@ import { templateFromSchema } from './field-model.js';
 /** @typedef {{ path: string, message: string }} ValidationIssue */
 /**
  * @typedef {{
- *   kind: 'ready', data: Record<string, unknown>, revision: number, schema: Schema | null,
+ *   kind: 'ready', data: Record<string, unknown>, revision: number, baseRevision?: number, schema: Schema | null,
  *   validationIssues: ValidationIssue[], publicationFieldName: string | null,
- *   initialized: boolean,
+ *   initialized: boolean, live?: Record<string, unknown> | null,
  * } | { kind: 'missing', schema: Schema | null, publicationFieldName: string | null }
  * | { kind: 'unauthorized' }
  * | { kind: 'error', code: string }} EntryLoadResult
@@ -40,7 +40,10 @@ export function createStudioEntryLoader({ apiBasePath, fetchImpl = fetch }) {
    */
   async function load(input) {
     const entrySearch = new URLSearchParams({ collection: input.collection, id: input.id });
-    const schemaSearch = new URLSearchParams({ collection: input.collection });
+    // Existing entries pass their id: schemaless collections infer per entry.
+    const schemaSearch = new URLSearchParams(input.isNew
+      ? { collection: input.collection }
+      : { collection: input.collection, id: input.id });
     const [entryResponse, schemaResponse] = await Promise.all([
       fetchImpl(`${apiBasePath}/entries?${entrySearch}`, { credentials: 'same-origin' }),
       fetchImpl(`${apiBasePath}/schema?${schemaSearch}`, { credentials: 'same-origin' }),
@@ -69,6 +72,11 @@ export function createStudioEntryLoader({ apiBasePath, fetchImpl = fetch }) {
       ? (typeof publication.field === 'string' ? publication.field : 'published')
       : null;
 
+    // Present when edits go to a private draft: what visitors see (null when
+    // the entry isn't published).
+    const live = isRecord(entryBody.live)
+      ? { live: isRecord(entryBody.live.data) ? entryBody.live.data : null }
+      : {};
     const rawEntry = entryBody.entries[0];
     if (rawEntry !== undefined) {
       if (!isRecord(rawEntry) || !isRecord(rawEntry.data)) {
@@ -78,10 +86,12 @@ export function createStudioEntryLoader({ apiBasePath, fetchImpl = fetch }) {
         kind: 'ready',
         data: rawEntry.data,
         revision: typeof rawEntry.revision === 'number' ? rawEntry.revision : 0,
+        ...(typeof rawEntry.baseRevision === 'number' ? { baseRevision: rawEntry.baseRevision } : {}),
         schema,
         validationIssues: validationIssues(rawEntry.validationIssues),
         publicationFieldName,
         initialized: false,
+        ...live,
       };
     }
 
@@ -93,8 +103,9 @@ export function createStudioEntryLoader({ apiBasePath, fetchImpl = fetch }) {
       : templateFromSchema(schema);
     if (!isRecord(template)) return { kind: 'error', code: 'loadFailed' };
     return {
-      kind: 'ready', data: template, revision: 0, schema,
-      validationIssues: [], publicationFieldName, initialized: true,
+      kind: 'ready', data: template, revision: typeof entryBody.revision === 'number' ? entryBody.revision : 0, schema,
+      ...(typeof entryBody.baseRevision === 'number' ? { baseRevision: entryBody.baseRevision } : {}),
+      validationIssues: [], publicationFieldName, initialized: true, ...live,
     };
   }
 

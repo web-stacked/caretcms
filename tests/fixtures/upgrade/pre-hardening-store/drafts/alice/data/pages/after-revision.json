@@ -1,0 +1,27 @@
+{
+  "title": "Approved",
+  "__caret_publish__": {
+    "version": 1,
+    "beforeRevision": 7,
+    "beforeData": {
+      "title": "Original",
+      "summary": "Keep me"
+    },
+    "afterData": {
+      "title": "Approved",
+      "summary": "Keep me"
+    },
+    "history": {
+      "operationId": "frozen-after-revision",
+      "ts": 1700000000000,
+      "action": "publish",
+      "data": {
+        "title": "Original",
+        "summary": "Keep me"
+      },
+      "editor": {
+        "id": "alice"
+      }
+    }
+  }
+}

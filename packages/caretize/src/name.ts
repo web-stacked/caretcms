@@ -142,13 +142,31 @@ function roleField(candidate: Candidate, seenOfTag: number): string {
 // slug cleanly ("our_programs"), which is far more useful than "subhead_3".
 const PROSE_TAGS = new Set(["p", "blockquote", "dd"]);
 
+/**
+ * Where a candidate sits: inside a page landmark (footer, header…), or under a
+ * heading. Prose takes its name from this — "what_we_bake_text" says which
+ * paragraph it is; "intro" or "body_2" doesn't.
+ */
+export interface FieldContext {
+  landmark?: string;
+  /** Slug of the nearest heading before it in the same section. */
+  heading?: string;
+}
+
 // Preferred base field name: a content slug for short label-like elements (the
-// editor-friendly default), a role name for prose. Determinism is preserved —
-// the same element always yields the same base.
-function baseField(candidate: Candidate, seenOfTag: number): string {
+// editor-friendly default); for prose and images, its landmark or heading, else
+// a role name. Determinism is preserved — the same element always yields the same base.
+function baseField(candidate: Candidate, seenOfTag: number, context?: FieldContext): string {
   if (candidate.kind === "text" && !PROSE_TAGS.has(candidate.tag)) {
     const slug = slugifyText(candidate.text);
     if (slug) return slug;
+  }
+  // Prose and images are named after where they sit: "our_story_image" says
+  // which picture it is; "hero" or "image_2" doesn't.
+  const suffix = candidate.kind === "image" ? "image" : PROSE_TAGS.has(candidate.tag) ? "text" : null;
+  if (suffix) {
+    const named = context?.landmark ?? context?.heading;
+    if (named && isValidField(`${named}_${suffix}`)) return `${named}_${suffix}`;
   }
   return roleField(candidate, seenOfTag);
 }
@@ -170,6 +188,7 @@ function uniquify(base: string, used: Set<string>): string {
 export function assignFields(
   candidates: Candidate[],
   existingFields: Iterable<string> = [],
+  contexts: Map<Candidate, FieldContext> = new Map(),
 ): Map<Candidate, string> {
   const used = new Set<string>(existingFields);
   const seen = new Map<string, number>();
@@ -180,7 +199,7 @@ export function assignFields(
     const seenCount = seen.get(key) ?? 0;
     seen.set(key, seenCount + 1);
 
-    const name = uniquify(baseField(c, seenCount), used);
+    const name = uniquify(baseField(c, seenCount, contexts.get(c)), used);
     used.add(name);
     result.set(c, name);
   }

@@ -1,17 +1,14 @@
-const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif']);
-
 export class StudioUploadError extends Error {
-  /** @param {'unauthorized' | 'failed' | 'invalid-response'} kind */
-  constructor(kind) {
+  /**
+   * @param {'unauthorized' | 'failed' | 'invalid-response'} kind
+   * @param {string} [reason] the server's explanation, written for editors
+   */
+  constructor(kind, reason) {
     super(kind === 'unauthorized' ? 'Unauthorized' : 'Upload failed');
     this.name = 'StudioUploadError';
     this.kind = kind;
+    this.reason = reason ?? null;
   }
-}
-
-/** @param {{ type?: string }} file */
-export function isSupportedImage(file) {
-  return IMAGE_TYPES.has(file.type || '');
 }
 
 /**
@@ -33,7 +30,14 @@ export function createStudioUploadClient({
   /** @param {File} file @param {number} [maxWidth] @param {number} [quality] */
   async function compress(file, maxWidth = 1600, quality = 0.82) {
     if (file.size < 200000 && file.type === 'image/webp') return file;
-    const bitmap = await createBitmap(file);
+    /** @type {ImageBitmap} */
+    let bitmap;
+    try {
+      bitmap = await createBitmap(file);
+    } catch {
+      // Not decodable here: send it as it is and let the server say why.
+      return file;
+    }
     let width = bitmap.width;
     let height = bitmap.height;
     const needsResize = width > maxWidth;
@@ -97,7 +101,11 @@ export function createStudioUploadClient({
       onUnauthorized();
       throw new StudioUploadError('unauthorized');
     }
-    if (!response.ok) throw new StudioUploadError('failed');
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      const reason = body && typeof body === 'object' && typeof body.error === 'string' ? body.error : undefined;
+      throw new StudioUploadError('failed', reason);
+    }
     const body = await response.json().catch(() => null);
     if (!body || typeof body !== 'object' || !('url' in body) || typeof body.url !== 'string') {
       throw new StudioUploadError('invalid-response');

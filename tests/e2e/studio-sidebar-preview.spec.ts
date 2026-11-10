@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { loginAsEditor, resetCmsStorage } from "./helpers";
+import { STUDIO_PANEL, expectStudioURL, loginAsEditor, openStudio, resetCmsStorage, studioFrame } from "./helpers";
 
 const originalHeadline = "Launch an Astro site with live inline editing.";
 const previewHeadline = "Sidebar visual preview";
@@ -55,7 +55,9 @@ test("sidebar Studio links fields in both directions and stays on the entry afte
 
   const iframe = page.locator('iframe[title="Content Studio"]');
   const studio = page.frameLocator('iframe[title="Content Studio"]');
-  await expect(studio.getByRole("heading", { name: "Content Studio" })).toBeVisible();
+  // The drawer opens on the entry this page shows.
+  await expect(iframe).toHaveAttribute("src", "/admin/cms/pages/home");
+  await expect(studio.getByRole("textbox", { name: "Headline", exact: true })).toBeVisible();
 
   await headline.dispatchEvent("pointerdown", { bubbles: true });
   await expect(iframe).toHaveAttribute("src", "/admin/cms/pages/home");
@@ -72,14 +74,16 @@ test("sidebar Studio links fields in both directions and stays on the entry afte
   await headlineInput.fill(previewHeadline);
   await expect(headline).toHaveText(previewHeadline);
 
+  // A text change is already on the page, so saving doesn't reload it (a
+  // reload would also reset the drawer mid-edit).
+  await page.evaluate(() => { (window as Window & { __caretStay?: boolean }).__caretStay = true; });
   const saved = page.waitForResponse((response) =>
     response.url().includes("/api/cms/mutate") && response.request().method() === "POST",
   );
-  const refreshed = page.waitForNavigation({ waitUntil: "domcontentloaded" });
   await studio.locator("#btn-save").click();
-  await studio.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
   expect((await saved).ok()).toBe(true);
-  await refreshed;
+  await page.waitForTimeout(1000);
+  expect(await page.evaluate(() => (window as Window & { __caretStay?: boolean }).__caretStay)).toBe(true);
 
   await expect(headline).toHaveText(previewHeadline);
   await expect(panel).toHaveClass(/open/);
@@ -87,14 +91,12 @@ test("sidebar Studio links fields in both directions and stays on the entry afte
   await expect(iframe).toHaveAttribute("src", "/admin/cms/pages/home");
 });
 
-test("standalone Studio and preview tab link fields through BroadcastChannel", async ({ page, context }) => {
-  await page.goto("/");
+test("the Studio opened from its address links fields with the page beside it", async ({ page }) => {
+  const studio = await openStudio(page, "/admin/cms/pages/home");
+  await expect(page).toHaveURL("/");
   const headline = page.locator('[data-caret="hero.headline"]');
   const subtext = page.locator('[data-caret="hero.subtext"]');
-
-  const studioPage = await context.newPage();
-  await studioPage.goto("/admin/cms/pages/home");
-  const subtextInput = studioPage.getByRole("textbox", { name: "Subtext" });
+  const subtextInput = studio.getByRole("textbox", { name: "Subtext" });
   await expect(subtextInput).toBeVisible();
 
   await subtextInput.focus();
@@ -102,18 +104,21 @@ test("standalone Studio and preview tab link fields through BroadcastChannel", a
 
   await headline.dispatchEvent("pointerdown", { bubbles: true });
   await expect(headline).toHaveClass(/cms-linked-selection/);
-  await expect(studioPage.locator('[data-field-path="hero.headline"]')).toHaveClass(/caret-field-selected/);
+  await expect(studio.locator('[data-field-path="hero.headline"]')).toHaveClass(/caret-field-selected/);
 });
 
-test("Studio selection navigates to another preview route before highlighting the field", async ({ page, context }) => {
-  await page.goto("/");
-
-  const studioPage = await context.newPage();
-  await studioPage.goto("/admin/cms/pages/about");
-  const headlineInput = studioPage.getByRole("textbox", { name: "Headline", exact: true });
-  await expect(headlineInput).toBeVisible();
+test("Studio selection navigates to another preview route before highlighting the field", async ({ page }) => {
+  const studio = await openStudio(page, "/admin/cms/pages/home");
+  await expect(page).toHaveURL("/");
+  const frame = await studioFrame(page);
+  await frame.goto(new URL("/admin/cms/pages/about", frame.url()).href);
+  const headlineInput = studio.getByRole("textbox", { name: "Headline", exact: true });
+  await expect(headlineInput).toHaveValue("About CaretCMS");
 
   await headlineInput.focus();
   await page.waitForURL("/about");
   await expect(page.locator('[data-caret="hero.headline"]')).toHaveClass(/cms-linked-selection/);
+  // The Studio is still open on the entry, over its page.
+  await expect(page.locator(`${STUDIO_PANEL}.open`)).toBeVisible();
+  await expectStudioURL(page, "/admin/cms/pages/about");
 });

@@ -185,7 +185,11 @@ export function planConfigWiring(source: string, needs: WiringNeeds): WiringResu
   }
 
   if (newProps.length) {
-    edits.push({ index: braceIdx + 1, text: `\n  ` + newProps.join(`\n  `) });
+    // Each new property on its own line; the closing brace of an empty config
+    // (`{}`) or the property that already followed `{` goes on the next one.
+    const rest = source.slice(braceIdx + 1);
+    const tail = /^\s*}/.test(rest) ? `\n` : /^[ \t]*\r?\n/.test(rest) ? `` : `\n  `;
+    edits.push({ index: braceIdx + 1, text: `\n  ` + newProps.join(`\n  `) + tail });
   }
 
   // Apply highest-offset-first so earlier edits don't shift later indices.
@@ -225,7 +229,7 @@ export function renderEnvAdditions(
     added.push("CARET_SESSION_SECRET (generated)");
   }
   if (!has("CARET_EDIT_PASSWORD")) {
-    lines.push(`# Set before deploying — until then dev prints a temp password:`);
+    lines.push(`# Set before deploying — until then dev uses the temporary one in .caret/dev-password:`);
     lines.push(`# CARET_EDIT_PASSWORD=choose-a-strong-password`);
     added.push("CARET_EDIT_PASSWORD (placeholder)");
   }
@@ -235,4 +239,30 @@ export function renderEnvAdditions(
   const sep = existing && !existing.endsWith("\n") ? "\n" : "";
   const header = existing.trim() ? "\n# CaretCMS\n" : "# CaretCMS\n";
   return { append: sep + header + lines.join("\n") + "\n", added };
+}
+
+/** Paths CaretCMS writes that never belong in Git: the generated secret,
+ *  unpublished drafts, caretize backups, and revision history. Published
+ *  content and `public/uploads/` stay tracked, since static builds need them. */
+const IGNORED_PATHS = [".env", ".caret/drafts/", ".caret/.caretize-bak/", ".caretcms/"] as const;
+
+/**
+ * Plan additions to a project's .gitignore. An entry already covered by an
+ * existing line (with or without a leading or trailing slash, or `.env*` for
+ * `.env`) is skipped, so re-running init is idempotent.
+ */
+export function renderGitignoreAdditions(existing: string): { append: string; added: string[] } {
+  const lines = new Set(
+    existing.split(/\r?\n/).map((line) => line.trim().replace(/^\//, "").replace(/\/$/, "")).filter(Boolean),
+  );
+  const covered = (path: string): boolean => {
+    const bare = path.replace(/\/$/, "");
+    if (bare.startsWith(".caret/") && lines.has(".caret")) return true;
+    return lines.has(bare) || (bare === ".env" && lines.has(".env*"));
+  };
+  const added = IGNORED_PATHS.filter((path) => !covered(path));
+  if (added.length === 0) return { append: "", added: [] };
+  const sep = existing && !existing.endsWith("\n") ? "\n" : "";
+  const header = existing.trim() ? "\n# CaretCMS\n" : "# CaretCMS\n";
+  return { append: sep + header + added.join("\n") + "\n", added: [...added] };
 }

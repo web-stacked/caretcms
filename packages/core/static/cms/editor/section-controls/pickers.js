@@ -1,5 +1,5 @@
-import { HOME_SECTION_KEYS, SPACING_Y_OPTIONS } from './constants.js';
-import { humanizeSectionKey } from './utils.js';
+import { SPACING_Y_OPTIONS } from './constants.js';
+import { t, tHtml } from '../i18n.js';
 
 /**
  * @param {{ picker: HTMLElement, getAnchor: () => HTMLButtonElement | null }} options
@@ -57,25 +57,27 @@ function attachOutsideClose({ picker, getAnchor, close }) {
 }
 
 /** @param {{ onPick: (sectionId: string, key: string) => void }} options */
-export function createAddPicker({ onPick }) {
+/** @param {{ onPick: (sectionId: string, key: string) => void, kinds: Map<string, string> }} options */
+export function createAddPicker({ onPick, kinds }) {
   const picker = document.createElement('div');
   picker.id = 'cms-section-add-picker';
   picker.className = 'cms-section-add-picker';
   picker.setAttribute('role', 'dialog');
-  picker.setAttribute('aria-label', 'Insert section');
+  picker.setAttribute('aria-label', t('editor.sections.insert'));
   picker.hidden = true;
   picker.innerHTML = `
-    <div class="cms-section-add-picker-head">Insert Section</div>
+    <div class="cms-section-add-picker-head">${tHtml('editor.sections.insert')}</div>
     <div class="cms-section-add-picker-list"></div>
   `;
 
   const list = picker.querySelector('.cms-section-add-picker-list');
-  HOME_SECTION_KEYS.forEach((key) => {
+  // The kinds this page has templates for, by the names editors see.
+  kinds.forEach((label, key) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'cms-section-add-option';
     btn.dataset.key = key;
-    btn.textContent = humanizeSectionKey(key);
+    btn.textContent = label;
     list?.appendChild(btn);
   });
 
@@ -158,10 +160,10 @@ export function createSpacingPicker({ onPick }) {
   picker.id = 'cms-section-spacing-picker';
   picker.className = 'cms-section-add-picker cms-section-spacing-picker';
   picker.setAttribute('role', 'dialog');
-  picker.setAttribute('aria-label', 'Vertical spacing');
+  picker.setAttribute('aria-label', t('editor.sections.verticalSpacing'));
   picker.hidden = true;
   picker.innerHTML = `
-    <div class="cms-section-add-picker-head">Vertical Spacing</div>
+    <div class="cms-section-add-picker-head">${tHtml('editor.sections.verticalSpacingHead')}</div>
     <div class="cms-section-add-picker-list"></div>
   `;
 

@@ -15,10 +15,10 @@ import { randomBytes } from "node:crypto";
 import { relative, resolve } from "node:path";
 import { parseAstro } from "./parse.js";
 import { discoverAstroFiles } from "./discover.js";
-import { preflight } from "./preflight.js";
+import { dirtyTreeWarning, preflight } from "./preflight.js";
 import { planFile, type FilePlan, type PlannedTag, type PlanOptions } from "./plan.js";
 import { prepareFileFull, commitRun, readSource, type PreparedFile } from "./run.js";
-import { detectWrapTargetsSafe, type WrapTarget } from "./wrap.js";
+import { detectWrapTargetsSafe, literalFields, type WrapTarget } from "./wrap.js";
 import {
   detectImportWrapTargetsSafe,
   detectNamedImportWrapTargetsSafe,
@@ -28,22 +28,24 @@ import { detectPropHoistTargets, type PropHoistTarget } from "./prop-hoist.js";
 import { detectCollectionBindTargets, type CollectionBindTarget } from "./bind-collection.js";
 import { detectRouteBindTargets } from "./bind-route.js";
 import { restoreLatest, writeBackup } from "./backup.js";
-import { freshConfig, planConfigWiring, renderEnvAdditions, type InitMode, type WiringNeeds } from "./init.js";
+import { freshConfig, planConfigWiring, renderEnvAdditions, renderGitignoreAdditions, type InitMode, type WiringNeeds } from "./init.js";
 import { lineDiff, formatHunks } from "./diff.js";
 import { buildReport } from "./report.js";
 import { applyKeyRegistry } from "./keys.js";
 import { isValidField } from "./name.js";
 import { parseArgs, CliUsageError, HELP, type Args } from "./cli-args.js";
-import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, formatEscalationOffer, formatNextStep, formatDiff, type HintOpts } from "./output.js";
+import { tagLine, formatScanSummary, formatPlan, formatSummary, formatHints, formatFailures, formatEscalationOffer, formatNextStep, formatDiff, sharedScopeNote, CARETIZE, type HintOpts } from "./output.js";
 import { selectTiers, type Intent } from "./select-policy.js";
+import { findFixedChrome } from "./layout-notes.js";
 import { tierById, type TierId } from "./tiers.js";
 import {
-  escalationCounts, offerableCounts, offeredTiers, recommendedBundle,
+  escalationCounts, extraOffers, offerableCounts, offeredTiers, recommendedBundle,
   totalOffer, deltaTags, mergeTagMaps, parseAnswer, parseToggle,
 } from "./escalation.js";
 import type { Confidence } from "./detect.js";
 
-const VERSION = "0.1.0";
+// Read from the manifest beside src/ and dist/ so the CLI never reports a stale version.
+const VERSION = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }).version;
 
 function fail(msg: string): never {
   process.stderr.write(`caretize: ${msg}\n`);
@@ -99,6 +101,8 @@ async function reviewFileTags(rl: Readline, plan: FilePlan, acceptAll: boolean):
   if (acceptAll) return { take: [...plan.tags], skipFile: false, quit: false, acceptAll: true };
 
   process.stdout.write(`\n${plan.relPath}\n`);
+  const shared = sharedScopeNote(plan);
+  if (shared) process.stdout.write(`  ${shared}\n`);
   for (const t of plan.tags) {
     process.stdout.write(`  ${tagLine(t)}  → data-caret="${t.binding}" (${t.confidence})\n`);
   }
@@ -273,6 +277,7 @@ async function analyzeFiles(
   noProps: boolean,
   bindCollections: boolean,
   bindRoutes: boolean,
+  coreBinds = false,
 ): Promise<Analysis> {
   const plans: FilePlan[] = [];
   const wrapsByFile = new Map<string, WrapTarget[]>();
@@ -292,6 +297,9 @@ async function analyzeFiles(
     ];
     const byName = new Map<string, WrapTarget>();
     for (const t of [...loops, ...props, ...imports]) byName.set(t.varName, t);
+    for (const t of byName.values()) {
+      if (t.origin === "loop" || t.origin === "prop") t.fields = literalFields(src, t.varName) ?? undefined;
+    }
     if (byName.size) wrapsByFile.set(rel, [...byName.values()]);
 
     // Tier-5 (--bind-collections): bind direct-render getCollection().map() loops.
@@ -306,7 +314,10 @@ async function analyzeFiles(
     // A loop whose receiver a wrap tier (Tier-1/Tier-3) OR a bind tier (Tier-5)
     // just made editable no longer warrants the "consider a dynamic collection"
     // flag — suppress it so we don't tell the user to rethink a covered loop.
-    plan.flags = plan.flags.filter(
+    // With CaretCMS binding astro:content reads itself, a loop over data from
+    // elsewhere (props, a helper, getCollection()) is no reason to restructure:
+    // its items count among the data spots the closing hint explains.
+    plan.flags = coreBinds ? [] : plan.flags.filter(
       (f) => !f.receiver || (!byName.has(f.receiver) && !boundReceivers.has(f.receiver)),
     );
 
@@ -406,6 +417,8 @@ interface EscalationCtx {
   readFileSafe: FileReader;
   noProps: boolean;
   minConfidenceBase: Confidence;
+  /** CaretCMS binds astro:content reads itself; those tiers aren't offered. */
+  coreBinds: boolean;
 }
 
 /** Ask the top-level [Y/n/customize] choice (re-prompting on garbage) and return
@@ -420,7 +433,16 @@ async function askEscalationAnswer(rl: Readline, counts: Record<TierId, number>)
     top = parseAnswer(await ask(rl, "  [Y/n/customize] "));
   }
   if (top === "no") return [];
-  if (top === "yes") return bundle;
+  if (top === "yes") {
+    // The bundle holds the recommended tiers; the rest are asked one by one so
+    // nothing on offer is reachable only through "customize".
+    const picked = [...bundle];
+    for (const id of extraOffers(counts)) {
+      const t = tierById(id);
+      if (parseToggle(await ask(rl, `  Also include ${counts[id]} ${t.label} (${t.note})? [y/N] `), false)) picked.push(id);
+    }
+    return picked;
+  }
   // customize: ask per offered tier; blank keeps the tier's recommendation.
   const picked: TierId[] = [];
   for (const id of offeredTiers(counts)) {
@@ -461,9 +483,9 @@ async function offerEscalation(
   // + belowConfidence), so no entangled rich pass is needed just to count. Tiers
   // already on (Phase A flags / --all) are zeroed — never offer what's applied.
   const offer = await analyzeFiles(
-    ctx.root, ctx.files, ctx.basePlanOpts, ctx.readFileSafe, ctx.noProps, true, true,
+    ctx.root, ctx.files, ctx.basePlanOpts, ctx.readFileSafe, ctx.noProps, true, true, ctx.coreBinds,
   );
-  const counts = offerableCounts(escalationCounts(analysis.plans, offer.bindsByFile), active);
+  const counts = offerableCounts(escalationCounts(analysis.plans, offer.bindsByFile), active, ctx.coreBinds);
   if (totalOffer(counts) === 0) return unchanged;
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -471,7 +493,6 @@ async function offerEscalation(
   let chosenNew: TierId[];
   try {
     process.stdout.write(formatEscalationOffer(counts));
-    process.stdout.write("  ⚠ = per-row binding that assumes each entry's .id is its identity\n");
     chosenNew = await askEscalationAnswer(rl, counts);
   } finally {
     rl.close();
@@ -494,7 +515,7 @@ async function offerEscalation(
   };
   const final = await analyzeFiles(
     ctx.root, ctx.files, finalPlanOpts, ctx.readFileSafe, ctx.noProps,
-    effective.has("collections"), effective.has("routes"),
+    effective.has("collections"), effective.has("routes"), ctx.coreBinds,
   );
 
   // Merge the escalation-only tags (rich + below-floor) into the reviewed set,
@@ -552,11 +573,15 @@ function findConfigName(root: string): string | null {
  * via verified pure insertions, falling back to a paste-me snippet when its
  * shape isn't safe to touch.
  */
-async function runInit(root: string, args: Args): Promise<void> {
+async function runInit(root: string, args: Args): Promise<{ tag: boolean; dirtyBefore: string[] | null }> {
   const pf = preflight(root);
   if (!pf.isAstroProject) {
     for (const e of pf.errors) process.stderr.write(`✗ ${e}\n`);
     process.exit(1);
+  }
+  // init asks before each step; without a terminal there's no one to answer.
+  if (!args.yes && !(process.stdin.isTTY && process.stdout.isTTY)) {
+    fail(`non-interactive terminal: pass -y to accept init's steps (${CARETIZE} init -y)`);
   }
 
   process.stdout.write("caretize init · wiring CaretCMS into this project\n");
@@ -652,16 +677,24 @@ async function runInit(root: string, args: Args): Promise<void> {
     } else {
       process.stdout.write("\n✓ .env already has CaretCMS secrets\n");
     }
+
+    // 4) .gitignore — keep the secret, local drafts, and history out of Git.
+    const ignorePath = resolve(root, ".gitignore");
+    const existingIgnore = existsSync(ignorePath) ? readFileSync(ignorePath, "utf8") : "";
+    const ignore = renderGitignoreAdditions(existingIgnore);
+    if (ignore.append) {
+      if (existingIgnore) writeBackup(root, ".gitignore", stamp);
+      writeFileSync(ignorePath, existingIgnore + ignore.append, "utf8");
+      process.stdout.write(`✓ .gitignore: added ${ignore.added.join(", ")}\n`);
+    } else {
+      process.stdout.write("✓ .gitignore already covers CaretCMS files\n");
+    }
+    const tagNow = await confirmYes(rl, args, "\nTag your content as editable now? [Y/n] ");
+    if (!tagNow) process.stdout.write(`  skipped — run later: ${CARETIZE}\n`);
+    return { tag: tagNow, dirtyBefore: pf.dirtyPaths };
   } finally {
     rl.close();
   }
-
-  process.stdout.write(
-    "\nNext:\n" +
-      "  1. caretize      — tag your content as editable\n" +
-      "  2. npm run dev   — a temporary edit password prints in the terminal\n" +
-      "  3. sign in at /admin, then click tagged content to edit (Studio at /admin/cms)\n",
-  );
 }
 
 async function main(): Promise<void> {
@@ -678,9 +711,20 @@ async function main(): Promise<void> {
   const root = process.cwd();
 
   if (args.restore) { runRestore(root); return; }
-  if (args.init) { await runInit(root, args); return; }
+  if (args.init) {
+    // init wires CaretCMS, then tags — one command for the first run.
+    const init = await runInit(root, args);
+    // Init's own edits made the tree dirty; only changes from before it count.
+    if (init.tag) await runTag(root, args, { dirtyBefore: init.dirtyBefore });
+    return;
+  }
+  await runTag(root, args);
+}
 
+/** Scan the project and add data-caret tags (the default command). */
+async function runTag(root: string, args: Args, opts: { dirtyBefore?: string[] | null } = {}): Promise<void> {
   const pf = preflight(root);
+  const dirtyBefore = opts.dirtyBefore !== undefined ? opts.dirtyBefore : pf.dirtyPaths;
   for (const n of pf.notes) process.stdout.write(`• ${n}\n`);
   for (const w of pf.warnings) process.stdout.write(`⚠ ${w}\n`);
   if (pf.errors.length) { for (const e of pf.errors) process.stderr.write(`✗ ${e}\n`); process.exit(1); }
@@ -695,6 +739,7 @@ async function main(): Promise<void> {
   // byte-identical and `--all` simply turns the four tiers on at once.
   const intent: Intent = {
     all: args.all,
+    coreBinds: pf.coreBinds,
     flags: {
       collections: args.bindCollections,
       routes: args.bindRoutes,
@@ -709,6 +754,13 @@ async function main(): Promise<void> {
   const richClass = tiers.has("rich-class");
   const rich = tiers.has("rich") || richClass; // --rich-class implies --rich
   const minConfidence = tiers.has("lowconf") ? "low" : args.minConfidence;
+  if (pf.coreBinds && (bindCollections || bindRoutes)) {
+    process.stdout.write(
+      `• CaretCMS binds content from getCollection()/getEntry() on its own; ` +
+      `${[bindCollections && "--bind-collections", bindRoutes && "--bind-routes"].filter(Boolean).join(" and ")} ` +
+      `also writes those bindings into your templates.\n`,
+    );
+  }
 
   const planOpts: PlanOptions = {
     minConfidence,
@@ -729,7 +781,7 @@ async function main(): Promise<void> {
     }
   };
 
-  const analysis = await analyzeFiles(root, files, planOpts, readFileSafe, args.noProps, bindCollections, bindRoutes);
+  const analysis = await analyzeFiles(root, files, planOpts, readFileSafe, args.noProps, bindCollections, bindRoutes, pf.coreBinds);
   // A re-run signal: elements the scan skipped because they already carry a
   // data-caret. Lets the scan line read as incremental ("N new … · M already
   // editable") rather than a cold scan.
@@ -758,7 +810,7 @@ async function main(): Promise<void> {
   const optimistic = interactive && !args.review;
   if (interactive) {
     const esc = await offerEscalation(
-      { root, files, basePlanOpts: planOpts, readFileSafe, noProps: args.noProps, minConfidenceBase: args.minConfidence },
+      { root, files, basePlanOpts: planOpts, readFileSafe, noProps: args.noProps, minConfidenceBase: args.minConfidence, coreBinds: pf.coreBinds },
       tiers, analysis, sel,
     );
     sel = esc.sel;
@@ -772,9 +824,18 @@ async function main(): Promise<void> {
     collections: effectiveTiers.has("collections"),
     routes: effectiveTiers.has("routes"),
     lowconf: effectiveTiers.has("lowconf"),
+    coreBinds: pf.coreBinds,
+    fixedChrome: pf.core06 ? findFixedChrome(files, readFileSafe) : [],
   };
 
   const prepared = await prepareTouched(root, sel);
+  // Uncommitted changes matter only in the files this run edits: there they
+  // mix with caretize's edits and `git checkout` would throw both away.
+  const dirty = dirtyTreeWarning(
+    dirtyBefore,
+    prepared.filter((p) => p.ok && p.output !== p.source).map((p) => p.relPath),
+  );
+  if (dirty) process.stdout.write(`⚠ ${dirty}\n`);
 
   if (args.report) {
     writeFileSync(args.report, JSON.stringify(buildReport(analysis.plans, prepared), null, 2));
@@ -804,17 +865,20 @@ async function main(): Promise<void> {
     process.stdout.write(formatHints(summaryPlans, hintOpts));
     return;
   }
-  if (optimistic) {
+  if (optimistic || args.yes) {
     // "Show, don't ask": surface exactly what was just written, then make undo
-    // the most visible next move.
+    // the most visible next move. -y applies without asking, so it shows the
+    // same record.
     process.stdout.write("\napplied — here's what changed:\n");
-    process.stdout.write(formatDiff(prepared));
+    process.stdout.write(formatDiff(prepared.filter((p) => written.includes(p.relPath))));
   }
   printCommit(written, backups.length > 0, prepared, sel, summaryPlans);
   process.stdout.write(formatNextStep(pf));
   process.stdout.write(formatHints(summaryPlans, hintOpts));
   if (optimistic) {
-    process.stdout.write("\n  not what you wanted? caretize --restore  ·  approve each change next time? caretize --review\n");
+    process.stdout.write(`\n  not what you wanted? ${CARETIZE} --restore  ·  approve each change next time? ${CARETIZE} --review\n`);
+  } else if (args.yes) {
+    process.stdout.write(`\n  not what you wanted? ${CARETIZE} --restore\n`);
   }
 }
 

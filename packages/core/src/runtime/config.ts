@@ -9,6 +9,7 @@ declare const __ASTRO_CARET_THEME_CONFIG__: string | undefined;
 declare const __ASTRO_CARET_BRAND_CONFIG__: string | undefined;
 declare const __ASTRO_CARET_LOCALE__: string | undefined;
 declare const __ASTRO_CARET_DICTIONARY__: string | undefined;
+declare const __ASTRO_CARET_INLINE_EDITOR__: boolean | undefined;
 
 export type CaretBrandConfig = {
   name: string;
@@ -30,6 +31,8 @@ export type CaretRuntimeConfig = {
   brand: CaretBrandConfig;
   locale: StudioLocale;
   messages: ResolvedStudioDictionary;
+  /** The Studio opens over the site's pages (in the editor's drawer). */
+  inlineEditor: boolean;
 };
 
 export function normalizePath(input: string | undefined, fallback: string): string {
@@ -82,5 +85,8 @@ export function getRuntimeConfig(): CaretRuntimeConfig {
     resolveStudioDictionary(locale),
   );
 
-  return { mountPath, apiBasePath, editorHome, mode, theme, brand, locale, messages };
+  // Cloud sign-in and editing happen on the cloud host, not over this site.
+  const inlineEditor = mode !== "cloud" && (typeof __ASTRO_CARET_INLINE_EDITOR__ === "undefined" || __ASTRO_CARET_INLINE_EDITOR__ !== false);
+
+  return { mountPath, apiBasePath, editorHome, mode, theme, brand, locale, messages, inlineEditor };
 }

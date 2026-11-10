@@ -72,11 +72,16 @@ export function createStudioSync(options) {
     }, 80);
   }
 
-  /** @param {string} type @param {unknown} data */
-  function announceChange(type, data) {
+  /**
+   * @param {string} type @param {unknown} data
+   * @param {{ structural?: boolean }} [options] `structural`: the change goes
+   *   beyond text the page can update in place, so the page needs a refresh.
+   */
+  function announceChange(type, data, options = {}) {
     const message = {
       type, collection, id, data: data ? deepClone(data) : null,
       embedded: isEmbedded, studioPath: studioPath(), savedAt: now(),
+      ...(typeof options.structural === 'boolean' ? { structural: options.structural } : {}),
     };
     if (isEmbedded) {
       try { postToParent(message); } catch { /* Progressive enhancement. */ }
@@ -103,5 +108,15 @@ export function createStudioSync(options) {
     catch { /* Progressive enhancement. */ }
   }
 
-  return { queuePreview, announceChange, announceFieldSelection, announceReady };
+  // Lets the page behind the drawer show unsaved drawer changes on its status.
+  let lastDirty = false;
+  /** @param {boolean} dirty */
+  function announceStatus(dirty) {
+    if (!isEmbedded || dirty === lastDirty) return;
+    lastDirty = dirty;
+    try { postToParent({ type: 'cms:status', collection, id, dirty, embedded: true }); }
+    catch { /* Progressive enhancement. */ }
+  }
+
+  return { queuePreview, announceChange, announceFieldSelection, announceReady, announceStatus };
 }

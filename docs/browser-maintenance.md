@@ -16,8 +16,12 @@ orchestrator retains confirmations, field-error DOM, status text, and navigation
 Studio history reads and restores live in `static/cms/studio/history-client.js`.
 The client owns query encoding, restore request headers and payloads,
 authentication detection, response validation, and normalization of history
-rows. The orchestrator still owns confirmation, history markup, form rerendering,
-and preview announcements.
+rows. `static/cms/studio/history-view.js` turns rows into what each change did:
+every snapshot is the entry as it was before a change, so a row compares its
+snapshot with the next newer one (or the saved entry, for the newest) and lists
+only the leaf fields that differ, labeled with the form's field titles, plus
+relative times. The orchestrator still owns confirmation, history markup, form
+rerendering, and preview announcements.
 
 The Studio delete confirmation is a named modal dialog. It focuses Cancel when
 opened, contains Tab traversal, and restores the invoking Delete button when it
@@ -26,9 +30,10 @@ does not also close a parent inline-editor Studio drawer. The open dialog passes
 axe with sequential heading structure and sufficient contrast for its
 destructive confirmation action.
 
-Studio history is a named disclosure region connected to its History button.
-Opening focuses the panel's Close action; close, Escape, and successful restore
-collapse the region, update expanded state, and return focus. The open region
+Studio history is a named disclosure region connected to its History button,
+which sits beside More actions. Opening focuses the panel's Close action; close,
+Escape, and successful restore collapse the region, update expanded state, and
+return focus to the History button. The open region
 passes axe, and embedded Escape is contained before the parent drawer listener.
 
 Studio entry creation uses a named modal dialog with the entry-ID guidance as
@@ -76,11 +81,10 @@ publish, discard, and deployment retry. It validates HTTP and webhook-level
 failures and normalizes the small draft-state response before the toolbar changes
 control visibility.
 
-Preview-cookie transitions live in `static/cms/editor/preview-mode.js`. The typed
-controller enables preview before mounting a static editor, removes a stale
-preview cookie in server delivery, and leaves policy-managed draft sessions
-alone. Its injected document and reload boundary keeps the behavior testable
-without moving DOM ownership out of the toolbar.
+Whether an editor works on drafts is decided by the server, not the browser:
+with static delivery or an authorization policy, the middleware serves every
+authenticated editor request (pages, Studio and API) through that editor's
+draft overlay. The browser never toggles it.
 
 The inline `static/cms/editor/toolbar.js` orchestrator and its configuration and
 highlight dependencies are strictly checked. Runtime configuration normalizes

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GET } from "../../packages/core/src/runtime/routes/draft";
-import { issueEditorSessionCookie, getEditorId } from "../../packages/core/src/runtime/auth/session";
+import { issueEditorSessionCookies, getEditorId } from "../../packages/core/src/runtime/auth/session";
 import { __setRuntimeServicesForTests } from "../../packages/core/src/runtime/providers";
 import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memory-adapter";
 
@@ -18,7 +18,7 @@ describe("draft route GET", () => {
   it("reports draft count for the current editor", async () => {
     vi.stubEnv("CARET_SESSION_SECRET", "test-secret");
 
-    const session = cookieValue(issueEditorSessionCookie("/"));
+    const session = cookieValue(issueEditorSessionCookies("/")[0]);
     const cookies = {
       get(name: string) {
         return name === "caret_session" ? { value: session } : undefined;
@@ -47,7 +47,7 @@ describe("draft route GET", () => {
   it("returns zero when the editor has no drafts", async () => {
     vi.stubEnv("CARET_SESSION_SECRET", "test-secret");
 
-    const session = cookieValue(issueEditorSessionCookie("/"));
+    const session = cookieValue(issueEditorSessionCookies("/")[0]);
     const cookies = {
       get(name: string) {
         return name === "caret_session" ? { value: session } : undefined;

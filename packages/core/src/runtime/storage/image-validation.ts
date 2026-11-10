@@ -37,6 +37,15 @@ export const IMAGE_KIND_TO_EXT: Record<AllowedImageKind, string> = {
 
 export const IMAGE_MAX_SIZE = 10 * 1024 * 1024;
 
+/** Editor-facing upload refusals: the reason, and what to use instead. */
+const ALLOWED_IMAGE_TYPES = "JPEG, PNG, WebP or AVIF";
+export const UPLOAD_MESSAGES = {
+  type: `This file type can't be used. Use a ${ALLOWED_IMAGE_TYPES} image.`,
+  size: `This image is larger than ${IMAGE_MAX_SIZE / (1024 * 1024)} MB. Use a smaller image.`,
+  contents: `This file isn't a valid ${ALLOWED_IMAGE_TYPES} image.`,
+  notConfigured: "Uploads aren't set up on this site yet. Ask your developer.",
+} as const;
+
 export function detectImageKind(bytes: Uint8Array): AllowedImageKind | null {
   if (bytes.length < 12) return null;
 
@@ -110,19 +119,19 @@ export async function readAndValidateImage(file: File): Promise<{
   bytes: Uint8Array;
 }> {
   if (!IMAGE_MIME_TO_KIND[file.type]) {
-    throw new UploadError("File type not allowed");
+    throw new UploadError(UPLOAD_MESSAGES.type);
   }
   if (file.size > IMAGE_MAX_SIZE) {
-    throw new UploadError("File too large (max 10MB)");
+    throw new UploadError(UPLOAD_MESSAGES.size);
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer());
   const detected = detectImageKind(bytes);
   if (!detected) {
-    throw new UploadError("File contents do not match a supported image format");
+    throw new UploadError(UPLOAD_MESSAGES.contents);
   }
   if (detected !== IMAGE_MIME_TO_KIND[file.type]) {
-    throw new UploadError("File contents do not match the declared MIME type");
+    throw new UploadError(UPLOAD_MESSAGES.contents);
   }
 
   return { kind: detected, bytes };

@@ -1,4 +1,7 @@
 import { defineToolbarApp } from "astro/toolbar";
+// Dependency-free, and resolved by Vite from the package, so it works where
+// /__caret/ isn't served.
+import { unsupportedTags } from "../editor/sanitize.js";
 
 // CaretCMS Dev Toolbar app — a login-free, dev-only view of the data-caret
 // bindings on the current page. It complements the in-editor "Show All" button
@@ -13,10 +16,10 @@ import { defineToolbarApp } from "astro/toolbar";
 /**
  * @typedef {{ collection: string | null, id: string | null, field: string }} ParsedBinding
  * @typedef {{ collection: string, id: string, field: string }} ResolvedBinding
- * @typedef {"text" | "image" | "rich"} BindingKind
- * @typedef {{ el: Element, index: number, collection: string, id: string, field: string, key: string, kind: BindingKind }} PageBinding
+ * @typedef {"text" | "image" | "rich" | "locked"} BindingKind
+ * @typedef {{ el: Element, index: number, collection: string, id: string, field: string, key: string, kind: BindingKind, blockedBy: string[] }} PageBinding
  * @typedef {{ el: Element, attr: string, kind: BindingKind, index: number }} OrphanBinding
- * @typedef {{ bindings: PageBinding[], orphans: OrphanBinding[], duplicates: PageBinding[], stega: boolean, total: number }} BindingScan
+ * @typedef {{ bindings: PageBinding[], orphans: OrphanBinding[], duplicates: PageBinding[], locked: PageBinding[], stega: boolean, total: number }} BindingScan
  */
 
 /**
@@ -73,7 +76,10 @@ function devConfig() {
 function classify(el) {
   if (el.tagName.toLowerCase() === "img") return "image";
   if (el.hasAttribute("data-caret-rich")) return "rich";
-  return "text";
+  // As the editor decides (text-edit.js): inline formatting makes a plain
+  // binding rich; any other markup keeps it read-only on the page.
+  if (el.hasAttribute("data-caret-raw") || el.children.length === 0) return "text";
+  return unsupportedTags(el).length ? "locked" : "rich";
 }
 
 // Walk the page and resolve every data-caret element to a full key, splitting
@@ -103,6 +109,7 @@ function scanBindings() {
       field: resolved.field,
       key: `${resolved.collection}::${resolved.id}::${resolved.field}`,
       kind,
+      blockedBy: kind === "locked" ? unsupportedTags(el) : [],
     });
   });
 
@@ -110,13 +117,14 @@ function scanBindings() {
   const counts = new Map();
   bindings.forEach((b) => counts.set(b.key, (counts.get(b.key) || 0) + 1));
   const duplicates = bindings.filter((b) => (counts.get(b.key) ?? 0) > 1);
+  const locked = bindings.filter((b) => b.kind === "locked");
 
   // Stega-encoded bindings (live-loader content) only become real data-caret
   // attributes after the editor's stega-hydrate.js runs, which needs auth — so
   // a logged-out scan can undercount. Detect the U+E0000 markers to warn.
   const stega = /\u{E0000}/u.test((document.body && document.body.textContent) || "");
 
-  return { bindings, orphans, duplicates, stega, total: els.length };
+  return { bindings, orphans, duplicates, locked, stega, total: els.length };
 }
 
 // --- login-free highlight: our own outline CSS keyed on [data-caret] directly,
@@ -169,7 +177,7 @@ function scrollTo(el) {
 }
 
 /** @type {Record<BindingKind, string>} */
-const KIND_LABEL = { text: "text", image: "image", rich: "rich" };
+const KIND_LABEL = { text: "text", image: "image", rich: "rich", locked: "read-only" };
 
 /** @type {Record<string, string>} */
 const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
@@ -192,6 +200,7 @@ const PANEL_CSS = `
   button.btn.on{background:#6366f1;border-color:#6366f1;color:#fff;}
   .scroll{overflow-y:auto;flex:1;padding-right:2px;}
   .note{font-size:11px;color:#fbbf24;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:6px;padding:6px 8px;margin:8px 0;}
+  .note a{color:inherit;text-decoration:underline;}
   .problem{font-size:11px;color:#f87171;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);border-radius:6px;padding:6px 8px;margin:8px 0;}
   .problem b{color:#fca5a5;}
   .group{margin:10px 0 0;}
@@ -204,6 +213,7 @@ const PANEL_CSS = `
   .kind.text{background:rgba(99,102,241,.2);color:#a5b4fc;}
   .kind.image{background:rgba(245,158,11,.2);color:#fcd34d;}
   .kind.rich{background:rgba(16,185,129,.2);color:#6ee7b7;}
+  .kind.locked{background:rgba(239,68,68,.2);color:#fca5a5;}
   .jump{font:inherit;font-size:11px;cursor:pointer;border:none;background:transparent;color:#94a3b8;padding:2px 4px;border-radius:4px;}
   .jump:hover{color:#e2e8f0;background:rgba(255,255,255,.08);}
   .empty{font-size:12px;color:#94a3b8;padding:16px 2px;text-align:center;}
@@ -224,12 +234,12 @@ export default defineToolbarApp({
 
     let highlightOn = false;
     /** @type {BindingScan} */
-    let scan = { bindings: [], orphans: [], duplicates: [], stega: false, total: 0 };
+    let scan = { bindings: [], orphans: [], duplicates: [], locked: [], stega: false, total: 0 };
 
     function render() {
       scan = scanBindings();
       const { mountPath } = devConfig();
-      const { bindings, orphans, duplicates, stega } = scan;
+      const { bindings, orphans, duplicates, locked, stega } = scan;
 
       // Group bindings by collection::id, preserving first-seen order.
       /** @type {Map<string, PageBinding[]>} */
@@ -246,7 +256,7 @@ export default defineToolbarApp({
       let html = `
         <div class="head">
           <span class="title">CaretCMS bindings</span>
-          <span class="count">${bindings.length} on page${orphans.length ? ` · ${orphans.length} orphan${orphans.length > 1 ? "s" : ""}` : ""}</span>
+          <span class="count">${bindings.length} on page${stega ? " · more after sign-in" : ""}${orphans.length ? ` · ${orphans.length} orphan${orphans.length > 1 ? "s" : ""}` : ""}</span>
         </div>
         <div class="actions">
           <button type="button" class="btn ${highlightOn ? "on" : ""}" data-action="highlight" aria-pressed="${highlightOn}">${highlightOn ? "Hide" : "Highlight"} all</button>
@@ -255,7 +265,8 @@ export default defineToolbarApp({
         <div class="scroll">`;
 
       if (stega) {
-        html += `<div class="note">This page has stega-encoded bindings (live-loader content). They become visible only when the editor is loaded — sign in to see them here.</div>`;
+        const signIn = `${mountPath}?redirect=${encodeURIComponent(location.pathname + location.search)}`;
+        html += `<div class="note">Content from live collections becomes bindings once the editor loads. <a href="${esc(signIn)}">Sign in</a> to count and list them here.</div>`;
       }
       if (orphans.length) {
         html += `<div class="problem"><b>${orphans.length} orphan binding${orphans.length > 1 ? "s" : ""}</b> — field-only <code>data-caret</code> with no resolvable <code>data-caret-scope</code> ancestor: ${orphans.map((o) => `<code>${esc(o.attr)}</code>`).join(", ")}</div>`;
@@ -265,9 +276,17 @@ export default defineToolbarApp({
         html += `<div class="problem"><b>${uniq.length} duplicate key${uniq.length > 1 ? "s" : ""}</b> — same binding used more than once: ${uniq.map((k) => `<code>${esc(k)}</code>`).join(", ")}</div>`;
       }
 
-      if (!bindings.length && !orphans.length) {
-        html += `<div class="empty">No <code>data-caret</code> bindings found on this page.</div>`;
+      if (locked.length) {
+        const blocked = Array.from(new Set(locked.flatMap((b) => b.blockedBy)));
+        html += `<div class="problem"><b>${locked.length} field${locked.length > 1 ? "s" : ""} can't be edited on the page</b> — ${locked.length > 1 ? "they contain" : "it contains"} markup rich text can't hold (${blocked.map((tag) => `<code>&lt;${esc(tag)}&gt;</code>`).join(", ")}), so editors see ${locked.length > 1 ? "them" : "it"} read-only and saved values don't reach the page. Put <code>data-caret</code> on the element that holds just the text: ${locked.map((b) => `<code>${esc(b.key)}</code>`).join(", ")}</div>`;
       }
+
+      if (!bindings.length && !orphans.length) {
+        html += `<div class="empty">No <code>data-caret</code> bindings found on this page.<br />Run <code>npx @caretcms/caretize</code> to add some.</div>`;
+      }
+      // Developer-only: published content whose Git record is pending. Editors
+      // aren't asked to fix this; each publish retries it.
+      html += `<div class="git-history" hidden></div>`;
 
       for (const [gk, rows] of groups) {
         const [collection, id] = gk.split("::");
@@ -286,8 +305,50 @@ export default defineToolbarApp({
 
       html += `</div>`;
       wrap.innerHTML = html;
-      const probs = scan.orphans.length + scan.duplicates.length;
+      void showGitHistory();
+      const probs = scan.orphans.length + scan.duplicates.length + scan.locked.length;
       app.toggleNotification({ state: probs > 0, level: "warning" });
+    }
+
+    /** Pending Git history for the signed-in editor's publications, with Retry. */
+    async function showGitHistory(message = "") {
+      const box = wrap.querySelector(".git-history");
+      if (!(box instanceof HTMLElement)) return;
+      /** @type {{ journalPending?: unknown, retryJournal?: unknown } | null} */
+      let state = null;
+      try {
+        const res = await fetch(`${devConfig().apiBasePath}/draft`, { credentials: "same-origin", headers: { "x-caret-request": "1" } });
+        state = res.ok ? await res.json() : null;
+      } catch { state = null; }
+      const pending = state && typeof state.journalPending === "number" ? state.journalPending : 0;
+      box.hidden = pending === 0 && !message;
+      if (box.hidden) return;
+      box.className = pending > 0 ? "git-history problem" : "git-history note";
+      box.innerHTML = pending > 0
+        ? `<b>Git history pending</b> for ${pending} published ${pending === 1 ? "entry" : "entries"}. Each publish retries; check the repository, then retry here.${message ? ` ${esc(message)}` : ""}` +
+          (state && state.retryJournal === true ? ` <button type="button" class="btn" data-action="retry-git">Retry Git history</button>` : "")
+        : esc(message);
+    }
+
+    async function retryGitHistory() {
+      let message = "";
+      try {
+        const res = await fetch(`${devConfig().apiBasePath}/publish`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json", "x-caret-request": "1" },
+          body: JSON.stringify({ retryJournal: true }),
+        });
+        const body = res.ok ? await res.json() : null;
+        const journal = body && typeof body.journal === "object" ? body.journal : null;
+        message = !journal ? "Retry failed; see the server log."
+          : journal.pending === 0 ? "Git history recorded."
+          : journal.blocked > 0 ? "Some records need review: published content has moved on since."
+          : "Still pending; see the server log.";
+      } catch {
+        message = "Retry failed; see the server log.";
+      }
+      await showGitHistory(message);
     }
 
     /** @param {string | null} index */
@@ -309,6 +370,8 @@ export default defineToolbarApp({
         target.setAttribute("aria-pressed", String(highlightOn));
       } else if (action === "rescan") {
         render();
+      } else if (action === "retry-git") {
+        void retryGitHistory();
       } else if (action === "scroll") {
         const el = elementByIndex(target.getAttribute("data-index"));
         if (el) scrollTo(el);

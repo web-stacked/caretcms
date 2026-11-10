@@ -121,12 +121,17 @@ describe("formatEscalationOffer", () => {
   it("lists only non-zero tiers, in TIERS order, marking the per-row binders", () => {
     const out = formatEscalationOffer({ collections: 35, routes: 0, rich: 6, lowconf: 4 });
     expect(out).toContain("35 items in dynamic lists");
-    expect(out).toContain("6 rich headings");
+    expect(out).toContain("6 text blocks with bold or links");
     expect(out).toContain("4 lower-confidence spots");
     expect(out).not.toContain("dynamic detail routes"); // 0 → omitted
     // collections is a guess tier → carries the ⚠ marker; rich does not
     expect(out).toMatch(/⚠ +35 items in dynamic lists/);
-    expect(out).not.toMatch(/⚠ +6 rich headings/);
+    expect(out).not.toMatch(/⚠ +6 text blocks with bold or links/);
+    // The legend explains the mark because a row carries it…
+    expect(out).toContain("⚠ = per-row binding");
+  });
+  it("leaves out the legend when no row is marked", () => {
+    expect(formatEscalationOffer({ rich: 2, lowconf: 1 })).not.toContain("⚠");
   });
   it("is empty when every count is zero", () => {
     expect(formatEscalationOffer({})).toBe("");

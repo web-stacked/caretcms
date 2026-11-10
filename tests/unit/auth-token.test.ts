@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   hasConfiguredEditorPassword,
   isEditorAuthenticated,
-  issueEditorSessionCookie,
+  issueEditorSessionCookies,
 } from '../../packages/core/src/runtime/auth/session';
 
 const SESSION_COOKIE_NAME = 'caret_session';
@@ -56,13 +56,13 @@ describe('auth token verification', () => {
   });
 
   it('accepts a freshly issued token', () => {
-    const cookie = issueEditorSessionCookie('/');
+    const cookie = issueEditorSessionCookies('/')[0];
     const token = cookieValueFromHeader(cookie);
     expect(isEditorAuthenticated(asCookieBag(token))).toBe(true);
   });
 
   it('rejects a token with a tampered signature', () => {
-    const cookie = issueEditorSessionCookie('/');
+    const cookie = issueEditorSessionCookies('/')[0];
     const token = cookieValueFromHeader(cookie);
     const [payload, sig] = token.split('.');
     // Flip a character in the middle of the signature — flipping only the
@@ -76,7 +76,7 @@ describe('auth token verification', () => {
   });
 
   it('rejects a token signed with a different secret', () => {
-    const cookie = issueEditorSessionCookie('/');
+    const cookie = issueEditorSessionCookies('/')[0];
     const token = cookieValueFromHeader(cookie);
     process.env.CARET_SESSION_SECRET = 'different-secret';
     expect(isEditorAuthenticated(asCookieBag(token))).toBe(false);
@@ -114,14 +114,14 @@ describe('session secret fallback', () => {
   it('throws in production when password is set but secret is not', () => {
     process.env.NODE_ENV = 'production';
     process.env.CARET_EDIT_PASSWORD = 'pw';
-    expect(() => issueEditorSessionCookie('/')).toThrow(/CARET_SESSION_SECRET/);
+    expect(() => issueEditorSessionCookies('/')[0]).toThrow(/CARET_SESSION_SECRET/);
   });
 
   it('allows the dev fallback when no password is configured (dev context)', () => {
     process.env.NODE_ENV = 'development';
     delete process.env.CARET_EDIT_PASSWORD;
     delete process.env.EDIT_PASSWORD;
-    expect(() => issueEditorSessionCookie('/')).not.toThrow();
+    expect(() => issueEditorSessionCookies('/')[0]).not.toThrow();
   });
 
   it('refuses the public fallback secret in production with no password (S1)', () => {
@@ -130,6 +130,6 @@ describe('session secret fallback', () => {
     process.env.NODE_ENV = 'production';
     delete process.env.CARET_EDIT_PASSWORD;
     delete process.env.EDIT_PASSWORD;
-    expect(() => issueEditorSessionCookie('/')).toThrow(/CARET_SESSION_SECRET/);
+    expect(() => issueEditorSessionCookies('/')[0]).toThrow(/CARET_SESSION_SECRET/);
   });
 });

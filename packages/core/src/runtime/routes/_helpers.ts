@@ -1,4 +1,5 @@
 import type { StorageAdapter, UploadHandler } from "../../types.js";
+import { loadPageContent, withPageContent } from "../page-content.js";
 import {
   getRequestContext,
   requireRequestContext,
@@ -34,6 +35,14 @@ export async function resolveAdapter(): Promise<StorageAdapter> {
   return (await bootstrapRequestContext()).adapter;
 }
 
+/**
+ * The adapter for Studio and editor reads: it also lists what pages show
+ * before anything is saved (page-content.ts). Never for writes.
+ */
+export async function resolveReadAdapter(): Promise<StorageAdapter> {
+  return withPageContent(await resolveAdapter(), await loadPageContent());
+}
+
 export async function resolveUploadHandler(): Promise<UploadHandler> {
   const ctx = getRequestContext();
   if (ctx) return ctx.uploadHandler;
@@ -46,7 +55,7 @@ const CSRF_HEADER_VALUE = "1";
 export function json(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json; charset=utf-8" },
+    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "private, no-store" },
   });
 }
 
@@ -91,7 +100,7 @@ export async function readJsonBody(
 
   let text: string;
   try {
-    text = await readBodyTextCapped(request, maxBytes);
+    text = new TextDecoder().decode(await readBodyBytesCapped(request, maxBytes));
   } catch (error) {
     if (error instanceof BodyTooLargeError) {
       return { ok: false, response: json({ error: "Payload too large" }, 413) };
@@ -106,17 +115,32 @@ export async function readJsonBody(
   }
 }
 
+/** Bound multipart and URL-encoded bodies before handing them to formData(). */
+export async function readFormBody(request: Request, maxBytes: number): Promise<
+  { ok: true; value: FormData } | { ok: false; response: Response }
+> {
+  const tooLarge = enforceContentLength(request, maxBytes);
+  if (tooLarge) return { ok: false, response: tooLarge };
+  try {
+    const bytes = await readBodyBytesCapped(request, maxBytes);
+    const value = await new Response(bytes, {
+      headers: { "Content-Type": request.headers.get("content-type") ?? "" },
+    }).formData();
+    return { ok: true, value };
+  } catch (error) {
+    return { ok: false, response: json({ error: error instanceof BodyTooLargeError ? "Payload too large" : "Invalid form data" }, error instanceof BodyTooLargeError ? 413 : 400) };
+  }
+}
+
 class BodyTooLargeError extends Error {}
 
-async function readBodyTextCapped(
+async function readBodyBytesCapped(
   request: Request,
   maxBytes: number,
-): Promise<string> {
+): Promise<Uint8Array<ArrayBuffer>> {
   const body = request.body;
   if (!body) {
-    const text = await request.text();
-    if (text.length > maxBytes) throw new BodyTooLargeError();
-    return text;
+    return new Uint8Array();
   }
 
   const reader = body.getReader();
@@ -144,7 +168,7 @@ async function readBodyTextCapped(
     merged.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder().decode(merged);
+  return merged;
 }
 
 /**

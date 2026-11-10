@@ -1,5 +1,6 @@
 import { rename, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { recordSelfWrite } from "../self-writes.js";
 
 /**
  * Crash-safe filesystem write primitives shared by every filesystem-backed
@@ -16,6 +17,8 @@ import { randomUUID } from "node:crypto";
  */
 export async function atomicWrite(filePath: string, contents: string): Promise<void> {
   const tmpPath = `${filePath}.${randomUUID()}.tmp`;
+  recordSelfWrite(tmpPath);
+  recordSelfWrite(filePath);
   await writeFile(tmpPath, contents, "utf8");
   try {
     await rename(tmpPath, filePath);

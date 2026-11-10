@@ -1,3 +1,6 @@
+import { imageUnderControl } from './image-edit.js';
+import { t } from './i18n.js';
+
 /**
  * Floating "Open page" affordance for editable elements that are or sit inside
  * an <a> with a real href. The editor's click guard blocks navigation on
@@ -117,15 +120,22 @@ function position(anchor, btn) {
 
 function scheduleHide() {
   cancelHide();
-  hideTimer = window.setTimeout(removeBtn, 180);
+  hideTimer = window.setTimeout(() => {
+    // Keyboard focus is on the button: keep it until focus moves on.
+    if (activeBtn && activeBtn.contains(document.activeElement)) return;
+    removeBtn();
+  }, 180);
 }
 
-/** @param {HTMLAnchorElement} anchor */
-function show(anchor) {
+/** @param {HTMLAnchorElement} anchor @param {{ fromHover?: boolean }} [options] */
+function show(anchor, { fromHover = false } = {}) {
   if (activeAnchor === anchor && activeBtn) {
     cancelHide();
     return;
   }
+  // The pointer passing over another link doesn't take the button away from
+  // keyboard focus.
+  if (fromHover && activeBtn && activeBtn.contains(document.activeElement)) return;
   removeBtn();
 
   const href = anchor.getAttribute("href");
@@ -140,14 +150,14 @@ function show(anchor) {
     btn.target = "_blank";
     btn.rel = "noopener noreferrer";
   }
-  btn.setAttribute('aria-label', `Open ${external ? "link" : "page"}: ${shortLabel(href)}`);
+  btn.setAttribute('aria-label', t(external ? 'editor.follow.linkLabel' : 'editor.follow.pageLabel', { destination: shortLabel(href) }));
   const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   icon.setAttribute('viewBox', '0 0 16 16');
   icon.setAttribute('fill', 'none');
   icon.setAttribute('aria-hidden', 'true');
   icon.innerHTML = '<path d="M5 11 L11 5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/><path d="M6 5 L11 5 L11 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/>';
   const label = document.createElement('span');
-  label.textContent = `Open ${external ? "link" : "page"}`;
+  label.textContent = external ? t('editor.follow.link') : t('editor.follow.page');
   const destination = document.createElement('em');
   destination.textContent = shortLabel(href);
   btn.append(icon, label, destination);
@@ -156,6 +166,7 @@ function show(anchor) {
     cancelHide();
   });
   btn.addEventListener("mouseleave", scheduleHide);
+  btn.addEventListener("focusout", scheduleHide);
 
   document.body.appendChild(btn);
   activeBtn = btn;
@@ -168,7 +179,7 @@ export function mountLinkFollowAffordances() {
   function editableFromTarget(target) {
     const direct = target.closest('[data-caret]');
     if (direct) return direct;
-    return target.closest('.cms-img-wrapper')?.querySelector('img[data-caret]') || null;
+    return imageUnderControl(target);
   }
 
   /** @param {Element} editable @returns {HTMLAnchorElement | null} */
@@ -187,7 +198,7 @@ export function mountLinkFollowAffordances() {
     const anchor = anchorFromEditable(editable);
     if (!anchor) return;
 
-    show(anchor);
+    show(anchor, { fromHover: true });
   });
 
   document.addEventListener("mouseout", (e) => {

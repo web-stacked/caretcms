@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { issueEditorSessionCookie } from "../../packages/core/src/runtime/auth/session";
+import { issueEditorSessionCookies } from "../../packages/core/src/runtime/auth/session";
 import { onRequest } from "../../packages/core/src/runtime/middleware";
 import { __setRuntimeServicesForTests } from "../../packages/core/src/runtime/providers";
 import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memory-adapter";
@@ -155,7 +155,7 @@ describe("middleware", () => {
       },
     });
 
-    const cookieValue = decodeURIComponent(issueEditorSessionCookie().split(";")[0].split("=")[1]);
+    const cookieValue = decodeURIComponent(issueEditorSessionCookies()[0].split(";")[0].split("=")[1]);
     const context = {
       locals: {} as Record<string, unknown>,
       cookies: {
@@ -208,7 +208,7 @@ describe("middleware", () => {
   describe("authenticated empty-state hint", () => {
     function authedContext(url: string) {
       const cookieValue = decodeURIComponent(
-        issueEditorSessionCookie().split(";")[0].split("=")[1],
+        issueEditorSessionCookies()[0].split(";")[0].split("=")[1],
       );
       return {
         locals: {} as Record<string, unknown>,
@@ -328,7 +328,7 @@ describe("middleware", () => {
     });
 
     const cookieValue = decodeURIComponent(
-      issueEditorSessionCookie().split(";")[0].split("=")[1],
+      issueEditorSessionCookies()[0].split(";")[0].split("=")[1],
     );
     const context = {
       locals: {} as Record<string, unknown>,

@@ -1,0 +1,18 @@
+---
+import { ClientRouter } from "astro:transitions";
+---
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>View transitions two — CaretCMS Starter</title>
+    <ClientRouter />
+  </head>
+  <body>
+    <main data-caret-scope="transitions::two">
+      <h1 data-caret="headline">Page two headline</h1>
+      <p data-caret="intro">Navigating between these pages swaps the body without a reload.</p>
+      <a href="/vt/one">Go to page one</a>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "caretcms-release-gate-local",
+  "main": "./src/worker.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "vars": { "CARET_GATE_BUILD": "local" },
+  "assets": { "run_worker_first": true },
+  "kv_namespaces": [{ "binding": "CMS_KV", "id": "00000000000000000000000000000000" }],
+  "durable_objects": { "bindings": [{ "name": "CMS_CONTENT", "class_name": "CaretCmsContent" }] },
+  "exports": { "CaretCmsContent": { "type": "durable-object", "storage": "sqlite" } }
+}

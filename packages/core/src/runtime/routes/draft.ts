@@ -1,3 +1,4 @@
+import { durableGitJournalEnabled, hasGitJournalQueue, canRetryPublicationJournals } from "../publication-journal.js";
 import { getRequestContext } from "../request-context.js";
 import { canPublishOverlay } from "../publish.js";
 export const prerender = false;
@@ -5,7 +6,8 @@ export const prerender = false;
 import type { APIContext } from "astro";
 import { isEditorAuthenticated, getEditorId } from "../auth/session.js";
 import { getRuntimeServices } from "../providers.js";
-import { countOverlayDrafts, discardOverlay, type PublishScope } from "../publish.js";
+import { discardOverlay, type PublishScope } from "../publish.js";
+import { countPendingDrafts } from "../unpublished.js";
 import { json, enforceCsrfHeader } from "./_helpers.js";
 
 /**
@@ -21,8 +23,12 @@ export async function GET(context: APIContext): Promise<Response> {
   if (!base.makeEditorOverlay) return json({ hasDrafts: false, count: 0 });
 
   const overlay = await base.makeEditorOverlay(editorId);
-  const count = await countOverlayDrafts(overlay);
-  return json({ ...(getRequestContext()?.authorize ? { canPublish: await canPublishOverlay(overlay) } : {}), hasDrafts: count > 0, count, retryRebuild: Boolean(await overlay.getRebuildReceipt?.()) });
+  // Drafts that change nothing visitors see (an undone edit) aren't counted.
+  const count = await countPendingDrafts(base, overlay);
+  const journalPending = durableGitJournalEnabled() && hasGitJournalQueue(overlay)
+    ? (await overlay.listGitJournalReceipts!()).length : 0;
+  const retryJournal = journalPending > 0 && await canRetryPublicationJournals(overlay);
+  return json({ ...(journalPending > 0 ? { retryJournal, journalPending } : {}), ...(getRequestContext()?.authorize ? { canPublish: await canPublishOverlay(overlay) } : {}), hasDrafts: count > 0, count, retryRebuild: Boolean(await overlay.getRebuildReceipt?.()) });
 }
 
 /**

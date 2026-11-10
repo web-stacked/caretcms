@@ -4,11 +4,17 @@ import type {
   EntryCommit,
   EntryCommitResult,
   EntryData,
+  EntrySnapshot,
+  DraftSnapshot,
+  DraftCoordinator,
   HistoryEntry,
   RebuildReceipt,
   StorageAdapter,
+  StorageGuarantees,
 } from "@caretcms/core";
 import { getCloudflareRuntimeEnv } from "../runtime/env.js";
+import { getDataModules } from "../runtime/bundled-data.js";
+import { ENTRY_ID_RE } from "@caretcms/core/contracts";
 
 const COLLECTION_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 const SESSION_OVERLAY_TTL_SECONDS = 2 * 60 * 60;
@@ -20,22 +26,6 @@ interface DurableObjectStubLike {
 interface DurableObjectNamespaceLike {
   idFromName(name: string): unknown;
   get(id: unknown): DurableObjectStubLike;
-}
-
-type GlobMap = Record<string, Record<string, unknown>>;
-let bundled: GlobMap | null = null;
-
-function getDataModules(): GlobMap {
-  if (bundled) return bundled;
-  try {
-    bundled = import.meta.glob<Record<string, unknown>>(
-      "/.caret/data/**/*.json",
-      { eager: true, import: "default" },
-    );
-  } catch {
-    bundled = {};
-  }
-  return bundled;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -79,24 +69,35 @@ export interface CloudflareDurableStorageOptions extends Record<string, unknown>
   instanceName?: string;
   /** Include build-bundled .caret/data as the initial read-only baseline. */
   bundledFallback?: boolean;
+  /** Opt in to atomic base checks and private drafts in the same object. */
+  editorDrafts?: "separate" | "coordinated";
 }
 
 type StoredEntryResponse = {
   value: null | { state: "deleted" } | { state: "entry"; data: Record<string, unknown> };
   collectionDeleted: boolean;
+  fallbackDisabled?: boolean;
 };
 
 export class CloudflareDurableStorageAdapter implements StorageAdapter {
+  readonly guarantees: Readonly<StorageGuarantees>;
   private readonly binding: string;
   private readonly instanceName: string;
   private readonly bundledFallback: boolean;
   private readonly expirationTtl?: number;
+  private readonly editorDrafts: "separate" | "coordinated";
+  private editorId?: string;
 
   constructor(options: CloudflareDurableStorageOptions = {}, expirationTtl?: number) {
+    this.guarantees = Object.freeze({ persistence: expirationTtl ? "expiring" : "durable",
+      snapshots: "transactional", commits: "transactional", collectionDeletion: "content" });
     this.binding = options.binding ?? "CMS_CONTENT";
     this.instanceName = options.instanceName ?? "default";
     this.bundledFallback = options.bundledFallback ?? true;
     this.expirationTtl = expirationTtl;
+    this.editorDrafts = options.editorDrafts ?? "separate";
+    if (!["separate", "coordinated"].includes(this.editorDrafts)) throw new Error("Invalid editorDrafts mode");
+    if (expirationTtl && this.editorDrafts === "coordinated") throw new Error("Coordinated drafts require durable storage");
   }
 
   private async call<T>(command: Record<string, unknown>): Promise<T> {
@@ -111,7 +112,7 @@ export class CloudflareDurableStorageAdapter implements StorageAdapter {
         "content-type": "application/json",
         ...(this.expirationTtl ? { "x-caret-ttl-seconds": String(this.expirationTtl) } : {}),
       },
-      body: JSON.stringify(command),
+      body: JSON.stringify(this.editorId ? { type: "editor_command", editorId: this.editorId, command } : command),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => null) as { error?: unknown } | null;
@@ -136,7 +137,7 @@ export class CloudflareDurableStorageAdapter implements StorageAdapter {
     await this.call({ type: "set_deployment_target", target });
   }
 
-  private async collectionState(): Promise<{ known: string[]; deleted: string[] }> {
+  private async collectionState(): Promise<{ known: string[]; deleted: string[]; bundledDisabled?: string[] }> {
     return this.call({ type: "collections" });
   }
 
@@ -144,7 +145,9 @@ export class CloudflareDurableStorageAdapter implements StorageAdapter {
     const state = await this.collectionState();
     const known = new Set(state.known);
     if (this.bundledFallback) {
-      for (const collection of discoverBundledCollections()) known.add(collection);
+      for (const collection of discoverBundledCollections()) {
+        if (!state.bundledDisabled?.includes(collection)) known.add(collection);
+      }
     }
     for (const collection of state.deleted) known.delete(collection);
     return [...known].sort((a, b) => a.localeCompare(b));
@@ -160,16 +163,28 @@ export class CloudflareDurableStorageAdapter implements StorageAdapter {
     const { value } = state;
     if (value?.state === "deleted") return null;
     if (value?.state === "entry") return { id, data: structuredClone(value.data) };
-    if (!this.bundledFallback) return null;
+    if (!this.bundledFallback || state.fallbackDisabled) return null;
     const data = readBundledEntry(collection, id);
     return data ? { id, data } : null;
   }
 
+  async getEntrySnapshot(collection: string, id: string): Promise<{ entry: EntryData | null; revision: number }> {
+    const state = await this.call<StoredEntryResponse & { revision: number }>({ type: "get_entry_snapshot", collection, id });
+    return this.decodeSnapshot(state, collection, id);
+  }
+
+  private decodeSnapshot(state: StoredEntryResponse & { revision: number }, collection: string, id: string): EntrySnapshot {
+    const data = state.collectionDeleted || state.value?.state === "deleted" ? null
+      : state.value?.state === "entry" ? structuredClone(state.value.data)
+      : this.bundledFallback && !state.fallbackDisabled ? readBundledEntry(collection, id) : null;
+    return { entry: data ? { id, data } : null, revision: state.revision };
+  }
+
   async listEntryIds(collection: string): Promise<string[]> {
-    const state = await this.call<{ ids: string[]; deleted: string[]; collectionDeleted: boolean }>({ type: "list_entry_ids", collection });
+    const state = await this.call<{ ids: string[]; deleted: string[]; collectionDeleted: boolean; fallbackDisabled?: boolean }>({ type: "list_entry_ids", collection });
     if (state.collectionDeleted) return [];
     const ids = new Set(state.ids);
-    if (this.bundledFallback) {
+    if (this.bundledFallback && !state.fallbackDisabled) {
       for (const id of listBundledEntryIds(collection)) ids.add(id);
     }
     for (const id of state.deleted) ids.delete(id);
@@ -218,7 +233,8 @@ export class CloudflareDurableStorageAdapter implements StorageAdapter {
   }
 
   async deleteCollection(collection: string): Promise<void> {
-    await this.call({ type: "delete_collection", collection });
+    await this.call({ type: "delete_collection", collection,
+      seedIds: this.bundledFallback ? listBundledEntryIds(collection).filter(id => ENTRY_ID_RE.test(id)) : [] });
   }
 
   async getCollectionMetadata(collection: string): Promise<CollectionMetadata | null> {
@@ -232,17 +248,38 @@ export class CloudflareDurableStorageAdapter implements StorageAdapter {
   async makeSessionOverlay(sessionId: string): Promise<StorageAdapter> {
     return new CloudflareDurableStorageAdapter({
       binding: this.binding,
-      instanceName: `${this.instanceName}:session:${sessionId}`,
+      instanceName: `${this.instanceName}${this.editorId ? `:draft:${this.editorId}` : ""}:session:${sessionId}`,
       bundledFallback: false,
     }, SESSION_OVERLAY_TTL_SECONDS);
   }
 
+  coordinateDrafts(base: StorageAdapter): DraftCoordinator | undefined {
+    if (!this.editorId || !(base instanceof CloudflareDurableStorageAdapter) || base.editorId ||
+        this.binding !== base.binding || this.instanceName !== base.instanceName ||
+        this.expirationTtl || base.expirationTtl) return undefined;
+    const editorId = this.editorId;
+    return {
+      getEntrySnapshots: async (collection, ids): Promise<DraftSnapshot[]> => {
+        const pairs = await base.call<Array<{ base: StoredEntryResponse & { revision: number };
+          overlay: StoredEntryResponse & { revision: number } }>>({ type: "get_draft_snapshots", editorId, collection, ids });
+        return pairs.map((pair, index) => ({ base: base.decodeSnapshot(pair.base, collection, ids[index]),
+          overlay: this.decodeSnapshot(pair.overlay, collection, ids[index]) }));
+      },
+      commitEntries: (changes, baselines, guards) => base.call({ type: "commit_draft_entries", editorId, changes, baselines, guards }),
+    };
+  }
+
   async makeEditorOverlay(editorId: string): Promise<StorageAdapter> {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(editorId)) throw new Error("Invalid editor id");
-    return new CloudflareDurableStorageAdapter({
+    const coordinated = this.editorDrafts === "coordinated" && !this.editorId;
+    const parentName = `${this.instanceName}${this.editorId ? `:draft:${this.editorId}` : ""}`;
+    const overlay = new CloudflareDurableStorageAdapter({
       binding: this.binding,
-      instanceName: `${this.instanceName}:draft:${editorId}`,
+      instanceName: coordinated ? this.instanceName : `${parentName}:draft:${editorId}`,
       bundledFallback: false,
+      editorDrafts: coordinated ? "coordinated" : "separate",
     });
+    if (coordinated) overlay.editorId = editorId;
+    return overlay;
   }
 }

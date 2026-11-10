@@ -76,6 +76,11 @@ export function isStaticDelivery() {
   return DELIVERY_MODE === 'static';
 }
 
+/** Whether a save makes a draft (published separately) rather than going live. */
+export function savesDrafts() {
+  return isPolicyDraftMode() || isStaticDelivery();
+}
+
 export function isServerDelivery() {
   return !isStaticDelivery();
 }

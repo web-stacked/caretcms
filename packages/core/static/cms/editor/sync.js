@@ -1,6 +1,8 @@
 import { sanitizeHtml } from './sanitize.js';
 import { parseCaretAttr, resolveBinding } from './helpers.js';
 import { STUDIO_PATH } from './config.js';
+import { entryRoute, rememberPanelRoute } from './panel-route.js';
+import { t } from './i18n.js';
 
 const SYNC_CHANNEL = 'caretcms:content';
 const PENDING_SELECTION_KEY = 'caretcms:pending-preview-selection';
@@ -17,6 +19,14 @@ const PENDING_SELECTION_KEY = 'caretcms:pending-preview-selection';
  * @property {string} [source]
  */
 /**
+ * @typedef {object} StatusMessage
+ * @property {'cms:status'} type
+ * @property {string} collection
+ * @property {string} id
+ * @property {boolean} dirty The drawer has unsaved changes.
+ * @property {boolean} [embedded]
+ */
+/**
  * @typedef {object} EntryReadyMessage
  * @property {'cms:entry-ready'} type
  * @property {string} collection
@@ -25,14 +35,15 @@ const PENDING_SELECTION_KEY = 'caretcms:pending-preview-selection';
  */
 /**
  * @typedef {object} ChangeMessage
- * @property {'cms:preview' | 'cms:saved' | 'cms:created' | 'cms:deleted'} type
+ * @property {'cms:preview' | 'cms:saved' | 'cms:created' | 'cms:deleted' | 'cms:published'} type
  * @property {string} collection
  * @property {string} id
  * @property {Record<string, unknown> | null} [data]
  * @property {string} [studioPath]
  * @property {boolean} [embedded]
+ * @property {boolean} [structural] A save the page can't apply in place.
  */
-/** @typedef {SelectionMessage | EntryReadyMessage | ChangeMessage} SyncMessage */
+/** @typedef {SelectionMessage | EntryReadyMessage | StatusMessage | ChangeMessage} SyncMessage */
 /**
  * @typedef {object} PendingSelection
  * @property {string} collection
@@ -79,13 +90,15 @@ export function normalizeSyncMessage(value) {
     };
   }
   if (value.type === 'cms:entry-ready') return { ...common, type: value.type };
-  if (!['cms:preview', 'cms:saved', 'cms:created', 'cms:deleted'].includes(value.type)) return null;
+  if (value.type === 'cms:status') return typeof value.dirty === 'boolean' ? { ...common, type: value.type, dirty: value.dirty } : null;
+  if (!['cms:preview', 'cms:saved', 'cms:created', 'cms:deleted', 'cms:published'].includes(value.type)) return null;
   if (value.data !== undefined && value.data !== null && !isRecord(value.data)) return null;
   return {
     ...common,
     type: /** @type {ChangeMessage['type']} */ (value.type),
     ...(value.data !== undefined ? { data: value.data } : {}),
     ...(typeof value.studioPath === 'string' ? { studioPath: value.studioPath } : {}),
+    ...(typeof value.structural === 'boolean' ? { structural: value.structural } : {}),
   };
 }
 
@@ -114,11 +127,14 @@ export function normalizePendingSelection(value) {
  * @param {object} options
  * @param {HTMLIFrameElement | null} options.studioIframe
  * @param {InlineEditorState} options.state
- * @param {(message: string, kind: 'success' | 'error') => void} options.showToast
+ * @param {((message: string, kind: 'success' | 'error') => void) & {
+ *   saved: (options: { message: string, action?: { label: string, onClick: () => void | Promise<void> } }) => unknown,
+ * }} options.showToast
  * @param {(text: string) => string} options.clientLinkify
  * @param {(element: Element) => void} options.onInlineSelection
+ * @param {(dirty: boolean) => void} [options.onStudioDirty]
  */
-export function mountStudioSync({ studioIframe, state, showToast, clientLinkify, onInlineSelection }) {
+export function mountStudioSync({ studioIframe, state, showToast, clientLinkify, onInlineSelection, onStudioDirty }) {
   let refreshTimer = 0;
   /** @type {Element | null} */
   let selectedInlineEl = null;
@@ -194,7 +210,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
     const target = previewTarget(message.previewPath);
     if (!target || target.href === window.location.href) return;
     if (state.dirtyEls.size > 0) {
-      showToast('Finish or cancel your inline edit before opening another page', 'error');
+      showToast(t('editor.sync.finishInline'), 'error');
       return;
     }
 
@@ -225,8 +241,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
 
   /** @param {SelectionMessage} message */
   function studioEntryPath(message) {
-    if (!STUDIO_PATH) return null;
-    return `${STUDIO_PATH}/${encodeURIComponent(message.collection)}/${encodeURIComponent(message.id)}`;
+    return STUDIO_PATH ? entryRoute(message.collection, message.id) : null;
   }
 
   /** @param {SelectionMessage} message */
@@ -239,6 +254,9 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
     }
   }
 
+  /** Where the drawer is being sent for a field selection. @type {string | null} */
+  let navigatingTo = null;
+
   /** @param {SelectionMessage} message */
   function deliverEmbeddedSelection(message) {
     if (!studioIframe?.contentWindow) return;
@@ -248,7 +266,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
     // A normal mouse interaction can emit pointerdown, focusin, and click.
     // Keep the latest field without restarting the same iframe navigation for
     // each event in that sequence.
-    if (pendingStudioSelection && studioIframe.getAttribute('src') === targetPath) {
+    if (pendingStudioSelection && navigatingTo === targetPath) {
       pendingStudioSelection = message;
       return;
     }
@@ -256,12 +274,10 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
     try {
       if (studioIframe.contentWindow.location.pathname !== targetPath) {
         pendingStudioSelection = message;
-        studioIframe.src = targetPath;
-        try {
-          sessionStorage.setItem('cms-panel-path', targetPath);
-        } catch {
-          // Remembering the route is optional; the current navigation is not.
-        }
+        navigatingTo = targetPath;
+        // Replace, so following a field doesn't add to the tab's history.
+        studioIframe.contentWindow.location.replace(targetPath);
+        rememberPanelRoute(targetPath);
         return;
       }
     } catch {
@@ -273,6 +289,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
   }
 
   studioIframe?.addEventListener('load', () => {
+    navigatingTo = null;
     if (!pendingStudioSelection) return;
     const message = pendingStudioSelection;
     pendingStudioSelection = null;
@@ -281,6 +298,9 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
 
   /** @param {Element} el */
   function selectStudioField(el) {
+    // Text this editor may not change isn't selected or opened in the Studio;
+    // the click explains the lock instead (permissions.js).
+    if (el.getAttribute('data-caret-locked') === 'permission') return;
     const resolved = resolveBinding(el, parseCaretAttr(el.getAttribute('data-caret') || ''));
     if (!resolved) return;
 
@@ -317,11 +337,7 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
   /** @param {SyncMessage} msg */
   function rememberStudioPath(msg) {
     if (!('studioPath' in msg) || typeof msg.studioPath !== 'string') return;
-    try {
-      sessionStorage.setItem('cms-panel-path', msg.studioPath);
-    } catch {
-      // Remembering the current Studio route is a progressive enhancement.
-    }
+    rememberPanelRoute(msg.studioPath);
   }
 
   /** @param {SyncMessage} msg */
@@ -329,11 +345,11 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
     rememberStudioPath(msg);
 
     if (state.dirtyEls.size > 0) {
-      showToast('Saved in Studio — finish your inline edit before refreshing', 'success');
+      showToast(t('editor.sync.savedFinishInline'), 'success');
       return;
     }
 
-    showToast('Saved — refreshing visual preview…', 'success');
+    showToast(t('editor.sync.refreshingVisual'), 'success');
     window.clearTimeout(refreshTimer);
     refreshTimer = window.setTimeout(() => window.location.reload(), 280);
   }
@@ -412,6 +428,11 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
     const msg = normalizeSyncMessage(e.data);
     if (!msg) return;
 
+    if (msg.type === 'cms:status') {
+      onStudioDirty?.(msg.dirty);
+      return;
+    }
+
     if (
       msg.type === 'cms:entry-ready'
       && activeStudioSelection
@@ -432,15 +453,33 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
       return;
     }
 
+    if (['cms:saved', 'cms:created', 'cms:deleted', 'cms:published'].includes(msg.type)) noteStudioChange();
+
     if (msg.type === 'cms:saved') {
       applySavedMessage(msg);
-      scheduleEmbeddedRefresh(msg);
+      // Text changes are already on the page. A layout change needs a reload,
+      // but reloading here would also reload the Studio drawer mid-edit, so
+      // offer it instead.
+      rememberStudioPath(msg);
+      if (msg.structural === true) {
+        showToast.saved({
+          message: t('editor.sync.refreshForLayout'),
+          action: { label: t('editor.sync.refresh'), onClick: () => window.location.reload() },
+        });
+      } else if (msg.structural === undefined) {
+        scheduleEmbeddedRefresh(msg);
+      }
     }
 
     if (msg.type === 'cms:created' || msg.type === 'cms:deleted') {
       scheduleEmbeddedRefresh(msg);
     }
   });
+
+  // A Studio change may be a draft: let the toolbar recount what's unpublished.
+  function noteStudioChange() {
+    window.dispatchEvent(new CustomEvent('cms:draftSaved'));
+  }
 
   // Standalone Studio pages live in a separate tab, so postMessage cannot
   // reach the site preview. BroadcastChannel provides a same-origin bridge.
@@ -459,14 +498,19 @@ export function mountStudioSync({ studioIframe, state, showToast, clientLinkify,
           return;
         }
         if (!['cms:saved', 'cms:created', 'cms:deleted'].includes(msg.type)) return;
+        noteStudioChange();
 
         if (state.dirtyEls.size > 0) {
-          showToast('Saved in Studio — finish your inline edit before refreshing', 'success');
+          showToast(t('editor.sync.savedFinishInline'), 'success');
           return;
         }
 
-        if (msg.type === 'cms:saved') applySavedMessage(msg);
-        showToast('Saved — refreshing preview…', 'success');
+        if (msg.type === 'cms:saved') {
+          applySavedMessage(msg);
+          // Text changes apply in place; only layout changes need a reload.
+          if (msg.structural === false) return;
+        }
+        showToast(t('editor.sync.refreshing'), 'success');
         window.clearTimeout(refreshTimer);
         refreshTimer = window.setTimeout(() => window.location.reload(), 280);
       });

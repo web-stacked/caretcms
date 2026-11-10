@@ -20,16 +20,29 @@ deployment finish. A webhook acceptance alone does not mean the deployment is
 live. Markdown body blocks always require Publish because publication validates
 and writes their source ranges.
 
+Collection creation and deletion are immediate management operations for real
+editors, including preview and static delivery. They change the base adapter's
+collection state without waiting for Publish; demo sessions remain isolated.
+Deletion follows the adapter's contract: the Markdown adapter removes collection
+metadata rather than deleting its source directory. In static delivery, already
+built pages remain until the next deployment.
+
 Collection `publication.field` configuration describes entry visibility. Studio
 shows **Public** or **Hidden** separately from the save state. In a draft workflow,
-a saved change to that field remains private until publication. In direct server
-delivery, saving it changes shared visibility immediately.
+a saved change to that field remains private until publication: Studio labels it
+**Hidden after publish** or **Public after publish** and shows **Matches live**
+when the entry has no unpublished changes. In direct server delivery, saving it
+changes shared visibility immediately.
 
 Private drafts belong to an editor identity. A stable identity from an identity
-provider can reopen its drafts after signing out and back in, so the sign-out
-dialog offers **Keep drafts and sign out**. A shared-password session uses a
-session-specific draft identity; clearing that session makes its drafts
-inaccessible, so the dialog asks the editor to publish, discard, or cancel instead.
+provider can reopen its drafts after signing out and back in from any browser.
+A shared-password sign-in remembers its editor identity per browser in a signed,
+long-lived `caret_editor` cookie that signing out keeps, so the same browser
+reopens its drafts after signing out or when the session expires, while people
+sharing the password on different browsers keep separate drafts. In both cases
+the sign-out dialog offers **Keep drafts and sign out**. Only throwaway demo
+sessions lose their drafts on sign-out; there the dialog asks the editor to
+publish, discard, or cancel instead.
 
 See [static delivery](./static-delivery.md),
 [authorization policy](./authorization-policy.md), and

@@ -285,12 +285,22 @@ describe("round-trip property", () => {
 
 
 describe("rewriteFrontmatter", () => {
+  it("keeps the quote style of a changed one-line string", () => {
+    const source = `---\ntitle: "Pace"\ncategory: "Running app" # note\nrole: 'Lead'\nplain: Text\norder: 1\n---\nBody\n`;
+    const result = rewriteFrontmatter(source, { title: "Pace", category: 'Running "coach" app', role: "Lead's", plain: "New: text", order: 2 });
+    expect(result).toEqual({
+      ok: true,
+      content: `---\ntitle: "Pace"\ncategory: "Running \\"coach\\" app"\nrole: 'Lead''s'\nplain: "New: text"\norder: 2\n---\nBody\n`,
+    });
+    if (result.ok) expect(parseFrontmatter(result.content)).toMatchObject({ ok: true, data: { category: 'Running "coach" app', role: "Lead's", plain: "New: text" } });
+  });
+
   it("preserves untouched comments, block scalars, quotes, fences and CRLF body bytes", () => {
     const source = "---\r\n# heading\r\ntitle: 'Original'\r\ncaption: |+ # keep format\r\n  Café\r\n  second line\r\n\r\nyear: \"2026\" # keep comment\r\n---\r\n<Component />\r\n";
     const parsed = parseFrontmatter(source);
     if (!parsed.ok) throw new Error(parsed.reason);
     expect(rewriteFrontmatter(source, parsed.data)).toEqual({ ok: true, content: source });
-    expect(rewriteFrontmatter(source, { ...parsed.data, title: "Changed" })).toEqual({ ok: true, content: source.replace("title: 'Original'", "title: Changed") });
+    expect(rewriteFrontmatter(source, { ...parsed.data, title: "Changed" })).toEqual({ ok: true, content: source.replace("title: 'Original'", "title: 'Changed'") });
     const edited = rewriteFrontmatter(source, { ...parsed.data, caption: "New\ncaption\n\n" });
     if (!edited.ok) throw new Error(edited.reason);
     expect(parseFrontmatter(edited.content)).toMatchObject({ ok: true, data: { caption: "New\ncaption\n\n", year: "2026" } });

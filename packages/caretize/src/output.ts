@@ -47,6 +47,28 @@ export function formatScanSummary(
   return `✓ ${fileCount} .astro files · ${candidateTotal} ${candidateLabel} · ${wrapTotal} wrap target(s) · ${hoistTotal} prop(s)${bindPart}${priorPart}\n`;
 }
 
+/**
+ * Text tagged inside a component or layout is ONE stored value: every use of
+ * the component shows it, and editing it on one page changes it everywhere.
+ * Said plainly so nobody expects per-use editing.
+ */
+export function sharedScopeNote(plan: Pick<FilePlan, "relPath" | "scope">): string | null {
+  const name = plan.relPath.replace(/\\/g, "/").split("/").pop()?.replace(/\.astro$/i, "") ?? "";
+  if (plan.scope?.collection === "components") return `(shared: one value for every <${name}> on the site)`;
+  if (plan.scope?.collection === "site") return `(shared: one value for every page using the ${name} layout)`;
+  return null;
+}
+
+/** Which of a wrapped literal's fields become editable, and which identifier
+ *  fields (key, id, slug, …) stay exactly as written. */
+function wrapFieldsNote(w: WrapTarget): string {
+  if (!w.fields || (w.fields.text.length === 0 && w.fields.ids.length === 0)) return "";
+  const parts: string[] = [];
+  if (w.fields.text.length) parts.push(`editable: ${w.fields.text.join(", ")}`);
+  if (w.fields.ids.length) parts.push(`kept as-is: ${w.fields.ids.join(", ")}`);
+  return `  (${parts.join(" · ")})`;
+}
+
 /** The full `--dry-run` plan dump, ending with the "nothing written" footer. */
 export function formatPlan(
   plans: FilePlan[],
@@ -61,11 +83,13 @@ export function formatPlan(
     const binds = bindsByFile.get(plan.relPath) ?? [];
     if (plan.tags.length === 0 && plan.flags.length === 0 && wraps.length === 0 && hoists.length === 0 && binds.length === 0) continue;
     out += `\n${plan.relPath}${plan.scopeSkip ? `  (skipped: ${plan.scopeSkip})` : ""}\n`;
+    const shared = sharedScopeNote(plan);
+    if (shared && plan.tags.length) out += `  ${shared}\n`;
     for (const t of plan.tags) out += `  + data-caret="${t.binding}"  ${tagLine(t)}\n`;
     for (const w of wraps) {
       const via = w.origin === "prop" ? " (via component prop)" : w.origin === "import" ? " (via data import)" : "";
       const kind = w.origin === "import" ? "import" : "const";
-      out += `  ~ editable("${w.key}")  wrap ${kind} ${w.varName}${via}\n`;
+      out += `  ~ editable("${w.key}")  wrap ${kind} ${w.varName}${via}${wrapFieldsNote(w)}\n`;
     }
     for (const h of hoists) {
       for (const p of h.props) {
@@ -99,10 +123,20 @@ export function formatSummary(
   if (hoisted) out += `✓ ${hoisted} component prop(s) hoisted to editable()\n`;
   if (bound) out += `✓ ${bound} collection field(s) bound to data-caret\n`;
   if (flagged) out += `⚠ ${flagged} loop(s) flagged → consider dynamic collections\n`;
-  if (hadBackups) out += `⤺ backups in .caret/.caretize-bak/ (caretize --restore to undo)\n`;
+  if (hadBackups) out += `⤺ backups in .caret/.caretize-bak/ (${CARETIZE} --restore to undo)\n`;
   out += `───────────────────────────────\n`;
   return out;
 }
+
+/**
+ * How to run caretize in printed instructions. It works without a global
+ * install, and the scoped name is the one we publish (an unscoped `caretize`
+ * would be whatever someone else publishes under that name).
+ */
+export const CARETIZE = "npx @caretcms/caretize";
+
+/** Where the dev server keeps its temporary password (core writes it). */
+const DEV_PASSWORD = "sign in at /admin with the password in .caret/dev-password";
 
 /**
  * The single most-important "what now?" line, tailored to where the project
@@ -113,28 +147,27 @@ export function formatSummary(
 export function formatNextStep(pf: Preflight): string {
   if (!pf.hasCaretCore) {
     return (
-      `Next: make these editable — install + wire CaretCMS:\n` +
-      `    npx caretize init\n` +
-      `    npx caretize\n` +
+      `Next: make these editable — install and wire CaretCMS:\n` +
+      `    ${CARETIZE} init\n` +
       `  Static Astro projects use caret() with automatic static delivery by default.\n`
     );
   }
   if (!pf.caretWired) {
     return (
       `Next: wire CaretCMS — add caret() to the integrations array in your astro.config,\n` +
-      `  then npm run dev → click to edit.\n`
+      `  then npm run dev → ${DEV_PASSWORD} → click to edit.\n`
     );
   }
   if (pf.outputMode === "static") {
     if (pf.staticDeliveryConfigured) {
-      return `Next: npm run dev → sign in at /admin → edit tagged content locally; Publish + rebuild bakes static HTML.\n`;
+      return `Next: npm run dev → ${DEV_PASSWORD} → edit tagged content; Publish + rebuild bakes static HTML.\n`;
     }
     return (
       `Next: add caret() with delivery: "auto" (the default) for static HTML baking,\n` +
-      `  or run: npx caretize init\n`
+      `  or run: ${CARETIZE} init\n`
     );
   }
-  return `Next: npm run dev → open your page → click to edit\n`;
+  return `Next: npm run dev → ${DEV_PASSWORD} → click to edit\n`;
 }
 
 /**
@@ -148,14 +181,18 @@ export function formatNextStep(pf: Preflight): string {
  */
 export function formatEscalationOffer(counts: Partial<Record<TierId, number>>): string {
   const lines: string[] = [];
+  let flagged = false;
   for (const t of TIERS) {
     const n = counts[t.id] ?? 0;
     if (n <= 0) continue;
     const flag = t.risk === "guess" ? " ⚠" : "";
+    if (flag) flagged = true;
     lines.push(`    •${flag} ${String(n).padStart(3)} ${t.label} — ${t.note}`);
   }
   if (lines.length === 0) return "";
-  return `\n  I can also make these editable:\n${lines.join("\n")}\n`;
+  // The legend only when a row carries the mark.
+  const legend = flagged ? "  ⚠ = per-row binding that assumes each entry's .id is its identity\n" : "";
+  return `\n  I can also make these editable:\n${lines.join("\n")}\n${legend}`;
 }
 
 /**
@@ -197,6 +234,11 @@ export interface HintOpts {
   collections?: boolean;
   routes?: boolean;
   lowconf?: boolean;
+  /** CaretCMS binds `astro:content` reads itself: lists and detail routes fed
+   *  by getCollection()/getEntry() need no tags. */
+  coreBinds?: boolean;
+  /** Templates with fixed header/nav chrome (CaretCMS 0.6+ projects only). */
+  fixedChrome?: string[];
 }
 
 /**
@@ -220,6 +262,20 @@ function collectStyledClasses(node: TagNode | undefined, into: Map<string, Set<s
     }
     collectStyledClasses(child, into);
   }
+}
+
+/** Whether any inline descendant carries a literal class. */
+function hasStyledChild(node: TagNode | undefined): boolean {
+  const found = new Map<string, Set<string>>();
+  collectStyledClasses(node, found);
+  return found.size > 0;
+}
+
+/** "1 <p> block", "3 blocks (<p>, <li>)" — names the elements, not a guess. */
+function describeBlocks(tags: string[]): string {
+  const kinds = [...new Set(tags.map((t) => `<${t.toLowerCase()}>`))];
+  if (tags.length === 1) return `1 ${kinds[0]} block`;
+  return `${tags.length} blocks (${kinds.join(", ")})`;
 }
 
 /** Render `tag → classes` as a copy-pasteable `allowedClasses` object literal. */
@@ -248,11 +304,13 @@ function renderAllowedClasses(byTag: Map<string, Set<string>>): string {
 export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
   let eligible = 0; // rich-eligible (would tag with --rich)
   let styled = 0; // rich-unsafe-attrs (sanitizer strips the class)
-  let richClassPromotable = 0; // rich-class-promotable (would tag with --rich-class)
   let inIterator = 0; // inside-iterator (would bind with --bind-collections)
   let belowConfidence = 0; // dropped by the --min-confidence floor
+  let fromData = 0; // dynamic-content / dynamic-src (bound where the data loads)
   const styledClasses = new Map<string, Set<string>>(); // tag → classes to bless
   const richClassToBless = new Map<string, Set<string>>(); // classes on rich-class blocks
+  const styledHosts: string[] = []; // the block elements holding those styled spans
+  let sharedTags = 0; // tags in components/layouts: one value for every use
   for (const p of plans) {
     belowConfidence += p.belowConfidence ?? 0;
     for (const s of p.skipped) {
@@ -261,33 +319,51 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
         styled++;
         collectStyledClasses(s.node, styledClasses);
       } else if (s.reason === "rich-class-promotable") {
-        richClassPromotable++;
         collectStyledClasses(s.node, richClassToBless);
       } else if (s.reason === "inside-iterator") inIterator++;
+      else if (s.reason === "dynamic-content" || s.reason === "dynamic-src") fromData++;
     }
     // Once --rich-class is on, the styled-span blocks are TAGGED (not skipped),
     // so harvest their classes from the promoted rich candidates for the
     // post-apply "now bless these" reminder.
     if (opts.richClass) {
       for (const t of p.tags ?? []) {
-        if (t.candidate?.rich) collectStyledClasses(t.candidate.node, richClassToBless);
+        if (!t.candidate?.rich || !hasStyledChild(t.candidate.node)) continue;
+        collectStyledClasses(t.candidate.node, richClassToBless);
+        styledHosts.push(t.candidate.tag);
       }
+    } else {
+      for (const s of p.skipped) if (s.reason === "rich-class-promotable") styledHosts.push(s.tag ?? s.node?.name ?? "p");
     }
+    if (p.tags?.length && sharedScopeNote(p)) sharedTags += p.tags.length;
   }
   const dynamicRoutes = plans.filter((p) => p.scopeSkip === "dynamic-route").length;
 
   // The remaining opt-in coverage, each listed only while its tier is off.
   const parts: string[] = [];
-  if (inIterator && !opts.collections) parts.push(`${inIterator} item(s) in dynamic lists`);
-  if (dynamicRoutes && !opts.routes) parts.push(`${dynamicRoutes} dynamic detail route(s)`);
-  if (eligible && !opts.rich) parts.push(`${eligible} rich heading(s)`);
+  if (inIterator && !opts.collections && !opts.coreBinds) parts.push(`${inIterator} item(s) in dynamic lists`);
+  if (dynamicRoutes && !opts.routes && !opts.coreBinds) parts.push(`${dynamicRoutes} dynamic detail route(s)`);
+  if (eligible && !opts.rich) parts.push(`${eligible} text block(s) with bold or links`);
   if (belowConfidence && !opts.lowconf) parts.push(`${belowConfidence} lower-confidence spot(s)`);
+
+  // With core binding astro:content reads, list items and detail routes are
+  // data spots like any other: explained below, not offered as a tier.
+  const dataSpots = fromData + (opts.coreBinds ? inIterator + dynamicRoutes : 0);
+  const flags = [
+    ...(opts.coreBinds ? [] : ["--bind-collections", "--bind-routes"]),
+    "--rich", "--min-confidence low",
+  ];
 
   let out = "";
   if (parts.length) {
     out += `\n↪ More can be made editable: ${parts.join(", ")}.\n` +
-      `  Re-run with --all to include them (or the individual flags: ` +
-      `--bind-collections --bind-routes --rich --min-confidence low).\n`;
+      `  Re-run with --all to include them (or the individual flags: ${flags.join(" ")}).\n`;
+  }
+  if (dataSpots) {
+    out += `↪ ${dataSpots} spot(s) render text or images from props or data. CaretCMS makes content\n` +
+      `  from getCollection()/getEntry() and JSON files in src/content editable in the browser\n` +
+      `  on its own. Other data can be bound where it is loaded:\n` +
+      `    const data = await editable("<collection>::<id>", value);  // from "@caretcms/core"\n`;
   }
   if (styled) {
     const snippet = styledClasses.size
@@ -302,15 +378,26 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
   // a "you tagged these — now bless them or the class is lost" reminder.
   if (richClassToBless.size) {
     const snippet = renderAllowedClasses(richClassToBless);
+    const blocks = describeBlocks(styledHosts);
     if (opts.richClass) {
-      out += `↪ Tagged styled-span heading(s) as rich. Keep their classes — add to caret():\n` +
-        `    allowedClasses: ${snippet}\n` +
-        `  Without it, those classes are stripped when an editor saves.\n`;
+      out += `↪ Tagged ${blocks} with styled spans as rich text. To keep those classes when an\n` +
+        `  editor saves, pass them to caret() in your astro.config (caretize leaves this to you):\n` +
+        `    caret({ allowedClasses: ${snippet} })\n`;
     } else {
-      out += `↪ ${richClassPromotable} styled-span heading(s) can be tagged with --rich-class (in --all).\n` +
-        `  They keep their class only once blessed — add to caret():\n` +
-        `    allowedClasses: ${snippet}\n`;
+      out += `↪ ${blocks} with styled spans can be tagged with --rich-class (in --all).\n` +
+        `  They keep their classes once you pass them to caret() in your astro.config:\n` +
+        `    caret({ allowedClasses: ${snippet} })\n`;
     }
+  }
+  if (sharedTags) {
+    out += `↪ Text in components and layouts is one value for every use: editing it on one page\n` +
+      `  changes it wherever that component or layout appears.\n`;
+  }
+  if (opts.fixedChrome?.length) {
+    const [first, ...rest] = opts.fixedChrome;
+    out += `↪ ${first}${rest.length ? ` (and ${rest.length} more)` : ""} has a fixed header or nav. The Studio\n` +
+      `  drawer moves full-width fixed bars aside with the page. If yours looks wrong beside it,\n` +
+      `  add class="caret-studio-overlay" to <html> or <body> to keep the drawer over the page.\n`;
   }
   return out;
 }

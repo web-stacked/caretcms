@@ -6,10 +6,33 @@ import { isEditorAuthenticated, getEditorId } from "../auth/session.js";
 import { getRuntimeServices } from "../providers.js";
 import { withEditorPublishLock } from "../mutations/engine.js";
 import { publishOverlay, type PublishScope } from "../publish.js";
-import { isGitRepo, commitPaths } from "../git-journal.js";
+import { journalPublishedEntries, retryPublicationJournals, durableGitJournalEnabled, hasGitJournalQueue, canRetryPublicationJournals } from "../publication-journal.js";
+import { isGitRepo, getGitJournalTarget } from "../git-journal.js";
 import { triggerRebuildWebhook } from "../rebuild-webhook.js";
 import { json, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
+import { waitForSelfWriteReload } from "../self-writes.js";
+import { entryDisplayTitle } from "../entry-title.js";
+import { resolveCollectionStudioConfig } from "../schema-registry.js";
+
+declare const __ASTRO_CARET_DEV__: boolean | undefined;
+const isDev = typeof __ASTRO_CARET_DEV__ === "boolean" && __ASTRO_CARET_DEV__;
 import type { DeploymentTarget, RebuildReceipt, StorageAdapter } from "../../types.js";
+
+/** Name entries the editor must act on (conflicts, failures) as the Studio does. */
+async function withTitles<T extends { collection: string; id: string }>(
+  base: StorageAdapter,
+  overlay: StorageAdapter,
+  entries: T[],
+): Promise<Array<T & { title: string }>> {
+  return Promise.all(entries.map(async (entry) => {
+    const [config, stored] = await Promise.all([
+      resolveCollectionStudioConfig(base, entry.collection),
+      overlay.getEntry(entry.collection, entry.id).catch(() => null)
+        .then((draft) => draft ?? base.getEntry(entry.collection, entry.id).catch(() => null)),
+    ]);
+    return { ...entry, title: entryDisplayTitle(entry.collection, entry.id, stored?.data, config) };
+  }));
+}
 
 function commitMessage(scope: PublishScope, count: number): string {
   if (scope.collection && scope.id) return `publish ${scope.collection}/${scope.id}`;
@@ -51,8 +74,9 @@ export async function POST(context: APIContext): Promise<Response> {
 
   const parsed = await readJsonBody(context.request);
   if (!parsed.ok) return parsed.response;
-  const body = (parsed.value ?? {}) as { collection?: unknown; id?: unknown; retryRebuild?: unknown };
+  const body = (parsed.value ?? {}) as { collection?: unknown; id?: unknown; retryRebuild?: unknown; retryJournal?: unknown };
 
+  if (body.retryRebuild === true && body.retryJournal === true) return json({ error: "Choose one retry operation" }, 400);
   const scope: PublishScope = {};
   if (typeof body.collection === "string") scope.collection = body.collection;
   if (typeof body.id === "string") scope.id = body.id;
@@ -68,6 +92,13 @@ export async function POST(context: APIContext): Promise<Response> {
     }
     const overlay = await base.makeEditorOverlay(editorId);
     return await withEditorPublishLock(editorId, async () => {
+      const durableJournal = durableGitJournalEnabled() && hasGitJournalQueue(overlay);
+      if (body.retryJournal === true) {
+        if (!durableJournal) return json({ error: "Durable Git journal retry is not enabled for this storage" }, 400);
+        const journal = await retryPublicationJournals(base, overlay, process.cwd(), scope);
+        return json({ ok: true, published: [], conflicts: [], failed: [], commit: journal.commit,
+          journal, rebuild: { triggered: false, ok: true }, journalRetryAvailable: journal.pending > 0 });
+      }
       if (body.retryRebuild === true) {
         const receipt = await overlay.getRebuildReceipt?.();
         if (!receipt) { await requirePermission("publish"); }
@@ -96,27 +127,43 @@ export async function POST(context: APIContext): Promise<Response> {
         return json({ ok: true, published: [], conflicts: [], failed: [], rebuild,
           deploymentTracked, retryAvailable: !rebuild.ok, receiptError });
       }
-      const { published, conflicts, failed } = await publishOverlay(base, overlay, scope);
+      if (durableJournal && !(await canRetryPublicationJournals(overlay, scope))) throw new PermissionDenied();
+      const targetRepository = durableJournal ? await getGitJournalTarget(process.cwd()) : null;
+      if (durableJournal && !targetRepository) return json({ error: "Durable Git journaling requires an available Git working tree" }, 400);
+      // In dev, Astro re-renders published files only once it has seen them;
+      // answer after that, so the editor's reload shows what was published.
+      const devContentReady = isDev ? waitForSelfWriteReload(3_000) : null;
+      const { published, conflicts, failed, journalSources, journalVersions, sourceChanged } = await publishOverlay(base, overlay, scope,
+        targetRepository ? { journal: { target: targetRepository, authorName: `CaretCMS editor ${editorId.slice(0, 8)}`,
+          authorEmail: "editor@caretcms.local" } } : {});
+      const journal = durableJournal ? await retryPublicationJournals(base, overlay, process.cwd(), scope) : null;
+      // The editor's changes are published; their Git record is the developer's to resolve.
+      if (journal && journal.pending > 0) {
+        console.warn(`[caretcms] Git history for ${journal.pending} published ${journal.pending === 1 ? "entry is" : "entries are"} pending${journal.blocked > 0 ? ` (${journal.blocked} need review)` : ""}. Each publish retries; you can also retry from the CaretCMS dev toolbar.`);
+      }
+      if (devContentReady && published.length > 0) await devContentReady;
 
       // Best-effort git journal (opt-in via CARET_GIT_ON_PUBLISH): turn the publish
       // into a commit when content lives in a git repo. Runs AFTER the publish, so a
       // git failure never blocks or reverts it; no-ops on non-filesystem adapters.
-      let commit: string | null = null;
+      let commit: string | null = journal?.commit ?? null;
       if (
         published.length > 0 &&
         process.env.CARET_GIT_ON_PUBLISH === "true" &&
-        base.committablePath
+        journalSources !== null && journalSources.length > 0
       ) {
         const cwd = process.cwd();
         if (await isGitRepo(cwd)) {
-          commit = await commitPaths({
+          commit = await journalPublishedEntries(base, journalVersions, {
             cwd,
-            paths: [base.committablePath()],
+            sources: journalSources,
             message: commitMessage(scope, published.length),
             authorName: `CaretCMS editor ${editorId.slice(0, 8)}`,
             authorEmail: "editor@caretcms.local",
-          });
+          }) ?? commit;
         }
+      } else if (!durableJournal && published.length > 0 && process.env.CARET_GIT_ON_PUBLISH === "true" && (base.committablePath || base.committableEntryPaths)) {
+        console.warn("[caretcms] Git journal skipped: publication has no immutable source snapshots.");
       }
 
       let receiptError = false;
@@ -155,8 +202,17 @@ export async function POST(context: APIContext): Promise<Response> {
       if (published.length > 0 && rebuild.ok && !receiptError) {
         try { await overlay.setRebuildReceipt?.(null); } catch { receiptError = true; }
       }
-      return json({ ok: true, published, conflicts, failed, commit, rebuild,
+      // Visitors see the change only after a rebuild: always for static
+      // delivery, and for rewritten source files outside dev (Astro renders
+      // those at build time).
+      const needsRebuild = published.length > 0 &&
+        (services.delivery.mode === "static" || (!isDev && sourceChanged));
+      return json({ ok: true, published,
+        conflicts: await withTitles(base, overlay, conflicts),
+        failed: await withTitles(base, overlay, failed),
+        commit, rebuild, needsRebuild,
         deploymentTracked,
+        ...(journal ? { journal, journalRetryAvailable: journal.pending > 0 } : {}),
         retryAvailable: !rebuild.ok && !receiptError && Boolean(overlay.setRebuildReceipt), receiptError });
     });
   } catch (error) {

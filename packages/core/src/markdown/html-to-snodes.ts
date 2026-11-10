@@ -22,33 +22,7 @@ export class HtmlParseError extends Error {
   }
 }
 
-const NAMED_ENTITIES: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
-  nbsp: " ",
-};
-
-function decodeEntities(text: string): string {
-  return text.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (whole, body: string) => {
-    if (body.startsWith("#x") || body.startsWith("#X")) {
-      const cp = Number.parseInt(body.slice(2), 16);
-      return Number.isNaN(cp) ? whole : safeFromCodePoint(cp, whole);
-    }
-    if (body.startsWith("#")) {
-      const cp = Number.parseInt(body.slice(1), 10);
-      return Number.isNaN(cp) ? whole : safeFromCodePoint(cp, whole);
-    }
-    return NAMED_ENTITIES[body.toLowerCase()] ?? whole;
-  });
-}
-
-function safeFromCodePoint(cp: number, fallback: string): string {
-  if (cp < 0 || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return fallback;
-  return String.fromCodePoint(cp);
-}
+import { decodeHtmlEntities } from "../runtime/decode-entities.js";
 
 const TAG_NAME_RE = /^[a-zA-Z][a-zA-Z0-9]*$/;
 const VOID_TAGS = new Set(["br"]);
@@ -72,7 +46,7 @@ export function htmlToSNodes(html: string): SNode[] {
     if (html[i] !== "<") {
       const next = html.indexOf("<", i);
       const end = next === -1 ? html.length : next;
-      push({ type: "text", value: decodeEntities(html.slice(i, end)) });
+      push({ type: "text", value: decodeHtmlEntities(html.slice(i, end)) });
       i = end;
       continue;
     }
@@ -108,7 +82,7 @@ export function htmlToSNodes(html: string): SNode[] {
       // Only carry href — the sole attribute the closed set represents. Other
       // sanitizer-permitted attributes (target/rel/class) don't round-trip to
       // markdown and are regenerated at render time.
-      if (m[1].toLowerCase() === "href") attrs.href = decodeEntities(m[2] ?? "");
+      if (m[1].toLowerCase() === "href") attrs.href = decodeHtmlEntities(m[2] ?? "", true);
     }
 
     if (VOID_TAGS.has(name) || selfClosing) {

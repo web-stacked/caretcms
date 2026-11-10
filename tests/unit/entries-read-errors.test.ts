@@ -25,6 +25,21 @@ describe("collection reads", () => {
     expect((await (await get(adapter, "q=absent")).json()).pagination.total).toBe(0);
   });
 
+  it("lists in arranged order across pages: order ascending, unordered last, ties by id", async () => {
+    const adapter = new InMemoryAdapter();
+    for (let i = 1; i <= 30; i++) await adapter.writeEntry("posts", String(i).padStart(2, "0"), { title: `Post ${i}` });
+    await adapter.writeEntry("posts", "28", { title: "Post 28", order: 0 });
+    await adapter.writeEntry("posts", "29", { title: "Post 29", order: 1 });
+    await adapter.writeEntry("posts", "30", { title: "Post 30", order: 1 });
+    const first = await (await get(adapter, "")).json();
+    const second = await (await get(adapter, "page=2")).json();
+    const ids = [...first.entries, ...second.entries].map(e => e.id);
+    expect(ids.slice(0, 4)).toEqual(["28", "29", "30", "01"]);
+    expect(ids.at(-1)).toBe("27");
+    // A search ranks by match, not by arrangement.
+    expect((await (await get(adapter, "q=post 3")).json()).entries.map(e => e.id)).toEqual(["03", "30"]);
+  });
+
   it.each(["unsupported_content", "invalid_content", "storage_error"] as const)("distinguishes %s from missing content and isolates unreadable cards", async code => {
     class BrokenEntry extends InMemoryAdapter {
       override async getEntry(collection: string, id: string) {

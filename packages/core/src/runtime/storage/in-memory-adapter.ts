@@ -4,6 +4,8 @@ import type { CollectionMetadata, EntryData, HistoryEntry, StorageAdapter } from
 const HISTORY_LIMIT = 50;
 
 export class InMemoryAdapter implements StorageAdapter {
+  readonly guarantees = Object.freeze({ persistence: "process", snapshots: "process",
+    commits: "process", collectionDeletion: "content" } as const);
   private rebuildReceipt: RebuildReceipt | null = null;
   private deploymentTarget: DeploymentTarget | null = null;
   async getRebuildReceipt(): Promise<RebuildReceipt | null> { return structuredClone(this.rebuildReceipt); }
@@ -118,20 +120,21 @@ export class InMemoryAdapter implements StorageAdapter {
   }
 
   async deleteCollection(collection: string): Promise<void> {
+    // Collection deletion is a content mutation. Keep version tombstones so
+    // recreating the same ID cannot make a stale client's revision valid again.
+    const ids = new Set(this.collections.get(collection)?.keys());
+    for (const key of this.revisions.keys()) {
+      if (key.startsWith(`${collection}::`)) ids.add(key.slice(collection.length + 2));
+    }
+    for (const id of ids) {
+      const key = this.revisionKey(collection, id);
+      this.revisions.set(key, (this.revisions.get(key) ?? 0) + 1);
+    }
     this.collectionMeta.delete(collection);
     this.collections.delete(collection);
-
-    // Clear revisions and history for this collection
-    const keysToDelete: string[] = [];
-    this.revisions.forEach((_, key) => {
-      if (key.startsWith(`${collection}::`)) {
-        keysToDelete.push(key);
-      }
-    });
-    keysToDelete.forEach((key) => {
-      this.revisions.delete(key);
-      this.history.delete(key);
-    });
+    for (const key of this.history.keys()) {
+      if (key.startsWith(`${collection}::`)) this.history.delete(key);
+    }
   }
 
   async getCollectionMetadata(collection: string): Promise<CollectionMetadata | null> {

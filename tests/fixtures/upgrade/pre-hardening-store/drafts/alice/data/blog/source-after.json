@@ -1,0 +1,36 @@
+{
+  "__body": {
+    "0": {
+      "md": "Approved paragraph.",
+      "src": {
+        "start": 0,
+        "end": 19,
+        "hash": "7660fcde"
+      }
+    }
+  },
+  "__caret_publish__": {
+    "version": 1,
+    "beforeRevision": 7,
+    "beforeData": {
+      "title": "Original"
+    },
+    "afterData": {
+      "title": "Original"
+    },
+    "beforeSource": "---\ntitle: Original\n---\n\nOriginal paragraph.\n",
+    "afterSource": "---\ntitle: Original\n---\n\nApproved paragraph.\n",
+    "history": {
+      "operationId": "frozen-source-after",
+      "ts": 1700000000000,
+      "action": "publish",
+      "data": {
+        "title": "Original"
+      },
+      "editor": {
+        "id": "alice"
+      },
+      "bodySource": "---\ntitle: Original\n---\n\nOriginal paragraph.\n"
+    }
+  }
+}

@@ -77,6 +77,28 @@ function camelIdent(parts: string[]): string {
     .join("");
 }
 
+/** snake_case field segment from a component or prop name ("PageHero" → "page_hero"). */
+function snakeSegment(name: string): string {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+/**
+ * The field a hoisted prop is stored under: the component, which use of it,
+ * and the prop — `testimonial_quote`, `testimonial_2_quote`. A bare prop name
+ * (`quote_2`, `label_3`) tells an editor nothing about where the text is.
+ */
+export function hoistField(component: string, instance: number, prop: string): string {
+  const comp = snakeSegment(component);
+  const propSeg = snakeSegment(prop) || "text";
+  const parts = [comp, instance > 1 ? String(instance) : "", propSeg].filter(Boolean);
+  const field = parts.join("_");
+  return isValidField(field) ? field : isValidField(propSeg) ? propSeg : "text";
+}
+
 function uniquify(base: string, used: Set<string>): string {
   let name = base;
   let n = 2;
@@ -167,8 +189,13 @@ export async function detectPropHoistTargets(
   walkTags(ast, (node) => {
     if (node.type === "component") componentNodes.push(node);
   });
+  // Each use's position among uses of the same component, in document order,
+  // so the second <Testimonial>'s quote is "testimonial_2_quote" on every run.
+  const useCount = new Map<string, number>();
 
   for (const node of componentNodes) {
+    const instance = (useCount.get(node.name) ?? 0) + 1;
+    useCount.set(node.name, instance);
     const childRel = resolveComponentImport(source, node.name, relPath);
     const child = childRel ? await readChild(childRel) : null;
     if (!child) continue;
@@ -191,9 +218,11 @@ export async function detectPropHoistTargets(
       const local = propLocalName(child.src, attr.name);
       const isRich = local ? RICH_RE(local).test(child.src) : false;
 
-      const baseField = (isValidField(attr.name) ? attr.name : slugifyText(attr.name))!;
-      const field = uniquify(baseField, fields);
-      const constName = uniquify(camelIdent([node.name, attr.name]), usedConsts);
+      const field = uniquify(hoistField(node.name, instance, attr.name), fields);
+      const constName = uniquify(
+        camelIdent([node.name, instance > 1 ? String(instance) : "", attr.name]),
+        usedConsts,
+      );
       const key = `${collection}::${id}::${field}`;
       const constInsert = `\nconst ${constName} = await editable(${JSON.stringify(key)}, ${JSON.stringify(value)});`;
 

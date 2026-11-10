@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 /**
  * Floating rich text format toolbar for [data-caret-rich] elements.
  *
@@ -22,11 +24,11 @@ let editorState = null;
 
 /** @type {ToolbarItem[]} */
 const BUTTONS = [
-  { cmd: 'bold', label: 'B', title: 'Bold (Ctrl+B)', style: 'font-weight:700' },
-  { cmd: 'italic', label: 'I', title: 'Italic (Ctrl+I)', style: 'font-style:italic' },
+  { cmd: 'bold', label: 'B', title: t('editor.rich.bold'), style: 'font-weight:700' },
+  { cmd: 'italic', label: 'I', title: t('editor.rich.italic'), style: 'font-style:italic' },
   { sep: true },
-  { cmd: 'createLink', label: '\u{1F517}', title: 'Link (Ctrl+K)', isLink: true },
-  { cmd: 'removeFormat', label: 'T\u2093', title: 'Clear formatting' },
+  { cmd: 'createLink', label: '\u{1F517}', title: t('editor.rich.link'), isLink: true },
+  { cmd: 'removeFormat', label: 'T\u2093', title: t('editor.rich.clear') },
 ];
 
 /** @returns {HTMLDivElement} */
@@ -169,23 +171,42 @@ function updateActiveStates() {
   }
 }
 
-/** @param {Selection} sel */
+/** Room kept clear at the bottom of the screen for the editor toolbar. */
+const BOTTOM_CLEARANCE = 72;
+const GAP = 8;
+
+/**
+ * Put the bar at the start of the selection, inside the text being edited:
+ * above the selection when that stays within the element (so it never covers
+ * a heading or other content above), else below it; only when there's no room
+ * below does it go above the element.
+ * @param {Selection} sel
+ */
 function position(sel) {
   if (!toolbar || sel.isCollapsed || sel.rangeCount === 0) return;
 
   const range = sel.getRangeAt(0);
   const rect = range.getBoundingClientRect();
   if (!rect.width && !rect.height) return;
-
+  // Scrolled out of view, the selection has nothing to point at.
+  toolbar.style.visibility = rect.bottom < 0 || rect.top > window.innerHeight ? 'hidden' : '';
+  const firstLine = range.getClientRects()[0] ?? rect;
+  const lastLines = range.getClientRects();
+  const lastLine = lastLines[lastLines.length - 1] ?? rect;
+  const bounds = currentRichEl?.getBoundingClientRect() ?? rect;
   const tbRect = toolbar.getBoundingClientRect();
-  let left = rect.left + rect.width / 2 - tbRect.width / 2;
-  left = Math.max(8, Math.min(left, window.innerWidth - tbRect.width - 8));
 
-  // Prefer above selection, flip below if near top
-  let top = rect.top - tbRect.height - 8;
-  if (top < 8) {
-    top = rect.bottom + 8;
-  }
+  // Start where the selection starts, kept within the element, then the screen.
+  let left = Math.min(firstLine.left, bounds.right - tbRect.width);
+  left = Math.max(left, bounds.left);
+  left = Math.max(GAP, Math.min(left, window.innerWidth - tbRect.width - GAP));
+
+  const above = firstLine.top - tbRect.height - GAP;
+  const below = lastLine.bottom + GAP;
+  const roomBelow = below + tbRect.height <= window.innerHeight - BOTTOM_CLEARANCE;
+  const top = above >= bounds.top && above >= GAP ? above
+    : roomBelow ? below
+      : Math.max(GAP, above);
 
   toolbar.style.left = `${left}px`;
   toolbar.style.top = `${top}px`;
@@ -241,4 +262,18 @@ export function mountRichToolbar({ state, showToast, showLinkPopup }) {
   void showToast;
   showLinkPopupFn = showLinkPopup || null;
   document.addEventListener('selectionchange', onSelectionChange);
+  // The bar is fixed to the viewport, so it follows the selection when the
+  // page (or any scrolling box around the text) moves.
+  /** @type {number | undefined} */
+  let frame;
+  const follow = () => {
+    if (frame !== undefined || !toolbar || toolbar.style.display === 'none' || !currentRichEl) return;
+    frame = requestAnimationFrame(() => {
+      frame = undefined;
+      const sel = window.getSelection();
+      if (sel && currentRichEl) position(sel);
+    });
+  };
+  window.addEventListener('scroll', follow, { capture: true, passive: true });
+  window.addEventListener('resize', follow);
 }

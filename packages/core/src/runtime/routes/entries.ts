@@ -1,26 +1,51 @@
 export const prerender = false;
 
 import type { APIContext } from "astro";
+import { loadPageContent, withPageContent } from "../page-content.js";
+import { matchEntry } from "../entry-search.js";
+import { canPerform } from "../authorization.js";
+import { unpublishedEntries } from "../unpublished.js";
+import { entryDisplayTitle } from "../entry-title.js";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { parseCollectionName, parseEntryId } from "../mutations/contracts.js";
 import { stripBodyOverlay } from "../utils.js";
-import { getRegisteredSchema } from "../schema-registry.js";
+import { getRegisteredSchema, resolveCollectionStudioConfig } from "../schema-registry.js";
 import { validateJsonSchema, type JsonSchemaValidationIssue } from "../../schema-utils.js";
 import { contentReadFailure } from "../content-errors.js";
-import { json, resolveAdapter } from "./_helpers.js";
+import { json, resolveReadAdapter } from "./_helpers.js";
+import { getRequestContext } from "../request-context.js";
+import { readEntrySnapshot, readEntrySnapshots } from "../storage/read-snapshot.js";
 
 type CmsEntryResponse = {
   id: string;
   data: Record<string, unknown>;
   revision: number;
+  baseRevision?: number;
   validationIssues?: JsonSchemaValidationIssue[];
   readError?: { code: string; error: string };
+  /** For a search hit inside a field rather than the title: where, and the words around it. */
+  match?: { field: string; snippet: string };
+  /** In draft modes: this entry has changes visitors don't see yet. */
+  draft?: true;
+  /** What editors call this entry (see entryDisplayTitle). */
+  title?: string;
 };
+
+/**
+ * Arranged order, as Save order writes it and sites read it: a numeric
+ * `order` ascending, entries without one last, ties by id.
+ */
+function compareArrangedOrder(a: CmsEntryResponse, b: CmsEntryResponse): number {
+  const aOrder = typeof a.data.order === "number" ? a.data.order : Number.MAX_SAFE_INTEGER;
+  const bOrder = typeof b.data.order === "number" ? b.data.order : Number.MAX_SAFE_INTEGER;
+  return aOrder - bOrder || a.id.localeCompare(b.id);
+}
 
 function withValidation(
   collection: string,
   entry: { id: string; data: Record<string, unknown> },
   revision: number,
+  baseRevision?: number,
 ): CmsEntryResponse {
   const data = stripBodyOverlay(entry.data);
   const schema = getRegisteredSchema(collection)?.schema;
@@ -29,6 +54,7 @@ function withValidation(
     id: entry.id,
     data,
     revision,
+    ...(baseRevision !== undefined ? { baseRevision } : {}),
     ...(validationIssues.length > 0 ? { validationIssues } : {}),
   };
 }
@@ -101,18 +127,33 @@ export async function GET(context: APIContext): Promise<Response> {
   }
 
   try {
-    const adapter = await resolveAdapter();
+    const adapter = await resolveReadAdapter();
     const { collection, id: singleId, page, pageSize, q } = query;
+    const collectionConfig = await resolveCollectionStudioConfig(adapter, collection);
+    const titled = (entry: CmsEntryResponse): CmsEntryResponse =>
+      ({ ...entry, title: entryDisplayTitle(collection, entry.id, entry.readError ? null : entry.data, collectionConfig) });
 
     if (singleId) {
-      const entry = await adapter.getEntry(collection, singleId);
-      const revision = entry ? await adapter.getRevision(collection, singleId) : 0;
+      const { entry, revision, baseRevision } = await readEntrySnapshot(adapter, collection, singleId);
       const entries: CmsEntryResponse[] = entry
-        ? [withValidation(collection, entry, revision)]
+        ? [titled(withValidation(collection, entry, revision, baseRevision))]
         : [];
+      // With a private draft overlay, also return what visitors see, so the
+      // Studio can say whether this entry has unpublished changes and what
+      // publishing would change.
+      // Seeded the same way, so an entry nobody has edited matches the page.
+      const base = getRequestContext()?.publishedAdapter;
+      const published = base ? await readEntrySnapshot(withPageContent(base, await loadPageContent()), collection, singleId) : null;
 
+      // With an authorization policy, say when this editor may not edit the
+      // entry, so the page can show it read-only instead of failing on save.
+      const denied = !(await canPerform("edit", collection, singleId));
       return json({
         entries,
+        revision,
+        ...(denied ? { editable: false } : {}),
+        ...(baseRevision !== undefined ? { baseRevision } : {}),
+        ...(published ? { live: { data: published.entry ? stripBodyOverlay(published.entry.data) : null } } : {}),
         pagination: {
           page: 1,
           pageSize: 1,
@@ -130,33 +171,74 @@ export async function GET(context: APIContext): Promise<Response> {
       if (cache.has(id)) return cache.get(id)!;
       let result: CmsEntryResponse | null;
       try {
-        const entry = await adapter.getEntry(collection, id);
-        result = entry ? withValidation(collection, entry, await adapter.getRevision(collection, id)) : null;
+        const { entry, revision, baseRevision } = await readEntrySnapshot(adapter, collection, id);
+        result = entry ? withValidation(collection, entry, revision, baseRevision) : null;
       } catch (error) {
         result = { id, data: {}, revision: 0, readError: contentReadFailure(error) };
       }
       cache.set(id, result);
       return result;
     }
-    const titleKeys = ["name", "title", "question", "company_name", "headline", "label"];
-    const filteredIds: string[] = [];
-    // Bounded batches avoid unbounded simultaneous reads on remote adapters.
-    if (q) {
-      for (let offset = 0; offset < allIds.length; offset += 20) {
-        const batch = await Promise.all(allIds.slice(offset, offset + 20).map(readEntry));
-        for (const entry of batch) {
-          if (!entry) continue;
-          const title = titleKeys.map(key => entry.data[key]).find(value => typeof value === "string" && value);
-          if (entry.id.toLowerCase().includes(q) || (typeof title === "string" && title.toLowerCase().includes(q))) filteredIds.push(entry.id);
+    async function readBatch(ids: string[]): Promise<Array<CmsEntryResponse | null>> {
+      if (adapter.getEntrySnapshots && ids.some(id => !cache.has(id))) {
+        const missing = ids.filter(id => !cache.has(id));
+        try {
+          const snapshots = await readEntrySnapshots(adapter, collection, missing);
+          snapshots.forEach(({ entry, revision, baseRevision }, index) => {
+            cache.set(missing[index], entry ? withValidation(collection, entry, revision, baseRevision) : null);
+          });
+        } catch {
+          // Isolate a corrupt entry or unsupported batch implementation using
+          // existing per-entry errors instead of failing the whole collection.
+          return Promise.all(ids.map(readEntry));
         }
       }
+      return Promise.all(ids.map(readEntry));
+    }
+    const filteredIds: string[] = [];
+    const fieldMatches = new Map<string, { field: string; snippet: string }>();
+    // Bounded batches avoid unbounded simultaneous reads on remote adapters.
+    if (q) {
+      const titleHits: string[] = [];
+      const fieldHits: string[] = [];
+      for (let offset = 0; offset < allIds.length; offset += 20) {
+        const batch = await readBatch(allIds.slice(offset, offset + 20));
+        for (const entry of batch) {
+          if (!entry) continue;
+          const match = matchEntry(entry.id, entry.data, q);
+          if (match?.kind === "title") titleHits.push(entry.id);
+          else if (match) {
+            fieldHits.push(entry.id);
+            fieldMatches.set(entry.id, { field: match.field, snippet: match.snippet });
+          }
+        }
+      }
+      // Entries named by the query come before ones that only mention it.
+      filteredIds.push(...titleHits, ...fieldHits);
+    } else if (collectionConfig.orderable !== false) {
+      // An arrangeable collection lists in its arranged order on every page.
+      const listed: CmsEntryResponse[] = [];
+      for (let offset = 0; offset < allIds.length; offset += 20) {
+        for (const entry of await readBatch(allIds.slice(offset, offset + 20))) if (entry) listed.push(entry);
+      }
+      filteredIds.push(...listed.sort(compareArrangedOrder).map((entry) => entry.id));
     } else filteredIds.push(...allIds);
     const total = filteredIds.length;
     const totalPages = total > 0 ? Math.ceil(total / pageSize) : 0;
     const effectivePage = totalPages === 0 ? 1 : Math.min(page, totalPages);
     const start = (effectivePage - 1) * pageSize;
     const pageIds = filteredIds.slice(start, start + pageSize);
-    const entries = (await Promise.all(pageIds.map(readEntry))).filter((entry): entry is CmsEntryResponse => entry !== null);
+    const unpublished = new Set((await unpublishedEntries(collection)).map((entry) => entry.id));
+    const entries = (await readBatch(pageIds))
+      .filter((entry): entry is CmsEntryResponse => entry !== null)
+      .map((entry) => {
+        const match = fieldMatches.get(entry.id);
+        return {
+          ...titled(entry),
+          ...(match ? { match } : {}),
+          ...(unpublished.has(entry.id) ? { draft: true as const } : {}),
+        };
+      });
 
     return json({
       entries,

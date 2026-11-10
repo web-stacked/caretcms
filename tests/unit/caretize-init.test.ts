@@ -4,6 +4,7 @@ import {
   findConfigObjectBrace,
   planConfigWiring,
   renderEnvAdditions,
+  renderGitignoreAdditions,
   type WiringNeeds,
 } from "../../packages/caretize/src/init";
 
@@ -90,6 +91,13 @@ describe("planConfigWiring", () => {
     expect(stripped(r.output, src)).toBe(true);
   });
 
+  it("formats a property added to an empty or one-line config on its own lines", () => {
+    const empty = planConfigWiring(`export default defineConfig({});\n`, STATIC_ALL);
+    expect(empty.output).toContain(`defineConfig({\n  integrations: [caret()],\n});`);
+    const inline = planConfigWiring(`export default defineConfig({ site: 'https://x.dev' });\n`, STATIC_ALL);
+    expect(inline.output).toContain(`defineConfig({\n  integrations: [caret()],\n   site: 'https://x.dev' });`);
+  });
+
   it("leaves an existing caret() call alone for static auto delivery", () => {
     const src = `import caret from '@caretcms/core';\n\nexport default defineConfig({ integrations: [caret()] });\n`;
     const r = planConfigWiring(src, { caret: false, adapter: false, output: false, staticDelivery: true });
@@ -156,3 +164,18 @@ function stripped(out: string, original: string): boolean {
   }
   return i === original.length;
 }
+
+describe("renderGitignoreAdditions", () => {
+  it("adds the env file, drafts, backups, and history once", () => {
+    const first = renderGitignoreAdditions("node_modules/\ndist/");
+    expect(first.added).toEqual([".env", ".caret/drafts/", ".caret/.caretize-bak/", ".caretcms/"]);
+    expect(first.append).toBe("\n\n# CaretCMS\n.env\n.caret/drafts/\n.caret/.caretize-bak/\n.caretcms/\n");
+    expect(renderGitignoreAdditions("node_modules/\ndist/" + first.append)).toEqual({ append: "", added: [] });
+  });
+
+  it("treats equivalent existing patterns as covered", () => {
+    expect(renderGitignoreAdditions(".env*\n/.caret\n.caretcms\n")).toEqual({ append: "", added: [] });
+    expect(renderGitignoreAdditions("").append).toBe("# CaretCMS\n.env\n.caret/drafts/\n.caret/.caretize-bak/\n.caretcms/\n");
+    expect(renderGitignoreAdditions(".env\n.caret/drafts\n").added).toEqual([".caret/.caretize-bak/", ".caretcms/"]);
+  });
+});

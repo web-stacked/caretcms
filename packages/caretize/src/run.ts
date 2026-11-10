@@ -7,14 +7,15 @@
  * far is restored from those backups.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, unlinkSync, lstatSync, chmodSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { parseAstro } from "./parse.js";
 import { applyTags, type TagInsertion } from "./write.js";
 import { wrapConst, type WrapTarget } from "./wrap.js";
 import { wrapImport, wrapNamedImport } from "./import-wrap.js";
 import { hoistPropLiterals, verifyHoistResult, type PropHoistTarget } from "./prop-hoist.js";
-import { writeBackup, restoreBackups } from "./backup.js";
+import { writeBackup } from "./backup.js";
 
 /** Apply the right editable() wrap for a target's origin. */
 function applyWrap(source: string, t: WrapTarget) {
@@ -218,37 +219,58 @@ export interface CommitResult {
  * Write verified files to disk with backups. Throws (after rolling back) if any
  * prepared file failed verification or any write fails.
  */
+function replaceAtomically(path: string, content: string, mode: number): void {
+  const temporary = `${path}.caretize-${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, content, { encoding: "utf8", flag: "wx", mode });
+    chmodSync(temporary, mode);
+    renameSync(temporary, path);
+  } finally {
+    try { unlinkSync(temporary); } catch { /* renamed or not created */ }
+  }
+}
+
 export function commitRun(
   rootDir: string,
   prepared: PreparedFile[],
   stamp: string,
 ): CommitResult {
   const toWrite = prepared.filter((p) => p.tagCount > 0);
-
   const bad = toWrite.find((p) => !p.ok);
-  if (bad) {
-    throw new Error(`refusing to write: ${bad.relPath} failed verification (${bad.reason})`);
-  }
-
+  if (bad) throw new Error(`refusing to write: ${bad.relPath} failed verification (${bad.reason})`);
+  const verifySource = (file: PreparedFile): void => {
+    const path = resolve(rootDir, file.relPath);
+    if (lstatSync(path).isSymbolicLink()) throw new Error(`refusing to replace symlink: ${file.relPath}`);
+    if (readFileSync(path, "utf8") !== file.source) throw new Error(`source changed since preparation: ${file.relPath}; prepare the file again`);
+  };
+  // Check the entire batch before creating backups or changing any source.
+  for (const file of toWrite) verifySource(file);
   const written: string[] = [];
   const backups: string[] = [];
-  const thisRun: Array<{ relPath: string; backupAbs: string }> = [];
+  const thisRun: Array<{ file: PreparedFile; backupAbs: string; mode: number }> = [];
   try {
     for (const file of toWrite) {
+      verifySource(file);
+      const path = resolve(rootDir, file.relPath);
+      const mode = lstatSync(path).mode;
       const backupAbs = writeBackup(rootDir, file.relPath, stamp);
       backups.push(backupAbs);
-      thisRun.push({ relPath: file.relPath, backupAbs });
-      writeFileSync(resolve(rootDir, file.relPath), file.output, "utf8");
+      verifySource(file);
+      replaceAtomically(path, file.output, mode);
+      thisRun.push({ file, backupAbs, mode });
       written.push(file.relPath);
     }
   } catch (err) {
-    // Roll back exactly the files THIS run backed up — never "the latest
-    // stamp", which could be a previous run's backups if we died before
-    // writing our first one.
-    restoreBackups(rootDir, thisRun);
-    throw new Error(`write failed, rolled back: ${(err as Error).message}`);
+    const preserved: string[] = [];
+    for (const { file, backupAbs, mode } of thisRun.reverse()) {
+      const path = resolve(rootDir, file.relPath);
+      try {
+        if (readFileSync(path, "utf8") !== file.output) { preserved.push(file.relPath); continue; }
+        replaceAtomically(path, readFileSync(backupAbs, "utf8"), mode);
+      } catch { preserved.push(file.relPath); }
+    }
+    throw new Error(`write failed, rollback attempted: ${(err as Error).message}${preserved.length ? `; preserved changed or unrestorable files: ${preserved.join(", ")}; backups available` : ""}`);
   }
-
   return { written, backups };
 }
 

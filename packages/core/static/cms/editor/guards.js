@@ -65,7 +65,7 @@ export function mountEditorGuards(state) {
 
       // For buttons: only intercept if they contain CMS content
       const btn = target.closest('button');
-      if (btn && !btn.closest('.cms-toolbar') && !btn.closest('.cms-img-wrapper')) {
+      if (btn && !btn.closest('.cms-toolbar') && !btn.closest('.cms-img-layer')) {
         const cmsInBtn = editable || btn.querySelector('[data-caret]');
         if (cmsInBtn instanceof HTMLElement) {
           e.preventDefault();

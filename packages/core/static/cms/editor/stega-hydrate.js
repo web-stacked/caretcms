@@ -52,6 +52,50 @@ export function stegaClean(value) {
 }
 
 /**
+ * Mirrors `contentHash` in runtime/stega-policy.ts: FNV-1a over the
+ * whitespace-collapsed text.
+ * @param {string} text
+ * @returns {string}
+ */
+export function contentHash(text) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < normalized.length; i++) {
+    hash ^= normalized.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/** How far above a tagged word to look for the element holding the whole value. */
+const MAX_ANCESTOR_STEPS = 4;
+
+/**
+ * The element to bind and its key. A bare-key payload (`editable()`, live
+ * loaders) binds the text's parent. Automatic bindings carry `{ k, h }` and
+ * bind the nearest element whose whole visible text hashes to `h`: a value the
+ * page split into one span per word binds the heading around the spans, and a
+ * value that was truncated or rewritten in code binds nothing.
+ * @param {unknown} payload
+ * @param {Element} parent
+ * @returns {{ el: Element, key: string } | null}
+ */
+function bindingTarget(payload, parent) {
+  if (typeof payload === 'string') return { el: parent, key: payload };
+  if (typeof payload !== 'object' || payload === null) return null;
+  const { k, h } = /** @type {{ k?: unknown, h?: unknown }} */ (payload);
+  if (typeof k !== 'string') return null;
+  /** @type {Element | null} */
+  let el = parent;
+  for (let step = 0; el && el !== document.body && step <= MAX_ANCESTOR_STEPS; step++) {
+    if (h === contentHash(stegaClean(el.textContent || ''))) return { el, key: k };
+    if (el.hasAttribute('data-caret')) return null;
+    el = el.parentElement;
+  }
+  return null;
+}
+
+/**
  * Find every stega-tagged text node under `root`, decode its key, strip the
  * invisible characters, and tag the containing element with `data-caret`.
  * Returns the number of elements newly promoted.
@@ -73,19 +117,24 @@ export function hydrateStega(root) {
     node = walker.nextNode();
   }
 
-  let promoted = 0;
-  for (const textNode of tagged) {
+  // Decode everything first, then strip: the hash check reads an element's
+  // whole text, which may span several tagged nodes.
+  const decoded = tagged.map((textNode) => {
     const value = textNode.nodeValue || '';
-    const key = stegaDecode(value);
-    // Always strip the invisible characters so they never affect layout/copy.
-    textNode.nodeValue = stegaClean(value);
-    if (typeof key !== 'string') continue;
+    return { textNode, payload: stegaDecode(value) };
+  });
+  // Always strip the invisible characters so they never affect layout/copy.
+  for (const { textNode } of decoded) textNode.nodeValue = stegaClean(textNode.nodeValue || '');
+
+  let promoted = 0;
+  for (const { textNode, payload } of decoded) {
+    const parent = textNode.parentElement;
+    if (!parent || parent.closest('script, style, template, noscript')) continue;
+    const target = bindingTarget(payload, parent);
+    if (!target || target.el.hasAttribute('data-caret')) continue; // explicit attr wins
+    const { el, key } = target;
     const binding = parseCaretAttr(key);
     if (!binding?.collection || !binding.id) continue;
-
-    const el = textNode.parentElement;
-    if (!el || el.hasAttribute('data-caret')) continue; // explicit attr wins
-    if (el.closest('script, style, template, noscript')) continue;
     el.setAttribute('data-caret', key);
     promoted++;
   }

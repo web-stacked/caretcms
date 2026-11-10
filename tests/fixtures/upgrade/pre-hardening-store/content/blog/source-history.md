@@ -1,0 +1,5 @@
+---
+title: Original
+---
+
+Approved paragraph.

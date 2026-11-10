@@ -1,12 +1,12 @@
 import { canPerform } from "../authorization.js";
+import { isPageCollection, loadPageContent } from "../page-content.js";
 export const prerender = false;
 
 import type { APIContext } from "astro";
 import { isEditorAuthenticated } from "../auth/session.js";
 import { getRuntimeConfig } from "../config.js";
-import { resolveAdapter } from "./_helpers.js";
+import { resolveReadAdapter } from "./_helpers.js";
 import {
-  getStudioCollections,
   getRegisteredSchema,
   isKnownStudioCollection,
   resolveCollectionStudioConfig,
@@ -15,14 +15,15 @@ import { publicationField } from "../collection-policy.js";
 import {
   escapeHtml,
   htmlResponse,
+  humanizeCollection,
   redirectResponse,
+  placeStudio,
+  renderCollectionIcon,
+  renderIcon,
   renderStudioPage,
   serializeJsonForScript,
 } from "../views/studio-layout.js";
-
-function humanize(name: string): string {
-  return name.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
+import { studioNavigation } from "../views/studio-navigation.js";
 
 export async function GET(context: APIContext): Promise<Response> {
   const runtime = getRuntimeConfig();
@@ -32,12 +33,14 @@ export async function GET(context: APIContext): Promise<Response> {
   if (!isEditorAuthenticated(context)) {
     return redirectResponse(loginRedirect);
   }
+  const placement = await placeStudio(context, runtime);
+  if ("redirect" in placement) return placement.redirect;
 
   if (!collection) {
     return redirectResponse(`${runtime.mountPath}/cms`);
   }
 
-  const adapter = await resolveAdapter();
+  const adapter = await resolveReadAdapter();
   if (!(await isKnownStudioCollection(adapter, collection))) {
     return redirectResponse(`${runtime.mountPath}/cms`);
   }
@@ -48,25 +51,17 @@ export async function GET(context: APIContext): Promise<Response> {
       `${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(collectionConfig.singletonId)}`,
     );
   }
-  const label = collectionConfig.label || humanize(collection);
-  const studioCollections = await getStudioCollections(adapter);
-  const collectionSwitcher = studioCollections.map(({ name, config }) => ({
-    label: config.label || humanize(name),
-    href: config.singletonId
-      ? `${runtime.mountPath}/cms/${encodeURIComponent(name)}/${encodeURIComponent(config.singletonId)}`
-      : `${runtime.mountPath}/cms/${encodeURIComponent(name)}`,
-    selected: name === collection,
-  }));
+  const label = collectionConfig.label || humanizeCollection(collection);
+  const navigation = await studioNavigation(runtime, adapter, collection);
   const messages = runtime.messages;
-  const creatable = collectionConfig.creatable !== false && await canPerform("edit", collection);
-  const orderable = collectionConfig.orderable !== false && await canPerform("edit", collection);
+  // Pages a template binds are listed to edit, not to add to or reorder.
+  const pageCollection = isPageCollection(await loadPageContent(), collection, Boolean(getRegisteredSchema(collection)));
+  const creatable = (collectionConfig.creatable ?? !pageCollection) && await canPerform("edit", collection) && await canPerform("create", collection);
+  const orderable = (collectionConfig.orderable ?? !pageCollection) && await canPerform("edit", collection);
   const publicationFieldName = publicationField(collectionConfig);
   const registeredSchema = getRegisteredSchema(collection)?.schema;
   const schemaProperties = registeredSchema?.properties ?? {};
-  const inferredTitleField = ["title", "name", "headline", "label", "question"].find((key) =>
-    schemaProperties[key]?.type === "string"
-  );
-  const titleField = collectionConfig.titleField || inferredTitleField || null;
+  const titleField = collectionConfig.titleField || null;
   const titleInputLabel = titleField && typeof schemaProperties[titleField]?.title === "string"
     ? schemaProperties[titleField].title
     : messages["collection.entryTitle"];
@@ -78,48 +73,78 @@ export async function GET(context: APIContext): Promise<Response> {
   const safeCollection = escapeHtml(collection);
 
   const extraStyles = `
+    .entries-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
     .entry-card {
-      transition: transform 0.2s, border-color 0.2s, background 0.2s;
+      display: flex; flex-direction: column; overflow: hidden;
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
     }
-    .entry-card:hover {
-      transform: translateY(-2px);
-      border-color: var(--studio-accent-strong, rgba(59, 130, 246, 0.3));
-    }
+    .entry-card:hover { transform: translateY(-2px); border-color: var(--studio-accent-strong); box-shadow: var(--studio-shadow); }
     .entry-thumb {
-      aspect-ratio: 1;
-      background: rgba(0, 0, 0, 0.2);
-      overflow: hidden;
-      display: block;
+      aspect-ratio: 4 / 3; overflow: hidden; display: grid; place-items: center;
+      background: var(--studio-surface-hover); border-bottom: 1px solid var(--studio-border);
+      color: var(--studio-text-dim); font-size: 1.5rem; font-weight: 600;
     }
-    .entry-thumb img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-    .entry-card-body { padding: 1rem; }
+    .entry-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .entry-thumb-icon { width: 2rem; height: 2rem; opacity: 0.55; }
+    .entries-grid[data-view="list"] .entry-thumb-icon { width: 1.25rem; height: 1.25rem; }
+    .entry-card-body { padding: 0.9rem 1rem 1rem; display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; flex: 1; }
     .entry-card-title {
-      margin: 0 0 0.35rem; overflow: hidden; color: var(--studio-text);
+      margin: 0; overflow: hidden; color: var(--studio-text);
       font-size: 0.9rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap;
     }
     .entry-card-subtitle {
-      margin: 0 0 0.45rem; overflow: hidden; color: var(--studio-text-muted);
-      font-size: 0.78rem; text-overflow: ellipsis; white-space: nowrap;
+      margin: 0; overflow: hidden; color: var(--studio-text-muted);
+      font-size: 0.8rem; text-overflow: ellipsis; white-space: nowrap;
     }
-    .entry-card-status { display: block; margin-bottom: 0.35rem; font-size: 0.75rem; }
-    .entry-card-id {
-      margin: 0; overflow: hidden; color: var(--studio-text-muted); font: 0.72rem/1.4 var(--studio-font-mono);
-      text-overflow: ellipsis; white-space: nowrap;
+    .entry-card-meta { display: flex; align-items: center; gap: 0.5rem; margin-top: auto; padding-top: 0.35rem; min-width: 0; }
+    .entry-card-meta:empty { display: none; }
+    .studio-chip {
+      display: inline-flex; align-items: center; gap: 0.35rem; flex-shrink: 0;
+      padding: 0.12rem 0.5rem; border-radius: 999px;
+      background: var(--studio-overlay); color: var(--studio-text-muted);
+      font-size: 0.7rem; font-weight: 600; line-height: 1.4;
     }
-    .collection-heading-bar {
-      display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem;
-      margin-bottom: 1.5rem;
-    }
+    .studio-chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .studio-chip.success { background: var(--studio-green-soft); color: var(--studio-green); }
+    .studio-chip.danger { background: var(--studio-red-soft); color: var(--studio-red); }
+    .studio-chip.warning { background: var(--studio-yellow-soft); color: var(--studio-yellow); }
+    .entries-grid[data-view="list"] { grid-template-columns: 1fr; gap: 0; border: 1px solid var(--studio-border); border-radius: var(--radius-theme-md); overflow: hidden; background: var(--studio-surface); }
+    .entries-grid[data-view="list"] .entry-card { flex-direction: row; align-items: center; border: none; border-radius: 0; border-bottom: 1px solid var(--studio-border); }
+    .entries-grid[data-view="list"] .entry-card:last-child { border-bottom: none; }
+    .entries-grid[data-view="list"] .entry-card:hover { transform: none; box-shadow: none; background: var(--studio-overlay); }
+    .entries-grid[data-view="list"] .entry-thumb { width: 44px; height: 44px; aspect-ratio: auto; margin-left: 0.85rem; border: none; border-radius: var(--radius-theme-sm); font-size: 0.95rem; flex-shrink: 0; }
+    .entries-grid[data-view="list"] .entry-card-body { flex-direction: row; align-items: center; gap: 1rem; padding: 0.75rem 1rem; }
+    .entries-grid[data-view="list"] .entry-card-text { flex: 1; min-width: 0; }
+    .entries-grid[data-view="list"] .entry-card-meta { margin: 0; padding: 0; flex-shrink: 0; }
+    .collection-heading-bar { margin-bottom: 1.5rem; }
+    .create-address { margin: 0.6rem 0 0.75rem; font-size: 12px; color: var(--studio-text-dim); }
+    .create-address summary { cursor: pointer; width: fit-content; }
+    .create-address-change { color: var(--studio-accent); margin-left: 0.35rem; }
+    .create-address[open] summary { margin-bottom: 0.6rem; }
+    .create-address-hint { font-size: 12px; margin: 0.5rem 0 1rem; color: var(--studio-text-dim); }
     .collection-actions {
-      display: flex; align-items: center; justify-content: flex-end; gap: 0.75rem; flex: 0 0 auto;
+      display: flex; align-items: center; justify-content: flex-end; gap: 0.6rem; flex: 0 0 auto;
     }
     .collection-actions button { flex-shrink: 0; white-space: nowrap; }
-    .collection-actions #search-input { min-width: 10rem; }
+    .collection-actions #search-input { min-width: 10rem; max-width: 240px; height: 2.25rem; padding: 0 0.75rem; }
+    .studio-empty-state {
+      display: flex; flex-direction: column; align-items: center; gap: 0.75rem;
+      margin-top: 1rem; padding: 3.5rem 1.5rem; text-align: center;
+      border: 1px dashed var(--studio-border-hover); border-radius: var(--radius-theme-lg);
+      color: var(--studio-text-muted);
+    }
+    .studio-empty-state[hidden] { display: none; }
+    .studio-empty-state p { margin: 0; font-size: 0.95rem; color: var(--studio-text); }
+    .studio-empty-icon {
+      display: none; place-items: center; width: 3rem; height: 3rem;
+      border-radius: 50%; background: var(--studio-accent-soft); color: var(--studio-accent);
+    }
+    .studio-empty-icon .studio-icon { width: 22px; height: 22px; }
+    .studio-empty-state:not([data-mode="search"]) [data-empty-icon="collection"],
+    .studio-empty-state[data-mode="search"] [data-empty-icon="search"] { display: grid; }
+    .view-toggle { display: inline-flex; padding: 2px; border: 1px solid var(--studio-border); border-radius: var(--radius-theme-sm); background: var(--studio-input); }
+    .view-toggle button { width: 2rem; height: 1.85rem; }
+    .view-toggle button[aria-pressed="true"] { background: var(--studio-accent-soft); color: var(--studio-accent); }
     .collection-search-label {
       position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
       overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
@@ -136,6 +161,7 @@ export async function GET(context: APIContext): Promise<Response> {
       padding: 12px 16px;
       border: 1px solid var(--studio-border);
       background: var(--studio-surface);
+      border-radius: var(--radius-theme-sm);
       cursor: grab;
       transition: border-color 0.15s, opacity 0.15s, transform 0.15s;
       user-select: none;
@@ -148,30 +174,29 @@ export async function GET(context: APIContext): Promise<Response> {
     .reorder-order { font-size: 11px; color: var(--studio-text-dim); font-variant-numeric: tabular-nums; min-width: 24px; text-align: right; }
     .reorder-controls { display: flex; gap: 0.35rem; flex-shrink: 0; }
     .reorder-move { min-width: 32px; padding: 4px 8px; }
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.6);
+    .modal-card { max-width: 28rem; overflow: hidden; }
+    .list-notice {
       display: flex;
       align-items: center;
-      justify-content: center;
-      z-index: 1000;
-      padding: 1rem;
-    }
-    .modal-backdrop[hidden] { display: none; }
-    .modal-card {
-      width: 100%;
-      max-width: 28rem;
-      background: var(--studio-bg);
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin: 0 0 1rem;
+      padding: 0.6rem 0.75rem 0.6rem 1rem;
       border: 1px solid var(--studio-border);
+      border-radius: var(--radius-theme-md);
+      background: var(--studio-surface);
+      color: var(--studio-text);
+      font-size: 0.875rem;
     }
+    .list-notice[hidden] { display: none; }
     .modal-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       padding: 1rem 1.5rem;
       border-bottom: 1px solid var(--studio-border);
-      font-size: 13px;
+      font-size: 0.95rem;
       font-weight: 600;
       letter-spacing: 0;
       color: var(--studio-text);
@@ -179,27 +204,38 @@ export async function GET(context: APIContext): Promise<Response> {
     .modal-body { padding: 1.5rem; }
   `;
 
-  const body = `<div class="studio-fade-in" style="max-width:80rem;margin:0 auto;" id="collection-page" data-collection="${safeCollection}">
-    <div class="collection-heading-bar">
+  const body = `<div class="studio-fade-in studio-page" id="collection-page" data-collection="${safeCollection}">
+    <header class="studio-page-header collection-heading-bar">
       <div>
-        <h1 style="font-family:var(--studio-font-heading);font-size:1.25rem;margin:0;color:var(--studio-text);">${escapeHtml(label)}</h1>
-        <p id="entry-count" style="font-size:0.8rem;margin:0.25rem 0 0;color:var(--studio-text-dim);">${escapeHtml(messages["common.loading"])}</p>
+        <h1 class="studio-page-title">${escapeHtml(label)}</h1>
+        <p class="studio-page-intro">${collectionConfig.description ? `${escapeHtml(collectionConfig.description)} · ` : ""}<span id="entry-count">${escapeHtml(messages["common.loading"])}</span></p>
       </div>
       <div class="collection-actions">
         <label for="search-input" class="collection-search-label">${escapeHtml(messages["collection.search"])}</label>
-        <input id="search-input" name="search" type="search" placeholder="${escapeHtml(messages["collection.searchPlaceholder"])}" class="studio-input" style="max-width:240px;" />
+        <input id="search-input" name="search" type="search" placeholder="${escapeHtml(messages["collection.searchPlaceholder"])}" class="studio-input" />
+        <div class="view-toggle" role="group" aria-label="${escapeHtml(messages["collection.view"])}">
+          <button type="button" class="studio-icon-btn" id="view-grid" aria-pressed="true" aria-label="${escapeHtml(messages["collection.viewGrid"])}" title="${escapeHtml(messages["collection.viewGrid"])}">${renderIcon("overview")}</button>
+          <button type="button" class="studio-icon-btn" id="view-list" aria-pressed="false" aria-label="${escapeHtml(messages["collection.viewList"])}" title="${escapeHtml(messages["collection.viewList"])}">${renderIcon("menu")}</button>
+        </div>
         ${orderable ? `<button id="btn-reorder" type="button" class="studio-btn-ghost" aria-controls="reorder-container" aria-expanded="false">${escapeHtml(messages["collection.reorder"])}</button>` : ""}
         ${creatable ? `<button id="btn-new" class="studio-btn-primary">${escapeHtml(newLabel)}</button>` : ""}
       </div>
+    </header>
+    <div id="delete-notice" class="list-notice" role="status" hidden>
+      <span id="delete-notice-text"></span>
+      <button id="delete-undo" type="button" class="studio-btn-ghost">${escapeHtml(messages["collection.undo"])}</button>
     </div>
 
     <div id="loading" style="display:flex;justify-content:center;padding:5rem 0;">
       <div class="studio-spinner" style="width:24px;height:24px;"></div>
     </div>
 
-    <div id="empty" hidden style="text-align:center;padding:5rem 0;color:var(--studio-text-dim);">
-      <p style="font-size:0.875rem;margin:0 0 0.75rem;">${escapeHtml(messages["collection.noEntries"])}</p>
+    <div id="empty" class="studio-empty-state" hidden>
+      <span class="studio-empty-icon" data-empty-icon="collection">${renderCollectionIcon(collectionConfig.icon, collection)}</span>
+      <span class="studio-empty-icon" data-empty-icon="search">${renderIcon("search")}</span>
+      <p>${escapeHtml(messages["collection.noEntries"])}</p>
       ${creatable ? `<button id="btn-empty-create" class="studio-btn-primary">${escapeHtml(emptyCreateLabel)}</button>` : ""}
+      <button id="btn-clear-search" type="button" class="studio-btn-ghost" hidden>${escapeHtml(messages["collection.clearSearch"])}</button>
     </div>
 
     <div id="error-state" hidden style="text-align:center;padding:5rem 0;">
@@ -207,7 +243,7 @@ export async function GET(context: APIContext): Promise<Response> {
       <button id="retry-btn" class="studio-btn-ghost">${escapeHtml(messages["common.retry"])}</button>
     </div>
 
-    <div id="entries-grid" hidden style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));"></div>
+    <div id="entries-grid" class="entries-grid" data-view="grid" hidden></div>
 
     <nav id="pagination" aria-label="${escapeHtml(messages["collection.pagination"])}" hidden style="display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-top:1rem;">
       <button id="page-prev" type="button" class="studio-btn-ghost">${escapeHtml(messages["collection.previous"])}</button>
@@ -225,20 +261,23 @@ export async function GET(context: APIContext): Promise<Response> {
     </div>
   </div>
 
-  <div id="create-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="create-dialog-title" aria-describedby="create-hint" hidden>
+  <div id="create-dialog" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="create-dialog-title"${publicationFieldName ? ' aria-describedby="create-publish-hint"' : ""} hidden>
     <div class="modal-card">
       <div class="modal-header">
         <h2 id="create-dialog-title" style="font:inherit;letter-spacing:inherit;text-transform:inherit;margin:0;">${escapeHtml(dialogTitle)}</h2>
-        <button id="btn-create-close" type="button" class="studio-btn-ghost" style="padding:4px 10px;">${escapeHtml(messages["common.close"])}</button>
+        <button id="btn-create-close" type="button" class="studio-icon-btn" aria-label="${escapeHtml(messages["common.close"])}" title="${escapeHtml(messages["common.close"])}"><svg class="studio-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
       <div class="modal-body">
-        ${titleField ? `<label for="create-title-input" class="studio-label">${escapeHtml(titleInputLabel)}</label>
+        <label for="create-title-input" class="studio-label">${escapeHtml(titleField ? titleInputLabel : messages["collection.nameLabel"])}</label>
         <input id="create-title-input" type="text" class="studio-input" placeholder="${escapeHtml(messages["collection.entryTitlePlaceholder"])}" autocomplete="off" />
-        <div style="height:1rem;"></div>` : ""}
-        <label for="create-id-input" class="studio-label">${escapeHtml(messages["collection.entryId"])}</label>
-        <input id="create-id-input" type="text" class="studio-input" placeholder="${escapeHtml(messages["collection.entryIdPlaceholder"])}" autocomplete="off" spellcheck="false" />
-        <p id="create-hint" style="font-size:12px;margin:0.5rem 0 0.35rem;color:var(--studio-text-dim);">${escapeHtml(messages["collection.idHint"])}</p>
-        ${publicationFieldName ? `<p style="font-size:12px;margin:0 0 1rem;color:var(--studio-text-dim);">${escapeHtml(messages["collection.publishHint"])}</p>` : ""}
+        <!-- The address follows the name; changing it is optional. -->
+        <details id="create-address" class="create-address">
+          <summary><span id="create-address-preview" aria-live="polite"></span> <span class="create-address-change">${escapeHtml(messages["collection.changeAddress"])}</span></summary>
+          <label for="create-id-input" class="studio-label">${escapeHtml(messages["collection.entryId"])}</label>
+          <input id="create-id-input" type="text" class="studio-input" placeholder="${escapeHtml(messages["collection.entryIdPlaceholder"])}" autocomplete="off" spellcheck="false" aria-describedby="create-hint" />
+          <p id="create-hint" class="create-address-hint">${escapeHtml(messages["collection.idHint"])}</p>
+        </details>
+        ${publicationFieldName ? `<p id="create-publish-hint" class="create-address-hint">${escapeHtml(messages["collection.publishHint"])}</p>` : ""}
         <p id="create-error" class="studio-error-text" hidden></p>
         <div style="display:flex;justify-content:flex-end;gap:0.75rem;">
           <button id="btn-create-cancel" type="button" class="studio-btn-ghost">${escapeHtml(messages["common.cancel"])}</button>
@@ -254,6 +293,9 @@ export async function GET(context: APIContext): Promise<Response> {
     var MOUNT = ${serializeJsonForScript(runtime.mountPath)};
     var MSG = ${serializeJsonForScript(messages)};
     var PUBLICATION_FIELD = ${serializeJsonForScript(publicationFieldName)};
+    // An entry without an image gets a quiet picture placeholder, not a letter
+    // that reads as content.
+    var THUMB_PLACEHOLDER = ${serializeJsonForScript(renderIcon("image", "entry-thumb-icon"))};
     var TITLE_FIELD = ${serializeJsonForScript(titleField)};
     var THUMBNAIL_FIELD = ${serializeJsonForScript(collectionConfig.thumbnailField || null)};
     var SUBTITLE_FIELD = ${serializeJsonForScript(collectionConfig.subtitleField || null)};
@@ -271,6 +313,19 @@ export async function GET(context: APIContext): Promise<Response> {
     var reorderScope = document.getElementById('reorder-scope');
 
     var grid = document.getElementById('entries-grid');
+    var viewButtons = { grid: document.getElementById('view-grid'), list: document.getElementById('view-list') };
+    function setView(view, rerender) {
+      grid.dataset.view = view;
+      Object.keys(viewButtons).forEach(function (key) {
+        if (viewButtons[key]) viewButtons[key].setAttribute('aria-pressed', String(key === view));
+      });
+      try { localStorage.setItem('caret-studio-view', view); } catch (e) { /* storage may be blocked */ }
+      if (rerender && Array.isArray(allEntries) && allEntries.length) renderEntries(allEntries);
+    }
+    Object.keys(viewButtons).forEach(function (key) {
+      if (viewButtons[key]) viewButtons[key].addEventListener('click', function () { setView(key, true); });
+    });
+    try { if (localStorage.getItem('caret-studio-view') === 'list') setView('list', false); } catch (e) { /* default grid */ }
     var loading = document.getElementById('loading');
     var empty = document.getElementById('empty');
     var errorState = document.getElementById('error-state');
@@ -279,13 +334,16 @@ export async function GET(context: APIContext): Promise<Response> {
     var searchInput = document.getElementById('search-input');
     var newBtn = document.getElementById('btn-new');
     var emptyCreateBtn = document.getElementById('btn-empty-create');
+    var clearSearchBtn = document.getElementById('btn-clear-search');
     var reorderBtn = document.getElementById('btn-reorder');
     var reorderContainer = document.getElementById('reorder-container');
     var reorderList = document.getElementById('reorder-list');
     var reorderSave = document.getElementById('btn-reorder-save');
     var reorderCancel = document.getElementById('btn-reorder-cancel');
     var dialog = document.getElementById('create-dialog');
-    var titleInput = document.getElementById('create-title-input');
+    var titleInput = /** the entry's name; it also suggests the address */ document.getElementById('create-title-input');
+    var addressDetails = document.getElementById('create-address');
+    var addressPreview = document.getElementById('create-address-preview');
     var idInput = document.getElementById('create-id-input');
     var errorEl = document.getElementById('create-error');
     var confirmBtn = document.getElementById('btn-create-confirm');
@@ -304,16 +362,6 @@ export async function GET(context: APIContext): Promise<Response> {
       return path.split('.').reduce(function (value, key) {
         return value && typeof value === 'object' ? value[key] : undefined;
       }, data);
-    }
-    function getTitle(d) {
-      if (!d) return MSG['collection.untitled'];
-      var configured = fieldValue(d, TITLE_FIELD);
-      if (typeof configured === 'string' && configured.trim()) return configured;
-      for (var i = 0; i < ['name','title','question','company_name','headline','label'].length; i++) {
-        var k = ['name','title','question','company_name','headline','label'][i];
-        if (typeof d[k] === 'string' && d[k]) return d[k];
-      }
-      return MSG['collection.untitled'];
     }
     function getThumb(d) {
       if (!d) return null;
@@ -351,33 +399,56 @@ export async function GET(context: APIContext): Promise<Response> {
       }
       empty.hidden = true;
       grid.hidden = false;
+      // Placeholders keep cards aligned when only some entries have images.
+      var anyThumb = entries.some(function (entry) { return !entry.readError && getThumb(entry.data); });
       for (var i = 0; i < entries.length; i++) {
         var entry = entries[i];
-        var title = entry.readError ? entry.id : getTitle(entry.data);
+        // The server names entries the same way on every screen.
+        var title = typeof entry.title === 'string' ? entry.title : entry.id;
         var thumb = getThumb(entry.data);
-        var subtitle = getSubtitle(entry.data);
-        var publication = PUBLICATION_FIELD && entry.data && typeof entry.data[PUBLICATION_FIELD] === 'boolean'
-          ? (entry.data[PUBLICATION_FIELD]
-            ? '<span class="entry-card-status" style="color:var(--studio-green);">' + htmlEsc(MSG['collection.published']) + '</span>'
-            : '<span class="entry-card-status" style="color:var(--studio-text-dim);">' + htmlEsc(MSG['collection.unpublished']) + '</span>')
+        // A search hit inside a field shows the words it matched instead.
+        var subtitle = entry.match && typeof entry.match.snippet === 'string' ? entry.match.snippet : getSubtitle(entry.data);
+        var published = PUBLICATION_FIELD && entry.data && typeof entry.data[PUBLICATION_FIELD] === 'boolean'
+          ? entry.data[PUBLICATION_FIELD] : null;
+        var publication = published === null ? ''
+          : published
+            ? '<span class="entry-card-status studio-chip success">' + htmlEsc(MSG['collection.published']) + '</span>'
+            : '<span class="entry-card-status studio-chip">' + htmlEsc(MSG['collection.unpublished']) + '</span>';
+        // Draft modes: changes visitors won't see until they're published.
+        var draft = entry.draft === true
+          ? '<span class="entry-card-draft studio-chip warning">' + htmlEsc(MSG['collection.draft']) + '</span>'
           : '';
-        var invalid = Array.isArray(entry.validationIssues) && entry.validationIssues.length
-          ? '<span style="display:block;font-size:0.75rem;color:var(--studio-red);margin-bottom:0.25rem;">' + htmlEsc(MSG['collection.invalid']) + '</span>'
+        var hasIssues = Array.isArray(entry.validationIssues) && entry.validationIssues.length > 0;
+        var invalid = hasIssues
+          ? '<span class="studio-chip danger">' + htmlEsc(MSG['collection.invalid']) + '</span>'
           : '';
+        // What assistive tech hears after the title, once: the visible
+        // subtitle and chips say the same and are hidden from it.
+        var detail = [
+          subtitle,
+          hasIssues ? MSG['collection.invalid'] : '',
+          entry.draft === true ? MSG['collection.draft'] : '',
+          published === null ? '' : MSG[published ? 'collection.published' : 'collection.unpublished'],
+        ].filter(Boolean).join(', ');
         var card = document.createElement('a');
         card.href = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entry.id);
         card.className = 'entry-card studio-card';
-        card.style.display = 'block';
-        card.style.overflow = 'hidden';
-        card.style.textDecoration = 'none';
+        // Named by its title; subtitle and status are its description, so
+        // they aren't read as one run-on name.
+        var cardId = 'entry-card-' + i;
+        card.setAttribute('aria-labelledby', cardId + '-title');
+        card.setAttribute('aria-describedby', cardId + '-detail');
         card.innerHTML =
-          (thumb ? '<div class="entry-thumb"><img src="' + htmlEsc(thumb) + '" alt="" loading="lazy" /></div>' : '') +
+          (thumb ? '<div class="entry-thumb"><img src="' + htmlEsc(thumb) + '" alt="" loading="lazy" /></div>'
+            : anyThumb || grid.dataset.view === 'list' ? '<div class="entry-thumb" aria-hidden="true">' + THUMB_PLACEHOLDER + '</div>' : '') +
           '<div class="entry-card-body">' +
-            '<h2 class="entry-card-title">' + htmlEsc(title) + '</h2>' +
-            (subtitle ? '<p class="entry-card-subtitle">' + htmlEsc(subtitle) + '</p>' : '') +
-            (entry.readError ? '<p role="note">' + htmlEsc(MSG['collection.unreadable']) + '</p>' : invalid) +
-            publication +
-            '<p class="entry-card-id">' + htmlEsc(entry.id) + '</p>' +
+            '<div class="entry-card-text">' +
+              '<h2 class="entry-card-title" id="entry-card-' + i + '-title">' + htmlEsc(title) + '</h2>' +
+              (subtitle ? '<p class="entry-card-subtitle" aria-hidden="true">' + htmlEsc(subtitle) + '</p>' : '') +
+              (entry.readError ? '<p role="note" class="entry-card-subtitle">' + htmlEsc(MSG['collection.unreadable']) + '</p>' : '') +
+            '</div>' +
+            '<div class="entry-card-meta" aria-hidden="true">' + invalid + draft + publication + '</div>' +
+            '<span class="studio-sr-only" id="entry-card-' + i + '-detail">' + htmlEsc(detail) + '</span>' +
           '</div>';
         grid.appendChild(card);
       }
@@ -406,21 +477,31 @@ export async function GET(context: APIContext): Promise<Response> {
           loading.hidden = true;
           var paging = json.pagination;
           currentPage = paging.page;
-          countEl.textContent = paging.total + ' ' + (paging.total === 1 ? MSG['count.entry'] : MSG['count.entries']);
+          // A search counts matches, not the collection's entries.
+          countEl.textContent = query
+            ? (paging.total === 0 ? MSG['collection.noMatches'] : MSG[paging.total === 1 ? 'collection.matchOne' : 'collection.matches'].replace('{count}', String(paging.total)))
+            : paging.total + ' ' + (paging.total === 1 ? MSG['count.entry'] : MSG['count.entries']);
           previousPage.disabled = !paging.hasPrev;
           nextPage.disabled = !paging.hasNext;
           pageRange.textContent = MSG['collection.range'].replace('{start}', paging.total ? (paging.page - 1) * paging.pageSize + 1 : 0).replace('{end}', Math.min(paging.page * paging.pageSize, paging.total)).replace('{total}', paging.total);
           pagination.hidden = paging.totalPages <= 1;
           empty.querySelector('p').textContent = query ? MSG['collection.noResults'] : MSG['collection.noEntries'];
+          empty.dataset.mode = query ? 'search' : 'collection';
           if (emptyCreateBtn) emptyCreateBtn.hidden = Boolean(query);
-          var limited = Boolean(query) || paging.totalPages > 1 || allEntries.some(function (entry) { return entry.readError; });
+          if (clearSearchBtn) clearSearchBtn.hidden = !query;
+          // Arranging needs every entry on one page, and at least two of them.
+          var limited = Boolean(query) || paging.totalPages > 1 || paging.total < 2 || allEntries.some(function (entry) { return entry.readError; });
           if (reorderBtn) {
             reorderBtn.hidden = limited;
             reorderBtn.disabled = false;
             reorderScope.hidden = true;
           }
 
-          renderEntries(allEntries);
+          if (pendingDelete && allEntries.some(function (entry) { return entry.id === pendingDelete.id; })) {
+            var shown = paging.total - 1;
+            countEl.textContent = shown + ' ' + (shown === 1 ? MSG['count.entry'] : MSG['count.entries']);
+          }
+          renderEntries(pendingDelete ? allEntries.filter(function (entry) { return entry.id !== pendingDelete.id; }) : allEntries);
         })
         .catch(function () {
           if (version !== requestVersion) return;
@@ -430,11 +511,92 @@ export async function GET(context: APIContext): Promise<Response> {
         });
     }
 
+    /* ─── Deleting with Undo ────────────────────────────────────────── */
+    // The entry page hands a deletion over here. It waits ten seconds before
+    // it's sent, so Undo only has to show the entry again and nothing is ever
+    // lost, whatever the storage. Leaving the page sends it straight away.
+    var PENDING_DELETE_KEY = 'caret:pending-delete';
+    var DELETE_DELAY_MS = 10000;
+    var pendingDelete = null;
+    var deleteTimer = 0;
+    var noticeEl = document.getElementById('delete-notice');
+    var noticeText = document.getElementById('delete-notice-text');
+    var noticeUndo = document.getElementById('delete-undo');
+    try {
+      var handedOver = JSON.parse(sessionStorage.getItem(PENDING_DELETE_KEY) || 'null');
+      sessionStorage.removeItem(PENDING_DELETE_KEY);
+      if (handedOver && handedOver.collection === COLLECTION && typeof handedOver.id === 'string' && Date.now() - handedOver.at < 60000) {
+        pendingDelete = handedOver;
+      }
+    } catch (e) { /* no pending deletion */ }
+
+    function showNotice(text, undoable) {
+      noticeText.textContent = text;
+      noticeUndo.hidden = !undoable;
+      noticeEl.hidden = false;
+    }
+    function deleteRequest(entry, keepalive) {
+      var body = { type: 'delete_entry', collection: COLLECTION, id: entry.id };
+      if (typeof entry.revision === 'number') body.expectedRevision = entry.revision;
+      if (typeof entry.baseRevision === 'number') body.expectedBaseRevision = entry.baseRevision;
+      return fetch(API + '/mutate', {
+        method: 'POST', keepalive: Boolean(keepalive), credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'x-caret-request': '1' },
+        body: JSON.stringify(body),
+      });
+    }
+    // Tell the page behind the Studio drawer, or a preview tab, to refresh.
+    function announceDeleted(id) {
+      var embedded = window.parent !== window;
+      var message = { type: 'cms:deleted', collection: COLLECTION, id: id, data: null, embedded: embedded, savedAt: Date.now() };
+      if (embedded) { try { window.parent.postMessage(message, window.location.origin); } catch (e) { /* progressive */ } }
+      try { var channel = new BroadcastChannel('caretcms:content'); channel.postMessage(message); channel.close(); } catch (e) { /* progressive */ }
+    }
+    function commitDelete() {
+      var entry = pendingDelete;
+      if (!entry) return;
+      pendingDelete = null;
+      clearTimeout(deleteTimer);
+      deleteRequest(entry, false).then(function (res) {
+        if (res.status === 401) { window.location.href = MOUNT + '?redirect=' + encodeURIComponent(window.location.pathname); return; }
+        if (!res.ok) throw new Error('delete failed');
+        noticeEl.hidden = true;
+        announceDeleted(entry.id);
+        loadEntries();
+      }).catch(function () {
+        showNotice(MSG['collection.deleteFailed'].replace('{title}', entry.title), false);
+        loadEntries();
+      });
+    }
+    noticeUndo.addEventListener('click', function () {
+      if (!pendingDelete) return;
+      clearTimeout(deleteTimer);
+      var title = pendingDelete.title;
+      pendingDelete = null;
+      showNotice(MSG['collection.restored'].replace('{title}', title), false);
+      loadEntries();
+    });
+    window.addEventListener('pagehide', function () {
+      if (!pendingDelete) return;
+      deleteRequest(pendingDelete, true);
+      pendingDelete = null;
+    });
+    if (pendingDelete) {
+      showNotice(MSG['collection.deleted'].replace('{title}', pendingDelete.title), true);
+      deleteTimer = setTimeout(commitDelete, DELETE_DELAY_MS);
+    }
+
     loadEntries();
     retryBtn.addEventListener('click', loadEntries);
 
     previousPage.addEventListener('click', function () { currentPage--; loadEntries(); });
     nextPage.addEventListener('click', function () { currentPage++; loadEntries(); });
+    if (clearSearchBtn) clearSearchBtn.addEventListener('click', function () {
+      searchInput.value = '';
+      query = ''; currentPage = 1; loadEntries();
+      searchInput.focus();
+    });
+
     searchInput.addEventListener('input', function () {
       clearTimeout(searchTimer);
       ++requestVersion; // ignore older responses immediately, including during debounce
@@ -449,12 +611,14 @@ export async function GET(context: APIContext): Promise<Response> {
     function openDialog() {
       dialogTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       dialog.hidden = false;
-      if (titleInput) titleInput.value = '';
+      titleInput.value = '';
       idInput.value = '';
       idWasEdited = false;
+      addressDetails.open = false;
+      showAddress();
       errorEl.hidden = true;
       confirmBtn.disabled = true;
-      (titleInput || idInput).focus();
+      titleInput.focus();
     }
     function closeDialog() {
       if (dialog.hidden) return;
@@ -463,48 +627,65 @@ export async function GET(context: APIContext): Promise<Response> {
       dialogTrigger = null;
       if (trigger && trigger.isConnected) trigger.focus();
     }
+    function showAddress() {
+      var id = idInput.value.trim();
+      addressPreview.textContent = id ? MSG['collection.addressPreview'].replace('{id}', id) : '';
+      addressDetails.hidden = !id && !idWasEdited;
+    }
+    function taken(id) {
+      return knownDuplicateIds.has(id) || allEntries.some(function (e) { return e.id === id; });
+    }
+    /** The address for a name, numbered when that one is taken: quiet-structures-2. */
+    function freeAddress(base) {
+      if (!base) return '';
+      var id = base;
+      for (var n = 2; taken(id); n++) id = (base.slice(0, 76) + '-' + n);
+      return id;
+    }
+    function followName() {
+      // A name with no Latin letters still gets an address to start from.
+      var base = suggestedId(titleInput.value) || (titleInput.value.trim() ? 'entry' : '');
+      if (!idWasEdited) idInput.value = freeAddress(base);
+      showAddress();
+    }
     function validate() {
       var v = idInput.value.trim();
-      if (titleInput && !titleInput.value.trim()) { confirmBtn.disabled = true; errorEl.hidden = true; return; }
+      if (!titleInput.value.trim()) { confirmBtn.disabled = true; errorEl.hidden = true; return; }
       if (!v) { confirmBtn.disabled = true; errorEl.hidden = true; return; }
       if (!ID_RE.test(v)) { errorEl.textContent = MSG['collection.invalidId']; errorEl.hidden = false; confirmBtn.disabled = true; return; }
-      if (knownDuplicateIds.has(v) || allEntries.some(function (e) { return e.id === v; })) { errorEl.textContent = MSG['collection.duplicateId']; errorEl.hidden = false; confirmBtn.disabled = true; return; }
+      if (taken(v)) { addressDetails.open = true; errorEl.textContent = MSG['collection.duplicateId']; errorEl.hidden = false; confirmBtn.disabled = true; return; }
       errorEl.hidden = true; confirmBtn.disabled = false;
     }
+    // Opens the new entry's form. Nothing is stored until the editor presses
+    // Create there with the required fields filled in.
     function createEntry() {
       var entryId = idInput.value.trim();
       if (!entryId || !ID_RE.test(entryId)) return;
       confirmBtn.disabled = true;
       confirmBtn.textContent = MSG['collection.creating'];
-      fetch(API + '/schema?collection=' + encodeURIComponent(COLLECTION))
-        .then(function (res) { return res.ok ? res.json() : { template: {} }; })
-        .then(function (info) {
-          var template = (info && info.template) || {};
-          if ('slug' in template) template.slug = entryId;
-          if ('id' in template) template.id = entryId;
-          if (TITLE_FIELD && titleInput) template[TITLE_FIELD] = titleInput.value.trim();
-          return fetch(API + '/mutate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-caret-request': '1' },
-            credentials: 'same-origin',
-            body: JSON.stringify({ type: 'put_entry', collection: COLLECTION, id: entryId, data: template, createOnly: true }),
-          });
-        })
+      fetch(API + '/entries?collection=' + encodeURIComponent(COLLECTION) + '&id=' + encodeURIComponent(entryId), { credentials: 'same-origin' })
         .then(function (res) {
-          if (!res) return;
           if (res.status === 401) { window.location.href = MOUNT + '?redirect=' + encodeURIComponent(window.location.pathname); return; }
-          if (res.status === 409) {
-            knownDuplicateIds.add(entryId);
-            errorEl.textContent = MSG['collection.duplicateId'];
-            errorEl.hidden = false;
-            confirmBtn.disabled = true;
-            confirmBtn.textContent = CREATE_LABEL;
-            idInput.focus();
-            idInput.select();
-            return;
-          }
-          if (!res.ok) throw new Error('mutate failed');
-          window.location.href = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entryId) + '?new=1';
+          if (!res.ok) throw new Error('lookup failed');
+          return res.json().then(function (body) {
+            if (body && Array.isArray(body.entries) && body.entries.length > 0) {
+              knownDuplicateIds.add(entryId);
+              confirmBtn.textContent = CREATE_LABEL;
+              // An address made from the name just takes the next number.
+              if (!idWasEdited) { followName(); validate(); createEntry(); return; }
+              addressDetails.open = true;
+              errorEl.textContent = MSG['collection.duplicateId'];
+              errorEl.hidden = false;
+              confirmBtn.disabled = true;
+              confirmBtn.textContent = CREATE_LABEL;
+              idInput.focus();
+              idInput.select();
+              return;
+            }
+            var target = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entryId) + '?new=1';
+            if (TITLE_FIELD && titleInput.value.trim()) target += '&title=' + encodeURIComponent(titleInput.value.trim());
+            window.location.href = target;
+          });
         })
         .catch(function () {
           errorEl.textContent = MSG['collection.createFailed'];
@@ -514,6 +695,14 @@ export async function GET(context: APIContext): Promise<Response> {
         });
     }
     if (newBtn) newBtn.addEventListener('click', openDialog);
+    // The ⌘K palette's "New …" action links here with #new.
+    function openDialogFromHash() {
+      if (window.location.hash !== '#new' || !newBtn) return;
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      openDialog();
+    }
+    openDialogFromHash();
+    window.addEventListener('hashchange', openDialogFromHash);
     if (emptyCreateBtn) emptyCreateBtn.addEventListener('click', openDialog);
     createCloseBtn.addEventListener('click', closeDialog);
     createCancelBtn.addEventListener('click', closeDialog);
@@ -522,11 +711,9 @@ export async function GET(context: APIContext): Promise<Response> {
       return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
         .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
     }
-    if (titleInput) titleInput.addEventListener('input', function () {
-      if (!idWasEdited) idInput.value = suggestedId(titleInput.value);
-      validate();
-    });
-    idInput.addEventListener('input', function () { idWasEdited = true; validate(); });
+    titleInput.addEventListener('input', function () { followName(); validate(); });
+    titleInput.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !confirmBtn.disabled) createEntry(); });
+    idInput.addEventListener('input', function () { idWasEdited = true; showAddress(); validate(); });
     idInput.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !confirmBtn.disabled) createEntry(); });
     dialog.addEventListener('click', function (e) { if (e.target === dialog) closeDialog(); });
     document.addEventListener('keydown', function (e) {
@@ -538,8 +725,9 @@ export async function GET(context: APIContext): Promise<Response> {
           return;
         }
         if (e.key !== 'Tab') return;
-        var focusable = [createCloseBtn, titleInput, idInput, createCancelBtn, confirmBtn].filter(function (element) {
-          return !element.disabled && !element.hidden;
+        var addressSummary = addressDetails.querySelector('summary');
+        var focusable = [createCloseBtn, titleInput, addressSummary, addressDetails.open ? idInput : null, createCancelBtn, confirmBtn].filter(function (element) {
+          return element && !element.disabled && !element.hidden && !element.closest('[hidden]');
         });
         var first = focusable[0];
         var last = focusable[focusable.length - 1];
@@ -563,16 +751,23 @@ export async function GET(context: APIContext): Promise<Response> {
     var reorderMode = false;
     var ordered = [];
     var reorderTrigger = null;
+    /** Whether Arrange has a new order that isn't saved yet. */
+    function orderChanged() {
+      return reorderMode && ordered.some(function (entry, index) { return !allEntries[index] || allEntries[index].id !== entry.id; });
+    }
+    // Leaving the page (a sidebar link, Back) with a new order unsaved asks first.
+    window.addEventListener('beforeunload', function (event) {
+      if (!orderChanged()) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
     function enterReorder() {
       if (reorderBtn.disabled) return;
       reorderTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : reorderBtn;
       pagination.hidden = true;
       reorderMode = true;
-      ordered = allEntries.slice().sort(function (a, b) {
-        var ao = (a.data && typeof a.data.order === 'number') ? a.data.order : 0;
-        var bo = (b.data && typeof b.data.order === 'number') ? b.data.order : 0;
-        return ao - bo;
-      });
+      // The list already arrives in arranged order.
+      ordered = allEntries.slice();
       grid.hidden = true; empty.hidden = true;
       searchInput.style.display = 'none'; if (newBtn) newBtn.style.display = 'none';
       reorderBtn.textContent = MSG['collection.reordering']; reorderBtn.disabled = true;
@@ -616,7 +811,7 @@ export async function GET(context: APIContext): Promise<Response> {
         item.setAttribute('role', 'listitem');
         item.draggable = true;
         item.dataset.idx = String(idx);
-        var title = getTitle(entry.data);
+        var title = typeof entry.title === 'string' ? entry.title : entry.id;
         item.innerHTML =
           '<span class="reorder-handle" aria-hidden="true">&#9776;</span>' +
           '<span class="reorder-label">' + htmlEsc(title) + '</span>' +
@@ -678,11 +873,12 @@ export async function GET(context: APIContext): Promise<Response> {
     renderStudioPage({
       runtime,
       title: label,
-      breadcrumb: [],
-      collectionSwitcher,
+      breadcrumb: [{ label: messages["nav.collections"], href: `${runtime.mountPath}/cms` }, { label }],
+      navigation,
       body,
       extraStyles,
       inlineScript,
+      siteError: placement.siteError,
     }),
   );
 }

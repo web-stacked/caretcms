@@ -5,7 +5,7 @@ Make an existing Astro site editable with [CaretCMS](https://github.com/web-stac
 The static HTML you already have *is* the seed content: CaretCMS renders the original text until an editor saves an override, so caretize only has to mark what's editable.
 
 ```sh
-# in your Astro project root — set CaretCMS up first (deps + astro.config + .env)
+# in your Astro project root — set CaretCMS up, then tag your content
 npx @caretcms/caretize init
 
 # preview what would be tagged, write nothing
@@ -19,9 +19,12 @@ npx @caretcms/caretize
 npx @caretcms/caretize --review
 ```
 
-`init` is optional but is the fastest path on a project that hasn't wired
-CaretCMS yet: it installs `@caretcms/core`, wires `caret()` into `astro.config`, and
-scaffolds a `.env` with a generated `CARET_SESSION_SECRET`.
+`init` is the fastest path on a project that hasn't wired CaretCMS yet: it
+installs `@caretcms/core`, wires `caret()` into `astro.config`, scaffolds a `.env`
+with a generated `CARET_SESSION_SECRET`, adds `.env`, drafts, backups, and history
+to `.gitignore`, then offers to tag your content. It asks before each step; pass
+`-y` to accept them all (needed when no one is at the terminal, such as in CI or
+an AI agent).
 
 - **Static Astro projects** (default): `caret()` auto-selects static delivery — no SSR adapter.
 - **Server projects** (`output: "server"` already): keeps or adds adapter + `caret()`.
@@ -41,16 +44,17 @@ src/pages/index.astro
   [a]ccept [s]kip [e]dit [A]ll [S]kip-file [q]uit >
 ```
 
-- **Tags** pure-text leaf elements (`h1`–`h6`, `p`, `li`, `a`, `button`, …) and `<img>` `src` — exactly the set the CaretCMS rewrite engine can render, nothing more.
-- **Names fields from content** (`"Our Programs 🎨"` → `our_programs`); prose tags keep role names. Names are deterministic and never collide with existing bindings, so re-runs are idempotent.
-- **Wraps data arrays** (`const faqs = [...]` → `editable("pages::home::faqs", [...])`) so list content is editable too.
+- **Tags** pure-text leaf elements (`h1`–`h6`, `p`, `li`, `a`, …) and `<img>` `src` — exactly the set the CaretCMS rewrite engine can render, nothing more. It leaves out interface chrome (`<button>` labels, the `<a href="/">` home link/logo) and text a component's `<script>` writes (an element it finds by class, id or a valueless `data-*` attribute).
+- **Names fields from context**: labels from their text (`"Our Programs 🎨"` → `our_programs`), prose and images from the heading or landmark they sit under (`our_story_text`, `our_story_image`), hoisted props from the component and which use of it (`testimonial_quote`, `testimonial_2_quote`). Names are deterministic and never collide with existing bindings, so re-runs are idempotent.
+- **Text inside a component or layout is one value** shared by every use of it; the output says so.
+- **Wraps data arrays** (`const faqs = [...]` → `editable("pages::home::faqs", [...])`) so list content is editable too. Identifier fields (`key`, `id`, `slug`, …) stay exactly as written; an array whose other fields are compared or used as lookup keys is not wrapped.
 - **Flags what it can't tag** (loops, expressions, mixed markup) and tells you which flag unlocks each.
 
 ## Safety model
 
 - **Nothing unsafe is written.** Every output is verified in memory first: it must re-parse as valid Astro and be a pure insertion of the original (your bytes survive untouched, in order).
 - **All-or-nothing:** if any file fails verification, the run aborts having written nothing.
-- **Backups:** every written file is first copied to `.caret/.caretize-bak/`; `caretize --restore` reverts the most recent run. Git is the real undo — caretize warns when your tree is dirty.
+- **Backups:** every written file is first copied to `.caret/.caretize-bak/`; `caretize --restore` reverts the most recent run. Git is the real undo — caretize warns when a file it is about to edit has uncommitted changes.
 - Multibyte-safe: offsets are computed and spliced on UTF-8 buffers (emoji/em-dashes can't corrupt a tag).
 
 ## Options
@@ -61,7 +65,8 @@ caretize init                wire CaretCMS into the project, then tag
 
   init                     set up CaretCMS first: install @caretcms/core, wire
                            caret() into astro.config (auto static delivery by default;
-                           server projects get SSR adapter wiring), scaffold .env
+                           server projects get SSR adapter wiring), scaffold .env,
+                           update .gitignore
   path                     file or directory to scan (default: src/)
   --review                 approve each change before writing; richer tiers still
                            offered at the end
@@ -90,14 +95,17 @@ caretize init                wire CaretCMS into the project, then tag
   --restore                restore the most recent backup, then exit
 ```
 
-## After caretize
+## First run
 
-1. Run `npx @caretcms/caretize init` if CaretCMS is not wired yet.
-2. Run `npx @caretcms/caretize` to tag content.
-3. Run `npm run dev`.
-4. Sign in at `/admin` — with no `CARET_EDIT_PASSWORD` set, a temporary dev password is printed in your terminal.
-5. Click any tagged element to edit it in place; the Studio lives at `/admin/cms`.
-6. Use Preview / Publish / Discard in the editor toolbar for draft workflow.
+1. `npx @caretcms/caretize init` — set up CaretCMS and tag your content.
+2. `npm run dev`.
+3. Sign in at `/admin`. Until you set `CARET_EDIT_PASSWORD` in `.env`, dev uses a
+   temporary password kept in `.caret/dev-password` (also shown by `astro dev logs`).
+4. Click any tagged element to edit it in place; the Studio lives at `/admin/cms`.
+5. Static sites save drafts: use Publish or Discard in the editor toolbar.
+
+Added pages or sections later? Run `npx @caretcms/caretize` again; it skips what's
+already tagged.
 
 Requires [`@caretcms/core`](https://www.npmjs.com/package/@caretcms/core) wired into `astro.config.mjs` (caretize's preflight checks this and tells you if it isn't).
 

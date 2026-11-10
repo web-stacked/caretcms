@@ -2,7 +2,7 @@ import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { expect, test } from "@playwright/test";
-import { isMutatePost, loginAsEditor, replaceText } from "./helpers";
+import { expectStudioURL, isMutatePost, loginAsEditor, openStudio, reloadStudio, replaceText } from "./helpers";
 
 const CONTENT_SITE = resolve(process.cwd(), "examples/content-site");
 const REPO_ROOT = process.cwd();
@@ -80,9 +80,15 @@ async function renderFromFreshBuild(): Promise<string> {
     expect(response.ok).toBeTruthy();
     return await response.text();
   } finally {
-    if (server?.exitCode === null) {
-      server.kill("SIGTERM");
-      await new Promise<void>((resolveExit) => server.once("exit", () => resolveExit()));
+    if (server && server.exitCode === null && server.signalCode === null) {
+      // Listen before signalling so a fast exit isn't missed, and don't wait
+      // forever on a server that ignores SIGTERM.
+      const running = server;
+      const exited = new Promise<void>((resolveExit) => running.once("exit", () => resolveExit()));
+      running.kill("SIGTERM");
+      const forceKill = setTimeout(() => running.kill("SIGKILL"), 5_000);
+      await exited;
+      clearTimeout(forceKill);
     }
     rmSync(buildRoot, { recursive: true, force: true });
   }
@@ -122,6 +128,8 @@ test("edits rendered Markdown, publishes through the toolbar, and renders after 
   await expect(paragraph).toContainText("The fastest way to kill a project");
   await expect(paragraph).toHaveAttribute("data-caret-md", /blog::ship-something-real::body::/);
   await expect(paragraph).toHaveAttribute("contenteditable", "true");
+  // Nothing to publish yet, so there's nothing to click.
+  await expect(page.locator(".cms-draft-controls")).toBeHidden();
 
   await replaceText(page, paragraph, EDITED_TEXT);
   const [save] = await Promise.all([
@@ -131,14 +139,24 @@ test("edits rendered Markdown, publishes through the toolbar, and renders after 
   expect(save.ok(), await save.text()).toBeTruthy();
   await expect(paragraph).toHaveText(EDITED_TEXT);
   expect(readFileSync(POST, "utf8")).toBe(ORIGINAL);
+  await expect(page.locator(".cms-publish-btn")).toHaveText("Publish 1");
 
   const publishPromise = page.waitForResponse((response) =>
     response.url().includes("/api/cms/publish") && response.request().method() === "POST",
   );
   await page.locator(".cms-publish-btn").click();
-  await page.getByRole("dialog", { name: "Publish drafts?" }).getByRole("button", { name: "Publish", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: /^Publish \d+ changes?\?$/ });
+  await expect(dialog).toContainText("This publishes 1 unpublished change.");
+  await dialog.getByRole("button", { name: "Publish", exact: true }).click();
   const publish = await publishPromise;
   expect(publish.ok()).toBeTruthy();
+
+  // The page reloads and still says what happened: Markdown renders at build
+  // time, so a production server shows it after the rebuild.
+  await expect(page.locator(".cms-toast-success .cms-toast-msg")).toHaveText(
+    "Published 1 change. Visitors see it the next time the site updates.",
+  );
+  await expect(page.locator(".cms-draft-controls")).toBeHidden();
 
   const source = readFileSync(POST, "utf8");
   expect(source).toContain(EDITED_TEXT);
@@ -174,6 +192,24 @@ test("edits rendered Markdown, publishes through the toolbar, and renders after 
     data: expect.any(Object),
   }));
   expect(readFileSync(POST, "utf8")).toBe(ORIGINAL);
+});
+
+test("a post date is the same day on the page and in the Studio's date picker", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/ship-something-real/");
+  // Stored as "2026-03-11"; shown as that day in every time zone.
+  await expect(page.getByText("March 11, 2026")).toBeVisible();
+
+  const studio = await openStudio(page, "/admin/cms/blog/ship-something-real");
+  const date = studio.getByRole("textbox", { name: "Date" }).or(studio.locator('[data-field-path="date"] input'));
+  await expect(date).toHaveAttribute("type", "date");
+  await expect(date).toHaveValue("2026-03-11");
+
+  const save = page.waitForResponse(isMutatePost);
+  await date.fill("2026-04-02");
+  await date.dispatchEvent("change");
+  await save;
+  await expect.poll(() => readFileSync(POST, "utf8")).toContain("2026-04-02");
 });
 
 test("keeps live-loader metadata out of non-text attributes", async ({ page }) => {
@@ -327,25 +363,25 @@ test("rich toolbar creates a Markdown link without an early draft save", async (
   await block.evaluate((element) => (element as HTMLElement).blur());
   expect((await save).ok()).toBeTruthy();
   expect(mutationCount).toBe(1);
-  await expect(page.getByText("Draft saved — publish to update the file")).toBeVisible();
+  await expect(page.getByText("Draft saved. Publish to show it to visitors.")).toBeVisible();
 });
 
 test("exposes only collection operations the example implements", async ({ page }) => {
   await loginAsEditor(page);
 
-  await page.goto("/admin/cms/site");
-  await expect(page).toHaveURL(/\/admin\/cms\/site\/global$/);
+  const studio = await openStudio(page, "/admin/cms/site");
+  await expectStudioURL(page, /\/admin\/cms\/site\/global$/);
 
   for (const collection of ["pages", "blog"]) {
-    await page.goto(`/admin/cms/${collection}`);
-    await expect(page.locator("#btn-new")).toHaveCount(0);
-    await expect(page.locator("#btn-reorder")).toHaveCount(0);
+    await openStudio(page, `/admin/cms/${collection}`);
+    await expect(studio.locator("#btn-new")).toHaveCount(0);
+    await expect(studio.locator("#btn-reorder")).toHaveCount(0);
   }
 
   for (const collection of ["gallery", "team"]) {
-    await page.goto(`/admin/cms/${collection}`);
-    await expect(page.locator("#btn-new")).toBeVisible();
-    await expect(page.locator("#btn-reorder")).toBeVisible();
+    await openStudio(page, `/admin/cms/${collection}`);
+    await expect(studio.locator("#btn-new")).toBeVisible();
+    await expect(studio.locator("#btn-reorder")).toBeVisible();
   }
 
   const schema = await page.request.get("/api/cms/schema?collection=gallery");
@@ -403,10 +439,10 @@ test("recovers a Markdown publish after history storage fails", async ({ page })
   try {
     const pending = page.waitForResponse(response => response.url().includes("/api/cms/publish"));
     await page.locator(".cms-publish-btn").click();
-    await page.getByRole("dialog", { name: "Publish drafts?" }).getByRole("button", { name: "Publish", exact: true }).click();
+    await page.getByRole("dialog", { name: /^Publish \d+ changes?\?$/ }).getByRole("button", { name: "Publish", exact: true }).click();
     const failed = await (await pending).json();
-    expect(failed.failed).toEqual([{ collection: "blog", id: "ship-something-real", reason: "storage_error" }]);
-    await expect(page.locator(".cms-status-text")).toHaveText("Publish needs recovery");
+    expect(failed.failed).toEqual([{ collection: "blog", id: "ship-something-real", reason: "storage_error", title: "Ship something real" }]);
+    await expect(page.locator(".cms-status-text")).toHaveText("Publish didn’t finish");
     expect(readFileSync(POST, "utf8")).toContain("Recovered after a history storage failure.");
     rmSync(historyPath, { recursive: true });
     const retry = await page.request.post("/api/cms/publish", { headers: { "x-caret-request": "1" }, data: {} });
@@ -422,16 +458,16 @@ test("unsupported YAML remains visible with an actionable error and retry", asyn
   const source = "---\nsrc: /gallery/01.svg\nalt: Test\ncaption: &caption Unsupported anchor\nyear: \"2026\"\n---\n";
   writeFileSync(path, source);
   try {
-    await page.goto("/admin/cms/gallery");
-    await expect(page.locator('a[href$="/unsupported-yaml"]')).toContainText("Cannot read entry");
-    await page.locator('a[href$="/unsupported-yaml"]').click();
-    await expect(page.locator("#load-error")).toContainText("unsupported frontmatter");
-    await expect(page.locator("#not-found")).not.toBeVisible();
+    const studio = await openStudio(page, "/admin/cms/gallery");
+    await expect(studio.locator('a[href$="/unsupported-yaml"]')).toContainText("Cannot read entry");
+    await studio.locator('a[href$="/unsupported-yaml"]').click();
+    await expect(studio.locator("#load-error")).toContainText("unsupported frontmatter");
+    await expect(studio.locator("#not-found")).not.toBeVisible();
     expect(readFileSync(path, "utf8")).toBe(source);
     writeFileSync(path, GALLERY[0].source);
-    await page.locator("#load-error-retry").click();
-    await expect(page.locator("#fields")).toBeVisible();
-    await expect(page.locator("#load-error")).not.toBeVisible();
+    await studio.locator("#load-error-retry").click();
+    await expect(studio.locator("#fields")).toBeVisible();
+    await expect(studio.locator("#load-error")).not.toBeVisible();
   } finally { rmSync(path, { force: true }); }
 });
 
@@ -444,20 +480,19 @@ test(`Studio edits ${style} frontmatter and preserves untouched YAML and body`, 
   const source = `---\nsrc: /gallery/01.svg\nalt: Original\n${scalar}year: '2026' # preserve this too\n---\n${body}`;
   writeFileSync(path, source);
   try {
-    await page.goto("/admin/cms/gallery/multiline-yaml");
-    const caption = page.locator('textarea[name="caption"]');
+    const studio = await openStudio(page, "/admin/cms/gallery/multiline-yaml");
+    const caption = studio.locator('textarea[name="caption"]');
     await expect(caption).toHaveValue(style === "|" ? "Café first line\nsecond line\n\n" : "Café first line second line\n\n");
-    await page.locator('[name="alt"]').fill("Changed alt");
+    await studio.locator('[name="alt"]').fill("Changed alt");
     let pending = page.waitForResponse(isMutatePost);
-    await page.locator("#btn-save").click();
-    await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
+    await studio.locator("#btn-save").click();
     expect((await pending).ok()).toBe(true);
     expect(readFileSync(path, "utf8")).toContain(scalar);
     await caption.fill("Edited first line\nEdited second line\n\n");
     pending = page.waitForResponse(isMutatePost);
-    await page.locator("#btn-save").click();
+    await studio.locator("#btn-save").click();
     expect((await pending).ok()).toBe(true);
-    await page.reload();
+    await reloadStudio(page);
     await expect(caption).toHaveValue("Edited first line\nEdited second line\n\n");
     const stored = await (await page.request.get("/api/cms/entries?collection=gallery&id=multiline-yaml")).json();
     expect(stored.entries[0].data.caption).toBe("Edited first line\nEdited second line\n\n");
@@ -522,11 +557,12 @@ test('splits, merges, inserts and deletes paragraphs with undo, then publishes a
   });
   await page.keyboard.press('Backspace');
   await expect(group).not.toContainText('Inserted paragraph.');
+  // Wait before the last edit: autosave can fire 1.2 s later, before the blur.
+  const saving = page.waitForResponse(isMutatePost);
   await page.keyboard.press('ControlOrMeta+z');
   await expect(group).toContainText('Inserted paragraph.');
   await expect(page.locator('.post-body blockquote')).toHaveText(originalQuote!);
 
-  const saving = page.waitForResponse(isMutatePost);
   await group.evaluate(element => (element as HTMLElement).blur());
   expect((await saving).ok()).toBe(true);
   expect(readFileSync(POST, 'utf8')).toBe(ORIGINAL);
@@ -535,13 +571,13 @@ test('splits, merges, inserts and deletes paragraphs with undo, then publishes a
   await page.screenshot({ path: test.info().outputPath('paragraph-preview.png'), fullPage: true });
   // Continue editing the reloaded structural draft; formatting must survive.
   await caret(1, true);
-  await page.keyboard.type(' continued');
   const resaving = page.waitForResponse(isMutatePost);
+  await page.keyboard.type(' continued');
   await group.evaluate(element => (element as HTMLElement).blur());
   expect((await resaving).ok()).toBe(true);
   const publishing = page.waitForResponse(response => response.url().includes('/api/cms/publish') && response.request().method() === 'POST');
   await page.locator('.cms-publish-btn').click();
-  await page.getByRole('dialog', { name: 'Publish drafts?' }).getByRole('button', { name: 'Publish', exact: true }).click();
+  await page.getByRole('dialog', { name: /^Publish \d+ changes?\?$/ }).getByRole('button', { name: 'Publish', exact: true }).click();
   expect((await publishing).ok()).toBe(true);
   const source = readFileSync(POST, 'utf8');
   expect(source).toContain('Alpha\n\nBeta continued\n\nInserted paragraph.');
@@ -596,8 +632,16 @@ test('pastes Unicode paragraphs, retains failed saves, and protects nested block
   await expect(quote).toHaveText(quoteText!);
   await expect(quote.locator('p, div, br')).toHaveCount(0);
 
-  const changed = ORIGINAL.replace('The fastest way', 'The slowest way');
-  writeFileSync(POST, changed);
+  // A page older than its source file: the server refuses its save. The block
+  // carries a stale source hash directly, because editing the file on disk
+  // makes the dev server refresh the page at a time of its choosing.
+  await group.evaluate(element => {
+    const src = element.getAttribute('data-caret-md-src') ?? '';
+    const stale = src.replace(/:[^:]+$/, ':00000000');
+    element.setAttribute('data-caret-md-src', stale);
+    const sources = element.getAttribute('data-caret-md-sources');
+    if (sources) element.setAttribute('data-caret-md-sources', sources.split(src).join(stale));
+  });
   await group.click();
   await page.keyboard.press('End');
   await page.keyboard.type(' changed');
@@ -606,6 +650,10 @@ test('pastes Unicode paragraphs, retains failed saves, and protects nested block
   expect((await saving).status()).toBe(409);
   await expect(group).toContainText('changed');
   await expect(page.getByText('This content changed. Copy your edits, then reload before saving.')).toBeVisible();
+
+  // The source changes under a saved draft: publishing keeps the file and the draft.
+  const changed = ORIGINAL.replace('The fastest way', 'The slowest way');
+  writeFileSync(POST, changed);
   const publish = await page.request.post('/api/cms/publish', { headers: { 'x-caret-request': '1' }, data: {} });
   expect((await publish.json()).conflicts).toHaveLength(1);
   expect(readFileSync(POST, 'utf8')).toBe(changed);
@@ -630,4 +678,329 @@ test('keeps inline code formatting when a paragraph group is edited and reloaded
   await page.reload();
   await expect(code).toHaveText('.md source');
   await expect(group.locator('strong')).toHaveText('title and excerpt');
+});
+
+test("signing out with an unpublished body draft asks first in server mode", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/ship-something-real/");
+  const paragraph = page.locator(".post-body [data-caret-md]").first();
+  await expect(paragraph).toHaveAttribute("contenteditable", "true");
+  await replaceText(page, paragraph, EDITED_TEXT);
+  const [save] = await Promise.all([
+    page.waitForResponse(isMutatePost),
+    paragraph.evaluate((element) => (element as HTMLElement).blur()),
+  ]);
+  expect(save.ok(), await save.text()).toBeTruthy();
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  const dialog = page.getByRole("dialog", { name: "Unpublished changes" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("1 unpublished change");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator(".cms-toolbar")).toBeVisible();
+  const state = await page.request.get("/api/cms/draft", { headers: { "x-caret-request": "1" } });
+  expect((await state.json()).count).toBe(1);
+});
+
+test("Studio sign-out keeps body drafts for the next sign-in in the same browser", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/ship-something-real/");
+  const paragraph = page.locator(".post-body [data-caret-md]").first();
+  await expect(paragraph).toHaveAttribute("contenteditable", "true");
+  await replaceText(page, paragraph, EDITED_TEXT);
+  await Promise.all([
+    page.waitForResponse(isMutatePost),
+    paragraph.evaluate((element) => (element as HTMLElement).blur()),
+  ]);
+
+  const studio = await openStudio(page, "/admin/cms");
+  const logout = page.waitForResponse((response) =>
+    response.url().includes("/api/cms/auth/logout") && response.request().method() === "POST");
+  await studio.locator("#studio-logout-btn").click();
+  expect((await logout).ok()).toBe(true);
+  await expect(studio.getByRole("dialog", { name: "Unpublished changes" })).toHaveCount(0);
+
+  await loginAsEditor(page);
+  const state = await page.request.get("/api/cms/draft", { headers: { "x-caret-request": "1" } });
+  expect((await state.json()).count).toBe(1);
+});
+
+test("pasting a sentence into a paragraph saves", async ({ page, context }) => {
+  await loginAsEditor(page);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/blog/start-from-the-words/");
+  const group = page.locator(".post-body [data-caret-md]").first();
+  await expect(group).toHaveAttribute("contenteditable", "true");
+  await page.evaluate(() => navigator.clipboard.writeText("A pasted sentence."));
+  await group.click();
+  await page.keyboard.press("ControlOrMeta+ArrowDown");
+  await page.keyboard.press("ControlOrMeta+v");
+  await expect(group).toContainText("A pasted sentence.");
+
+  const saving = page.waitForResponse(isMutatePost);
+  await group.evaluate((element) => (element as HTMLElement).blur());
+  const response = await saving;
+  expect(response.ok(), `${response.status()} ${await response.text()} ${response.request().postData()}`).toBe(true);
+  await expect(page.getByText("This formatting cannot be saved in a markdown block")).toHaveCount(0);
+});
+
+test("pasting from a word processor keeps bold, italic and links and drops the rest", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/start-from-the-words/");
+  const group = page.locator(".post-body [data-caret-md]").first();
+  await expect(group).toHaveAttribute("contenteditable", "true");
+  await group.click();
+  await page.keyboard.press("ControlOrMeta+a");
+  await group.evaluate((element) => {
+    const html = '<html><head><style>p.MsoNormal { color: red; }</style></head><body>'
+      + '<p class="MsoNormal" style="margin:0"><b>Bold</b> and <i>italic</i> with <a href="https://example.com/doc">a link</a>, '
+      + '<u>underlined</u> and <span style="font-size:14pt">sized</span> text<o:p></o:p></p>'
+      + '<p class="MsoNormal">Second paragraph</p></body></html>';
+    const data = new DataTransfer();
+    data.setData("text/html", html);
+    data.setData("text/plain", "Bold and italic with a link, underlined and sized text\n\nSecond paragraph");
+    element.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+
+  await expect(group.locator("p")).toHaveCount(2);
+  await expect(group.locator("strong, b")).toHaveText("Bold");
+  await expect(group.locator("em, i")).toHaveText("italic");
+  await expect(group.locator('a[href="https://example.com/doc"]')).toHaveText("a link");
+  await expect(group.locator("u")).toHaveCount(0);
+  await expect(group).not.toContainText("color: red");
+
+  const saving = page.waitForResponse(isMutatePost);
+  await group.evaluate((element) => (element as HTMLElement).blur());
+  const response = await saving;
+  expect(response.ok(), await response.text()).toBe(true);
+});
+
+test("Escape cancels an edit in a body paragraph", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/ship-something-real/");
+  const paragraph = page.locator(".post-body [data-caret-md]").first();
+  await expect(paragraph).toHaveAttribute("contenteditable", "true");
+  const original = await paragraph.innerHTML();
+  let mutations = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/api/cms/mutate") && request.method() === "POST") mutations += 1;
+  });
+
+  await paragraph.click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" not wanted");
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("Edit cancelled")).toBeVisible();
+  expect(await paragraph.innerHTML()).toBe(original);
+  expect(mutations).toBe(0);
+});
+
+test("emptying a required field on the page keeps its text and says why", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/ship-something-real/");
+  const author = page.locator('[data-caret="author"]').first();
+  await expect(author).toHaveClass(/cms-editable/);
+  const original = (await author.textContent())!.trim();
+
+  await author.click();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Backspace");
+  const saving = page.waitForResponse(isMutatePost);
+  await author.evaluate((element) => (element as HTMLElement).blur());
+  expect((await saving).status()).toBe(400);
+
+  await expect(page.getByText("This field can't be empty. The previous text is back.")).toBeVisible();
+  await expect(author).toHaveText(original);
+  await expect(author).not.toHaveClass(/cms-unsaved/);
+  expect(readFileSync(POST, "utf8")).toContain(`author: ${original}`);
+});
+
+test("a new team member isn't stored or shown until its required fields are filled", async ({ page }) => {
+  const created = resolve(CONTENT_SITE, "src/content/team/noor-haddad.md");
+  try {
+    await loginAsEditor(page);
+    const studio = await openStudio(page, "/admin/cms/team");
+    await studio.locator("#btn-new").click();
+    await studio.locator("#create-title-input").fill("Noor Haddad");
+    await Promise.all([
+      expectStudioURL(page, /\/admin\/cms\/team\/noor-haddad\?new=1&title=Noor%20Haddad$/),
+      studio.locator("#btn-create-confirm").click(),
+    ]);
+
+    await expect(studio.locator('[name="name"]')).toHaveValue("Noor Haddad");
+    await expect(studio.locator('[name="role"]')).toHaveValue("");
+    expect(await (await page.request.get("/about")).text()).not.toContain("Noor Haddad");
+
+    const refused = page.waitForResponse(isMutatePost);
+    await studio.locator("#btn-save").click();
+    expect((await refused).status()).toBe(400);
+    await expect(studio.locator('[name="role"]')).toHaveAttribute("aria-invalid", "true");
+    await expect(studio.locator('[data-field-path="role"] .studio-error-text')).toContainText("This field can't be empty");
+    expect(await (await page.request.get("/about")).text()).not.toContain("Noor Haddad");
+  } finally {
+    rmSync(created, { force: true });
+  }
+});
+
+test("in dev, body edits save live like fields, with Undo", async ({ page }) => {
+  test.setTimeout(180_000);
+  const DEV_PORT = process.env.MARKDOWN_DEV_PORT ?? "4405";
+  const DEV = `http://localhost:${DEV_PORT}`;
+  const site = mkdtempSync(resolve(REPO_ROOT, ".tmp-caret-markdown-dev-"));
+  cpSync(CONTENT_SITE, site, {
+    recursive: true,
+    filter: (source) => ![".astro", ".caret", ".caretcms", "dist"].includes(basename(source)),
+  });
+  const post = resolve(site, "src/content/blog/ship-something-real.md");
+  const stop = () => {
+    try { execFileSync("npx", ["astro", "dev", "stop"], { cwd: site, stdio: "ignore" }); } catch { /* not running */ }
+  };
+  try {
+    execFileSync("npx", ["astro", "dev", "--background", "--port", DEV_PORT], {
+      cwd: site,
+      stdio: "inherit",
+      env: { ...process.env, CARET_EDIT_PASSWORD: "e2e-secret" },
+    });
+    const login = await page.request.post(`${DEV}/api/cms/auth/login`, {
+      data: { password: "e2e-secret" }, headers: { Accept: "application/json" },
+    });
+    expect(login.ok(), await login.text()).toBeTruthy();
+    await page.goto(`${DEV}/blog/ship-something-real/`);
+    const blocks = page.locator('.post-body [data-caret-md][contenteditable="true"]');
+    await expect(blocks.first()).toBeVisible();
+    await page.evaluate(() => { (window as unknown as { stayed: boolean }).stayed = true; });
+
+    /** Put the caret at the end of a block's last paragraph. */
+    const caretAtEnd = (index: number) => blocks.nth(index).evaluate((el) => {
+      (el as HTMLElement).focus();
+      const target = el.querySelector("p:last-of-type") ?? el;
+      const selection = getSelection()!;
+      selection.selectAllChildren(target);
+      selection.collapseToEnd();
+    });
+    /** The live save of a request carrying `text`. */
+    const liveSave = (text: string) => page.waitForResponse(async (response) =>
+      isMutatePost(response) && (response.request().postData() ?? "").includes(text) &&
+      (await response.json()).live === true);
+
+    // Autosave goes live while the editor is still typing: no draft, no reload.
+    await caretAtEnd(0);
+    let saved = liveSave("Live now.");
+    await page.keyboard.type(" Live now.");
+    await saved;
+    await expect(blocks.first()).toBeFocused();
+    expect(readFileSync(post, "utf8")).toContain("hypotheticals. Live now.");
+    await expect(page.locator(".cms-draft-controls")).toBeHidden();
+
+    // A later block saves too: its stamps were refreshed after the file moved.
+    const last = (await blocks.count()) - 1;
+    await caretAtEnd(last);
+    saved = liveSave("Second live edit.");
+    // After a live save the editor re-reads block stamps from a fresh render.
+    const refreshed = page.waitForResponse((response) =>
+      response.url() === `${DEV}/blog/ship-something-real/` && response.request().resourceType() === "fetch");
+    await page.keyboard.type(" Second live edit.");
+    await blocks.nth(last).evaluate((el) => (el as HTMLElement).blur());
+    await saved;
+    await refreshed;
+    expect(readFileSync(post, "utf8")).toContain("to production. Second live edit.");
+
+    const toast = page.locator(".cms-toast-success").filter({ hasText: "Saved" });
+    await expect(toast.locator(".cms-toast-msg")).toHaveText("Saved");
+    saved = liveSave("to production.");
+    await toast.getByRole("button", { name: "Undo" }).click();
+    await saved;
+    await expect(page.locator(".cms-toast-success .cms-toast-msg").last()).toHaveText("Change undone");
+    expect(readFileSync(post, "utf8")).not.toContain("Second live edit.");
+    expect(readFileSync(post, "utf8")).toContain("hypotheticals. Live now.");
+    expect(await page.evaluate(() => (window as unknown as { stayed?: boolean }).stayed)).toBe(true);
+  } finally {
+    stop();
+    rmSync(site, { recursive: true, force: true });
+  }
+});
+
+test("a body draft taken back with Undo leaves nothing to publish", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/ship-something-real/");
+  const paragraph = page.locator(".post-body [data-caret-md]").first();
+  await expect(paragraph).toHaveAttribute("contenteditable", "true");
+
+  await replaceText(page, paragraph, EDITED_TEXT);
+  const [save] = await Promise.all([
+    page.waitForResponse(isMutatePost),
+    paragraph.evaluate((element) => (element as HTMLElement).blur()),
+  ]);
+  expect(save.ok(), await save.text()).toBeTruthy();
+  // A production server renders Markdown at build time: the body stays a draft.
+  const toast = page.locator(".cms-toast-success").filter({ hasText: "Draft saved" });
+  await expect(toast.locator(".cms-toast-msg")).toHaveText("Draft saved. Publish to show it to visitors.");
+  await expect(page.locator(".cms-publish-btn")).toHaveText("Publish 1");
+
+  const [undo] = await Promise.all([
+    page.waitForResponse(isMutatePost),
+    toast.getByRole("button", { name: "Undo" }).click(),
+  ]);
+  expect(undo.ok(), await undo.text()).toBeTruthy();
+  await expect(paragraph).toContainText("The fastest way to kill a project");
+  await expect(page.locator(".cms-draft-controls")).toBeHidden();
+  expect((await (await page.request.get("/api/cms/draft")).json()).count).toBe(0);
+  expect(readFileSync(POST, "utf8")).toBe(ORIGINAL);
+});
+
+test("the formatting bar starts at the selection and stays off the heading above", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/");
+  const intro = page.locator("[data-caret-rich]").first();
+  await expect(intro).toHaveAttribute("contenteditable", "true");
+  await intro.click({ position: { x: 5, y: 10 } });
+  await page.keyboard.down("Shift");
+  for (let i = 0; i < 8; i++) await page.keyboard.press("ArrowRight");
+  await page.keyboard.up("Shift");
+  const bar = page.locator(".cms-rich-toolbar");
+  await expect(bar).toBeVisible();
+  const [barBox, introBox, headingBox] = await Promise.all([bar.boundingBox(), intro.boundingBox(), page.locator("main h1").boundingBox()]);
+  expect(barBox!.x).toBeGreaterThanOrEqual(introBox!.x);
+  expect(barBox!.y).toBeGreaterThanOrEqual(headingBox!.y + headingBox!.height);
+});
+
+test("dropping an image onto the page replaces it and asks for its description", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/");
+  const cover = page.locator('img[data-caret="cover"]');
+  await expect(cover).toHaveAttribute("data-caret-img-mounted", "true");
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+  const transfer = await page.evaluateHandle((bytes) => {
+    const data = new DataTransfer();
+    data.items.add(new File([new Uint8Array(bytes)], "desk.png", { type: "image/png" }));
+    return data;
+  }, [...png]);
+  await cover.dispatchEvent("dragover", { dataTransfer: transfer });
+  const saved = page.waitForResponse(isMutatePost);
+  await cover.dispatchEvent("drop", { dataTransfer: transfer });
+  expect((await saved).ok()).toBe(true);
+
+  const dialog = page.getByRole("dialog", { name: "Describe this image" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("textbox").fill("Two desks by a window");
+  const altSaved = page.waitForResponse(isMutatePost);
+  await dialog.getByRole("button", { name: "Save description" }).click();
+  expect((await altSaved).request().postDataJSON()).toMatchObject({ field: "cover_alt", value: "Two desks by a window" });
+  await expect(cover).toHaveAttribute("alt", "Two desks by a window");
+  await expect(page.locator('[data-caret="cover_alt"]')).toHaveText("Two desks by a window");
+});
+
+test("Enter in a heading or list item finishes the edit without an error", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/start-from-the-words/");
+  const heading = page.locator("h2[data-caret-md]").first();
+  await expect(heading).toHaveAttribute("contenteditable", "true");
+  const before = await heading.textContent();
+  await heading.click();
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await expect(heading).not.toBeFocused();
+  await expect(heading).toHaveText(before!);
+  await expect(page.locator(".cms-toast-error")).toHaveCount(0);
 });

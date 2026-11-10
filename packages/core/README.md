@@ -40,8 +40,7 @@ See [Static delivery](../../docs/static-delivery.md) and [Rendering & output](#r
 Fast path for an existing Astro site:
 
 ```bash
-npx @caretcms/caretize init
-npx @caretcms/caretize
+npx @caretcms/caretize init   # installs and wires CaretCMS, then tags your content
 npm run dev
 ```
 
@@ -57,11 +56,6 @@ export default defineConfig({
   integrations: [caret()],
 });
 ```
-
-Enable public access for the R2 bucket and set `R2_PUBLIC_DOMAIN` to that
-hostname, or pass `publicBaseUrl` to `r2Uploads()`. Uploads fail with an
-actionable configuration error if no public URL is available; Caret core does
-not mount an R2 image proxy.
 
 - **`astro dev`** — full authoring: `/admin`, `/api/cms`, inline editor.
 - **`astro build`** — bakes stored overrides into generated HTML; authoring routes stay out of production output.
@@ -147,12 +141,16 @@ Start the dev server:
 npm run dev
 ```
 
-With no password configured, a **temporary dev password is printed in the terminal** (dev only —
-production stays locked). To set a permanent one, add `CARET_EDIT_PASSWORD=<your-password>` to a
-`.env` file.
+With no password configured, dev uses a **temporary password kept in `.caret/dev-password`**
+(also shown by `astro dev logs`; dev only — production stays locked). To set your own, add
+`CARET_EDIT_PASSWORD=<your-password>` to a `.env` file.
 
-Log in at `/admin`, then click any tagged element on the page to edit it. The content Studio
-lives at `/admin/cms`.
+Log in at `/admin`, then click any tagged element on the page to edit it. The toolbar's
+**Studio** button opens the content Studio as a drawer that moves the page aside (add
+`caret-studio-overlay` to `<html>` or `<body>` to keep it over the page instead), and that you
+can expand to two thirds of the window. Its routes live under `/admin/cms`: opened in a tab of their own, they
+show the page an entry appears on (its `previewPath`, else `editorHome`) with the Studio open
+over it. With `enableInlineEditor: false` the Studio is a page of its own.
 
 For editable content inside a link, a normal click edits while Command-click
 (macOS) or Ctrl-click (Windows/Linux) opens the destination in a new tab. The
@@ -162,6 +160,34 @@ linked images keep separate Replace image and Open link actions.
 The inline editor only bootstraps on pages that contain `data-caret` or `data-caret-md` bindings and only after
 `GET /api/cms/auth/session` confirms an authenticated editor session. Session cookies are issued
 as `HttpOnly`, `SameSite=Lax`, and automatically add `Secure` on HTTPS requests.
+
+### Content from collections and data files
+
+Most themes keep their copy in content collections or JSON files and pass it
+through helpers, loops, and component props. With Markdown storage (the default
+when `src/content` has collections), that content is editable without
+annotations:
+
+- Values read with `getCollection()`, `getEntry()`, or `getEntries()` from
+  `astro:content`.
+- JSON files in `src/content` imported directly
+  (`import site from "../content/site.json"`). An array of objects with `id`,
+  or an object of entries keyed by id, is a collection; any other object is a
+  single entry named after the file.
+
+During a signed-in editor's request, each display string carries its storage
+address as invisible characters, and the editor's drafts are shown. Clicking the
+text edits that field, and Publish writes it back to the Markdown frontmatter or
+into the JSON file, changing only the edited values. Visitors and builds get the
+original values.
+
+Strings that code compares or looks up are left alone: values the collection
+schema restricts to a list (`z.enum`), dates, URLs and paths (except image
+paths, which become replaceable images), slugs, ids, numbers, and fields named
+like identifiers (`icon`, `type`, `slug`, …). A value the page splits into words,
+shortens, or rewrites in code is only bound where the whole value appears, so
+an edit never saves a fragment. Set `caret({ bindContent: false })` to turn this
+off.
 
 When you're signed in and land on a live page that has **no** editable bindings yet, CaretCMS
 shows a small "signed in · no editable fields on this page" hint pointing you at the next step —
@@ -283,7 +309,11 @@ const posts = (await getCollection('posts')).filter((post) =>
 
 ## Explicit schemas (optional)
 
-By default, Studio infers field types from your stored data. For better field labels, validation, and widget hints, pass JSON Schemas via the integration config:
+With Markdown storage, Studio forms use the JSON Schemas Astro generates for
+your content collections (`.astro/collections/*.schema.json`), so enums,
+defaults, and required fields match `content.config.ts` without setup. Otherwise
+Studio infers field types from your stored data. To override a collection's
+schema, pass JSON Schemas via the integration config:
 
 ```js
 // astro.config.mjs
@@ -361,11 +391,11 @@ existing entries; deriving from Zod just adds proper labels, types, and widget h
 
 - **Inline editing** on any `data-caret` element (text and images)
 - **Live content collections** via `caretLoader` for `getLiveEntry` / `getLiveCollection` on Astro 6 and 7
-- **Content Studio** at `/admin/cms` for structured CRUD
+- **Content Studio** over the site (routes under `/admin/cms`) for structured CRUD
 - **Section composer** for reordering and spacing page sections
 - **Response rewriting** middleware (server delivery) or **build-time HTML bake** (static delivery)
 - **Scoped bindings** via `data-caret-scope` to reduce repetition
-- **Dev Toolbar app** — in `astro dev`, inspect and highlight every binding on the page (no login required), grouped by entry with deep-links into Studio
+- **Dev Toolbar app** — in `astro dev`, inspect and highlight every binding on the page (no login required), grouped by entry with deep-links into Studio; it flags orphan bindings, duplicate keys and fields whose markup keeps them read-only
 - **Revision safety** with optimistic locking and restore from history
 - **Storage adapters** — filesystem (default), in-memory, or custom via `StorageAdapter` interface
 
@@ -390,7 +420,17 @@ export default defineConfig({
 });
 ```
 
+Enable public access for the R2 bucket and set `R2_PUBLIC_DOMAIN` to that
+hostname, or pass `publicBaseUrl` to `r2Uploads()`. Uploads fail with an
+actionable configuration error if no public URL is available; Caret core does
+not mount an R2 image proxy.
+
 ## API
+
+Storage adapters can declare `guarantees` using the exported `StorageGuarantees`
+type. Custom adapter authors can run the framework-independent
+`runStorageConformance` from `@caretcms/core/testing/storage` against fresh private
+fixtures. See [adapter guarantees and conformance](../../docs/storage-adapters.md).
 
 All routes are under `/api/cms` by default (configurable via `apiBasePath`):
 
@@ -417,6 +457,7 @@ caret({
   apiBasePath: '/api/cms',      // API route prefix (default: /api/cms)
   enableAdmin: true,            // Inject admin pages (default: true)
   enableInlineEditor: true,     // Inject inline editor (default: true)
+  bindContent: true,            // Editable content from astro:content and src/content JSON
   delivery: 'auto',             // 'auto' | 'static' | 'server' | { mode, bake, publish }
   storage: filesystemStorage(), // Storage adapter (default: markdownStorage when
                                 //   src/content collections exist, else filesystem)
@@ -424,7 +465,7 @@ caret({
   deployment: undefined,        // Optional build/deployment status provider
   schemas: {},                  // Optional JSON Schema map for Studio (default: inferred)
   collections: {},              // Labels, capabilities, preview paths, publication
-  locale: 'en',                 // 'en' | 'es'; dictionary overrides are also supported
+  locale: 'en',                 // 'en' | 'es' — the Studio and the on-page editor; `dictionary` overrides any message
   bodyEditing: true,            // Inline editing for rendered Markdown prose
 })
 ```
@@ -531,6 +572,14 @@ Full guide: [docs/static-delivery.md](../../docs/static-delivery.md).
 Draft migration, conflicts, interrupted publication, and deployment retries:
 [publish recovery](../../docs/publish-recovery.md).
 
+File-backed Git history is opt-in with `CARET_GIT_ON_PUBLISH=true`. Add
+`CARET_GIT_JOURNAL_RETRY=true` to retain private retry records before draft
+cleanup; pending records are logged and, in `astro dev`, shown with **Retry
+Git history** in the CaretCMS dev toolbar app. This mode uses per-entry
+commits; retries leave published content and deployment hooks unchanged.
+See [durable Git retry](../../docs/publish-recovery.md#durable-git-history-retry-opt-in)
+for checkout requirements, permissions, and recovery limits.
+
 The webhook's 2xx response means accepted, not deployed. Configure a
 `DeploymentStatusProvider` to show provider-backed Deploying, Live, and failed
 states; Live requires evidence for the published commit or every target entry
@@ -560,17 +609,24 @@ The default (embedded) providers write inside your project:
 | `.caret/drafts/` | per-editor draft overlays | `filesystemStorage()` |
 | `.caretcms/` | revisions + history sidecar | both filesystem and markdown storage |
 | `src/content/**.md` | frontmatter and published prose edits | `markdownStorage()` (auto-selected when you have content collections) |
+| `src/content/*.json` | entries of Astro `file()` data collections, edited in place | `markdownStorage()` |
 | `public/uploads/` | uploaded images | `localUploads()` (default) |
 
-Recommended `.gitignore` for the transient state (keep `.caret/data/` or your
-`src/content` edits if git IS your content store — see the commit-on-publish
-workflow in [docs/deployment.md](../../docs/deployment.md)):
+Recommended `.gitignore` for local state. `npx @caretcms/caretize init` adds it
+for you:
 
 ```gitignore
-.caretcms/
+.env
 .caret/drafts/
-public/uploads/
+.caret/.caretize-bak/
+.caretcms/
 ```
+
+Keep published content tracked: `src/content`, `.caret/data/` when Git is your
+content store (see the commit-on-publish workflow in
+[docs/deployment.md](../../docs/deployment.md)), and `public/uploads/` on static
+sites, whose published content links to those files. Ignore `public/uploads/`
+only when uploads live on persistent server storage instead.
 
 Multiline literal/folded strings and source-preserving saves are supported by
 Markdown storage. See [frontmatter compatibility](../../docs/markdown-frontmatter.md)

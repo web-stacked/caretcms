@@ -1,6 +1,20 @@
 export const prerender = false;
 
 import type { APIContext } from "astro";
+import { getRuntimeConfig } from "../config.js";
+import { EN_STUDIO_MESSAGES, editorMessages } from "../i18n.js";
+
+// The editor's messages in the site's locale, with `dictionary` overrides:
+// a module built from the resolved Studio dictionary (see editor/i18n.js).
+const EDITOR_MESSAGES_PATH = "editor/messages.js";
+let _editorMessages: string | null = null;
+function editorMessagesModule(): string {
+  if (_editorMessages) return _editorMessages;
+  // English underneath, so a key missing from the configured dictionary still reads.
+  const messages = { ...editorMessages(EN_STUDIO_MESSAGES), ...editorMessages(getRuntimeConfig().messages) };
+  _editorMessages = `export default ${JSON.stringify(messages).replace(/</g, "\\u003c")};\n`;
+  return _editorMessages;
+}
 
 // Bundle every static asset as a raw string at build time. The literal
 // import.meta.glob call is transformed by Vite into an inline Object.assign of
@@ -51,6 +65,27 @@ function getMimeType(path: string): string {
   return MIME_TYPES[ext] ?? "application/octet-stream";
 }
 
+// Content hashes for ETags. The assets @import one another by unversioned URLs,
+// so a long max-age would let an upgraded page pair new markup with stale CSS.
+export function contentEtag(body: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < body.length; i++) {
+    hash ^= body.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `"${(hash >>> 0).toString(36)}-${body.length.toString(36)}"`;
+}
+
+const etags = new Map<string, string>();
+function etagFor(path: string, body: string): string {
+  let tag = etags.get(path);
+  if (!tag) {
+    tag = contentEtag(body);
+    etags.set(path, tag);
+  }
+  return tag;
+}
+
 function sanitizePath(raw: string): string | null {
   const normalized = raw.replace(/\\/g, "/");
   if (normalized.includes("..") || normalized.includes("\0")) return null;
@@ -65,24 +100,27 @@ export async function GET(context: APIContext): Promise<Response> {
     return new Response("Not found", { status: 404 });
   }
 
-  const body = getAssets()[safePath];
+  const body = safePath === EDITOR_MESSAGES_PATH ? editorMessagesModule() : getAssets()[safePath];
   if (body === undefined) {
     return new Response("Not found", { status: 404 });
   }
 
   // In dev, never cache — editor source files change frequently and a cached
-  // copy hides edits. In prod, cache for an hour (these are static package
-  // files that only change on a package update).
-  const cacheControl =
-    process.env.NODE_ENV === "development"
-      ? "no-cache, no-store, must-revalidate"
-      : "public, max-age=3600";
+  // copy hides edits. In prod, revalidate every use: an unchanged file costs a
+  // 304, and a package upgrade is picked up immediately.
+  const development = process.env.NODE_ENV === "development";
+  const cacheControl = development ? "no-cache, no-store, must-revalidate" : "public, no-cache";
+  const etag = etagFor(safePath, body);
+  if (!development && context.request.headers.get("if-none-match") === etag) {
+    return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": cacheControl } });
+  }
 
   return new Response(body, {
     status: 200,
     headers: {
       "Content-Type": getMimeType(safePath),
       "Cache-Control": cacheControl,
+      ETag: etag,
     },
   });
 }

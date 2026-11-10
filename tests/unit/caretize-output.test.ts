@@ -65,7 +65,9 @@ describe("formatNextStep", () => {
        gitRepo: true, gitClean: true, errors: [], notes: [], warnings: [], ...over } as Preflight);
 
   it("tells an un-installed project to install + wire core", () => {
-    expect(formatNextStep(pf({ hasCaretCore: false }))).toContain("npx caretize init");
+    expect(formatNextStep(pf({ hasCaretCore: false }))).toContain("npx @caretcms/caretize init");
+    // Never the unscoped name: that package isn't ours.
+    expect(formatNextStep(pf({ hasCaretCore: false }))).not.toMatch(/npx caretize\b/);
   });
   it("tells an installed-but-unwired project to add caret()", () => {
     const out = formatNextStep(pf({ caretWired: false }));
@@ -79,7 +81,7 @@ describe("formatNextStep", () => {
     expect(formatNextStep(pf({ outputMode: "static", staticDeliveryConfigured: true }))).toContain("bakes static HTML");
   });
   it("tells a fully-wired project to run dev and click to edit", () => {
-    expect(formatNextStep(pf({}))).toBe("Next: npm run dev → open your page → click to edit\n");
+    expect(formatNextStep(pf({}))).toBe("Next: npm run dev → sign in at /admin with the password in .caret/dev-password → click to edit\n");
   });
 });
 
@@ -133,6 +135,15 @@ describe("formatSummary", () => {
 });
 
 describe("formatHints", () => {
+  it("explains automatic content binding and editable() for other data", () => {
+    const plans = [plan({ skipped: [{ reason: "dynamic-src" }, { reason: "dynamic-content" }] as unknown as FilePlan["skipped"] })];
+    const out = formatHints(plans, {});
+    expect(out).toContain("2 spot(s) render text or images from props or data");
+    expect(out).toContain("JSON files in src/content editable in the browser");
+    expect(out).toContain('await editable("<collection>::<id>", value)');
+    expect(formatHints([plan()], {})).toBe("");
+  });
+
   it("rolls remaining coverage into one line pointing at --all", () => {
     const plans = [plan({
       skipped: [{ reason: "rich-eligible" }, { reason: "inside-iterator" }] as unknown as FilePlan["skipped"],
@@ -140,7 +151,7 @@ describe("formatHints", () => {
     })];
     const out = formatHints(plans, {});
     expect(out).toContain("More can be made editable:");
-    expect(out).toContain("1 rich heading(s)");
+    expect(out).toContain("1 text block(s) with bold or links");
     expect(out).toContain("1 item(s) in dynamic lists");
     expect(out).toContain("4 lower-confidence spot(s)");
     expect(out).toContain("Re-run with --all");
@@ -148,7 +159,7 @@ describe("formatHints", () => {
 
   it("omits a tier from the line once that tier is on", () => {
     const plans = [plan({ skipped: [{ reason: "rich-eligible" }] as unknown as FilePlan["skipped"] })];
-    expect(formatHints(plans, {})).toContain("rich heading(s)");
+    expect(formatHints(plans, {})).toContain("text block(s) with bold or links");
     expect(formatHints(plans, { rich: true })).toBe("");
   });
 
@@ -209,7 +220,8 @@ describe("formatHints", () => {
     ];
     const out = formatHints(plans, {}); // richClass off
     expect(out).toContain("--rich-class");
-    expect(out).toContain(`allowedClasses: { span: ["gold"] }`);
+    expect(out).toContain("1 <h1> block with styled spans");
+    expect(out).toContain(`caret({ allowedClasses: { span: ["gold"] } })`);
   });
 
   it("reminds to bless classes after tagging styled-span blocks (post-apply)", () => {
@@ -220,8 +232,9 @@ describe("formatHints", () => {
     const tagged = { candidate: { tag: "h1", rich: true, node: richNode } };
     const plans = [plan({ tags: [tagged] as unknown as FilePlan["tags"] })];
     const out = formatHints(plans, { richClass: true }); // richClass on → post-apply reminder
-    expect(out).toContain("Tagged styled-span");
-    expect(out).toContain(`allowedClasses: { span: ["gold"] }`);
+    expect(out).toContain("Tagged 1 <h1> block with styled spans");
+    expect(out).not.toContain("heading");
+    expect(out).toContain(`caret({ allowedClasses: { span: ["gold"] } })`);
   });
 
   it("says nothing when there is nothing to hint", () => {

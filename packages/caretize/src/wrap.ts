@@ -18,7 +18,7 @@
 
 import { deriveScope, isValidField, slugifyText } from "./name.js";
 import { parseAstro, type AstroNode } from "./parse.js";
-import { classifyConstUsage } from "./usage.js";
+import { classifyConstUsage, isMachineField } from "./usage.js";
 import { frontmatterRange, literalConstNames } from "./frontmatter.js";
 import { escapeRe, isIdentifier } from "./identifiers.js";
 
@@ -51,6 +51,36 @@ export type WrapOrigin = "loop" | "prop" | "import" | "named-import";
 /** A safety-verified wrap target, tagged with how it was found. */
 export interface WrapTarget extends WrapCandidate {
   origin: WrapOrigin;
+  /** String fields of an inline literal: `text` becomes editable, `ids`
+   *  (key, id, slug, …) core leaves untouched. Absent for imports. */
+  fields?: WrapFields;
+}
+
+export interface WrapFields {
+  text: string[];
+  ids: string[];
+}
+
+/**
+ * The string-valued fields of a frontmatter literal, split the way CaretCMS
+ * core treats them: identifier fields (`key`, `id`, `slug`, …) stay byte-exact
+ * and are not editable; the rest is editable text. Null when the declaration
+ * or its initializer can't be found.
+ */
+export function literalFields(source: string, varName: string): WrapFields | null {
+  const fm = frontmatterRange(source);
+  if (!fm || !isIdentifier(varName)) return null;
+  const fmText = source.slice(fm.start, fm.end);
+  const m = new RegExp(`\\b(?:const|let|var)\\s+${escapeRe(varName)}(?![\\w$])[^=]*=`).exec(fmText);
+  if (!m) return null;
+  const eq = fm.start + m.index + m[0].length - 1;
+  const end = initializerEnd(source, eq, fm.end);
+  if (end === null) return null;
+  const init = source.slice(eq + 1, end);
+  const names = new Set<string>();
+  for (const f of init.matchAll(/(?<=[{,]\s*)["']?([A-Za-z_$][\w$]*)["']?\s*:\s*["'`]/g)) names.add(f[1]);
+  const all = [...names];
+  return { text: all.filter((n) => !isMachineField(n)), ids: all.filter((n) => isMachineField(n)) };
 }
 
 export interface WrapResult {

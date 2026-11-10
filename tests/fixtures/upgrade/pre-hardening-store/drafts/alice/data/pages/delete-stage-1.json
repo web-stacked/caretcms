@@ -1,0 +1,22 @@
+{
+  "__caret_publish__": {
+    "version": 1,
+    "beforeRevision": 7,
+    "beforeData": {
+      "title": "Original"
+    },
+    "afterData": null,
+    "history": {
+      "operationId": "frozen-pages-delete-stage-1",
+      "ts": 1700000000000,
+      "action": "publish",
+      "data": {
+        "title": "Original"
+      },
+      "editor": {
+        "id": "alice"
+      }
+    }
+  },
+  "__caret_tombstone__": true
+}

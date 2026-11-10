@@ -13,7 +13,7 @@ export function policyIdentityProvider() {
       const role = identity.roles?.[0];
       if (role === "admin") return true;
       if (role === "reviewer") {
-        return action === "edit" || action === "publish" || action === "upload";
+        return action === "edit" || action === "create" || action === "publish" || action === "upload";
       }
       return role === "writer" && action === "edit" &&
         (collection === undefined || collection === "pages") &&

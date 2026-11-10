@@ -6,6 +6,7 @@
 
 // Binding — ADR-004 explicit inline binding (power-user API)
 export { bindEntry } from "./bind.js";
+export { bindCollectionEntries, bindCollectionEntry, bindDataFile } from "./content-bindings.js";
 
 // Content loading — read stored data in .astro frontmatter (power-user API)
 export { loadEntry, loadCollection, listCollections } from "./content.js";
@@ -26,6 +27,7 @@ export {
   IMAGE_KIND_TO_EXT,
   IMAGE_MAX_SIZE,
   IMAGE_MIME_TO_KIND,
+  UPLOAD_MESSAGES,
   UploadError,
   detectImageKind,
   readAndValidateImage,

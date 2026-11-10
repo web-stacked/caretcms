@@ -1,0 +1,9 @@
+---
+import { getLiveEntry } from "astro:content";
+const live = await getLiveEntry("pages", "home");
+if (live.error) throw live.error;
+---
+<!doctype html><html lang="en"><head><title>Cloudflare release validation</title></head><body>
+  <h1 data-caret="pages::home::title">Release seed</h1>
+  <p id="live-title">{live.entry?.data.title ?? "Missing live content"}</p>
+</body></html>

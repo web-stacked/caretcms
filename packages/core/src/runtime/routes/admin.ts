@@ -5,6 +5,7 @@ import {
   hasConfiguredEditorPassword,
   isDevEditorPasswordActive,
   isEditorAuthenticated,
+  missingProductionSettings,
 } from "../auth/session.js";
 import { sanitizeRedirect } from "../auth/cookie-utils.js";
 import { getRuntimeConfig, type CaretRuntimeConfig } from "../config.js";
@@ -37,6 +38,8 @@ function renderBrandMark(logoUrl: string | null): string {
 function renderLogin(opts: {
   hasPassword: boolean;
   devActive: boolean;
+  /** Production settings still missing; sign-in can't work until they're set. */
+  missingSettings: string[];
   apiBasePath: string;
   redirectTo: string;
   editorHome: string;
@@ -51,8 +54,9 @@ function renderLogin(opts: {
   messages: CaretRuntimeConfig["messages"];
 }): string {
   const {
-    hasPassword,
+    hasPassword: passwordSet,
     devActive,
+    missingSettings,
     apiBasePath,
     redirectTo,
     editorHome,
@@ -67,6 +71,8 @@ function renderLogin(opts: {
     messages,
   } = opts;
 
+  // Sign-in works once production has every setting it needs.
+  const hasPassword = passwordSet && missingSettings.length === 0;
   const safeBrand = escapeHtml(brandName);
   const safeRedirect = escapeHtml(redirectTo);
   const safeEditorHome = escapeHtml(editorHome);
@@ -81,7 +87,26 @@ function renderLogin(opts: {
   // active the form works — just nudge them toward a permanent password.
   const docsUrl = "https://caretcms.com/docs";
   let helperBlock = "";
-  if (!hasPassword) {
+  if (missingSettings.length) {
+    // Production: name exactly what's missing, as settings on the host.
+    const lines = missingSettings.map((name) =>
+      name === "CARET_SESSION_SECRET" ? `${name}=<output of: openssl rand -base64 32>` : `${name}=<choose a strong password>`);
+    helperBlock = `
+        <div class="studio-login-setup">
+          <p class="studio-login-setup-title">Finish setting up Caret</p>
+          <ol>
+            <li>
+              Set ${missingSettings.length === 1 ? "this setting" : "these settings"} where the site runs (your host's environment variables):
+              <div class="studio-login-setup-snippet-row">
+                <code id="caret-env-snippet" class="studio-login-setup-snippet">${escapeHtml(lines.join("\n"))}</code>
+                <button type="button" id="caret-copy-env" class="studio-login-setup-copy">Copy</button>
+              </div>
+            </li>
+            <li>Restart or redeploy the site, then refresh this page</li>
+          </ol>
+          <a href="${docsUrl}" class="studio-login-setup-link">Read the setup guide &rarr;</a>
+        </div>`;
+  } else if (!hasPassword) {
     helperBlock = `
         <div class="studio-login-setup">
           <p class="studio-login-setup-title">Finish setting up Caret</p>
@@ -101,7 +126,7 @@ function renderLogin(opts: {
   } else if (devActive) {
     helperBlock = `
         <div class="studio-login-setup studio-login-setup--dev">
-          Signed in with a <strong>temporary dev password</strong> printed in your terminal. To set a permanent one, add <code>CARET_EDIT_PASSWORD</code> to a <code>.env</code> file and restart.
+          To set your own password, add <code>CARET_EDIT_PASSWORD</code> to a <code>.env</code> file and restart.
         </div>`;
   }
 
@@ -165,7 +190,7 @@ function renderLogin(opts: {
                 autocomplete="current-password"
                 class="studio-login-input"
                 placeholder="${escapeHtml(messages["login.placeholder"])}"
-                ${hasPassword ? "" : "disabled"}
+                ${hasPassword ? "autofocus" : "disabled"}
               />
               <svg class="studio-login-input-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
@@ -291,6 +316,7 @@ export async function GET(context: APIContext): Promise<Response> {
     renderLogin({
       hasPassword: hasConfiguredEditorPassword(),
       devActive: isDevEditorPasswordActive(),
+      missingSettings: missingProductionSettings(),
       apiBasePath: runtime.apiBasePath,
       redirectTo: redirectTarget,
       editorHome: runtime.editorHome,

@@ -3,6 +3,11 @@ import type { AuthorizationAction, EditorIdentity, StorageAdapter, UploadHandler
 
 export interface CaretRequestContext {
   adapter: StorageAdapter;
+  /**
+   * The published store under `adapter` when a draft overlay is installed, so
+   * editor reads can compare a draft with what visitors see.
+   */
+  publishedAdapter?: StorageAdapter;
   /** A request-bound, fail-closed policy. Omitted in legacy full-access mode. */
   authorize?: (action: AuthorizationAction, collection?: string, id?: string) => Promise<boolean>;
   uploadHandler: UploadHandler;
@@ -39,6 +44,12 @@ export interface CaretRequestContext {
    * just `process.env`. Null/absent on Node hosts, where `process.env` is used.
    */
   runtimeEnv?: Record<string, unknown> | null;
+  /**
+   * Editor requests only: the stored (draft-aware) entries of every data-file
+   * collection, by collection then id. Imported data files read it
+   * synchronously during render; see `content-bindings.ts`.
+   */
+  dataFiles?: Map<string, Map<string, Record<string, unknown>>>;
 }
 
 // Vite may evaluate more than one copy of @caretcms/core during Astro dev

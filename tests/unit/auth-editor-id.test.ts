@@ -3,7 +3,7 @@ import { createHmac } from "crypto";
 import {
   getEditorId,
   isEditorAuthenticated,
-  issueEditorSessionCookie,
+  issueEditorSessionCookies,
 } from "../../packages/core/src/runtime/auth/session";
 
 const SESSION_COOKIE_NAME = "caret_session";
@@ -37,6 +37,12 @@ function asCookieBag(token: string | null) {
   };
 }
 
+/** A request carrying the cookies a previous sign-in set in this browser. */
+function requestWith(setCookies: string[]): Request {
+  const cookie = setCookies.map((value) => value.split("; ")[0]).join("; ");
+  return new Request("https://site.test/api/cms/auth/login", { headers: { cookie } });
+}
+
 describe("editor identity in the session token", () => {
   let prevPassword: string | undefined;
   let prevSecret: string | undefined;
@@ -55,20 +61,20 @@ describe("editor identity in the session token", () => {
   });
 
   it("mints a string editorId into every issued token", () => {
-    const token = tokenFromCookie(issueEditorSessionCookie("/"));
+    const token = tokenFromCookie(issueEditorSessionCookies("/")[0]);
     const payload = decodePayload(token);
     expect(typeof payload.editorId).toBe("string");
     expect((payload.editorId as string).length).toBeGreaterThan(0);
   });
 
   it("mints a distinct editorId per login", () => {
-    const a = decodePayload(tokenFromCookie(issueEditorSessionCookie("/"))).editorId;
-    const b = decodePayload(tokenFromCookie(issueEditorSessionCookie("/"))).editorId;
+    const a = decodePayload(tokenFromCookie(issueEditorSessionCookies("/")[0])).editorId;
+    const b = decodePayload(tokenFromCookie(issueEditorSessionCookies("/")[0])).editorId;
     expect(a).not.toBe(b);
   });
 
   it("getEditorId reads the id back from the cookie", () => {
-    const token = tokenFromCookie(issueEditorSessionCookie("/"));
+    const token = tokenFromCookie(issueEditorSessionCookies("/")[0]);
     const expected = decodePayload(token).editorId;
     expect(getEditorId(asCookieBag(token))).toBe(expected);
   });
@@ -87,5 +93,33 @@ describe("editor identity in the session token", () => {
   it("rejects a token whose editorId is the wrong type", () => {
     const bad = signedToken({ editor: true, exp: Date.now() + 60_000, editorId: 123 });
     expect(isEditorAuthenticated(asCookieBag(bad))).toBe(false);
+  });
+
+  it("reuses the editor id this browser signed in with before", () => {
+    const first = issueEditorSessionCookies("/");
+    const again = issueEditorSessionCookies("/", requestWith(first));
+    expect(decodePayload(tokenFromCookie(again[0])).editorId)
+      .toBe(decodePayload(tokenFromCookie(first[0])).editorId);
+    expect(first[1]).toMatch(/^caret_editor=.*Max-Age=34560000/);
+  });
+
+  it("gives another browser its own editor id", () => {
+    const first = issueEditorSessionCookies("/");
+    const other = issueEditorSessionCookies("/");
+    expect(decodePayload(tokenFromCookie(other[0])).editorId)
+      .not.toBe(decodePayload(tokenFromCookie(first[0])).editorId);
+  });
+
+  it("ignores a forged or altered browser cookie", () => {
+    const victim = "11111111-2222-4333-8444-555555555555";
+    const forged = requestWith([`caret_editor=${encodeURIComponent(`${victim}.not-a-signature`)}`]);
+    expect(decodePayload(tokenFromCookie(issueEditorSessionCookies("/", forged)[0])).editorId).not.toBe(victim);
+
+    const real = issueEditorSessionCookies("/");
+    const id = String(decodePayload(tokenFromCookie(real[0])).editorId);
+    const signature = decodeURIComponent(real[1].split("; ")[0].split("=")[1]).split(".")[1];
+    const swapped = requestWith([`caret_editor=${encodeURIComponent(`${victim}.${signature}`)}`]);
+    expect(decodePayload(tokenFromCookie(issueEditorSessionCookies("/", swapped)[0])).editorId).not.toBe(victim);
+    expect(id).not.toBe(victim);
   });
 });

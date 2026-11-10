@@ -65,13 +65,23 @@ describe("caretize CLI · meta flags", () => {
   it("--help prints usage and exits 0", () => {
     const r = run(dir, "--help");
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain("Usage: caretize");
+    expect(r.stdout).toContain("Usage: npx @caretcms/caretize");
   });
 
-  it("--version prints the version and exits 0", () => {
+  it("init without a terminal says how to run it instead of quitting silently", () => {
+    project();
+    const r = run(dir, "init");
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("npx @caretcms/caretize init -y");
+    // Nothing was changed.
+    expect(readFileSync(join(dir, "astro.config.mjs"), "utf8")).toBe("export default {};\n");
+  });
+
+  it("--version prints the published package version and exits 0", () => {
     const r = run(dir, "--version");
+    const manifest = JSON.parse(readFileSync(join(ROOT, "packages", "caretize", "package.json"), "utf8")) as { version: string };
     expect(r.status).toBe(0);
-    expect(r.stdout.trim()).toBe("0.1.0");
+    expect(r.stdout.trim()).toBe(manifest.version);
   });
 
   it("rejects an unknown flag with exit code 2", () => {
@@ -133,7 +143,7 @@ describe("caretize CLI · scan + apply", () => {
     expect(apply.status).toBe(0);
     expect(apply.stdout).toContain("change(s) across");
     // core isn't installed in the temp project → CTA points at init, not "click to edit"
-    expect(apply.stdout).toContain("npx caretize init");
+    expect(apply.stdout).toContain("npx @caretcms/caretize init");
     expect(apply.stdout).not.toContain("click to edit");
     const tagged = readFileSync(join(dir, "src/pages/index.astro"), "utf8");
     expect(tagged).toContain(`data-caret="pages::home::`);
@@ -220,5 +230,39 @@ const posts = await getCollection("blog");
     // the re-run scan frames existing coverage as "already editable"
     expect(second.stdout).toContain("already editable");
     expect(readFileSync(join(dir, "src/pages/index.astro"), "utf8")).toBe(first);
+  });
+});
+
+describe("caretize on a CaretCMS 0.6 project", () => {
+  function project(core: string): void {
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ dependencies: { astro: "^7", "@caretcms/core": core } }));
+    writeFileSync(join(dir, "astro.config.mjs"), `import caret from "@caretcms/core";\nexport default defineConfig({ integrations: [caret()] });\n`);
+    mkdirSync(join(dir, "src", "pages"), { recursive: true });
+    mkdirSync(join(dir, "src", "components"), { recursive: true });
+    writeFileSync(join(dir, "src", "pages", "index.astro"), [
+      "---",
+      "import { getCollection } from 'astro:content';",
+      "const posts = await getCollection('blog');",
+      "---",
+      "<main><h1>Journal</h1><ul>{posts.map((p) => <li><h2>{p.data.title}</h2></li>)}</ul></main>",
+    ].join("\n"));
+    writeFileSync(join(dir, "src", "components", "Header.astro"), '<header class="fixed inset-x-0 top-0"><p>Atlas</p></header>\n');
+  }
+
+  it("leaves astro:content loops to CaretCMS and points fixed headers at the overlay opt-out", () => {
+    project("^0.6.0");
+    const r = run(dir, "--dry-run", "-y");
+    expect(r.status).toBe(0);
+    expect(r.stdout).not.toContain("consider a dynamic collection");
+    expect(r.stdout).not.toContain("--bind-collections");
+    expect(r.stdout).toContain("src/components/Header.astro has a fixed header or nav");
+    expect(r.stdout).toContain('class="caret-studio-overlay"');
+  });
+
+  it("keeps the earlier advice for older cores", () => {
+    project("^0.5.0");
+    const r = run(dir, "--dry-run", "-y");
+    expect(r.stdout).toContain("consider a dynamic collection");
+    expect(r.stdout).not.toContain("caret-studio-overlay");
   });
 });

@@ -1,0 +1,20 @@
+{
+  "__caret_publish__": {
+    "version": 1,
+    "beforeRevision": 7,
+    "beforeData": null,
+    "afterData": {
+      "title": "Created"
+    },
+    "history": {
+      "operationId": "frozen-pages-create-stage-0",
+      "ts": 1700000000000,
+      "action": "publish",
+      "data": null,
+      "editor": {
+        "id": "alice"
+      }
+    }
+  },
+  "title": "Created"
+}

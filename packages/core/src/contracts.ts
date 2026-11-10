@@ -22,6 +22,7 @@ export {
   RICH_ALLOWED_TAGS,
   RICH_ALLOWED_ATTRS,
   SAFE_HREF_RE,
+  SCOPED_STYLE_ATTR_RE,
 } from "./runtime/rich-allowlist.js";
 
 export {

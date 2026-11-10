@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 /**
  * Owns the `cms-highlight-all` body class — the single source of truth for
  * "show every editable region". Two callers share it:
@@ -24,12 +26,12 @@ export function toggleHighlight(highlightBtn, showToast) {
   const label = highlightBtn.querySelector('.cms-highlight-label');
 
   if (highlightActive) {
-    if (label) label.textContent = 'Hide editable areas';
-    highlightBtn.setAttribute('aria-label', 'Hide editable areas');
-    showToast('Editable areas are visible', 'success');
+    if (label) label.textContent = t('editor.highlight.hide');
+    highlightBtn.setAttribute('aria-label', t('editor.highlight.hide'));
+    showToast(t('editor.highlight.visible'), 'success');
   } else {
-    if (label) label.textContent = 'Show editable areas';
-    highlightBtn.setAttribute('aria-label', 'Show editable areas');
+    if (label) label.textContent = t('editor.highlight.show');
+    highlightBtn.setAttribute('aria-label', t('editor.highlight.show'));
   }
 }
 

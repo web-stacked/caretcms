@@ -7,7 +7,14 @@
 export async function compressImage(file, maxWidth = 1600, quality = 0.82) {
   if (file.size < 200000 && file.type === 'image/webp') return file;
 
-  const bitmap = await createImageBitmap(file);
+  /** @type {ImageBitmap} */
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    // Not decodable here: send it as it is and let the server say why.
+    return file;
+  }
   let width = bitmap.width;
   let height = bitmap.height;
 
@@ -97,4 +104,32 @@ export function updateEmblaCarousel(img, newUrl) {
       detail: { index: slideIndex, url: newUrl },
     }),
   );
+}
+
+/**
+ * Wait until an uploaded image is actually served. A dev server learns about
+ * new public files a moment after they're written, and a CDN can lag too, so
+ * switching to the URL at once shows a broken image. Probes with an image
+ * load (which works cross-origin), retrying until `timeoutMs`; resolves false
+ * if it never loads, and callers switch anyway.
+ * @param {string} url
+ * @param {{ timeoutMs?: number, intervalMs?: number, createImage?: () => HTMLImageElement }} [options]
+ * @returns {Promise<boolean>}
+ */
+export function whenServed(url, { timeoutMs = 15000, intervalMs = 400, createImage = () => new Image() } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let attempt = 0;
+  return new Promise((resolve) => {
+    function probe() {
+      const image = createImage();
+      image.onload = () => resolve(true);
+      image.onerror = () => {
+        if (Date.now() >= deadline) resolve(false);
+        else setTimeout(probe, intervalMs);
+      };
+      // Retries use a fresh URL so a failed attempt can't be reused.
+      image.src = attempt++ === 0 ? url : `${url}${url.includes('?') ? '&' : '?'}caret-retry=${attempt}`;
+    }
+    probe();
+  });
 }

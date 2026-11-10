@@ -24,10 +24,40 @@ document.querySelector('#run').addEventListener('click', async () => {
 </script></body></html>`;
 
 export default {
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request: Request, env: { CMS_CONTENT: { idFromName(name: string): unknown; get(id: unknown): { fetch(input: string, init: RequestInit): Promise<Response> } } }): Promise<Response> {
     const url = new URL(request.url);
     const run = url.searchParams.get("run") ?? crypto.randomUUID();
     const storage = adapter(run);
+    if (url.pathname === "/coordinated-draft") {
+      const published = new CloudflareDurableStorageAdapter({ instanceName: run, bundledFallback: false, editorDrafts: "coordinated" });
+      await published.commitEntries([{ collection: "posts", id: "one", expectedRevision: 0, expectedExists: false, data: { title: "Base" } }]);
+      const raw = await published.makeEditorOverlay("alice");
+      const coordinator = raw.coordinateDrafts!(published)!;
+      const [captured] = await coordinator.getEntrySnapshots("posts", ["one"]);
+      await adapter(run).commitEntries([{ collection: "posts", id: "one", expectedRevision: 1, expectedExists: true, data: { title: "Other writer" } }]);
+      const changes = [{ collection: "posts", id: "one", expectedRevision: 0, expectedExists: false, data: { title: "Private draft" } }];
+      const raced = await coordinator.commitEntries(changes, [{ collection: "posts", id: "one", revision: captured.base.revision }],
+        [{ collection: "posts", id: "one", data: captured.overlay.entry?.data ?? null }]);
+      const retry = await coordinator.commitEntries(changes, [{ collection: "posts", id: "one", revision: 2 }],
+        [{ collection: "posts", id: "one", data: null }]);
+      const bob = await published.makeEditorOverlay("bob");
+      return Response.json({ raced, retry, published: await published.getEntrySnapshot("posts", "one"),
+        private: await raw.getEntrySnapshot!("posts", "one"), otherEditor: await bob.getEntry("posts", "one") });
+    }
+    if (url.pathname === "/collection-recreate") {
+      await storage.commitEntries([{ collection: "removed", id: "one", expectedRevision: 0, expectedExists: false, data: { title: "Original" } }]);
+      await storage.deleteCollection("removed");
+      const removed = await storage.getEntrySnapshot("removed", "one");
+      await storage.createCollection({ id: "removed", label: "Removed", created_at: 1, updated_at: 1,
+        schema: { type: "object", properties: {} } });
+      const recreated = await storage.commitEntries([{ collection: "removed", id: "one", expectedRevision: 2, expectedExists: false, data: { title: "Recreated" } }]);
+      const stale = await storage.commitEntries([{ collection: "removed", id: "one", expectedRevision: 1, expectedExists: true, data: { title: "Stale" } }]);
+      const stub = env.CMS_CONTENT.get(env.CMS_CONTENT.idFromName(run));
+      const seeded = await stub.fetch("https://caretcms.internal/storage", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "commit_entries", changes: [{ collection: "removed", id: "seed", expectedRevision: 0,
+          expectedExists: true, seedData: { title: "Old seed" }, data: { title: "Stale seed" } }] }) });
+      return Response.json({ removed, recreated, stale, seedResult: await seeded.json(), current: await storage.getEntrySnapshot("removed", "one") });
+    }
     if (url.pathname === "/same") {
       const title = url.searchParams.get("title") ?? "unknown";
       return Response.json(await storage.commitEntries([{ collection: "pages", id: "home",

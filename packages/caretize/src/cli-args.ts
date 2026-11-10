@@ -45,16 +45,17 @@ export class CliUsageError extends Error {}
 
 export const HELP = `caretize · make an Astro project editable (data-caret + editable())
 
-Usage: caretize [path] [options]
-       caretize init       wire CaretCMS into the project, then tag
+Usage: npx @caretcms/caretize [path] [options]
+       npx @caretcms/caretize init   wire CaretCMS into the project, then tag
 
 By default caretize applies the safe edits, then shows a diff you can undo with
 --restore. Use --review to approve each change first, or --diff to preview only.
 
   init                     set up CaretCMS first: install @caretcms/core, wire
-                           caret() into astro.config, and scaffold .env. Static
-                           Astro projects use auto static delivery by default; server
-                           projects keep SSR adapter wiring
+                           caret() into astro.config, scaffold .env, and update
+                           .gitignore. Static Astro projects use auto static
+                           delivery by default; server projects keep SSR adapter
+                           wiring
   path                     file or directory to scan (default: src/)
   --review                 approve each default change before writing; the richer
                            tiers are still offered (decline with n)
@@ -71,6 +72,8 @@ By default caretize applies the safe edits, then shows a diff you can undo with
                            entry — a leaf rendering {entry.data.field} (entry from
                            getStaticPaths props) gets a data-caret instead of the
                            page being skipped as a dynamic route
+                           (CaretCMS 0.6+ binds getCollection()/getEntry() content
+                           on its own, so --all leaves these two out there)
   --rich                   also tag mixed-content blocks whose markup is
                            sanitizer-safe inline formatting (data-caret-rich)
   --rich-class             also tag rich blocks whose inline children carry a

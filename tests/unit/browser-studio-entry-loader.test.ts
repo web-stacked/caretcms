@@ -36,10 +36,13 @@ describe("Studio entry loader", () => {
 
   it("builds a safe template when the schema response omits one", async () => {
     const api = loader(Response.json({ entries: [] }), Response.json({ schema: {
-      type: "object", properties: { enabled: { type: "boolean" }, count: { type: "integer", minimum: 2 } },
+      type: "object", required: ["enabled", "count"],
+      properties: { enabled: { type: "boolean" }, count: { type: "integer", minimum: 2 }, note: { type: "string" } },
     } }));
-    await expect(api.load({ collection: "pages", id: "new", initializeIfMissing: true }))
-      .resolves.toMatchObject({ kind: "ready", data: { enabled: false, count: 2 }, initialized: true });
+    const result = await api.load({ collection: "pages", id: "new", initializeIfMissing: true });
+    // Required fields start with a value; the optional note stays absent.
+    expect(result).toMatchObject({ kind: "ready", data: { enabled: false, count: 2 }, initialized: true });
+    expect(result.kind === "ready" && "note" in result.data).toBe(false);
   });
 
   it("fails authentication when either parallel request is unauthorized", async () => {

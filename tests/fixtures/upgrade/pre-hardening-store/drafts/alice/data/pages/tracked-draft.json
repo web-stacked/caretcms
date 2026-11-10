@@ -1,0 +1,13 @@
+{
+  "title": "Approved",
+  "summary": "Keep me",
+  "__caret_draft__": {
+    "version": 1,
+    "baseRevision": 7,
+    "baseData": {
+      "title": "Original",
+      "summary": "Keep me"
+    },
+    "structured": true
+  }
+}

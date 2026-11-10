@@ -9,6 +9,7 @@
 
 import type { JsonSchemaNode } from "../schema-utils.js";
 import type { CollectionStudioConfig, StorageAdapter } from "../types.js";
+import { inferTitleField } from "./entry-title.js";
 
 type CollectionSchemaEntry = {
   schema: JsonSchemaNode;
@@ -97,7 +98,7 @@ export async function resolveCollectionStudioConfig(
 ): Promise<CollectionStudioConfig> {
   const dynamic = await adapter.getCollectionMetadata(collection);
   const registered = studioConfigRegistry.get(collection);
-  return {
+  const config: CollectionStudioConfig = {
     label: dynamic?.label,
     entryLabel: dynamic?.entryLabel,
     description: dynamic?.description,
@@ -114,4 +115,7 @@ export async function resolveCollectionStudioConfig(
     publication: dynamic?.publication,
     ...registered,
   };
+  // Without a configured title field, the schema says which field names an entry.
+  config.titleField ||= inferTitleField(getRegisteredSchema(collection)?.schema);
+  return config;
 }

@@ -2,6 +2,7 @@ import {
   RICH_ALLOWED_TAGS,
   RICH_ALLOWED_ATTRS,
   SAFE_HREF_RE,
+  SCOPED_STYLE_ATTR_RE,
   classAllowed,
 } from "./runtime/rich-allowlist.js";
 import { getNestedValue } from "./runtime/utils.js";
@@ -230,6 +231,11 @@ function sanitizeNode(
     const classPatterns = allowedClasses ? allowedClasses[tag] : undefined;
     const attrs = Array.from(el.attributes);
     for (const attr of attrs) {
+      // Astro's scoped-style marker, kept without its value.
+      if (SCOPED_STYLE_ATTR_RE.test(attr.name)) {
+        el.setAttribute(attr.name, "");
+        continue;
+      }
       // class is gated by the per-tag allowlist, not RICH_ALLOWED_ATTRS
       if (attr.name === "class") {
         if (!classPatterns) {

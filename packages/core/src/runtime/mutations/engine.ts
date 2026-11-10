@@ -1,7 +1,8 @@
 import { canMutate } from "../authorization.js";
+import { withCollectionReads, withCollectionWrite } from "./collection-lock.js";
 import { paragraphSourcesMatch, serializeParagraphs } from "../../markdown/paragraphs.js";
 import type { StorageAdapter } from "../../types.js";
-import { setNestedValue } from "../utils.js";
+import { setNestedValue, stripBodyOverlay } from "../utils.js";
 import { sanitizeHtml } from "../sanitize-html.js";
 import { canonicalBody } from "../../markdown/canonical-body.js";
 import { BODY_OVERLAY_KEY, fnv1a32 } from "../../markdown/contracts.js";
@@ -16,7 +17,7 @@ import {
 } from "./contracts.js";
 import { resolveCollectionStudioConfig } from "../schema-registry.js";
 import { getRegisteredSchema } from "../schema-registry.js";
-import { validateJsonSchema, type JsonSchemaNode } from "../../schema-utils.js";
+import { clearedRequiredText, emptyRequiredText, validateJsonSchema, type JsonSchemaNode } from "../../schema-utils.js";
 import { getRequestContext } from "../request-context.js";
 import { publicationField } from "../collection-policy.js";
 import { commitEntryChanges, historyForEditor } from "../storage/entry-commit.js";
@@ -92,13 +93,22 @@ export function withEntryLock<T>(
   id: string,
   task: () => Promise<T>,
 ): Promise<T> {
-  return withLock(entryKey(collection, id), task);
+  return withCollectionReads([collection], () => withLock(entryKey(collection, id), task));
+}
+
+/** Hold a sorted set of entry locks through a coordinated read/journal operation. */
+export function withEntryLocks<T>(
+  entries: ReadonlyArray<{ collection: string; id: string }>, task: () => Promise<T>,
+): Promise<T> {
+  return withCollectionReads(entries.map(entry => entry.collection), () =>
+    withLocks(entries.map(entry => entryKey(entry.collection, entry.id)), task));
 }
 
 type MutationErrorBody = {
   error: string;
   issues?: MutationIssue[];
   currentRevision?: number;
+  currentBaseRevision?: number;
   conflictId?: string;
 };
 
@@ -123,6 +133,7 @@ function commitConflict(
   return fail(409, "Revision conflict", {
     currentRevision: result.conflict.currentRevision,
     conflictId: result.conflict.id,
+    ...(result.conflict.currentBaseRevision !== undefined ? { currentBaseRevision: result.conflict.currentBaseRevision } : {}),
   });
 }
 
@@ -198,9 +209,16 @@ function coerceFieldValue(value: string, schema: JsonSchemaNode | null): unknown
   return value;
 }
 
-function validateEntry(schema: JsonSchemaNode | null, data: Record<string, unknown>): MutationResult | null {
+function validateEntry(
+  schema: JsonSchemaNode | null,
+  data: Record<string, unknown>,
+  before: Record<string, unknown> | null = null,
+): MutationResult | null {
   if (!schema) return null;
-  const issues = validateJsonSchema(data, schema);
+  const issues = [
+    ...(before ? clearedRequiredText(schema, before, data) : []),
+    ...validateJsonSchema(stripBodyOverlay(data), schema),
+  ];
   return issues.length > 0
     ? fail(400, "Entry does not match collection schema", { issues })
     : null;
@@ -238,7 +256,7 @@ async function applySaveField(
 ): Promise<MutationResult> {
   const { collection, id, field, value, expectedRevision } = command;
 
-  return withLock(entryKey(collection, id), async () => {
+  return withEntryLock(collection, id, async () => {
     const revision = await ensureExpectedRevisionMatches(adapter, collection, id, expectedRevision);
     if (!revision.ok) return revision.result;
 
@@ -256,11 +274,12 @@ async function applySaveField(
 
     const publicationFailure = await validatePublication(adapter, collection, current);
     if (publicationFailure) return publicationFailure;
-    const validationFailure = validateEntry(schema, current);
+    const validationFailure = validateEntry(schema, current, before);
     if (validationFailure) return validationFailure;
 
     const committed = await commitEntryChanges(adapter, [{
       collection, id, expectedRevision: revision.currentRevision,
+      expectedBaseRevision: command.expectedBaseRevision,
       expectedExists: Boolean(beforeEntry), data: current,
       history: historyForEditor({ ts: Date.now(), action: "save", data: before }),
     }]);
@@ -275,7 +294,7 @@ async function applyPutEntry(
   command: Extract<CmsMutationCommand, { type: "put_entry" }>,
 ): Promise<MutationResult> {
   const { collection, id, data, expectedRevision } = command;
-  return withLock(entryKey(collection, id), async () => {
+  return withEntryLock(collection, id, async () => {
     const revision = await ensureExpectedRevisionMatches(adapter, collection, id, expectedRevision);
     if (!revision.ok) return revision.result;
 
@@ -295,12 +314,18 @@ async function applyPutEntry(
 
     const publicationFailure = await validatePublication(adapter, collection, data);
     if (publicationFailure) return publicationFailure;
-    const validationFailure = validateEntry(await collectionSchema(adapter, collection), data);
+    const schema = await collectionSchema(adapter, collection);
+    // Creating asks for every required text field up front.
+    const missing = command.createOnly && schema ? emptyRequiredText(schema, data) : [];
+    if (missing.length) return fail(400, "Entry does not match collection schema", { issues: missing });
+    const validationFailure = validateEntry(schema, data, before);
     if (validationFailure) return validationFailure;
 
     const committed = await commitEntryChanges(adapter, [{
       collection, id, expectedRevision: revision.currentRevision,
+      expectedBaseRevision: command.expectedBaseRevision,
       expectedExists: before !== null, data: write,
+      requireBaseRevision: command.expectedRevision !== undefined,
       ...(before !== null ? { history: historyForEditor({
         ts: Date.now(), action: "put", data: before,
       }) } : {}),
@@ -316,7 +341,7 @@ async function applyDeleteEntry(
   command: Extract<CmsMutationCommand, { type: "delete_entry" }>,
 ): Promise<MutationResult> {
   const { collection, id, expectedRevision } = command;
-  return withLock(entryKey(collection, id), async () => {
+  return withEntryLock(collection, id, async () => {
     const revision = await ensureExpectedRevisionMatches(adapter, collection, id, expectedRevision);
     if (!revision.ok) return revision.result;
 
@@ -324,6 +349,7 @@ async function applyDeleteEntry(
 
     const committed = await commitEntryChanges(adapter, [{
       collection, id, expectedRevision: revision.currentRevision,
+      expectedBaseRevision: command.expectedBaseRevision,
       expectedExists: before !== null, data: null,
       ...(before !== null ? { history: historyForEditor({
         ts: Date.now(), action: "delete", data: before,
@@ -345,7 +371,7 @@ async function applyReorderEntries(
   // per-entry locks, a concurrent save_field on one of these entries can
   // interleave a revision bump between two of ours and tear the revision map.
   const keys = [collectionKey(collection), ...items.map((item) => entryKey(collection, item.id))];
-  return withLocks(keys, async () => {
+  return withCollectionReads([collection], () => withLocks(keys, async () => {
     const currentById = new Map<string, { data: Record<string, unknown>; revision: number }>();
 
     for (const item of items) {
@@ -368,6 +394,8 @@ async function applyReorderEntries(
       if (!current) return fail(500, "Failed to load reorder item");
 
       const nextData = { ...current.data, order: item.order };
+      const publicationFailure = await validatePublication(adapter, collection, nextData);
+      if (publicationFailure) return publicationFailure;
       const validationFailure = validateEntry(schema, nextData);
       if (validationFailure) return validationFailure;
       pending.set(item.id, nextData);
@@ -381,6 +409,7 @@ async function applyReorderEntries(
       if (!current || !nextData) throw new Error("Failed to prepare reorder item");
       return {
         collection, id: item.id, expectedRevision: current.revision,
+        expectedBaseRevision: item.expectedBaseRevision,
         expectedExists: true, data: nextData,
         history: historyForEditor({ ts: Date.now(), action: "reorder", data: current.data }),
       };
@@ -389,7 +418,7 @@ async function applyReorderEntries(
     const revisions = Object.fromEntries(committed.revisions.map(item => [item.id, item.revision]));
 
     return { ok: true, body: { ok: true, revisions } };
-  });
+  }));
 }
 
 async function applyUpdatePageLayout(
@@ -397,12 +426,12 @@ async function applyUpdatePageLayout(
   command: Extract<CmsMutationCommand, { type: "update_page_layout" }>,
 ): Promise<MutationResult> {
   const { collection, id, sections, expectedRevision } = command;
-  return withLock(entryKey(collection, id), async () => {
+  return withEntryLock(collection, id, async () => {
     const revision = await ensureExpectedRevisionMatches(adapter, collection, id, expectedRevision);
     if (!revision.ok) return revision.result;
 
     const currentEntry = await adapter.getEntry(collection, id);
-    const current = currentEntry?.data ?? {};
+    const current = structuredClone(currentEntry?.data ?? {});
     // Snapshot the pre-mutation state for history before we mutate `current`.
     const before = structuredClone(current);
 
@@ -417,9 +446,15 @@ async function applyUpdatePageLayout(
       spacing_y: section.spacing_y,
     }));
     current.layout = layout;
+    const publicationFailure = await validatePublication(adapter, collection, current);
+    if (publicationFailure) return publicationFailure;
+    const schema = await collectionSchema(adapter, collection);
+    const validationFailure = validateEntry(schema, current);
+    if (validationFailure) return validationFailure;
 
     const committed = await commitEntryChanges(adapter, [{
       collection, id, expectedRevision: revision.currentRevision,
+      expectedBaseRevision: command.expectedBaseRevision,
       expectedExists: Boolean(currentEntry), data: current,
       history: historyForEditor({ ts: Date.now(), action: "put", data: before }),
     }]);
@@ -450,7 +485,7 @@ async function applyMdBlock(
 ): Promise<MutationResult> {
   const { collection, id, blockPath, src, html, expectedRevision } = command;
 
-  return withLock(entryKey(collection, id), async () => {
+  return withEntryLock(collection, id, async () => {
     const revision = await ensureExpectedRevisionMatches(adapter, collection, id, expectedRevision);
     if (!revision.ok) return revision.result;
 
@@ -521,13 +556,16 @@ async function applyMdBlock(
       }
       delete drafts[path];
     }
-    drafts[blockPath] = { md, html: clean, src: target, ts: Date.now(),
+    // Back to the source text (an Undo, say): nothing left to publish here.
+    if (md === body.slice(target.start, target.end)) delete drafts[blockPath];
+    else drafts[blockPath] = { md, html: clean, src: target, ts: Date.now(),
       ...(group ? { paragraphs: group.paragraphs, sources: command.sources } : {}) };
 
     current[BODY_OVERLAY_KEY] = drafts;
 
     const committed = await commitEntryChanges(adapter, [{
       collection, id, expectedRevision: revision.currentRevision,
+      expectedBaseRevision: command.expectedBaseRevision,
       expectedExists: true, data: current, writeMode: "body",
       history: historyForEditor({ ts: Date.now(), action: "save", data: before }),
     }]);
@@ -549,7 +587,7 @@ async function applyCreateCollection(
   // Hold the collection lock so the exists-check → create is atomic (two
   // concurrent creates can't both pass the check) and serializes against a
   // concurrent delete_collection / reorder_entries on the same collection.
-  return withLock(collectionKey(id), async () => {
+  return withCollectionWrite(id, () => withLock(collectionKey(id), async () => {
     const exists = await adapter.isKnownCollection(id);
     if (exists) {
       return fail(409, `Collection "${id}" already exists`);
@@ -577,7 +615,7 @@ async function applyCreateCollection(
       const message = error instanceof Error ? error.message : "Failed to create collection";
       return fail(500, message);
     }
-  });
+  }));
 }
 
 async function applyDeleteCollection(
@@ -588,7 +626,7 @@ async function applyDeleteCollection(
 
   // Hold the collection lock (same key reorder_entries acquires) so a delete
   // can't interleave with an in-flight reorder/create on the same collection.
-  return withLock(collectionKey(id), async () => {
+  return withCollectionWrite(id, () => withLock(collectionKey(id), async () => {
     const exists = await adapter.isKnownCollection(id);
     if (!exists) {
       return fail(404, `Collection "${id}" not found`);
@@ -601,7 +639,7 @@ async function applyDeleteCollection(
       const message = error instanceof Error ? error.message : "Failed to delete collection";
       return fail(500, message);
     }
-  });
+  }));
 }
 
 export async function executeMutation(

@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 /** @typedef {'saving' | 'idle' | 'error'} ToolbarStatusState */
 /**
  * @typedef {object} DeploymentStatusResponse
@@ -44,17 +46,17 @@ export function createDeploymentStatusPoller(options) {
       if (!data.configured || !data.target) return;
       options.setBuildId(typeof data.buildId === 'string' ? data.buildId : null);
       if (data.state === 'deploying') {
-        options.setStatus('saving', 'Deploying…');
+        options.setStatus('saving', t('editor.deploy.updating'));
         schedule();
       } else if (data.state === 'live') {
         stop();
-        options.setStatus('idle', 'Live');
+        options.setStatus('idle', t('editor.toolbar.live'));
       } else if (data.state === 'failed') {
         stop();
-        options.setStatus('error', 'Deploy failed');
+        options.setStatus('error', t('editor.deploy.failed'));
       } else {
         stop();
-        options.setStatus('error', 'Deploy status unknown');
+        options.setStatus('error', t('editor.deploy.unknown'));
       }
     } catch {
       // A transient status lookup must not turn a successful content save into

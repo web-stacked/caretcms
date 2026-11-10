@@ -8,12 +8,329 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-10
+
+Redesigns the Studio and the toolbar and opens the Studio over the site.
+Edits save on their own with Undo, drafts say what Publish will do, and the
+Studio lists page content before anything is saved. Text from content
+collections and data files is editable on the page, and CaretCMS works with
+view transitions, server rendering, `file()` collections, `getStaticPaths`
+pages and `reference()` fields. Fixes 22 bugs from 0.5.0, six of them security
+bugs. Some changes affect stored data, API responses, permission policies,
+Studio dictionaries and Studio URLs; read the
+[upgrade steps](docs/releases/0.6.0.md#upgrading) first.
+
+### Security
+
+- The rewrite engine reads bindings only from element tags. Bindings inside
+  comments, attribute values, `<script>` text, and SVG/MathML are ignored.
+- Sanitization decodes HTML entities once. URLs are checked after decoding and
+  reject unsafe schemes, control characters, and backslashes.
+- Editor, Studio, and API responses send `Cache-Control: private, no-store`.
+- Login and upload limit request size while reading the body and cancel
+  oversized requests.
+- KV drafts and sessions are stored under the site's `keyPrefix`. Sites with
+  different prefixes in one namespace no longer share drafts.
+- On Cloudflare, session cookies are verified before drafts are shown. A
+  forged cookie gets the public site.
+
 ### Fixed
 
-- Static development pages now retain the signed-in editor's draft after a
-  reload, including routes generated with `getStaticPaths`. Other editors and
-  anonymous visitors continue to see their own content; static production
-  builds include only published content.
+- Inline edits are never lost to a failed or concurrent save. When someone
+  else saved the same entry, both versions are shown; Cancel keeps asking
+  instead of letting the next save overwrite theirs. Replaced images stay on
+  the page and save again too, and an upload cut off by a lost connection or
+  an ended session runs again.
+- `editable()` values are safe to edit and reach every build. Editing a later
+  item of a list first no longer crashes the page (a saved list's empty items
+  mean "not edited"); fields the page's code compares (`key`, `id`, `slug`,
+  `href`, …) are no longer marked in edit mode, so filters keep working;
+  static builds and prerendered pages include published values; and the
+  Studio lists every item the page states, with its default text.
+- Studio forms no longer fill optional fields an entry doesn't have. Saving
+  wrote values nobody chose into the content (an empty `photo`, `vegan: false`,
+  and for Zod integers `-9007199254740991`); only required fields and stated
+  defaults start with a value, and an emptied optional number is removed.
+- Sites using Astro view transitions (`<ClientRouter />`) keep the editor
+  across client-side navigations, and the Studio drawer no longer adds entries
+  to the tab's history, so the browser's Back stays with the site's pages.
+- A server-rendered site serves edits to content collections, `getStaticPaths`
+  props and imported data files made after the build: visitors get the stored
+  published values, not only signed-in editors.
+- Astro `reference()` values keep working in edit mode (a referenced author's
+  byline no longer disappears for editors), and a post created in the Studio
+  no longer gets empty optional fields that Astro rejects.
+- In `astro dev`, a Publish that reloads the page (it writes the site's files)
+  still says how many changes went out. On a phone, waiting changes put Publish
+  and Discard on a row of their own, so every toolbar control stays on screen.
+- A Studio address whose page fails for the editor (a saved change can break a
+  page for editors only) opens the Studio on its own page with the reason,
+  instead of an error page with no way back. The drawer's Back stays in the
+  drawer.
+- Required fields can't be saved empty, and a new entry isn't stored until
+  its required fields are filled.
+- Signing out asks first when it would lose drafts or unsaved text; password
+  sessions keep their drafts in the same browser.
+- A session that ends mid-edit can be resumed without leaving the page, on the
+  site and in the Studio. Studio edits made offline save on reconnecting.
+- Upload refusals say why (too large, not an image). A new image shows only
+  once it is served.
+- Fields an editor may not change are read-only and say why, and Create is
+  only offered when the policy allows it.
+- Headings and links keep their accessible names while being edited; Studio
+  fields don't zoom on phones and touch targets are at least 44px.
+- The production sign-in page lists the missing settings (editor password,
+  session secret) instead of failing with a 500 after submit.
+- `caretize init` without a terminal says to pass `-y` instead of exiting
+  silently.
+- Static development pages show the signed-in editor's draft after a reload,
+  including routes from `getStaticPaths`. Static production builds contain only
+  published content.
+- `anyOf` and `oneOf` alternatives are validated separately, with nested
+  references, and `oneOf` requires exactly one match.
+- Layout writes, publish, and history restore validate the entry first. A
+  failing write changes nothing.
+- Pages whose only bindings are Markdown body blocks load the editor.
+- Entry reads take the same locks as writes, so content and revision always
+  match. Collection create and delete wait for in-progress entry writes.
+- Deleting a collection keeps its revision numbers, and recreating it does not
+  bring back removed seed entries (KV and Durable Objects).
+- Quoted YAML strings use one strict escape decoder. Unknown escapes raise an
+  error.
+- Git-on-publish commits the approved bytes through its own index and leaves
+  the working tree and staging alone. It no longer skips the commit on Linux
+  when Git closes an unused input pipe.
+- Caretize writes files atomically and refuses to overwrite a file that changed
+  after the scan, or a symlink.
+- Creating or deleting a collection in the Studio changes the site's content
+  even when edits are drafts. Before, it only changed the editor's drafts.
+- Studio forms for collections without a schema are inferred from the entry
+  being edited. Before, every entry used the first entry's fields, so a page
+  with different sections opened as an empty form whose save replaced it.
+- `caretize --version` reports the installed version instead of `0.1.0`.
+- Images and links whose URL comes from `editable()` or `caretLoader()` work in
+  edit mode. The hidden binding key used to stay inside the `src` or `href`, so
+  the browser requested a URL that did not exist. Such images now get a normal
+  `data-caret` binding and can be replaced.
+- Caretize no longer tags elements a script finds by a valueless `data-*`
+  attribute, such as an animated `<span data-counter>`, or by a class or id its
+  component's `<script>` selects (`querySelector('.counter-value')`). It also
+  leaves `<button>` labels and the `<a href="/">` home link alone.
+- Caretize no longer wraps an array in `editable()` when code compares one of
+  its text fields or uses it as a lookup key. Identifier fields (`key`, `id`,
+  `slug`, …) stay unmarked, and `--dry-run` lists which fields become editable.
+- Caretize's lower-confidence count is the same in the interactive offer and
+  the closing summary: the bold or linked words inside a paragraph are no
+  longer counted as separate spots. After Y, it asks about styled-span
+  blocks and lower-confidence spots one by one instead of hiding them behind
+  "customize".
+- Caretize warns about uncommitted changes only in files it is about to edit,
+  so `caretize init` no longer warns about its own edits or a fresh
+  `npm install`. `-y` shows the same "here's what changed" diff as an
+  interactive run.
+- Caretize names hoisted props after their component and which use it is
+  (`testimonial_quote`, `testimonial_2_quote` instead of `quote_2`) and images
+  after their heading (`our_story_image` instead of `hero`). Keys already in a
+  project are kept. The output says that text inside a component or layout is
+  one value for every use, and the `allowedClasses` hint names the element it
+  found instead of calling every block a heading.
+- Publishing a changed frontmatter string keeps the quotes it was written with.
+- Replacing an image no longer wraps it in a new element. Images positioned by
+  the page, such as section backgrounds and carousel slides, keep their layout
+  in edit mode.
+- Caretize no longer tags an `<img>` whose `src` comes from props or data. It
+  gave those images invented keys such as `components::Team::hero`, which then
+  replaced the binding the data carried. Literal URLs and imported image files
+  are still tagged.
+- After a save conflict, Keep my edits applies only the fields changed in
+  the form on top of the newer version. Before, it saved the whole form and
+  reverted fields the other editor changed. The conflict dialog names nested
+  fields and marks fields both editors changed.
+- The inline toolbar shows Unsaved changes while an edit is pending, and
+  restores the previous status when the edit is undone.
+- Studio history shows "You" or "Earlier session" instead of an opaque session
+  ID for editors signed in without a name or email.
+- Save and link shortcuts work with Caps Lock on. Validation messages use the
+  singular for one character or item.
+- Clicking into rich text and out again without typing no longer saves a
+  draft. Saved rich text keeps Astro's `data-astro-cid-*` markers on its
+  `<strong>`, `<a>` and other inline tags, so the component's scoped styles
+  still apply after an edit.
+- A new entry starts with the title typed in the create dialog for ordinary
+  Astro collections too: the Studio infers the title field from the schema
+  (title, headline, heading, name, label, or the first required text field)
+  when `titleField` isn't set. Page entries are named by a title or headline
+  before a `name` field, which on a page is often a quoted person's.
+- Entries a page gets as `getStaticPaths` props (`Astro.props.post` on
+  `blog/[slug].astro`) are editable on the page like `getCollection()`
+  results. Astro resolves those props before middleware runs, so they were
+  never bound.
+- `astro dev` no longer warns that `Astro.request.headers` isn't available on
+  prerendered pages, and CaretCMS log lines carry one `[caretcms]` label
+  instead of two.
+- Studio entry cards say their status once to screen readers (it was read
+  twice), and an entry without an image shows a picture placeholder instead
+  of its first letter.
+- An edit that is undone no longer counts as a change to publish, including
+  on an entry that had nothing saved before.
+- History's button on a change says what it does: Undo this change, or
+  Undo this and 2 later changes when going back to before it also undoes
+  newer ones. Before, every row offered "Restore earlier version".
+- The formatting bar for rich text stays beside the selected words when the
+  page scrolls, and hides while they're out of view. Before, it stayed where it
+  first appeared.
+- Static builds remove the `data-caret*` binding attributes from visitors'
+  HTML; the editor only runs in `astro dev`.
+- Packages include their TypeScript sources, so source maps and declaration
+  maps resolve. Vite no longer warns about missing source files.
+
+### Added
+
+- Autosave for on-page text, Markdown body blocks and Studio forms, with Undo
+  in the save message, Cmd/Ctrl+Z after a save, and History one click away.
+- A status pill in the toolbar (Live or Draft, saving, unsaved, failed) with a
+  panel holding the details and the last problem.
+- Publish, Discard and a list of unpublished changes in the Studio, for
+  static delivery and policy modes. Publish and Discard dialogs say what they
+  will do and report what they did.
+- History shows what each change did in the form's words, with the changed
+  words marked for text edits.
+- Search inside entries with matching snippets, and a command palette that
+  runs actions ("New team member").
+- The Studio drawer opens the entry for the current page, or an "On this
+  page" list.
+- Date and date-and-time pickers for `format: date` and `date-time` fields.
+- Drop an image file onto an editable image to replace it, then describe it
+  when the entry has an alt-text field.
+- Undo for deleting entries and page sections.
+- Keyboard access: a skip link to the toolbar, arrow keys within it, and a
+  skip link to Studio forms.
+- Astro `file()` data collections and single-object data files are editable in
+  place, keeping their formatting.
+- `astro dev` and `astro preview` load `CARET_*` settings from `.env` files.
+- `StorageAdapter.isDocumentCollection()` (optional) marks collections whose
+  entries are data, not Markdown documents.
+- A `create` authorization action (see Changed).
+- The dev toolbar flags fields that stay read-only because their markup can't
+  be edited as rich text, and names the tags in the way.
+- The Studio lists text and images that templates bind with `data-caret`
+  before anything is saved, with the page's own content. Saving from the
+  Studio stores only what changed, so untouched text keeps following the
+  template.
+- `caretize init` offers to tag your content right after wiring CaretCMS, so
+  the first run is one command.
+- Entries returned with an editor's draft include `baseRevision`. Send it as
+  `expectedBaseRevision`; a stale value returns 409 with `currentBaseRevision`.
+- Optional `StorageAdapter` members: `guarantees`, `getEntrySnapshot`,
+  `getEntrySnapshots`, `committableEntryPaths`, `preparePublicationSources`,
+  `makeRecoveryOverlay`, and Git receipt methods on editor overlays. The file
+  adapters implement all except `getEntrySnapshot`, which core replaces with
+  in-process locks.
+- `@caretcms/core/testing/storage` exports a conformance suite for storage
+  adapters. See [storage adapters](docs/storage-adapters.md).
+- Content from `getCollection()`, `getEntry()`, and `getEntries()`, and JSON
+  files imported from `src/content`, is editable on the page without
+  annotations when Markdown storage is used. Editors see their drafts after a
+  reload. Values a schema restricts to a list, dates, URLs, ids, and numbers
+  are never made editable, and text the page splits or rewrites is bound only where
+  the whole value appears. `caret({ bindContent: false })` turns it off.
+- Studio forms use the JSON Schemas Astro generates for content collections,
+  `file()` collections included, so enums, defaults, and required fields
+  match `content.config.ts`.
+- Markdown storage reads and writes Astro `file()` data collections wherever
+  the JSON file lives: the path the collection's `file("…")` loader names in
+  `content.config.ts` (such as `src/data/menu.json`), or
+  `src/content/<name>.json`. The file holds an array of entries with `id`, or
+  an object keyed by id; any other JSON object in `src/content` is a single
+  entry. Publish changes only the edited values inside the file, so hand
+  formatting survives. Before, it created a separate Markdown file instead.
+  `astro dev` names the collections it can't edit, and why.
+- `astro dev` and `astro preview` load `CARET_*` settings from `.env`,
+  `.env.local`, and the mode files. Before, the session secret and password
+  that `caretize init` writes there were ignored. The real environment wins.
+- `caretize init` adds `.env`, `.caret/drafts/`, `.caret/.caretize-bak/`, and
+  `.caretcms/` to `.gitignore`.
+- Caretize ends with a hint when content comes from props or data, explaining
+  what CaretCMS binds on its own and how to bind other data with `editable()`.
+- `CARET_GIT_JOURNAL_RETRY=true` lets an interrupted Git commit finish later
+  without publishing again. The toolbar shows Retry Git history while one
+  is pending.
+- `cloudflareDurableStorage({ editorDrafts: "coordinated" })` saves drafts
+  that change several entries in one transaction, so a save either changes
+  them all or none. See [Durable Object storage](docs/cloudflare-durable-storage.md).
+
+### Changed
+
+- Creating an entry in the Studio needs both `edit` and the new `create`
+  action. A policy that only allows the actions it knows denies creating until
+  it also returns `true` for `create`. The first save to content a page
+  already shows is still an `edit`.
+- `@caretcms/zod` no longer repeats a `.describe()` text as help when it's
+  already the field's label. Use `.meta({ title })` with `.describe()` to show
+  both.
+- Stored page layouts keep any well-formed section key, and the section
+  controls offer the kinds the page templates name
+  (`data-caret-section-label`). The built-in list of section keys and its old
+  key renames are gone.
+- The server decides when edits are drafts. Static delivery and an active
+  policy make every edit a private draft. Server delivery without a policy
+  saves live, except Markdown body edits in production builds, which wait for
+  Publish. The `caret_preview` cookie is no longer read, so it can't turn on
+  private drafts for a server-delivered site.
+- The on-page editor uses the Studio dictionary too. Its messages are
+  `editor.*` keys, in English and Spanish, so `caret({ locale: "es" })`
+  translates the toolbar, notices and dialogs on the page, and `dictionary`
+  can override them.
+- In the Studio dictionary, `entry.saveNow` ("Save now") replaces
+  `entry.saveLive` and `entry.saveDraft`. The Save button only appears while
+  changes are waiting.
+- Pending Git history and the caretize hint moved from the editor toolbar to
+  the Astro developer toolbar.
+- Entries and fields use the names editors know: singleton labels, title
+  fields, and humanized ids instead of raw ids.
+- New entries are created by name, with the web address filled in and
+  editable on request.
+- The temporary dev password is kept in `.caret/dev-password`, which survives
+  restarts and is git-ignored, and `astro dev logs` shows it. Astro 7 runs
+  `astro dev` in the background, so the password no longer reached the
+  terminal.
+- caretize prints `npx @caretcms/caretize` everywhere, names prose after its
+  heading or landmark (`what_we_bake_text`, `footer_text`), and inserts
+  attributes after the last attribute, keeping the tag's own spacing.
+- caretize on a CaretCMS 0.6 project leaves content from `getCollection()` and
+  `getEntry()` to core: `--all` and the interactive offer no longer add
+  `--bind-collections` / `--bind-routes` (the flags still work when passed),
+  and loops over data are summed up in one hint instead of a "consider a dynamic
+  collection" line each. It also names templates with a fixed header or nav and
+  points at `caret-studio-overlay`.
+- The Studio has a collection sidebar, a Go to search (⌘K / Ctrl K) across
+  collections and entries, light and dark themes that follow the system with a
+  manual switch, collection page headers, a grid and list view with status
+  labels, and card-based entry forms. The sign-in page and dialogs match.
+- The Studio opens over the site. Expand widens the drawer to two thirds of
+  the window with the page beside it; Shrink, Close, Esc and View site keep
+  you on the page (Esc on an expanded Studio shrinks it first). A Studio URL
+  opened in a tab of its own redirects (303) to the page that shows the entry
+  (`previewPath`, else `editorHome`) with the Studio expanded on that route. With `enableInlineEditor: false` the Studio is
+  still a page of its own.
+- The Studio drawer moves the page aside instead of covering it (padding on
+  `<html>`, sideways overflow clipped); expanded, it covers the page. Fixed
+  bars across the top or bottom (headers, nav and cookie bars) move beside the
+  drawer too and get their own styles back when it closes. A site whose layout
+  can't take the push adds `caret-studio-overlay` to `<html>` or `<body>` to
+  keep the drawer over it. This replaces the opt-in `caret-push-content` class.
+- The on-page toolbar is a floating bar. It re-centers beside the open Studio
+  drawer and uses an icon-only Sign out on phones.
+- `theme.tokens` overrides apply in both light and dark mode.
+- Editor and Studio assets revalidate on each load (ETag) instead of being
+  cached for an hour, so upgrades take effect immediately.
+- Git-on-publish requires `preparePublicationSources`. Adapters without it
+  publish but skip the Git commit.
+- The recommended `.gitignore` no longer lists `public/uploads/`. Static sites
+  must commit uploads, because published content links to them.
+- Publish can fail with `invalid_entry`. The draft stays.
+- Single-entry API responses always include a top-level revision.
+- The Cloudflare Durable Object class must be deployed with the new adapter.
 
 ## [0.5.0] - 2026-09-13
 
@@ -454,7 +771,8 @@ requirements, and deployment retry limitations.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
-[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.0
 [0.5.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.5.0
 [0.4.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.4.0
 [0.3.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.3.0

@@ -5,7 +5,7 @@
  * Only inline formatting elements are permitted — no block-level tags.
  */
 
-// NOTE: these three constants + classAllowed() below are a HAND MIRROR of
+// NOTE: these constants + classAllowed() below are a HAND MIRROR of
 // src/runtime/rich-allowlist.ts (this file ships as raw unbundled JS and can't
 // import it). They are `export`ed so tests/unit/sanitizer-parity.test.ts can
 // assert they never drift from the source of truth — CI fails on divergence.
@@ -13,13 +13,29 @@ export const ALLOWED_TAGS = new Set([
   'b', 'strong', 'i', 'em', 'u', 's', 'a', 'br', 'sub', 'sup', 'span', 'code',
 ]);
 
+/**
+ * The tags inside a plain binding that rich text can't hold. None means the
+ * binding can be edited (and is rendered) as rich text; any means it stays
+ * read-only on the page, since saving would flatten markup the page shows.
+ * @param {Element} el
+ * @returns {string[]}
+ */
+export function unsupportedTags(el) {
+  const tags = [...el.querySelectorAll('*')].map((child) => child.tagName.toLowerCase());
+  return [...new Set(tags.filter((tag) => !ALLOWED_TAGS.has(tag)))];
+}
+
 /** @type {Readonly<Record<string, ReadonlySet<string>>>} */
 export const ALLOWED_ATTRS = {
   a: new Set(['href', 'target', 'rel']),
 };
 
+// Astro's scoped-style marker, kept valueless so component styles still apply
+// to saved rich text. Mirrors core exactly.
+export const SCOPED_STYLE_ATTR_RE = /^data-astro-cid-[a-z0-9]+$/;
+
 // `(?!\/)` rejects protocol-relative URLs (`//evil.com`). Mirrors core exactly.
-export const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:|\/(?!\/))/i;
+export const SAFE_HREF_RE = /^(?!.*[\u0000-\u001f\u007f\\])(?:https?:|mailto:|tel:|\/(?!\/))/i;
 
 /**
  * Does `cls` match any pattern? (exact, `prefix-*`, or lone `*`)
@@ -103,6 +119,11 @@ function sanitizeNode(parent, allowedClasses) {
     const classPatterns = allowedClasses ? allowedClasses[tag] : undefined;
     const attrs = Array.from(el.attributes);
     for (const attr of attrs) {
+      // Astro's scoped-style marker, kept without its value.
+      if (SCOPED_STYLE_ATTR_RE.test(attr.name)) {
+        el.setAttribute(attr.name, '');
+        continue;
+      }
       // class is gated by the per-tag allowlist, not ALLOWED_ATTRS
       if (attr.name === 'class') {
         if (!classPatterns) {

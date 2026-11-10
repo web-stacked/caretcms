@@ -96,6 +96,29 @@ The adapter does not copy existing runtime values from `CloudflareKvStorageAdapt
 Changing providers keeps build-bundled seed content but requires an explicit
 export/import plan for entries that exist only in KV.
 
+## Private editor drafts
+
+Set `editorDrafts: "coordinated"` in `cloudflareDurableStorage()` to put base
+content and isolated private editor keyspaces in one object. Core reads paired
+snapshots and atomically checks captured base versions, private versions, and raw
+private guards before committing a draft batch. A raced new baseline changes
+nothing and returns a conflict with `currentBaseRevision`. Existing structured
+drafts retain their original publication baseline. Sessions still use separate
+expiring objects, and publication/cleanup retain their recovery flow.
+
+The default remains `"separate"`. Existing separate draft objects are not read or
+migrated automatically by the coordinated mode. Back up those objects, finish
+pending recovery, then publish/discard drafts or explicitly migrate each owner's
+records and metadata before switching modes. Reload clients. Deploy the adapter
+and object class together: older classes reject the new scoped command envelope
+and cannot accidentally apply its nested private write to base content.
+Validate this mode's migration and failure behavior in the target account before
+release; earlier deployed checks below predate the opt-in draft capability.
+
+The [Cloudflare upgrade guide](cloudflare-upgrades.md) documents the verified
+v0.5.0 storage transition, frozen-code native tests, and records that cannot be
+assigned or reconstructed automatically.
+
 ## Guarantees and limits
 
 The local suite sends simultaneous browser requests through Wrangler to two

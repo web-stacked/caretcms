@@ -22,7 +22,7 @@ describe("browser deployment status poller", () => {
     });
 
     await poller.refresh();
-    expect(setStatus).toHaveBeenLastCalledWith("saving", "Deploying…");
+    expect(setStatus).toHaveBeenLastCalledWith("saving", "Updating site…");
     expect(setBuildId).toHaveBeenLastCalledWith("build-1");
     expect(scheduled).not.toBeNull();
     const next = scheduled as unknown as () => void;
@@ -42,7 +42,7 @@ describe("browser deployment status poller", () => {
       clearTimer() {},
     });
     await poller.refresh();
-    expect(states).toEqual([["error", "Deploy failed"]]);
+    expect(states).toEqual([["error", "Site update failed"]]);
     expect(timers).toHaveLength(0);
 
     const unknown = createDeploymentStatusPoller({
@@ -53,7 +53,7 @@ describe("browser deployment status poller", () => {
       clearTimer() {},
     });
     await unknown.refresh();
-    expect(states.at(-1)).toEqual(["error", "Deploy status unknown"]);
+    expect(states.at(-1)).toEqual(["error", "Site update status unknown"]);
     expect(timers).toHaveLength(0);
   });
 

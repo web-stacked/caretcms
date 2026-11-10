@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { test, expect } from "@playwright/test";
-import { blurToSave, loginAsEditor, replaceText, resetCmsStorage } from "./helpers";
+import { blurToSave, loginAsEditor, openStudio, reloadStudio, replaceText, resetCmsStorage } from "./helpers";
 
 const HEADLINE = 'h1[data-caret="hero.headline"]';
 const NEW_HEADLINE = "Edited under a strict CSP";
@@ -55,7 +55,7 @@ test.describe("inline editor — strict CSP", () => {
     await expect(page.locator(HEADLINE)).toHaveText(NEW_HEADLINE);
     const mutate = await blurToSave(page, page.locator(HEADLINE));
     expect(mutate.ok(), await mutate.text()).toBeTruthy();
-    await expect(page.getByText("Content saved")).toBeVisible();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
 
     // No violations were recorded at any point in the flow.
     const violations = await page.evaluate(
@@ -83,9 +83,14 @@ test("Studio modules load and save under a script CSP with hashes", async ({ pag
       document.documentElement.setAttribute("data-csp-violation", event.violatedDirective);
     });
   });
-  // Studio is an HTML API route. Apply a test policy to its actual server HTML,
-  // hashing the existing inline shell scripts and allowing same-origin modules.
+  // Studio is an HTML API route. Apply a test policy to its actual server HTML
+  // (the document in the Studio's frame; the address typed in the tab only
+  // hands off to the site page), hashing the existing inline shell scripts and
+  // allowing same-origin modules.
+  let policed = 0;
   await page.route("**/admin/cms/studio-fixture/module-entry", async route => {
+    if (route.request().frame() === page.mainFrame()) return route.continue();
+    policed += 1;
     const response = await route.fetch();
     const html = await response.text();
     const hashes = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)]
@@ -94,30 +99,36 @@ test("Studio modules load and save under a script CSP with hashes", async ({ pag
   });
   const modules = new Set<string>();
   page.on("response", response => {
-    if (response.ok() && (response.url().includes("/__caret/studio/") || response.url().includes("/__caret/editor/sanitize.js"))) {
+    if (response.ok() && (response.url().includes("/__caret/studio/") || response.url().includes("/__caret/editor/sanitize.js") || response.url().includes("/__caret/editor/publish-result.js"))) {
       modules.add(new URL(response.url()).pathname);
     }
   });
-  await page.goto("/admin/cms/studio-fixture/module-entry");
-  await expect(page.getByRole("textbox", { name: /^Summary/ })).toHaveText(/First\s+Second/);
-  await page.getByRole("textbox", { name: /^Title/ }).fill("Saved through Studio modules");
+  const studio = await openStudio(page, "/admin/cms/studio-fixture/module-entry");
+  await expect(studio.getByRole("textbox", { name: /^Summary/ })).toHaveText(/First\s+Second/);
+  await studio.getByRole("textbox", { name: /^Title/ }).fill("Saved through Studio modules");
   const saved = page.waitForResponse(response => response.url().includes("/api/cms/mutate") && response.request().method() === "POST");
-  await page.locator("#btn-save").click();
-  await page.getByRole("dialog", { name: "Save live changes?" }).getByRole("button", { name: "Save live" }).click();
+  await studio.locator("#btn-save").click();
   expect((await saved).ok()).toBe(true);
-  await page.reload();
-  await expect(page.getByRole("textbox", { name: /^Title/ })).toHaveValue("Saved through Studio modules");
-  await expect(page.getByRole("textbox", { name: /^Summary/ })).toHaveText(/First\s+Second/);
+  await reloadStudio(page);
+  await expect(studio.getByRole("textbox", { name: /^Title/ })).toHaveValue("Saved through Studio modules");
+  await expect(studio.getByRole("textbox", { name: /^Summary/ })).toHaveText(/First\s+Second/);
   expect(modules).toEqual(new Set([
     "/__caret/studio/entry-loader.js",
     "/__caret/studio/field-model.js",
     "/__caret/studio/fields.js",
     "/__caret/studio/history-client.js",
+    "/__caret/studio/history-view.js",
+    "/__caret/studio/merge.js",
     "/__caret/studio/mutation-client.js",
     "/__caret/studio/sync-client.js",
     "/__caret/studio/upload-client.js",
+    "/__caret/editor/publish-result.js",
     "/__caret/editor/sanitize.js",
   ]));
+  // Both loads of the Studio's frame ran under the test policy.
+  expect(policed).toBe(2);
+  // Neither the Studio nor the site page it is open over hit the policy.
+  await expect(studio.locator("html")).not.toHaveAttribute("data-csp-violation");
   await expect(page.locator("html")).not.toHaveAttribute("data-csp-violation");
   expect(errors).toEqual([]);
 });

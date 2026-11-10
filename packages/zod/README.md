@@ -24,7 +24,7 @@ export default defineConfig({
 What the conversion does beyond `z.toJSONSchema`:
 
 - **Dates** (`z.date()` / `z.coerce.date()`) become `{ type: "string", format: "date" }` so the Studio renders a date widget.
-- **`description` → `title`**: Zod `.describe("Headline")` becomes the field's Studio label (an explicit `title` wins; `description` is kept).
+- **`description` → `title`**: Zod `.describe("Headline")` becomes the field's Studio label and is not repeated as help text. For a label plus help text, set the label with `.meta({ title: "Headline" })` and the help with `.describe("Shown at the top of the page")`.
 - **`override` hook** for per-node tweaks: `schemaFromZod(schema, { override: ({ jsonSchema }) => { … } })`.
 
 API: `schemaFromZod(zodObjectSchema, options?)` for one collection, `schemasFromZod({ name: schema, … }, options?)` for the whole map.

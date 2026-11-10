@@ -51,6 +51,32 @@ describe('CloudflareKvStorageAdapter — conformance (MemoryKV)', () => {
     adapter = freshAdapter();
   });
 
+  it.each(['editor', 'session'] as const)('keeps %s overlays inside their parent key prefix', async (kind) => {
+    const first = new CloudflareKvStorageAdapter({ keyPrefix: 'site-a/', bundledFallback: false });
+    const second = new CloudflareKvStorageAdapter({ keyPrefix: 'site-b/', bundledFallback: false });
+    const overlay = (base: CloudflareKvStorageAdapter) => kind === 'editor'
+      ? base.makeEditorOverlay('alice') : base.makeSessionOverlay('visitor');
+    const draft = await overlay(first);
+    await draft.writeEntry('posts', 'one', { title: 'Site A private content' });
+    await draft.bumpRevision('posts', 'one');
+    await draft.appendHistory('posts', 'one', { ts: 1, action: 'save', data: null });
+    const other = await overlay(second);
+    expect(await other.getEntry('posts', 'one')).toBeNull();
+    expect(await other.getRevision('posts', 'one')).toBe(0);
+    expect(await other.getHistory('posts', 'one')).toEqual([]);
+    expect(await other.listEntryIds('posts')).toEqual([]);
+    expect((await (await overlay(first)).getEntry('posts', 'one'))?.data.title).toBe('Site A private content');
+  });
+
+  it.each(['editor', 'session'] as const)('keeps legacy unprefixed %s overlay keys readable', async (kind) => {
+    const prefix = kind === 'editor' ? 'draft/alice/' : 'session/visitor/';
+    kvRef.current!.store.set(`${prefix}posts::one`, JSON.stringify({ title: 'Legacy private content' }));
+    const draft = kind === 'editor' ? await adapter.makeEditorOverlay('alice') : await adapter.makeSessionOverlay('visitor');
+    expect((await draft.getEntry('posts', 'one'))?.data.title).toBe('Legacy private content');
+    await draft.writeEntry('posts', 'two', { title: 'New content' });
+    expect(kvRef.current!.store.has(`${prefix}posts::two`)).toBe(true);
+  });
+
   it('writes and reads back an entry (deep-cloned, not aliased)', async () => {
     const data = { title: 'Hello', nested: { n: 1 } };
     await adapter.writeEntry('pages', 'home', data);
@@ -119,7 +145,7 @@ describe('CloudflareKvStorageAdapter — conformance (MemoryKV)', () => {
     ).rejects.toThrow();
   });
 
-  it('deleteCollection removes entries, revisions, history, index, and metadata', async () => {
+  it('deleteCollection removes content and history while advancing retained revisions', async () => {
     const meta = { id: 'blog', label: 'Blog', created_at: 1, updated_at: 1, schema: { type: 'object', properties: {} } };
     await adapter.createCollection(meta as never);
     await adapter.writeEntry('blog', 'post', { t: 'P' });
@@ -130,9 +156,10 @@ describe('CloudflareKvStorageAdapter — conformance (MemoryKV)', () => {
 
     expect(await adapter.isKnownCollection('blog')).toBe(false);
     expect(await adapter.getEntry('blog', 'post')).toBeNull();
-    // No orphaned rev/history/index/meta keys remain.
+    expect(await adapter.getRevision('blog', 'post')).toBe(2);
+    // Retained versions prevent delete/recreate ABA; markers suppress bundled fallback.
     const leftover = [...kvRef.current!.store.keys()].filter((k) => k.includes('blog'));
-    expect(leftover).toEqual([]);
+    expect(leftover.sort()).toEqual(['index::blog', 'rev::blog::post', '~caret::bundled-disabled::blog', '~caret::deleted-collection::blog', '~caret::deleted-entry::blog::post']);
   });
 
   it('isolates a session overlay behind a key prefix', async () => {

@@ -1,4 +1,7 @@
-import type { DeploymentTarget, RebuildReceipt } from "../../types.js";
+import { createHash } from "node:crypto";
+import { validGitJournalReceipt } from "../git-journal-receipt.js";
+import { sameContent } from "../draft-state.js";
+import type { DeploymentTarget, RebuildReceipt, GitJournalReceipt } from "../../types.js";
 import { mkdir, readFile, readdir, rm, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { CollectionMetadata, HistoryEntry } from "../../types.js";
@@ -78,6 +81,50 @@ export class SidecarMetaStore {
     await atomicWrite(path, JSON.stringify(target));
   }
 
+  private journalPath(operationId: string): string {
+    return join(this.metaRoot, "git-journal", `${createHash("sha256").update(operationId).digest("hex")}.json`);
+  }
+
+  async listGitJournalReceipts(): Promise<GitJournalReceipt[]> {
+    const dir = join(this.metaRoot, "git-journal");
+    let files;
+    try { files = await readdir(dir, { withFileTypes: true }); }
+    catch (error) { if ((error as { code?: string }).code === "ENOENT") return []; throw error; }
+    const receipts: GitJournalReceipt[] = [];
+    for (const file of files.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (file.isFile() && /^[a-f0-9]{64}\.json\.[a-f0-9-]{36}\.tmp$/.test(file.name)) continue;
+      if (!file.isFile() || !/^[a-f0-9]{64}\.json$/.test(file.name)) throw new Error("Invalid Git journal queue file");
+      let value: unknown;
+      try { value = JSON.parse(await readFile(join(dir, file.name), "utf8")); }
+      catch (error) { if ((error as { code?: string }).code === "ENOENT") continue; throw error; }
+      if (!validGitJournalReceipt(value) || this.journalPath(value.operationId) !== join(dir, file.name)) {
+        throw new Error("Invalid Git journal receipt");
+      }
+      receipts.push(value);
+    }
+    return receipts;
+  }
+
+  async saveGitJournalReceipt(receipt: GitJournalReceipt): Promise<void> {
+    if (!validGitJournalReceipt(receipt)) throw new Error("Invalid Git journal receipt");
+    const immutable = JSON.parse(JSON.stringify(receipt)) as GitJournalReceipt;
+    const path = this.journalPath(immutable.operationId);
+    await serializeWrite(path, async () => {
+      try {
+        const previous: unknown = JSON.parse(await readFile(path, "utf8"));
+        if (!validGitJournalReceipt(previous) || !sameContent(previous, immutable)) throw new Error("Git journal receipt changed");
+        return;
+      } catch (error) { if ((error as { code?: string }).code !== "ENOENT") throw error; }
+      await mkdir(join(this.metaRoot, "git-journal"), { recursive: true });
+      await atomicWrite(path, JSON.stringify(immutable));
+    });
+  }
+
+  async deleteGitJournalReceipt(operationId: string): Promise<void> {
+    const path = this.journalPath(operationId);
+    await serializeWrite(path, () => rm(path, { force: true }));
+  }
+
   private revisionStorePath(): string {
     return join(this.metaRoot, "revisions.json");
   }
@@ -150,6 +197,14 @@ export class SidecarMetaStore {
     return isValidRevision(value) ? value : 0;
   }
 
+  async getRevisions(collection: string, ids: readonly string[]): Promise<number[]> {
+    const map = await this.readRevisionMap();
+    return ids.map(id => {
+      const value = map[this.revisionMapKey(collection, id)];
+      return isValidRevision(value) ? value : 0;
+    });
+  }
+
   async bumpRevision(collection: string, id: string): Promise<number> {
     return serializeWrite(this.revisionStorePath(), async () => {
       const map = await this.readRevisionMap();
@@ -159,6 +214,20 @@ export class SidecarMetaStore {
       map[key] = next;
       await this.writeRevisionMap(map);
       return next;
+    });
+  }
+
+  /** Invalidate a deleted collection in one atomic revision-map replacement. */
+  async bumpRevisions(collection: string, ids: readonly string[]): Promise<void> {
+    if (!ids.length) return;
+    await serializeWrite(this.revisionStorePath(), async () => {
+      const map = await this.readRevisionMap();
+      for (const id of new Set(ids)) {
+        const key = this.revisionMapKey(collection, id);
+        const current = isValidRevision(map[key]) ? map[key] : 0;
+        map[key] = current + 1;
+      }
+      await this.writeRevisionMap(map);
     });
   }
 

@@ -1,10 +1,16 @@
-import { buildCmsUrl } from './config.js';
+import { buildCmsUrl, savesDrafts } from './config.js';
 import { uploadHeaders } from './security.js';
 import { resolveBinding } from './helpers.js';
+import { whenServed } from './image-utils.js';
+import { createAltPrompt } from './alt-text.js';
+import { describeEditableImage } from './a11y.js';
+import { clearUnsaved, markUnsaved } from './unsaved.js';
+import { t, tHtml } from './i18n.js';
 
 /** @typedef {{ collection: string, id: string, field: string }} ResolvedCaretBinding */
 /** @typedef {{ collection: string | null, id: string | null, field: string }} ParsedCaretBinding */
-/** @typedef {{ ok: true, revision?: number } | { ok: false, reason: 'conflict' | 'unauthorized' | 'error', latestValue?: unknown }} SaveResult */
+/** @typedef {{ ok: true, revision?: number } | { ok: false, reason: 'conflict' | 'unauthorized' | 'error', latestValue?: unknown } | { ok: false, reason: 'invalid', message: string }} SaveResult */
+/** @typedef {{ dirtyEls: Set<Element> }} ImageEditorState */
 /**
  * @typedef {((message: string, kind: 'success' | 'error') => unknown) & {
  *   conflict: (options: {
@@ -25,18 +31,68 @@ export function readUploadUrl(value) {
   return typeof url === 'string' && url.trim() ? url.trim() : null;
 }
 
+const OVERLAY_HTML = `
+  <span class="cms-img-overlay-content cms-img-state-idle">
+    <svg class="cms-img-overlay-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z"/>
+      <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z"/>
+    </svg>
+    <span class="cms-img-overlay-text">${tHtml('editor.image.replace')}</span>
+  </span>
+  <span class="cms-img-overlay-content cms-img-state-uploading">
+    <span class="cms-img-spinner"></span>
+    <span class="cms-img-overlay-text">${tHtml('editor.image.uploading')}</span>
+  </span>
+`;
+
+/** The editable image the Replace control currently covers. */
+/** @type {HTMLImageElement | null} */
+let active = null;
+
+// Each binding's stored image as the page shows it: the base a save is
+// checked against, and what a refused save puts back.
+/** @type {Map<string, string>} */
+const savedSrc = new Map();
+// The local preview of a file whose upload is waiting to be retried.
+/** @type {WeakMap<HTMLImageElement, string>} */
+const keptPreviews = new WeakMap();
+
 /**
+ * The image an event on the Replace control belongs to, so other editor
+ * affordances (the link "Open" button) treat the control as that image.
+ * @param {Element} target
+ * @returns {HTMLImageElement | null}
+ */
+export function imageUnderControl(target) {
+  return target.closest('.cms-img-overlay') ? active : null;
+}
+
+/** @param {EventTarget | null} target @returns {HTMLImageElement | null} */
+function editableImage(target) {
+  if (!(target instanceof HTMLImageElement) || !target.hasAttribute('data-caret') || target.hasAttribute('data-caret-locked')) return null;
+  if (target.closest('.cms-toolbar, .cms-studio-panel, .cms-content-map')) return null;
+  return target;
+}
+
+/**
+ * Image replacement without changing the page's DOM: one "Replace image"
+ * control lives in a fixed layer and is positioned over whichever editable
+ * image is hovered or focused, so absolutely positioned, background, and
+ * carousel images keep their layout.
+ *
  * @param {object} options
+ * @param {ImageEditorState} options.state
  * @param {(attr: string) => ParsedCaretBinding | null} options.parseCaretAttr
  * @param {(element: Element, success: boolean) => void} options.flash
  * @param {(file: File) => Promise<File>} options.compressImage
  * @param {(image: HTMLImageElement, url: string) => void} options.updateEmblaCarousel
- * @param {(collection: string, id: string, field: string, value: string) => Promise<SaveResult>} options.saveField
+ * @param {(collection: string, id: string, field: string, value: string, options?: { baseValue?: string }) => Promise<SaveResult>} options.saveField
  * @param {(state: 'saving' | 'error', text: string) => void} options.setStatus
  * @param {ConflictToast} options.showToast
  * @param {() => void} options.onUnauthorized
  */
 export function mountImageEditors({
+  state,
   parseCaretAttr,
   flash,
   compressImage,
@@ -46,178 +102,297 @@ export function mountImageEditors({
   showToast,
   onUnauthorized,
 }) {
+  // Keyboard access: an editable image outside a link or button becomes a stop.
+  document.querySelectorAll('img[data-caret]').forEach((el) => {
+    const img = /** @type {HTMLImageElement} */ (el);
+    if (img.dataset.caretImgMounted === 'true' || img.hasAttribute('data-caret-locked')) return;
+    img.dataset.caretImgMounted = 'true';
+    const marker = img.getAttribute('data-caret') || '';
+    if (!savedSrc.has(marker)) savedSrc.set(marker, img.getAttribute('src') || '');
+    if (!img.closest('a, button') && !img.hasAttribute('tabindex')) img.tabIndex = 0;
+    describeEditableImage(img);
+  });
+
+  if (document.querySelector('.cms-img-layer')) return;
+
+  const layer = document.createElement('div');
+  layer.className = 'cms-img-layer';
+  const overlay = document.createElement('button');
+  overlay.type = 'button';
+  overlay.className = 'cms-img-overlay';
+  overlay.tabIndex = -1; // keyboard users act on the focused image itself
+  overlay.hidden = true;
+  overlay.innerHTML = OVERLAY_HTML;
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.className = 'cms-img-input';
+  input.accept = 'image/jpeg,image/png,image/webp,image/avif';
+  input.setAttribute('aria-label', t('editor.image.uploadLabel'));
+  input.hidden = true;
+  layer.append(overlay, input);
+  document.body.appendChild(layer);
+
+  let uploading = false;
+  let frame = 0;
+
+  const place = () => {
+    frame = 0;
+    if (!active || !active.isConnected) { hide(true); return; }
+    const rect = active.getBoundingClientRect();
+    if (rect.width < 24 || rect.height < 24) { overlay.hidden = true; return; }
+    overlay.hidden = false;
+    overlay.style.left = `${rect.left}px`;
+    overlay.style.top = `${rect.top}px`;
+    overlay.style.width = `${rect.width}px`;
+    overlay.style.height = `${rect.height}px`;
+    // Follow scrolling, smooth-scroll libraries, and animations while shown.
+    frame = requestAnimationFrame(place);
+  };
+
+  /** @param {HTMLImageElement} img */
+  const show = (img) => {
+    if (document.body.classList.contains('cms-preview-mode')) return;
+    if (uploading && img !== active) return;
+    active = img;
+    overlay.classList.toggle('cms-img-compact', img.getBoundingClientRect().height < 120);
+    overlay.style.borderRadius = getComputedStyle(img).borderRadius;
+    if (!frame) place();
+  };
+
+  /** @param {boolean} [force] */
+  const hide = (force = false) => {
+    if (uploading && !force) return;
+    active = null;
+    overlay.hidden = true;
+    if (frame) cancelAnimationFrame(frame);
+    frame = 0;
+  };
+
+  document.addEventListener('mouseover', (event) => {
+    const img = editableImage(event.target);
+    if (img) show(img);
+  });
+  document.addEventListener('mouseout', (event) => {
+    if (!active || event.target !== active) return;
+    if (event.relatedTarget instanceof Node && overlay.contains(event.relatedTarget)) return;
+    if (document.activeElement !== active) hide();
+  });
+  overlay.addEventListener('mouseleave', (event) => {
+    if (event.relatedTarget === active || document.activeElement === active) return;
+    hide();
+  });
+  document.addEventListener('focusin', (event) => {
+    const img = editableImage(event.target);
+    if (img) show(img);
+    else if (active && event.target !== overlay) hide();
+  });
+  document.addEventListener('keydown', (event) => {
+    const img = editableImage(event.target);
+    if (!img || (event.key !== 'Enter' && event.key !== ' ')) return;
+    event.preventDefault();
+    show(img);
+    input.click();
+  });
+
+  overlay.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation(); // keep the page's own handlers (lightboxes) out of it
+    if (!uploading) input.click();
+  });
+
   /** @param {string} marker @param {string} src */
   const syncBoundImages = (marker, src) => {
-    document.querySelectorAll('[data-caret]').forEach((node) => {
-      if (!(node instanceof HTMLImageElement)) return;
-      if (node.getAttribute('data-caret') !== marker) return;
-      node.src = src;
-      updateEmblaCarousel(node, src);
+    document.querySelectorAll('img[data-caret]').forEach((node) => {
+      const image = /** @type {HTMLImageElement} */ (node);
+      if (image.getAttribute('data-caret') !== marker) return;
+      image.setAttribute('src', src);
+      image.removeAttribute('srcset');
+      updateEmblaCarousel(image, src);
     });
   };
 
-  document.querySelectorAll('[data-caret]').forEach((el) => {
-    if (!(el instanceof HTMLImageElement)) return;
-    const img = el;
-    if (img.dataset.caretImgMounted === 'true') return;
-    img.dataset.caretImgMounted = 'true';
+  // Save-conflict resolution for images: the upload itself already succeeded
+  // (we hold the stored `mineUrl`); only writing it into the entry conflicted.
+  /**
+   * @param {HTMLImageElement} img
+   * @param {ResolvedCaretBinding} resolved
+   * @param {string} marker
+   * @param {string} mineUrl
+   * @param {unknown} latestValue
+   */
+  const runImageConflict = (img, resolved, marker, mineUrl, latestValue) => {
+    state.dirtyEls.add(img);
+    showToast.conflict({
+      message: t('editor.image.conflict'),
+      onKeepMine: async () => {
+        const retry = await saveField(resolved.collection, resolved.id, resolved.field, mineUrl);
+        flash(img, retry.ok);
+        if (retry.ok) {
+          state.dirtyEls.delete(img);
+          savedSrc.set(marker, mineUrl);
+          syncBoundImages(marker, mineUrl);
+          showToast(t('editor.image.mineSaved'), 'success');
+        } else if (retry.reason === 'conflict') {
+          runImageConflict(img, resolved, marker, mineUrl, retry.latestValue);
+        } else if (retry.reason !== 'unauthorized') {
+          showToast(t('editor.image.saveFailed'), 'error');
+        }
+      },
+      onLoadLatest: () => {
+        const src = typeof latestValue === 'string' ? latestValue : mineUrl;
+        state.dirtyEls.delete(img);
+        savedSrc.set(marker, src);
+        syncBoundImages(marker, src);
+        showToast(t('editor.image.loadedLatest'), 'success');
+      },
+    });
+  };
 
-    const existingWrapper = img.parentElement;
-    if (existingWrapper?.classList.contains('cms-img-wrapper')) {
-      existingWrapper.parentNode?.insertBefore(img, existingWrapper);
-      existingWrapper.remove();
+  const altPrompt = createAltPrompt({ saveField, showToast });
+
+  /** Keep a change that couldn't be saved yet. @param {HTMLImageElement} img @param {() => Promise<void>} retry @param {boolean} quiet */
+  const keepUnsaved = (img, retry, quiet) => {
+    markUnsaved(img, retry, { quiet });
+    state.dirtyEls.add(img);
+  };
+
+  /** @param {HTMLImageElement} img */
+  const settle = (img) => {
+    clearUnsaved(img);
+    state.dirtyEls.delete(img);
+  };
+
+  /**
+   * Write an uploaded image into its entry. A save that couldn't complete
+   * keeps the image on the page and is retried like a text field.
+   * @param {HTMLImageElement} img @param {ResolvedCaretBinding} resolved @param {string} marker @param {string} url
+   */
+  async function saveImage(img, resolved, marker, url) {
+    const result = await saveField(resolved.collection, resolved.id, resolved.field, url, { baseValue: savedSrc.get(marker) });
+    flash(img, result.ok);
+    if (result.ok) {
+      settle(img);
+      savedSrc.set(marker, url);
+      syncBoundImages(marker, url);
+      showToast(savesDrafts() ? t('editor.image.draftSaved') : t('editor.image.updated'), 'success');
+      await altPrompt.ask(img, resolved);
+    } else if (result.reason === 'conflict') {
+      settle(img);
+      runImageConflict(img, resolved, marker, url, result.latestValue);
+    } else if (result.reason === 'invalid') {
+      // The server refused the image, so a retry can't help.
+      settle(img);
+      syncBoundImages(marker, savedSrc.get(marker) ?? '');
+      showToast(t('editor.image.refused', { reason: result.message.replace(/\.$/, '') }), 'error');
+    } else {
+      keepUnsaved(img, () => saveImage(img, resolved, marker, url), result.reason === 'unauthorized');
     }
+  }
 
-    const wrapper = document.createElement('div');
-    wrapper.className = 'cms-img-wrapper';
-    wrapper.style.position = 'relative';
-    wrapper.style.display = 'block';
-    wrapper.style.width = '100%';
-    wrapper.style.height = '100%';
+  /** Replace an image with a chosen or dropped file. @param {File} file @param {HTMLImageElement} img */
+  async function replaceImage(file, img) {
+    if (uploading) return;
 
-    img.parentNode?.insertBefore(wrapper, img);
-    wrapper.appendChild(img);
+    const marker = img.getAttribute('data-caret') || '';
+    const resolved = resolveBinding(img, parseCaretAttr(marker));
+    if (!resolved) return;
 
-    // Corner badge — persistent edit indicator
-    const badge = document.createElement('div');
-    badge.className = 'cms-img-badge';
-    badge.innerHTML =
-      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
-    wrapper.appendChild(badge);
+    // A new file (or a retry) replaces any upload still waiting.
+    const stalePreview = keptPreviews.get(img);
+    keptPreviews.delete(img);
 
-    // Full overlay with idle + uploading states
-    const overlay = document.createElement('button');
-    overlay.className = 'cms-img-overlay';
-    overlay.type = 'button';
-    overlay.innerHTML = `
-      <span class="cms-img-overlay-content cms-img-state-idle">
-        <svg class="cms-img-overlay-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z"/>
-          <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z"/>
-        </svg>
-        <span class="cms-img-overlay-text">Replace Image</span>
-      </span>
-      <span class="cms-img-overlay-content cms-img-state-uploading">
-        <span class="cms-img-spinner"></span>
-        <span class="cms-img-overlay-text">Uploading...</span>
-      </span>
-    `;
-    wrapper.appendChild(overlay);
+    // Optimistic preview
+    const previewUrl = URL.createObjectURL(file);
+    const originalSrc = savedSrc.get(marker) ?? img.getAttribute('src') ?? '';
+    img.src = previewUrl;
+    if (stalePreview) URL.revokeObjectURL(stalePreview);
+    let keepPreview = false;
 
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/jpeg,image/png,image/webp,image/avif';
-    input.setAttribute('aria-label', 'Upload replacement image');
-    input.style.display = 'none';
-    wrapper.appendChild(input);
+    uploading = true;
+    overlay.classList.add('uploading');
+    setStatus('saving', t('editor.image.uploading'));
 
-    overlay.addEventListener('click', (e) => {
-      e.stopPropagation(); // prevent slide click (lightbox)
-      input.click();
-    });
+    try {
+      const compressed = await compressImage(file);
+      const formData = new FormData();
+      formData.append('file', compressed);
+      const headers = await uploadHeaders();
 
-    // Save-conflict resolution for images: the upload itself already succeeded
-    // (we hold the stored `mineUrl`); only writing it into the entry conflicted.
-    // Keep the uploaded image shown and let the user choose, rather than
-    // silently swapping in whatever landed elsewhere.
-    /**
-     * @param {ResolvedCaretBinding} resolved
-     * @param {string} marker
-     * @param {string} mineUrl
-     * @param {unknown} latestValue
-     */
-    const runImageConflict = (resolved, marker, mineUrl, latestValue) => {
-      showToast.conflict({
-        message: 'This image changed elsewhere while you were editing.',
-        onKeepMine: async () => {
-          const retry = await saveField(resolved.collection, resolved.id, resolved.field, mineUrl);
-          flash(img, retry.ok);
-          if (retry.ok) {
-            syncBoundImages(marker, mineUrl);
-            showToast('Your image saved', 'success');
-          } else if (retry.reason === 'conflict') {
-            runImageConflict(resolved, marker, mineUrl, retry.latestValue);
-          } else if (retry.reason !== 'unauthorized') {
-            showToast('Failed to save image. Try again.', 'error');
-          }
-        },
-        onLoadLatest: () => {
-          const src = typeof latestValue === 'string' ? latestValue : mineUrl;
-          syncBoundImages(marker, src);
-          showToast('Loaded latest image', 'success');
-        },
-      });
-    };
-
-    input.addEventListener('change', async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-
-      const marker = img.getAttribute('data-caret') || '';
-      const parsed = parseCaretAttr(marker);
-      const resolved = resolveBinding(img, parsed);
-      if (!resolved) return;
-
-      // Optimistic preview
-      const previewUrl = URL.createObjectURL(file);
-      const originalSrc = img.src;
-      img.src = previewUrl;
-
-      overlay.classList.add('uploading');
-      badge.classList.add('cms-img-badge-hidden');
-      setStatus('saving', 'Uploading...');
-
-      try {
-        const compressed = await compressImage(file);
-        const formData = new FormData();
-        formData.append('file', compressed);
-        const headers = await uploadHeaders();
-
-        const uploadRes = await fetch(buildCmsUrl('/upload'), {
-          method: 'POST',
-          headers,
-          body: formData,
-        });
-        if (uploadRes.status === 401) {
-          // Restore the real image before the redirect — the optimistic blob is
-          // revoked in `finally`, so leaving it as src would flash a broken image.
-          img.src = originalSrc;
-          onUnauthorized();
-          return;
-        }
-        if (!uploadRes.ok) throw new Error('Upload failed');
-        const url = readUploadUrl(await uploadRes.json());
-        if (!url) throw new Error('Invalid upload response');
-
-        // Point at the durable uploaded URL now, so the shown image survives the
-        // optimistic blob being revoked in `finally` (and any conflict prompt).
-        img.src = url;
-
-        const result = await saveField(resolved.collection, resolved.id, resolved.field, url);
-        if (result.ok) {
-          syncBoundImages(marker, url);
-          showToast('Image updated', 'success');
-        } else if (result.reason === 'conflict') {
-          // Keep the uploaded image shown; let the user choose.
-          runImageConflict(resolved, marker, url, result.latestValue);
-        } else if (result.reason !== 'unauthorized') {
-          syncBoundImages(marker, originalSrc);
-          showToast('Failed to save image. Changes reverted.', 'error');
-        }
-
-        flash(img, result.ok);
-      } catch {
-        img.src = originalSrc;
-        flash(img, false);
-        setStatus('error', 'Upload failed');
-        showToast('Upload failed', 'error');
-      } finally {
-        URL.revokeObjectURL(previewUrl);
-        overlay.classList.remove('uploading');
-        badge.classList.remove('cms-img-badge-hidden');
+      const uploadRes = await fetch(buildCmsUrl('/upload'), {
+        method: 'POST',
+        headers,
+        body: formData,
+      }).catch(() => null);
+      if (!uploadRes || uploadRes.status === 401 || uploadRes.status >= 500) {
+        // Offline, a server failure or an expired session: keep the chosen
+        // file on the page and upload it again with the other kept changes.
+        keepPreview = true;
+        keptPreviews.set(img, previewUrl);
+        const expired = uploadRes?.status === 401;
+        keepUnsaved(img, () => replaceImage(file, img), expired);
+        setStatus('error', t('editor.save.notSaved'));
+        if (expired) onUnauthorized();
+        return;
       }
+      if (!uploadRes.ok) {
+        // The server explains a refusal (too large, not an image) for editors.
+        const body = await uploadRes.json().catch(() => null);
+        throw new Error(body && typeof body.error === 'string' ? body.error : '');
+      }
+      const url = readUploadUrl(await uploadRes.json());
+      if (!url) throw new Error('');
+      // Keep the local preview until the new file is actually served.
+      await whenServed(url);
 
-      input.value = '';
-    });
+      // Point at the durable uploaded URL now, so the shown image survives the
+      // optimistic blob being revoked in `finally` (and any conflict prompt).
+      img.setAttribute('src', url);
+      await saveImage(img, resolved, marker, url);
+    } catch (error) {
+      settle(img);
+      img.setAttribute('src', originalSrc);
+      flash(img, false);
+      setStatus('error', t('editor.image.uploadFailed'));
+      const reason = error instanceof Error && error.message ? error.message : '';
+      showToast(reason || t('editor.image.uploadFailedCopy'), 'error');
+    } finally {
+      if (!keepPreview) URL.revokeObjectURL(previewUrl);
+      uploading = false;
+      overlay.classList.remove('uploading');
+      if (!img.matches(':hover') && document.activeElement !== img) hide();
+    }
+  }
+
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
+    input.value = '';
+    if (file && active) void replaceImage(file, active);
+  });
+
+  // Dropping an image file onto an editable image replaces it. While hovered,
+  // the image is under the Replace control, so drops there count too.
+  /** @param {DragEvent} event */
+  const dropTarget = (event) => {
+    if (!document.body.classList.contains('cms-edit-mode') || document.body.classList.contains('cms-preview-mode')) return null;
+    if (!event.dataTransfer || ![...event.dataTransfer.types].includes('Files')) return null;
+    if (event.target === overlay || overlay.contains(/** @type {Node} */ (event.target))) return active;
+    return editableImage(event.target);
+  };
+  document.addEventListener('dragover', (event) => {
+    const img = dropTarget(event);
+    if (!img) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    if (img !== active) show(img);
+    overlay.classList.add('dropping');
+  });
+  document.addEventListener('dragleave', () => overlay.classList.remove('dropping'));
+  document.addEventListener('drop', (event) => {
+    overlay.classList.remove('dropping');
+    const img = dropTarget(event);
+    if (!img) return;
+    event.preventDefault();
+    const file = [...(event.dataTransfer?.files ?? [])].find((candidate) => candidate.type.startsWith('image/'));
+    if (file) void replaceImage(file, img);
   });
 }

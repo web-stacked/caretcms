@@ -1,8 +1,43 @@
 /** Studio field rendering. Persistence and specialized widgets are injected. */
-import { fieldIdFromPath, humanizeKey, templateFromSchema } from './field-model.js';
+import { fieldIdFromPath, fillsByDefault, humanizeKey, templateFromSchema } from './field-model.js';
 import { sanitizeHtml } from '../editor/sanitize.js';
 /** @typedef {import('./field-model.js').Schema} Schema */
 /** @typedef {Record<string, unknown>} Entry */
+
+/** @param {number} n */
+function pad2(n) { return String(n).padStart(2, "0"); }
+
+/**
+ * What a date or date-time picker shows for a stored value. Dates are
+ * calendar days ("2026-03-11"), never shifted by time zone. A date-time with a
+ * zone ("…Z", "+02:00") shows in the editor's local time; one without shows as
+ * written.
+ * @param {"date" | "date-time"} format @param {string} stored
+ */
+export function dateInputValue(format, stored) {
+  var day = /^\d{4}-\d{2}-\d{2}/.exec(stored);
+  if (!day) return "";
+  if (format === "date") return day[0];
+  if (!/(Z|[+-]\d{2}:?\d{2})$/i.test(stored)) return stored.slice(0, 16);
+  var when = new Date(stored);
+  if (Number.isNaN(when.getTime())) return "";
+  return when.getFullYear() + "-" + pad2(when.getMonth() + 1) + "-" + pad2(when.getDate())
+    + "T" + pad2(when.getHours()) + ":" + pad2(when.getMinutes());
+}
+
+/**
+ * The value to store for what the picker shows, in the form the field
+ * already uses: a date-time stored with a zone stays an ISO instant (as do new
+ * ones); one stored without stays local wall time.
+ * @param {"date" | "date-time"} format @param {string} input @param {string} previous
+ */
+export function storedDateValue(format, input, previous) {
+  if (!input || format === "date") return input;
+  var zoned = !previous || /(Z|[+-]\d{2}:?\d{2})$/i.test(previous);
+  if (!zoned) return input;
+  var when = new Date(input);
+  return Number.isNaN(when.getTime()) ? input : when.toISOString();
+}
 
 /** @param {string} label @param {boolean} isRequired @param {boolean} [inline] */
 export function createFieldGroup(label, isRequired, inline) {
@@ -59,13 +94,89 @@ export function createFieldGroup(label, isRequired, inline) {
  * buildObjectArray: (value: unknown, path: string, schema: Schema | null) => HTMLElement,
  * buildTagList: (value: unknown, path: string) => HTMLElement,
  * getPublicationField: () => string | null,
- * getMessage: (key: string, fallback: string) => string
+ * getMessage: (key: string, fallback: string) => string,
+ * savesDraft: boolean
  * }} dependencies
  */
-export function createFieldRenderer({ updateField, buildSingleImage, buildImageGallery, buildObjectArray, buildTagList, getPublicationField, getMessage }) {
+export function createFieldRenderer({ updateField, buildSingleImage, buildImageGallery, buildObjectArray, buildTagList, getPublicationField, getMessage, savesDraft }) {
+  /**
+   * A text field that wraps and grows to fit instead of cutting long text off.
+   * It stays one line (Enter and pasted line breaks are dropped) unless the
+   * stored text already has line breaks.
+   * @param {string} value @param {(next: string) => void} onChange
+   */
+  function buildTextControl(value, onChange) {
+    var multiline = /[\r\n]/.test(value);
+    var area = document.createElement("textarea");
+    area.className = "studio-input studio-input-grow";
+    area.rows = multiline ? 4 : 1;
+    area.value = value;
+    function fit() {
+      area.style.height = "auto";
+      area.style.height = area.scrollHeight + "px";
+    }
+    area.addEventListener("keydown", function (event) {
+      if (!multiline && event.key === "Enter") event.preventDefault();
+    });
+    area.addEventListener("input", function () {
+      if (!multiline && /[\r\n]/.test(area.value)) area.value = area.value.replace(/\s*[\r\n]+\s*/g, " ");
+      fit();
+      onChange(area.value);
+    });
+    // Size once the field is in the page (and when the drawer resizes it).
+    requestAnimationFrame(fit);
+    var width = 0;
+    if (typeof ResizeObserver === "function") new ResizeObserver(function (entries) {
+      var next = entries[0] ? entries[0].contentRect.width : 0;
+      if (next !== width) { width = next; fit(); }
+    }).observe(area);
+    return area;
+  }
+
+  /**
+   * The browser's own date (or date and time) picker.
+   * @param {"date" | "date-time"} format @param {string} value @param {(next: string) => void} onChange
+   */
+  function buildDateControl(format, value, onChange) {
+    var input = document.createElement("input");
+    input.type = format === "date" ? "date" : "datetime-local";
+    input.className = "studio-input studio-input-date";
+    input.value = dateInputValue(format, value);
+    var stored = value;
+    input.addEventListener("change", function () {
+      stored = storedDateValue(format, input.value, stored);
+      onChange(stored);
+    });
+    return input;
+  }
+
+  /** A link: a site path (/work), #anchor, mailto:, tel:, or a full http(s) address. */
+  var LINK_RE = /^(?:\/(?!\/)\S*|#\S*|\?\S*|mailto:\S+|tel:[+\d\s().-]+|https?:\/\/\S+)$/i;
+
+  /** @param {string} value @param {(next: string) => void} onChange */
+  function buildLinkControl(value, onChange) {
+    var link = document.createElement("input");
+    link.type = "text";
+    link.inputMode = "url";
+    link.autocomplete = "off";
+    link.spellcheck = false;
+    link.className = "studio-input";
+    link.value = value;
+    function check() {
+      var text = link.value.trim();
+      link.setCustomValidity(!text || LINK_RE.test(text) ? "" : getMessage("field.linkInvalid", "Use a site path such as /work, or a full address such as https://example.com."));
+    }
+    link.addEventListener("input", function () { check(); onChange(link.value); });
+    link.addEventListener("blur", function () { link.reportValidity(); });
+    check();
+    return link;
+  }
+
   /** @param {HTMLElement} group @param {Schema} prop @param {string} path */
   function appendFieldDescription(group, prop, path) {
     if (typeof prop.description !== "string" || !prop.description.trim()) return;
+    // Help that only repeats the label adds nothing.
+    if (typeof prop.title === "string" && prop.title.trim().toLowerCase() === prop.description.trim().toLowerCase()) return;
     var help = document.createElement("p");
     help.className = "caret-field-help caret-field-description";
     help.id = fieldIdFromPath(path) + "-help";
@@ -255,8 +366,9 @@ export function createFieldRenderer({ updateField, buildSingleImage, buildImageG
       var isRequired = required.has(key);
       var value = data ? data[key] : undefined;
 
-      // Backfill missing keys with sensible defaults
-      if (value === undefined && data) {
+      // Required fields and fields with a default start with a value; an
+      // optional field stays absent until the editor fills it.
+      if (value === undefined && data && fillsByDefault(schema, key)) {
         data[key] = templateFromSchema(prop);
       }
       var current = data ? data[key] : undefined;
@@ -294,41 +406,40 @@ export function createFieldRenderer({ updateField, buildSingleImage, buildImageG
         ta.value = String(current || "");
         ta.addEventListener("input", function () { updateField(path, ta.value); });
         group.appendChild(ta);
-      } else if (prop.type === "string" && (prop.format === "email" || prop.format === "uri" || prop.format === "url")) {
+      } else if (prop.type === "string" && prop.format === "email") {
         group = createFieldGroup(label, isRequired);
         group.dataset.fieldPath = path;
         var emailInput = document.createElement("input");
-        emailInput.type = prop.format === "email" ? "email" : "url";
+        emailInput.type = "email";
         emailInput.className = "studio-input";
         emailInput.value = String(current || "");
         emailInput.addEventListener("input", function () { updateField(path, emailInput.value); });
         group.appendChild(emailInput);
+      } else if (prop.type === "string" && (prop.format === "date" || prop.format === "date-time")) {
+        group = createFieldGroup(label, isRequired);
+        group.dataset.fieldPath = path;
+        group.appendChild(buildDateControl(prop.format, String(current || ""), function (next) { updateField(path, next); }));
+      } else if (prop.type === "string" && (prop.format === "uri" || prop.format === "url")) {
+        group = createFieldGroup(label, isRequired);
+        group.dataset.fieldPath = path;
+        group.appendChild(buildLinkControl(String(current || ""), function (next) { updateField(path, next); }));
       } else if (prop.type === "string") {
         group = createFieldGroup(label, isRequired);
         group.dataset.fieldPath = path;
-        /** @type {HTMLInputElement | HTMLTextAreaElement} */
-        var input;
-        if (typeof current === "string" && (current.length > 100 || /[\r\n]/.test(current))) {
-          input = document.createElement("textarea");
-          input.rows = 4;
-        } else {
-          input = document.createElement("input");
-          input.type = "text";
-        }
-        input.className = "studio-input";
-        input.value = String(current || "");
-        input.addEventListener("input", function () { updateField(path, input.value); });
-        group.appendChild(input);
+        group.appendChild(buildTextControl(String(current || ""), function (next) { updateField(path, next); }));
       } else if (prop.type === "number" || prop.type === "integer") {
         group = createFieldGroup(label, isRequired);
         group.dataset.fieldPath = path;
         var num = document.createElement("input");
         num.type = "number";
         num.className = "studio-input";
-        num.value = String(current == null ? 0 : current);
-        if (prop.minimum !== undefined) num.min = String(prop.minimum);
-        if (prop.maximum !== undefined) num.max = String(prop.maximum);
-        num.addEventListener("input", function () { updateField(path, Number(num.value) || 0); });
+        num.value = current == null ? "" : String(current);
+        if (prop.minimum !== undefined && Number.isSafeInteger(prop.minimum)) num.min = String(prop.minimum);
+        if (prop.maximum !== undefined && Number.isSafeInteger(prop.maximum)) num.max = String(prop.maximum);
+        // Emptied, an optional number is removed rather than saved as 0.
+        num.addEventListener("input", function () {
+          updateField(path, num.value === "" ? (isRequired ? 0 : undefined) : Number(num.value));
+        });
         group.appendChild(num);
       } else if (prop.type === "boolean") {
         group = createFieldGroup(label, isRequired, true);
@@ -352,13 +463,21 @@ export function createFieldRenderer({ updateField, buildSingleImage, buildImageG
           group.classList.add("caret-field-with-help");
           var publishHelp = document.createElement("p");
           publishHelp.className = "caret-field-help";
-          publishHelp.textContent = current
-            ? "Turn this off and Save to remove the entry from the public site without deleting it."
-            : "Turn this on and Save when the entry is ready to appear on the public site.";
+          // In draft modes saving only updates the draft; publishing applies it.
+          /** @param {boolean} on */
+          var publishHelpText = function (on) {
+            if (savesDraft) {
+              return on
+                ? getMessage("entry.publicationOffDraft", "Turn this off, save, then publish to remove the entry from the public site without deleting it.")
+                : getMessage("entry.publicationOnDraft", "Turn this on, save, then publish when the entry is ready to appear on the public site.");
+            }
+            return on
+              ? getMessage("entry.publicationOff", "Turn this off and Save to remove the entry from the public site without deleting it.")
+              : getMessage("entry.publicationOn", "Turn this on and Save when the entry is ready to appear on the public site.");
+          };
+          publishHelp.textContent = publishHelpText(Boolean(current));
           toggle.addEventListener("click", function () {
-            publishHelp.textContent = toggle.classList.contains("active")
-              ? "Turn this off and Save to remove the entry from the public site without deleting it."
-              : "Turn this on and Save when the entry is ready to appear on the public site.";
+            publishHelp.textContent = publishHelpText(toggle.classList.contains("active"));
           });
           group.appendChild(publishHelp);
         }
@@ -485,14 +604,7 @@ export function createFieldRenderer({ updateField, buildSingleImage, buildImageG
       if (typeof value === "string") {
         var g8 = createFieldGroup(label, false);
         g8.dataset.fieldPath = path;
-        /** @type {HTMLInputElement | HTMLTextAreaElement} */
-        var i;
-        if (value.length > 100 || /[\r\n]/.test(value)) { i = document.createElement("textarea"); i.rows = 4; }
-        else { i = document.createElement("input"); i.type = "text"; }
-        i.className = "studio-input";
-        i.value = value;
-        i.addEventListener("input", function () { updateField(path, i.value); });
-        g8.appendChild(i);
+        g8.appendChild(buildTextControl(value, function (next) { updateField(path, next); }));
         container.appendChild(g8);
         return;
       }

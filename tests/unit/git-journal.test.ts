@@ -65,7 +65,7 @@ describe("commitPaths", () => {
     writeFileSync(join(dir, "gone.json"), "{}\n");
     await commitPaths({ cwd: dir, paths: ["gone.json"], message: "add gone" });
     rmSync(join(dir, "gone.json"));
-    const sha = await commitPaths({ cwd: dir, paths: ["gone.json"], message: "publish delete gone" });
+    const sha = await commitPaths({ cwd: dir, paths: ["gone.json", "never-existed.json"], message: "publish delete gone" });
     expect(sha).toMatch(/^[0-9a-f]{40}$/);
     expect(git(dir, "log", "-1", "--pretty=%s").trim()).toBe("publish delete gone");
     // file no longer tracked at HEAD
@@ -91,5 +91,22 @@ describe("commitPaths", () => {
 
   it("returns null for an empty path list", async () => {
     expect(await commitPaths({ cwd: dir, paths: [], message: "nothing" })).toBeNull();
+  });
+
+  it("treats file names as literal paths rather than Git patterns", async () => {
+    writeFileSync(join(dir, "file[1].json"), "approved\n");
+    writeFileSync(join(dir, "file1.json"), "unapproved\n");
+    expect(await commitPaths({ cwd: dir, paths: ["file[1].json"], message: "literal source" })).toMatch(/^[0-9a-f]{40}$/);
+    expect(git(dir, "show", "--name-only", "--pretty=", "HEAD").trim()).toBe("file[1].json");
+  });
+
+  it("serializes concurrent journal operations and preserves an unrelated staged file", async () => {
+    for (const name of ["one", "two", "unrelated"]) writeFileSync(join(dir, `${name}.json`), name);
+    git(dir, "add", "unrelated.json");
+    const commits = await Promise.all(["one", "two"].map(name => commitPaths({ cwd: dir, paths: [`${name}.json`], message: `publish ${name}` })));
+    expect(commits.every(sha => typeof sha === "string" && /^[a-f0-9]{40}$/.test(sha))).toBe(true);
+    expect(new Set(commits).size).toBe(2);
+    expect(git(dir, "diff", "--cached", "--name-only").trim()).toBe("unrelated.json");
+    expect(git(dir, "log", "-2", "--pretty=%s").trim().split("\n").sort()).toEqual(["publish one", "publish two"]);
   });
 });

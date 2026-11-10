@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDevAuthContext, withDevRequest } from "../../packages/core/src/runtime/dev-request-context";
-import { getEditorId, issueEditorSessionCookie } from "../../packages/core/src/runtime/auth/session";
+import { getEditorId, issueEditorSessionCookies } from "../../packages/core/src/runtime/auth/session";
 import { onRequest } from "../../packages/core/src/runtime/middleware";
 import { __setRuntimeServicesForTests } from "../../packages/core/src/runtime/providers";
 import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memory-adapter";
@@ -34,7 +34,7 @@ describe("static dev request identity", () => {
   });
 
   async function editorDraft(headline: string) {
-    const cookie = issueEditorSessionCookie().split(";")[0];
+    const cookie = issueEditorSessionCookies()[0].split(";")[0];
     const auth = withDevRequest({ headers: { cookie } }, () => getDevAuthContext(pageRequest(), true)!);
     const overlay = await adapter.makeEditorOverlay(getEditorId(auth)!);
     await overlay.writeEntry("pages", "home", { headline });
@@ -56,8 +56,16 @@ describe("static dev request identity", () => {
     expect(getDevAuthContext(pageRequest(), true)).toBeUndefined();
   });
 
-  it.each(["caret_preview=1", "caret_preview=1; caret_session=invalid", "caret_session=%invalid"])(
-    "does not authenticate a preview marker or invalid cookie: %s", async cookie => {
+  it("never reads a prerendered page's own request headers, which Astro warns about", async () => {
+    const cookie = await editorDraft("Draft");
+    const request = pageRequest();
+    Object.defineProperty(request, "headers", { get: () => { throw new Error("headers read on a prerendered page"); } });
+    const response = await withDevRequest({ headers: { cookie } }, () => onRequest({ ...context(), request }, next));
+    expect(await response.text()).toContain("Draft");
+  });
+
+  it.each(["caret_session=invalid", "caret_session=%invalid"])(
+    "does not authenticate an invalid session cookie: %s", async cookie => {
       const ctx = context();
       const response = await withDevRequest({ headers: { cookie } }, () => onRequest(ctx, next));
       expect(ctx.locals.isEditor).toBe(false);
