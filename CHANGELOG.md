@@ -8,6 +8,8 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-11
+
 ### Added
 
 - In `astro dev`, the CaretCMS toolbar app's Highlight all also labels each
@@ -798,7 +800,8 @@ requirements, and deployment retry limitations.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
-[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.1
 [0.6.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.0
 [0.5.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.5.0
 [0.4.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.4.0
