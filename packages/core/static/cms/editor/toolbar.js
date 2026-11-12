@@ -63,8 +63,8 @@ function renderToolbar(staticDelivery) {
         ${renderDraftControls(staticDelivery)}
         <button type="button" class="cms-retry-rebuild-btn" hidden>${tHtml('editor.toolbar.retryUpdate')}</button>
         <div class="cms-mode-switch" role="group" aria-label="${tHtml('editor.toolbar.pageMode')}">
-          <button type="button" class="cms-mode-edit" aria-pressed="true">${tHtml('editor.toolbar.edit')}</button>
-          <button type="button" class="cms-mode-preview" aria-pressed="false">${tHtml('editor.toolbar.preview')}</button>
+          <button type="button" class="cms-mode-edit" aria-pressed="true" title="${tHtml('editor.toolbar.editTitle')}">${tHtml('editor.toolbar.edit')}</button>
+          <button type="button" class="cms-mode-preview" aria-pressed="false" title="${tHtml('editor.toolbar.previewTitle')}">${tHtml('editor.toolbar.preview')}</button>
         </div>
         <button type="button" class="cms-studio-btn" title="${tHtml('editor.toolbar.studioTitle')}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="9" y1="9" x2="21" y2="9"/></svg>
@@ -207,9 +207,10 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   }
 
   function positionPanel() {
-    const rect = pill.getBoundingClientRect();
+    // Lined up with the bar's left edge, and as far above it as the Tools menu.
+    const rect = (pill.closest('.cms-toolbar-inner') ?? pill).getBoundingClientRect();
     panel.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 8))}px`;
-    panel.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 8)}px`;
+    panel.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 14)}px`;
   }
 
   async function openPanel() {

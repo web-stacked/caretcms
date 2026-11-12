@@ -152,7 +152,7 @@ function boot() {
 
   const toolbarElement = studioButton?.closest('.cms-toolbar');
   const toolbarAnchor = toolbarElement instanceof HTMLElement ? anchorToolbar(toolbarElement) : null;
-  const { iframe: studioIframe, placeOpposite, openAt } = mountStudioPanel({
+  const { iframe: studioIframe, openAt } = mountStudioPanel({
     studioButton,
     toolbar: toolbarElement instanceof HTMLElement ? toolbarElement : null,
     toolbarTabStop,
@@ -172,7 +172,6 @@ function boot() {
     state,
     showToast,
     clientLinkify,
-    onInlineSelection: placeOpposite,
     onStudioDirty: (dirty) => { studioUnsaved = dirty; reportUnsaved(inlineUnsaved || studioUnsaved); },
   });
 

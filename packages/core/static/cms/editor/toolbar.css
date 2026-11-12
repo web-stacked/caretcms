@@ -1,20 +1,22 @@
 /* ---------------------------------------------------------------------------
-   Toolbar — floating pill, centered above the page
+   Toolbar — a floating capsule of dark glass, centered above the page.
+   One material (tokens-and-text.css) is shared with toasts and popovers; the
+   controls are borderless pills, and only the main action carries color.
    --------------------------------------------------------------------------- */
 
 .cms-toolbar {
   position: fixed;
-  bottom: 14px;
+  bottom: 16px;
   left: 50%;
-  /* `translate` centers; `transform` is left free for the entrance animation. */
+  /* `translate` centers the bar before toolbar-anchor.js places it. */
   translate: -50% 0;
   max-width: calc(100vw - 24px);
   z-index: 99999;
   font-family: var(--cms-font);
   font-size: 13px;
-  opacity: 0;
-  transform: translateY(24px);
-  animation: cms-toolbar-enter 0.5s cubic-bezier(0.16, 1, 0.3, 1) 0.3s forwards;
+  /* Slides up from below the page. Only `transform` is animated: an animated
+     opacity here would cut the glass off from the page it blurs. */
+  animation: cms-toolbar-enter 0.7s var(--cms-spring) 0.3s both;
 }
 
 /* Anchored by its right edge once placed, so its buttons don't shift when
@@ -24,7 +26,7 @@
     left: auto;
     right: var(--cms-toolbar-right);
     translate: none;
-    transition: right 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    transition: right 0.5s var(--cms-spring);
   }
 }
 
@@ -45,139 +47,83 @@
 .cms-toolbar-inner {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
   width: max-content;
   max-width: 100%;
   height: 48px;
-  padding: 0 6px 0 14px;
+  padding: 0 6px;
   background: var(--cms-surface);
-  background: color-mix(in srgb, var(--cms-surface) 96%, transparent);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 14px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.32);
-  -webkit-backdrop-filter: blur(16px) saturate(1.4);
-  backdrop-filter: blur(16px) saturate(1.4);
+  background: var(--cms-glass);
+  border: 0;
+  border-radius: 24px;
+  box-shadow: var(--cms-edge), var(--cms-shadow);
+  -webkit-backdrop-filter: var(--cms-glass-blur);
+  backdrop-filter: var(--cms-glass-blur);
 }
 
 .cms-toolbar-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
 }
 
+/* A hairline sets the status apart from the controls. */
+.cms-toolbar-left::after {
+  content: "";
+  width: 1px;
+  height: 18px;
+  margin: 0 4px 0 2px;
+  background: var(--cms-hairline);
+}
 
 .cms-toolbar-divider {
   width: 1px;
-  height: 20px;
-  background: rgba(255, 255, 255, 0.08);
+  height: 18px;
+  background: var(--cms-hairline);
   margin: 0 4px;
 }
 
 .cms-toolbar-right {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
-.cms-mode-switch {
-  display: inline-flex;
-  padding: 2px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.cms-toolbar .cms-mode-switch button {
-  padding: 5px 8px;
-}
-
-.cms-toolbar .cms-mode-switch button[aria-pressed="true"] {
-  background: rgba(59, 130, 246, 0.16);
-  color: rgba(255, 255, 255, 0.95);
-}
-
-@media (max-width: 768px) {
-  .cms-toolbar {
-    left: 8px;
-    right: 8px;
-    bottom: max(8px, env(safe-area-inset-bottom));
-    translate: none;
-    max-width: none;
-  }
-
-  .cms-toolbar-inner {
-    width: 100%;
-    justify-content: space-between;
-    padding: 0 6px 0 12px;
-    gap: 8px;
-  }
-
-  .cms-toolbar-left {
-    gap: 8px;
-    flex-shrink: 0;
-  }
-
-  .cms-status-text {
-    display: none;
-  }
-
-  .cms-toolbar-right {
-    gap: 6px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    flex-shrink: 1;
-    padding-left: 4px;
-  }
-
-  .cms-toolbar-right::-webkit-scrollbar {
-    display: none;
-  }
-
-  .cms-toolbar-divider {
-    display: none;
-  }
-
-  .cms-toolbar button,
-  .cms-tools-summary {
-    padding: 6px 10px;
-    flex-shrink: 0;
-  }
-
-  /* Icon-only sign out keeps every control on screen; its name stays in aria-label. */
-  .cms-toolbar .cms-exit-btn .cms-btn-label {
-    display: none;
-  }
-}
-
 /* Shared base for every toolbar button so they can't drift visually. Individual
-   button classes below only override colors/borders. */
+   button classes below only override colors. */
 .cms-toolbar button,
 .cms-tools-summary {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 11px;
+  justify-content: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 13px;
   font-family: var(--cms-font);
   font-size: 13px;
   font-weight: 500;
-  line-height: 1.2;
-  letter-spacing: 0;
+  line-height: 1;
+  letter-spacing: -0.005em;
   background: transparent;
-  color: rgba(255, 255, 255, 0.72);
-  border: 1px solid transparent;
-  border-radius: 8px;
+  color: var(--cms-text-quiet);
+  border: 0;
+  border-radius: 18px;
   cursor: pointer;
-  transition: background 0.2s, border-color 0.2s, color 0.2s;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s var(--cms-spring), filter 0.18s ease;
   white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .cms-toolbar button:hover,
 .cms-tools-summary:hover {
-  background: rgba(59, 130, 246, 0.08);
-  border-color: rgba(59, 130, 246, 0.3);
-  color: rgba(255, 255, 255, 0.85);
+  background: var(--cms-fill);
+  color: var(--cms-text);
+}
+
+.cms-toolbar button:active,
+.cms-tools-summary:active {
+  transform: scale(0.96);
 }
 
 .cms-toolbar button:focus-visible,
@@ -187,24 +133,75 @@
 }
 
 .cms-toolbar button svg {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
+}
+
+/* Edit / Preview — a segmented control whose thumb slides to the pressed side. */
+.cms-mode-switch {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 3px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.cms-mode-switch::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc(50% - 3px);
+  border-radius: 15px;
+  background: var(--cms-fill-strong);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28), inset 0 0 0 0.5px rgba(255, 255, 255, 0.1);
+  transition: transform 0.32s var(--cms-spring);
+}
+
+.cms-mode-switch:has(.cms-mode-preview[aria-pressed="true"])::before {
+  transform: translateX(100%);
+}
+
+.cms-toolbar .cms-mode-switch button {
+  position: relative;
+  height: 30px;
+  padding: 0 13px;
+  border-radius: 15px;
+}
+
+.cms-toolbar .cms-mode-switch button:hover {
+  background: transparent;
+}
+
+.cms-toolbar .cms-mode-switch button[aria-pressed="true"] {
+  color: #fff;
+}
+
+/* Without :has() the thumb can't follow, so the pressed side carries the fill. */
+@supports not selector(:has(*)) {
+  .cms-mode-switch::before { display: none; }
+  .cms-toolbar .cms-mode-switch button[aria-pressed="true"] { background: var(--cms-fill-strong); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cms-mode-switch::before { transition: none; }
+  .cms-toolbar button:active,
+  .cms-tools-summary:active { transform: none; }
 }
 
 /* Status pill: the dot's color is the save state; a hollow dot means edits
    go to a draft. The word sits beside it; the panel holds the details. */
 .cms-toolbar button.cms-status-pill {
-  display: inline-flex;
-  align-items: center;
   gap: 8px;
-  background: transparent;
-  border-color: transparent;
-  color: rgba(255, 255, 255, 0.72);
+  padding: 0 12px;
+  color: var(--cms-text);
 }
 .cms-toolbar button.cms-status-pill:hover,
 .cms-toolbar button.cms-status-pill[aria-expanded="true"] {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--cms-fill);
 }
 
 .cms-status-dot {
@@ -213,6 +210,7 @@
   flex: none;
   border-radius: 50%;
   background-color: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
   transition: color 0.3s;
 }
 .cms-status-pill[data-mode="draft"] .cms-status-dot {
@@ -241,60 +239,71 @@
   white-space: nowrap;
 }
 
+.cms-status-text {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 500;
+}
+
 .cms-status-panel {
   position: fixed;
   z-index: 2147483646;
   width: min(300px, calc(100vw - 16px));
-  padding: 0.85rem 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 12px;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 18px;
   background: var(--cms-surface);
-  color: #f3f4f6;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-  font: 400 0.8rem/1.5 var(--cms-font);
+  background: var(--cms-glass);
+  -webkit-backdrop-filter: var(--cms-glass-blur);
+  backdrop-filter: var(--cms-glass-blur);
+  color: var(--cms-text);
+  box-shadow: var(--cms-edge), var(--cms-shadow);
+  font: 400 13px/1.5 var(--cms-font);
 }
 .cms-status-panel[hidden] { display: none; }
 .cms-status-panel p { margin: 0; }
-.cms-status-panel-mode { font-size: 0.85rem; }
-.cms-status-panel-hint { color: rgba(255, 255, 255, 0.68); margin-bottom: 0.5rem !important; }
+.cms-status-panel-mode { font-size: 14px; }
+.cms-status-panel-hint { color: var(--cms-text-quiet); margin-bottom: 8px !important; }
 .cms-status-panel-line { color: rgba(255, 255, 255, 0.82); }
 .cms-status-panel-problem { color: #fca5a5 !important; }
 .cms-status-panel-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
+  gap: 6px;
+  margin-top: 12px;
 }
 .cms-status-panel-actions button {
   min-height: 32px;
-  padding: 0 0.7rem;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 8px;
-  background: transparent;
-  color: #f3f4f6;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--cms-fill);
+  color: var(--cms-text);
   cursor: pointer;
-  font: 500 0.75rem/1 var(--cms-font);
+  font: 500 12px/1 var(--cms-font);
+  transition: background 0.18s ease;
 }
 .cms-status-panel-actions button[hidden] { display: none; }
-.cms-status-panel-actions button:hover,
-.cms-status-panel-actions button:focus-visible { border-color: var(--cms-blue); }
+.cms-status-panel-actions button:hover { background: var(--cms-fill-strong); }
+.cms-status-panel-actions button:focus-visible { outline: 2px solid var(--cms-accent); outline-offset: 2px; }
 
 @keyframes cms-dot-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
 }
 
-.cms-status-text {
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 12px;
-  font-weight: 400;
+/* Content Studio — the bar's one filled control. */
+.cms-toolbar button.cms-studio-btn {
+  background: var(--cms-accent);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
-/* Content Studio toggle — accent-colored */
-.cms-toolbar button.cms-studio-btn {
-  background: var(--cms-accent-soft);
-  color: var(--cms-accent);
-  border-color: rgba(59, 130, 246, 0.2);
+.cms-toolbar button.cms-studio-btn:hover {
+  background: var(--cms-accent);
+  color: #fff;
+  filter: brightness(1.1);
 }
 
 .cms-tools-menu {
@@ -302,11 +311,7 @@
 }
 
 .cms-tools-summary {
-  display: inline-flex;
-  align-items: center;
   list-style: none;
-  cursor: pointer;
-  white-space: nowrap;
 }
 
 .cms-tools-summary::-webkit-details-marker {
@@ -315,49 +320,66 @@
 
 .cms-tools-summary::after {
   content: "";
-  width: 0.4rem;
-  height: 0.4rem;
-  margin-left: 0.45rem;
-  border-right: 1px solid currentColor;
-  border-bottom: 1px solid currentColor;
-  transform: rotate(225deg) translate(-1px, -1px);
+  width: 6px;
+  height: 6px;
+  margin: 3px 0 0 1px;
+  border-left: 1.5px solid currentColor;
+  border-top: 1.5px solid currentColor;
+  border-radius: 1px;
+  opacity: 0.7;
+  transform: rotate(45deg);
+  transition: transform 0.25s var(--cms-spring);
 }
 
 .cms-tools-menu[open] .cms-tools-summary {
-  color: rgba(255, 255, 255, 0.9);
-  background: rgba(59, 130, 246, 0.12);
+  color: var(--cms-text);
+  background: var(--cms-fill);
+}
+
+.cms-tools-menu[open] .cms-tools-summary::after {
+  transform: translateY(-3px) rotate(225deg);
 }
 
 .cms-tools-popover {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 0.65rem);
+  bottom: calc(100% + 14px);
   display: grid;
-  gap: 0.25rem;
-  width: 13.5rem;
-  padding: 0.4rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
+  gap: 2px;
+  width: 14rem;
+  padding: 6px;
+  border: 0;
+  border-radius: 18px;
   background: var(--cms-surface);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.35);
+  background: var(--cms-glass);
+  -webkit-backdrop-filter: var(--cms-glass-blur);
+  backdrop-filter: var(--cms-glass-blur);
+  box-shadow: var(--cms-edge), var(--cms-shadow);
+  transform-origin: bottom right;
+  animation: cms-pop-in 0.28s var(--cms-spring);
 }
 
 .cms-tools-popover button {
   width: 100%;
   justify-content: flex-start;
+  gap: 10px;
+  border-radius: 12px;
+  color: var(--cms-text);
 }
 
-.cms-toolbar button.cms-studio-btn:hover {
-  background: rgba(59, 130, 246, 0.25);
-  border-color: rgba(59, 130, 246, 0.4);
-  color: var(--cms-accent);
+@keyframes cms-pop-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cms-tools-popover { animation: none; }
+  .cms-tools-summary::after { transition: none; }
 }
 
 /* Highlight-all active state */
 .cms-toolbar button.cms-highlight-btn-active {
-  background: rgba(59, 130, 246, 0.12);
-  border-color: rgba(59, 130, 246, 0.4);
-  color: rgba(59, 130, 246, 0.9);
+  background: var(--cms-accent-soft);
+  color: #93c5fd;
 }
 
 /* The base `.cms-toolbar button` sets `display`, which overrides the default
@@ -379,54 +401,48 @@
 
 /* Draft preview active — amber, signalling "unpublished" */
 .cms-toolbar button.cms-preview-btn-active {
-  background: rgba(234, 179, 8, 0.12);
-  border-color: rgba(234, 179, 8, 0.4);
+  background: rgba(234, 179, 8, 0.16);
   color: var(--cms-yellow);
 }
 
-/* Publish — primary action on static delivery */
-.cms-toolbar button.cms-go-live-btn {
-  background: rgba(34, 197, 94, 0.12);
-  border-color: rgba(34, 197, 94, 0.3);
-  color: var(--cms-green);
-}
-
-.cms-toolbar button.cms-go-live-btn:hover {
-  background: rgba(34, 197, 94, 0.25);
-  border-color: rgba(34, 197, 94, 0.5);
-  color: var(--cms-green);
-}
-
-/* Publish — green */
+/* Publish — filled green: with drafts waiting it is the action that matters. */
+.cms-toolbar button.cms-go-live-btn,
 .cms-toolbar button.cms-publish-btn {
-  background: rgba(34, 197, 94, 0.12);
-  border-color: rgba(34, 197, 94, 0.3);
-  color: var(--cms-green);
+  background: var(--cms-green);
+  color: #052e16;
+  font-weight: 600;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
+.cms-toolbar button.cms-go-live-btn:hover,
 .cms-toolbar button.cms-publish-btn:hover {
-  background: rgba(34, 197, 94, 0.25);
-  border-color: rgba(34, 197, 94, 0.5);
-  color: var(--cms-green);
+  background: var(--cms-green);
+  color: #052e16;
+  filter: brightness(1.08);
 }
 
-/* Discard — red on hover */
-.cms-toolbar button.cms-discard-btn:hover {
-  background: rgba(248, 113, 113, 0.08);
-  border-color: rgba(248, 113, 113, 0.3);
-  color: var(--cms-red);
+/* Discard and Sign out — quiet until hovered, then red. */
+.cms-toolbar button.cms-discard-btn:hover,
+.cms-toolbar button.cms-exit-btn:hover {
+  background: rgba(248, 113, 113, 0.14);
+  color: #fca5a5;
 }
 
 /* Highlight all mode — show every editable region (fields AND body blocks) */
 .cms-highlight-all [data-caret].cms-editable,
 .cms-highlight-all [data-caret-md].cms-editable {
-  outline-color: var(--cms-blue-hover);
-  background: rgba(59, 130, 246, 0.04);
+  outline: 3px solid var(--cms-blue-hover);
+  outline-offset: 6px;
+  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.1);
+  box-shadow: 0 0 0 9px rgba(59, 130, 246, 0.12);
 }
 
 .cms-highlight-all img[data-caret] {
-  outline: 2px dashed rgba(59, 130, 246, 0.4);
-  outline-offset: 4px;
+  outline: 3px solid var(--cms-blue-hover);
+  outline-offset: 6px;
+  border-radius: 8px;
+  box-shadow: 0 0 0 9px rgba(59, 130, 246, 0.12);
 }
 
 /* The welcome reveal still flashes editable regions, but without animating the
@@ -439,16 +455,9 @@
   }
 }
 
-/* Exit — red on hover */
-.cms-toolbar button.cms-exit-btn:hover {
-  background: rgba(248, 113, 113, 0.08);
-  border-color: rgba(248, 113, 113, 0.3);
-  color: var(--cms-red);
-}
-
 /* Keep the end of the page reachable above the floating toolbar */
 body:has(.cms-toolbar) {
-  padding-bottom: 76px;
+  padding-bottom: 80px;
 }
 
 /* Shift back-to-top button above toolbar */
@@ -463,80 +472,92 @@ body:has(.cms-toolbar) #back-to-top {
   display: grid;
   place-items: center;
   padding: 1rem;
-  background: rgba(0, 0, 0, 0.58);
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
 }
 .cms-dialog-backdrop[hidden] { display: none; }
 .cms-dialog {
-  width: min(100%, 32rem);
-  padding: 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 14px;
+  width: min(100%, 30rem);
+  padding: 22px;
+  border: 0;
+  border-radius: 22px;
   background: var(--cms-surface);
-  color: #f3f4f6;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  color: var(--cms-text);
+  box-shadow: var(--cms-edge), 0 30px 80px -20px rgba(0, 0, 0, 0.6);
   font-family: var(--cms-font);
+  animation: cms-dialog-in 0.32s var(--cms-spring);
+}
+@keyframes cms-dialog-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cms-dialog { animation: none; }
 }
 .cms-dialog h2 {
-  margin: 0 0 0.5rem;
+  margin: 0 0 6px;
   /* The site's own heading styles mustn't reach the editor's dialogs. */
-  color: #f3f4f6;
-  font: 600 1rem/1.3 var(--cms-font);
-  letter-spacing: normal;
+  color: var(--cms-text);
+  font: 600 17px/1.3 var(--cms-font);
+  letter-spacing: -0.01em;
   text-transform: none;
 }
 .cms-dialog p {
   margin: 0;
-  color: rgba(255, 255, 255, 0.68);
-  font-size: 0.82rem;
-  line-height: 1.55;
+  color: var(--cms-text-quiet);
+  font-size: 13.5px;
+  line-height: 1.5;
 }
 .cms-dialog-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 0.5rem;
-  margin-top: 1rem;
+  gap: 8px;
+  margin-top: 20px;
   flex-wrap: wrap;
 }
 .cms-dialog-actions button {
-  min-height: 34px;
-  padding: 0 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 8px;
-  background: transparent;
-  color: #f3f4f6;
+  min-height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--cms-fill);
+  color: var(--cms-text);
   cursor: pointer;
-  font: 500 0.75rem/1 var(--cms-font);
+  font: 500 13px/1 var(--cms-font);
+  transition: background 0.18s ease, filter 0.18s ease;
 }
-.cms-dialog-actions button:hover,
-.cms-dialog-actions button:focus-visible { border-color: var(--cms-blue); }
+.cms-dialog-actions button:hover { background: var(--cms-fill-strong); }
+.cms-dialog-actions button:focus-visible { outline: 2px solid var(--cms-accent); outline-offset: 2px; }
 .cms-dialog-actions .cms-signout-publish {
-  border-color: var(--cms-green);
-  background: rgba(34, 197, 94, 0.12);
-  color: var(--cms-green);
+  background: var(--cms-green);
+  color: #052e16;
+  font-weight: 600;
 }
+.cms-dialog-actions .cms-signout-publish:hover { background: var(--cms-green); filter: brightness(1.08); }
 .cms-dialog-actions .cms-signout-publish.is-danger {
-  border-color: rgba(248, 113, 113, 0.42);
-  background: rgba(248, 113, 113, 0.1);
-  color: var(--cms-red);
+  background: rgba(248, 113, 113, 0.16);
+  color: #fca5a5;
 }
-.cms-dialog-actions .cms-signout-discard { color: var(--cms-red); }
+.cms-dialog-actions .cms-signout-publish.is-danger:hover { background: rgba(248, 113, 113, 0.24); filter: none; }
+.cms-dialog-actions .cms-signout-discard { color: #fca5a5; }
 .cms-dialog-actions .cms-dialog-primary {
-  border-color: var(--cms-blue);
-  background: rgba(59, 130, 246, 0.16);
-  color: #dbeafe;
+  background: var(--cms-accent);
+  color: #fff;
+  font-weight: 600;
 }
+.cms-dialog-actions .cms-dialog-primary:hover { background: var(--cms-accent); filter: brightness(1.1); }
 .cms-dialog-actions .cms-dialog-link {
   display: inline-flex;
   align-items: center;
-  min-height: 34px;
-  padding: 0 0.5rem;
-  color: rgba(255, 255, 255, 0.72);
-  font: 500 0.75rem/1 var(--cms-font);
+  min-height: 36px;
+  padding: 0 8px;
+  color: var(--cms-text-quiet);
+  font: 500 13px/1 var(--cms-font);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 .cms-dialog-actions .cms-dialog-link:hover,
-.cms-dialog-actions .cms-dialog-link:focus-visible { color: #f3f4f6; }
+.cms-dialog-actions .cms-dialog-link:focus-visible { color: var(--cms-text); }
 .cms-reauth-label {
   display: grid;
   gap: 0.35rem;
@@ -559,34 +580,85 @@ body:has(.cms-toolbar) #back-to-top {
   color: var(--cms-red);
 }
 
-/* Phones: tighten spacing so every control fits without horizontal scrolling.
-   The status pill shows only its dot; the status stays announced and the
-   panel still opens from it. */
+/* Phones: the bar spans the screen, and spacing tightens so every control
+   fits without horizontal scrolling. */
+@media (max-width: 768px) {
+  .cms-toolbar {
+    left: 8px;
+    right: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    translate: none;
+    max-width: none;
+  }
+
+  .cms-toolbar-inner {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .cms-toolbar-left {
+    flex-shrink: 0;
+  }
+
+  .cms-toolbar-left::after {
+    display: none;
+  }
+
+  .cms-status-text {
+    display: none;
+  }
+
+  .cms-toolbar-right {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-shrink: 1;
+    padding-left: 4px;
+  }
+
+  .cms-toolbar-right::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cms-toolbar-divider {
+    display: none;
+  }
+
+  .cms-toolbar button,
+  .cms-tools-summary {
+    padding: 0 11px;
+    flex-shrink: 0;
+  }
+
+  /* Icon-only sign out keeps every control on screen; its name stays in aria-label. */
+  .cms-toolbar .cms-exit-btn .cms-btn-label {
+    display: none;
+  }
+}
+
+/* Small phones. The status pill shows only its dot; the status stays
+   announced and the panel still opens from it. */
 @media (max-width: 480px) {
   /* With changes waiting, Publish and Discard take a row of their own, so the
      rest stays on screen instead of scrolling out of sight. */
   /* Two rows: the status dot with Publish and Discard, then the page controls. */
-  .cms-toolbar-inner:has(.cms-draft-controls:not([hidden])) { height: auto; padding-block: 4px; flex-wrap: wrap; row-gap: 4px; justify-content: space-between; }
+  .cms-toolbar-inner:has(.cms-draft-controls:not([hidden])) { height: auto; padding-block: 6px; flex-wrap: wrap; row-gap: 4px; justify-content: space-between; }
   .cms-toolbar-inner:has(.cms-draft-controls:not([hidden])) .cms-toolbar-right { display: contents; }
   .cms-toolbar-inner .cms-draft-controls:not([hidden]) { display: flex; flex: 1 1 calc(100% - 64px); justify-content: flex-end; gap: 4px; }
   .cms-toolbar-inner:has(.cms-draft-controls:not([hidden])) .cms-exit-btn { margin-left: 0; }
-  .cms-toolbar-inner { gap: 4px; padding: 0 4px 0 10px; }
-  .cms-toolbar-left { gap: 6px; }
-  .cms-toolbar-right { gap: 4px; }
+  .cms-toolbar-inner { gap: 2px; padding: 0 5px; }
+  .cms-toolbar-right { gap: 2px; }
   .cms-toolbar button,
-  .cms-tools-summary { padding: 6px 8px; }
-  .cms-toolbar .cms-mode-switch button { padding: 5px 7px; }
+  .cms-tools-summary { padding: 0 9px; }
+  .cms-toolbar .cms-mode-switch button { padding: 0 9px; }
   .cms-status-pill .cms-status-text { display: none; }
   /* The dot alone keeps the 44px touch target; centred, it doesn't read as a gap. */
   .cms-status-pill { justify-content: center; }
-  .cms-tools-summary::after { margin-left: 0.3rem; }
 }
 
 @keyframes cms-toolbar-enter {
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { transform: translateY(calc(100% + 40px)); }
+  to { transform: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -605,7 +677,7 @@ body:has(astro-dev-toolbar) .cms-toolbar {
   left: 8px;
   z-index: 100001;
   padding: 8px 12px;
-  border-radius: 10px;
+  border-radius: 16px;
   background: var(--cms-surface);
   color: #fff;
   font: 600 13px/1.2 var(--cms-font);
@@ -635,12 +707,16 @@ body:has(astro-dev-toolbar) .cms-toolbar {
 
 /* Touch: 44px targets, and Sign out set apart from the controls used often. */
 @media (pointer: coarse) {
-  .cms-toolbar-inner { height: auto; min-height: 52px; }
+  .cms-toolbar-inner { height: auto; min-height: 56px; border-radius: 28px; }
   .cms-toolbar button,
   .cms-toolbar summary {
     min-height: 44px;
     min-width: 44px;
+    border-radius: 22px;
   }
+  .cms-mode-switch { border-radius: 25px; }
+  .cms-mode-switch::before,
+  .cms-toolbar .cms-mode-switch button { border-radius: 22px; }
   .cms-tools-popover button { min-height: 44px; }
   .cms-toolbar .cms-exit-btn { margin-left: 12px; }
 }
