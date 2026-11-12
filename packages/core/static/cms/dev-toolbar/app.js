@@ -148,6 +148,61 @@ function applyHighlight(active) {
   document.head.appendChild(style);
 }
 
+// --- binding labels: with Highlight all on, each bound element also carries
+// its key, so a developer reads off the page which field an element saves to.
+// The labels live in one layer on <body>, in page coordinates, so they scroll
+// with the content and never touch the site's own markup.
+const LABEL_LAYER_ID = "__caret-devtoolbar-labels__";
+const LABEL_COLORS = { text: "#a5b4fc", rich: "#6ee7b7", image: "#fcd34d", locked: "#cbd5e1" };
+
+/** @typedef {{ left: number, top: number, right: number, bottom: number }} Box */
+/** @param {Box} a @param {Box} b */
+function overlaps(a, b) {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
+/**
+ * @param {boolean} active
+ * @param {PageBinding[]} bindings
+ */
+function applyLabels(active, bindings) {
+  document.getElementById(LABEL_LAYER_ID)?.remove();
+  if (!active) return;
+  const layer = document.createElement("div");
+  layer.id = LABEL_LAYER_ID;
+  layer.setAttribute("aria-hidden", "true");
+  layer.style.cssText = "position:absolute;left:0;top:0;width:0;height:0;z-index:99990;pointer-events:none;";
+  document.body.appendChild(layer);
+
+  /** @type {Box[]} */
+  const placed = [];
+  for (const binding of bindings) {
+    const rect = binding.el.getBoundingClientRect();
+    if (rect.width < 4 || rect.height < 4) continue;
+    const label = document.createElement("span");
+    label.textContent = binding.key;
+    label.style.cssText =
+      "position:absolute;white-space:nowrap;padding:3px 7px;border-radius:6px;background:#0d1014;" +
+      `color:${LABEL_COLORS[binding.kind]};font:500 11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;` +
+      "box-shadow:0 4px 12px rgba(0,0,0,.35);letter-spacing:0;text-transform:none;";
+    layer.appendChild(label);
+    const width = label.offsetWidth;
+    const height = label.offsetHeight;
+    const left = Math.max(4, Math.min(rect.left + window.scrollX, document.documentElement.scrollWidth - width - 4));
+    // Above the element where there is room, else below it; a label that would
+    // cover another one is left out (the panel still lists every binding).
+    const spots = [rect.top + window.scrollY - height - 5, rect.bottom + window.scrollY + 5];
+    const top = spots.find((y) => y >= 2 && !placed.some((box) => overlaps(box, { left, top: y, right: left + width, bottom: y + height })));
+    if (top === undefined) {
+      label.remove();
+      continue;
+    }
+    label.style.left = `${Math.round(left)}px`;
+    label.style.top = `${Math.round(top)}px`;
+    placed.push({ left, top, right: left + width, bottom: top + height });
+  }
+}
+
 /**
  * Repeated jumps share the first inline style snapshot so overlapping timers
  * cannot restore a temporary outline and leave it stuck on the page.
@@ -233,6 +288,9 @@ export default defineToolbarApp({
     canvas.appendChild(win);
 
     let highlightOn = false;
+    window.addEventListener("resize", () => {
+      if (highlightOn) applyLabels(true, scanBindings().bindings);
+    });
     /** @type {BindingScan} */
     let scan = { bindings: [], orphans: [], duplicates: [], locked: [], stega: false, total: 0 };
 
@@ -365,11 +423,13 @@ export default defineToolbarApp({
       if (action === "highlight") {
         highlightOn = !highlightOn;
         applyHighlight(highlightOn);
+        applyLabels(highlightOn, scan.bindings);
         target.textContent = `${highlightOn ? "Hide" : "Highlight"} all`;
         target.classList.toggle("on", highlightOn);
         target.setAttribute("aria-pressed", String(highlightOn));
       } else if (action === "rescan") {
         render();
+        applyLabels(highlightOn, scan.bindings);
       } else if (action === "retry-git") {
         void retryGitHistory();
       } else if (action === "scroll") {

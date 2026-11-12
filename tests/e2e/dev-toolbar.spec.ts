@@ -65,11 +65,22 @@ test.describe("dev toolbar — binding inspector", () => {
     await highlight.click();
     expect(await present()).toBe(true);
 
+    // Each bound element is also labelled with the field it saves to.
+    const labels = page.locator("#__caret-devtoolbar-labels__ span");
+    await expect(labels.filter({ hasText: /^pages::home::hero\.headline$/ })).toHaveCount(1);
+    const [label, headline] = await Promise.all([
+      labels.filter({ hasText: /^pages::home::hero\.headline$/ }).boundingBox(),
+      page.locator('h1[data-caret="hero.headline"]').boundingBox(),
+    ]);
+    expect(Math.abs(label!.x - headline!.x)).toBeLessThan(6);
+    expect(label!.y + label!.height).toBeLessThanOrEqual(headline!.y);
+
     // Toggling off removes the injected outline style without closing the app.
     const hide = page.getByRole("button", { name: "Hide all" });
     await expect(hide).toHaveAttribute("aria-pressed", "true");
     await hide.click();
     expect(await present()).toBe(false);
+    await expect(labels).toHaveCount(0);
     await expect(page.getByText("CaretCMS bindings")).toBeVisible();
     await expect(highlight).toHaveAttribute("aria-pressed", "false");
   });
