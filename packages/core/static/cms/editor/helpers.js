@@ -74,6 +74,17 @@ export function getResolvedKey(el) {
 }
 
 /**
+ * The key that identifies an element's field when syncing copies of it on the
+ * page: the resolved "collection::id::field", so a short `data-caret="price"`
+ * under two scopes is two fields. An unresolvable binding keeps its raw text.
+ * @param {Element} el
+ * @returns {string}
+ */
+export function bindingKey(el) {
+  return getResolvedKey(el) ?? el.getAttribute('data-caret') ?? '';
+}
+
+/**
  * @param {Element} el
  * @param {boolean} success
  */

@@ -1,7 +1,7 @@
 import { createTextLinkInteractions } from './text-link-interactions.js';
 import { savesDrafts } from './config.js';
 import { describeEditableText } from './a11y.js';
-import { resolveBinding } from './helpers.js';
+import { bindingKey, resolveBinding } from './helpers.js';
 import { sanitizeHtml, unsupportedTags } from './sanitize.js';
 import { bindUndo, dropEdit, recordEdit, undoLastEdit } from './undo-stack.js';
 import { bindUnsavedChanges, clearUnsaved, isUnsaved, markUnsaved } from './unsaved.js';
@@ -76,11 +76,16 @@ export function mountTextEditors({
       target.textContent = value;
     }
   };
-  /** @param {string} attr @param {string} value @param {HTMLElement} [except] an element still being typed in */
-  const syncBoundText = (attr, value, except) => {
+  /**
+   * Show a saved value on every element bound to the same field. Elements are
+   * matched by their resolved key: a short `data-caret="price"` names a
+   * different field under each `data-caret-scope`.
+   * @param {string} key @param {string} value @param {HTMLElement} [except] an element still being typed in
+   */
+  const syncBoundText = (key, value, except) => {
     document.querySelectorAll('[data-caret]').forEach((node) => {
       if (!(node instanceof HTMLElement)) return;
-      if (node.getAttribute('data-caret') !== attr) return;
+      if (bindingKey(node) !== key) return;
       if (node instanceof HTMLImageElement || node === except) return;
       applyTextValue(node, value);
     });
@@ -108,6 +113,7 @@ export function mountTextEditors({
 
     const attr = el.getAttribute('data-caret');
     if (!attr) return;
+    const key = bindingKey(el);
     // A plain binding with formatting inside: when the rich allowlist covers
     // every tag, edit it as rich text (the server renders it the same way);
     // otherwise saving would flatten markup the page never shows, so keep it
@@ -199,7 +205,7 @@ export function mountTextEditors({
       const result = await saveField(resolved.collection, resolved.id, resolved.field, value, { baseValue: expected });
       if (result.ok) {
         snapshots.set(el, value);
-        syncBoundText(attr, value);
+        syncBoundText(key, value);
         flash(el, true);
         return true;
       }
@@ -250,7 +256,7 @@ export function mountTextEditors({
           flash(el, retry.ok);
           if (retry.ok) {
             state.dirtyEls.delete(el);
-            syncBoundText(attr, mine);
+            syncBoundText(key, mine);
             showToast(t('editor.text.mineSaved'), 'success');
           } else if (retry.reason === 'conflict') {
             runConflict(resolved, mine, retry.latestValue);
@@ -264,7 +270,7 @@ export function mountTextEditors({
           const value = typeof latestValue === 'string' ? latestValue : mine;
           applyTextValue(el, value);
           snapshots.set(el, isRich ? sanitizeHtml(value) : value);
-          syncBoundText(attr, value);
+          syncBoundText(key, value);
           showToast(t('editor.text.loadedLatest'), 'success');
         },
       });
@@ -325,7 +331,7 @@ export function mountTextEditors({
         snapshots.set(el, current);
         const stillTyped = live && (isRich ? sanitizeHtml(el.innerHTML) : (el.textContent || '')) !== current;
         if (!stillTyped) state.dirtyEls.delete(el);
-        syncBoundText(attr, current, live ? el : undefined);
+        syncBoundText(key, current, live ? el : undefined);
         if (cancel) dropUndoForEdit();
         else {
           recordUndo(current);
@@ -340,7 +346,7 @@ export function mountTextEditors({
         // retry can't help: put the saved text back and say why.
         markSaved();
         state.dirtyEls.delete(el);
-        syncBoundText(attr, snapshot);
+        syncBoundText(key, snapshot);
         showToast(t('editor.text.refused', { reason: result.message.replace(/\.$/, '') }), 'error');
       } else {
         // Never throw the editor's text away: keep it, mark the field, and

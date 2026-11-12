@@ -1,6 +1,6 @@
 import { buildCmsUrl, savesDrafts } from './config.js';
 import { uploadHeaders } from './security.js';
-import { resolveBinding } from './helpers.js';
+import { bindingKey, resolveBinding } from './helpers.js';
 import { whenServed } from './image-utils.js';
 import { createAltPrompt } from './alt-text.js';
 import { describeEditableImage } from './a11y.js';
@@ -107,7 +107,7 @@ export function mountImageEditors({
     const img = /** @type {HTMLImageElement} */ (el);
     if (img.dataset.caretImgMounted === 'true' || img.hasAttribute('data-caret-locked')) return;
     img.dataset.caretImgMounted = 'true';
-    const marker = img.getAttribute('data-caret') || '';
+    const marker = bindingKey(img);
     if (!savedSrc.has(marker)) savedSrc.set(marker, img.getAttribute('src') || '');
     if (!img.closest('a, button') && !img.hasAttribute('tabindex')) img.tabIndex = 0;
     describeEditableImage(img);
@@ -204,7 +204,7 @@ export function mountImageEditors({
   const syncBoundImages = (marker, src) => {
     document.querySelectorAll('img[data-caret]').forEach((node) => {
       const image = /** @type {HTMLImageElement} */ (node);
-      if (image.getAttribute('data-caret') !== marker) return;
+      if (bindingKey(image) !== marker) return;
       image.setAttribute('src', src);
       image.removeAttribute('srcset');
       updateEmblaCarousel(image, src);
@@ -293,8 +293,8 @@ export function mountImageEditors({
   async function replaceImage(file, img) {
     if (uploading) return;
 
-    const marker = img.getAttribute('data-caret') || '';
-    const resolved = resolveBinding(img, parseCaretAttr(marker));
+    const marker = bindingKey(img);
+    const resolved = resolveBinding(img, parseCaretAttr(img.getAttribute('data-caret') || ''));
     if (!resolved) return;
 
     // A new file (or a retry) replaces any upload still waiting.
