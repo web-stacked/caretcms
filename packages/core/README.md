@@ -4,7 +4,7 @@ Inline editing, Markdown prose editing, and live content collections for Astro 6
 and 7. Add one HTML attribute to make any element editable, or edit supported
 blocks rendered from existing `.md` content collections.
 
-![CaretCMS inline editor demo](https://caretcms.com/preview/caretcms-demo.gif)
+![CaretCMS on a small shop's site: type a new headline, drag in a new photo, change a price and undo it, then edit a product and a workshop in the Studio while the page updates beside it](https://caretcms.com/preview/caretcms-demo.gif)
 
 ## Install
 

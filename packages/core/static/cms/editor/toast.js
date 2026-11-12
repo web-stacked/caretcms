@@ -23,6 +23,12 @@ const WARNING_SVG =
  * }} ToastController
  */
 
+/** Space between the toolbar and the newest toast, and between a toast and the viewport's edge. */
+const GAP = 10;
+const EDGE = 12;
+/** How long a toast lingers after the pointer leaves it. */
+const GRACE_MS = 1200;
+
 /** @param {ToastType} type @returns {string} */
 function iconFor(type) {
   if (type === 'success') return SUCCESS_SVG;
@@ -36,6 +42,7 @@ function iconFor(type) {
  * for work that is kept but not yet saved, and `.dismiss()`.
  *
  * Design notes:
+ *  - Toasts rise from the toolbar: the stack is centred on it and follows it.
  *  - Toasts stack (a container region) instead of one replacing the next, so a
  *    burst of saves or an error + a later success don't clobber each other.
  *  - Conflict prompts and pending-work notices are STICKY — a data-loss choice
@@ -51,6 +58,39 @@ export function createToast() {
   let container = null;
   const dismissed = new WeakSet();
 
+  let frame = 0;
+
+  /**
+   * Centre the stack on the toolbar, just above it. The toolbar sits above
+   * Astro's dev toolbar and moves aside for the Studio drawer, so its place
+   * is read rather than assumed.
+   */
+  function place() {
+    if (!container) return;
+    const bar = document.querySelector('.cms-toolbar');
+    if (!bar) return;
+    const rect = bar.getBoundingClientRect();
+    const half = container.offsetWidth / 2;
+    const viewport = document.documentElement.clientWidth;
+    const centre = Math.min(Math.max(rect.left + rect.width / 2, half + EDGE), Math.max(half + EDGE, viewport - half - EDGE));
+    container.style.left = `${Math.round(centre)}px`;
+    container.style.bottom = `${Math.max(16, Math.round(window.innerHeight - rect.top + GAP))}px`;
+  }
+
+  /** Keep the stack on the toolbar for as long as a toast is showing. */
+  function follow() {
+    if (frame) return;
+    const tick = () => {
+      if (!container || !container.childElementCount) {
+        frame = 0;
+        return;
+      }
+      place();
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+  }
+
   /** @returns {HTMLDivElement} */
   function ensureContainer() {
     if (!container || !document.body.contains(container)) {
@@ -59,10 +99,6 @@ export function createToast() {
       container.setAttribute('aria-live', 'polite');
       document.body.appendChild(container);
     }
-    // Sit above the toolbar wherever it is (it moves up over Astro's dev
-    // toolbar), so toasts never cover its buttons.
-    const bar = document.querySelector('.cms-toolbar');
-    if (bar) container.style.bottom = `${Math.max(16, window.innerHeight - bar.getBoundingClientRect().top + 12)}px`;
     return container;
   }
 
@@ -72,6 +108,20 @@ export function createToast() {
     dismissed.add(toast);
     toast.classList.add('cms-toast-out');
     setTimeout(() => toast.remove(), 300);
+  }
+
+  /**
+   * Close a toast after `duration`, but not while the pointer is on it: someone
+   * reaching for Undo shouldn't lose it. Leaving gives a short grace period.
+   * @param {HTMLDivElement} toast @param {number} duration
+   */
+  function autoDismiss(toast, duration) {
+    /** @type {ReturnType<typeof setTimeout>} */
+    let timer = setTimeout(() => dismiss(toast), duration);
+    toast.addEventListener('mouseenter', () => clearTimeout(timer));
+    toast.addEventListener('mouseleave', () => {
+      timer = setTimeout(() => dismiss(toast), GRACE_MS);
+    });
   }
 
   /** @param {ToastType} type @param {ToastOptions} options @returns {HTMLDivElement} */
@@ -125,7 +175,9 @@ export function createToast() {
     }
 
     stack.appendChild(toast);
-    if (!sticky) setTimeout(() => dismiss(toast), duration);
+    place();
+    follow();
+    if (!sticky) autoDismiss(toast, duration);
     return toast;
   }
 
@@ -135,6 +187,8 @@ export function createToast() {
   const showToast = (message, type) => {
     const kind = type === 'error' ? 'error' : type || 'success';
     if (kind === 'error') showToast.onProblem?.(message);
+    // A new confirmation is about newer work; the earlier "Saved" is stale.
+    if (kind === 'success' && savedToast) dismiss(savedToast);
     return render(kind, {
       message,
       role: kind === 'error' ? 'alert' : undefined,
@@ -172,7 +226,7 @@ export function createToast() {
   let savedToast = null;
   showToast.saved = ({ message, action }) => {
     if (savedToast) dismiss(savedToast);
-    savedToast = render('success', { message, actions: action ? [action] : undefined, inline: true, duration: 8000 });
+    savedToast = render('success', { message, actions: action ? [action] : undefined, inline: true, duration: 3500 });
     return savedToast;
   };
 

@@ -1,6 +1,6 @@
 import { buildCmsUrl } from './config.js';
 import { readHeaders } from './security.js';
-import { parseCaretAttr, resolveBinding } from './helpers.js';
+import { bindingKey, parseCaretAttr, resolveBinding } from './helpers.js';
 import { t, tHtml } from './i18n.js';
 
 /**
@@ -129,7 +129,7 @@ export function createAltPrompt({ saveField, showToast }) {
     // Every copy of the image gets it, and so does text bound to the field
     // (a caption showing the same description).
     document.querySelectorAll('img[data-caret]').forEach((node) => {
-      if (node.getAttribute('data-caret') === img.getAttribute('data-caret')) /** @type {HTMLImageElement} */ (node).alt = answer;
+      if (bindingKey(node) === bindingKey(img)) /** @type {HTMLImageElement} */ (node).alt = answer;
     });
     document.querySelectorAll('[data-caret]').forEach((node) => {
       if (node instanceof HTMLImageElement) return;

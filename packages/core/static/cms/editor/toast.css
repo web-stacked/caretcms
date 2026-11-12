@@ -1,17 +1,21 @@
 /* ---------------------------------------------------------------------------
-   Toast notifications
+   Toast notifications — they rise out of the toolbar: centered on it, in the
+   same glass, and they follow it when the Studio drawer moves it aside
+   (toast.js places the stack).
    --------------------------------------------------------------------------- */
 
 .cms-toast-stack {
   position: fixed;
   bottom: 76px;
-  right: 24px;
+  left: 50%;
+  translate: -50% 0;
   z-index: 100000;
   display: flex;
   flex-direction: column-reverse; /* newest nearest the toolbar */
-  align-items: flex-end;
+  align-items: center;
   gap: 8px;
-  max-width: min(360px, calc(100vw - 48px));
+  width: max-content;
+  max-width: min(420px, calc(100vw - 24px));
   pointer-events: none; /* the region is inert; interactive toasts opt back in */
 }
 
@@ -19,17 +23,25 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 16px 10px 10px;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 8px 16px 8px 8px;
   background: var(--cms-surface);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.32);
+  background: var(--cms-glass);
+  -webkit-backdrop-filter: var(--cms-glass-blur);
+  backdrop-filter: var(--cms-glass-blur);
+  border: 0;
+  box-shadow: var(--cms-edge), var(--cms-shadow);
   font-family: var(--cms-font);
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.86);
-  border-radius: 12px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--cms-text);
+  border-radius: 22px;
   opacity: 0;
-  transform: translateY(8px) scale(0.98);
-  animation: cms-toast-in 0.3s ease forwards;
+  transform: translateY(8px) scale(0.94);
+  transform-origin: bottom center;
+  animation: cms-toast-in 0.45s var(--cms-spring) forwards;
   pointer-events: none;
 }
 
@@ -39,46 +51,37 @@
 }
 
 .cms-toast.cms-toast-out {
-  animation: cms-toast-out 0.3s ease forwards;
+  animation: cms-toast-out 0.22s ease-in forwards;
 }
 
 .cms-toast-msg {
   /* Shares the first row with the icon; actions wrap below. */
   flex: 1 1 0;
   min-width: 0;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 .cms-toast-icon {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   flex-shrink: 0;
 }
 
+/* A filled symbol carries the state, so the toast itself stays neutral. */
 .cms-toast-icon-wrap {
   display: inline-flex;
   flex-shrink: 0;
-}
-
-/* The tinted icon carries the state; error and warning toasts also tint the border. */
-.cms-toast-icon-wrap {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
 }
 
-.cms-toast-success .cms-toast-icon-wrap { background: rgba(34, 197, 94, 0.16); }
-.cms-toast-success .cms-toast-icon { color: var(--cms-green); }
-
-.cms-toast-error { border-color: rgba(248, 113, 113, 0.45); }
-.cms-toast-error .cms-toast-icon-wrap { background: rgba(248, 113, 113, 0.16); }
-.cms-toast-error .cms-toast-icon { color: var(--cms-red); }
-
-.cms-toast-warning { border-color: rgba(234, 179, 8, 0.45); }
-.cms-toast-warning .cms-toast-icon-wrap { background: rgba(234, 179, 8, 0.16); }
-.cms-toast-warning .cms-toast-icon { color: var(--cms-amber, #eab308); }
+.cms-toast-success .cms-toast-icon-wrap { background: var(--cms-green); color: #052e16; }
+.cms-toast-error .cms-toast-icon-wrap { background: var(--cms-red); color: #fff; }
+.cms-toast-warning .cms-toast-icon-wrap { background: var(--cms-amber, #eab308); color: #2a1f00; }
+.cms-toast-success .cms-toast-icon { stroke-width: 3; }
 
 /* Conflict prompt lays the action buttons below the message. */
 .cms-toast-warning,
@@ -86,18 +89,23 @@
   flex-wrap: wrap;
 }
 
+.cms-toast-warning.cms-toast-interactive,
+.cms-toast-interactive:not(.cms-toast-inline):has(.cms-toast-actions) {
+  padding: 12px;
+  row-gap: 10px;
+}
+
 .cms-toast-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  margin-top: 4px;
   justify-content: flex-end;
 }
 
 /* A save confirmation keeps its one action (Undo) on the message's row. */
 .cms-toast.cms-toast-inline {
   flex-wrap: nowrap;
-  padding-right: 10px;
+  padding-right: 8px;
 }
 .cms-toast-inline .cms-toast-actions {
   width: auto;
@@ -106,58 +114,58 @@
 }
 
 .cms-toast-btn {
+  height: 28px;
+  padding: 0 13px;
   font-family: var(--cms-font);
-  font-size: 11px;
-  font-weight: 500;
-  padding: 5px 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: transparent;
-  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 14px;
+  border: 0;
+  background: var(--cms-fill);
+  color: var(--cms-text);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background 0.18s ease, filter 0.18s ease;
 }
 
 .cms-toast-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.95);
+  background: var(--cms-fill-strong);
 }
 
-.cms-toast-btn-primary {
-  border-color: var(--cms-blue, #3b82f6);
+.cms-toast-btn-primary,
+.cms-toast-btn-primary:hover {
   color: #fff;
-  background: var(--cms-blue, #3b82f6);
+  background: var(--cms-accent, #3b82f6);
 }
 
 .cms-toast-btn-primary:hover {
   filter: brightness(1.1);
-  background: var(--cms-blue, #3b82f6);
 }
 
 .cms-toast-btn:focus-visible,
 .cms-toast-close:focus-visible {
-  outline: 2px solid var(--cms-blue, #3b82f6);
+  outline: 2px solid var(--cms-accent, #3b82f6);
   outline-offset: 2px;
 }
 
 .cms-toast-close {
   flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  margin-left: 2px;
+  width: 24px;
+  height: 24px;
+  margin: 0 -6px 0 2px;
   padding: 0;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--cms-text-quiet);
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 50%;
+  transition: background 0.18s ease, color 0.18s ease;
 }
 
 .cms-toast-close:hover {
-  color: rgba(255, 255, 255, 0.9);
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--cms-text);
+  background: var(--cms-fill);
 }
 
 /* An editable region awaiting a conflict decision. */
@@ -167,11 +175,12 @@
 }
 
 @keyframes cms-toast-in {
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 1; transform: none; }
 }
 
 @keyframes cms-toast-out {
-  to { opacity: 0; transform: translateY(12px) scale(0.98); }
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(8px) scale(0.96); }
 }
 
 @media (prefers-reduced-motion: reduce) {

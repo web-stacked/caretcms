@@ -225,15 +225,22 @@ test.describe("inline editor — click to edit", () => {
 
     const studioButton = page.getByRole("button", { name: "Studio", exact: true });
     const panel = page.getByRole("dialog", { name: "Content Studio" });
+    // The drawer opens on the left whichever side the selected content is on.
     await page.locator("#left-binding").click();
     await studioButton.click();
-    await expect(panel).toHaveClass(/side-right/);
-    await expect(panel.getByRole("button", { name: "Move Studio panel left" })).toBeVisible();
+    await expect(panel).not.toHaveClass(/side-right/);
+    await expect(panel.getByRole("button", { name: "Move Studio panel right" })).toBeVisible();
 
     await panel.getByRole("button", { name: "Close" }).click();
     await page.locator("#right-binding").click();
     await studioButton.click();
     await expect(panel).not.toHaveClass(/side-right/);
+
+    // Only the editor moves it, and it stays where they put it.
+    await panel.getByRole("button", { name: "Move Studio panel right" }).click();
+    await expect(panel).toHaveClass(/side-right/);
+    await page.locator("#left-binding").click();
+    await expect(panel).toHaveClass(/side-right/);
 
     const studio = page.frameLocator('iframe[title="Content Studio"]');
     const iframe = page.locator('iframe[title="Content Studio"]');
@@ -794,6 +801,64 @@ test.describe("inline editor — click to edit", () => {
     expect(await fetchAnonymousHtml("/")).toContain("Saved while typing");
   });
 
+
+  test("a newer confirmation replaces the earlier Saved, and Saved waits while the pointer is on it", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+
+    await replaceText(page, headline, "Saved, then an image");
+    await blurToSave(page, headline);
+    const saved = page.locator(".cms-toast", { hasText: "Saved" });
+    await expect(saved).toBeVisible();
+
+    const image = page.locator(HERO_IMAGE);
+    await expect(image).toHaveAttribute("data-caret-img-mounted", "true");
+    await image.hover({ force: true });
+    await page.locator(".cms-img-input").setInputFiles(SAMPLE_PNG);
+    await expect(page.getByText("Image updated")).toBeVisible();
+    await expect(saved).toHaveCount(0);
+    // Let the image toast go first, so nothing shifts under the pointer.
+    await expect(page.getByText("Image updated")).toHaveCount(0, { timeout: 5000 });
+
+    // Saved stays while the pointer rests on it (no timers to outwait: Undo stays reachable).
+    await replaceText(page, headline, "Hover keeps it");
+    await blurToSave(page, headline);
+    const again = page.locator(".cms-toast", { hasText: "Saved" });
+    await again.hover();
+    await page.waitForTimeout(5200);
+    await expect(again).toBeVisible();
+    await page.mouse.move(5, 5);
+    await expect(again).toHaveCount(0, { timeout: 4000 });
+  });
+
+  test("a save updates copies of the same field only, not the same field name in another scope", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const headline = page.locator(HEADLINE);
+    await expect(headline).toHaveClass(/cms-editable/);
+    // A second copy of the home headline, and the same short field name under
+    // another entry's scope (a list of items each bound as `data-caret="price"`).
+    await page.locator("main[data-caret-scope]").evaluate((main) => {
+      const copy = document.createElement("p");
+      copy.id = "same-field-copy";
+      copy.setAttribute("data-caret", "hero.headline");
+      copy.textContent = "Copy of the home headline";
+      main.append(copy);
+      const other = document.createElement("aside");
+      other.setAttribute("data-caret-scope", "pages::about");
+      other.innerHTML = '<p id="other-entry-field" data-caret="hero.headline">The about page headline</p>';
+      document.body.append(other);
+    });
+
+    await replaceText(page, headline, "Only the home headline changes");
+    expect((await blurToSave(page, headline)).ok()).toBe(true);
+
+    await expect(page.locator("#same-field-copy")).toHaveText("Only the home headline changes");
+    await expect(page.locator("#other-entry-field")).toHaveText("The about page headline");
+  });
+
   test("Undo puts the previous text back, and Cmd+Z and Cmd+Shift+Z undo and redo", async ({ page }) => {
     await loginAsEditor(page);
     await page.goto("/");
@@ -808,6 +873,14 @@ test.describe("inline editor — click to edit", () => {
     const message = await saved.locator(".cms-toast-msg").boundingBox();
     const button = await saved.getByRole("button", { name: "Undo" }).boundingBox();
     expect(Math.abs((button!.y + button!.height / 2) - (message!.y + message!.height / 2))).toBeLessThan(4);
+    // The toast rises from the toolbar: its stack is centred on the bar, just above it.
+    await expect.poll(async () => {
+      const [stack, bar] = await Promise.all([page.locator(".cms-toast-stack").boundingBox(), page.locator(".cms-toolbar-inner").boundingBox()]);
+      return {
+        offCentre: Math.round(Math.abs((stack!.x + stack!.width / 2) - (bar!.x + bar!.width / 2))) <= 2,
+        gap: Math.round(bar!.y - (stack!.y + stack!.height)),
+      };
+    }).toEqual({ offCentre: true, gap: 10 });
     const undo = page.waitForResponse(isMutatePost);
     await saved.getByRole("button", { name: "Undo" }).click();
     expect((await undo).ok()).toBe(true);

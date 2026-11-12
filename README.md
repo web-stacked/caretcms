@@ -12,7 +12,7 @@ CaretCMS is a reusable, open-core CMS for Astro:
 
 The CMS ships as `@caretcms/core`, an Astro integration you install into any Astro app.
 
-![CaretCMS inline editor demo](https://caretcms.com/preview/caretcms-demo.gif)
+![CaretCMS on a small shop's site: type a new headline, drag in a new photo, change a price and undo it, then edit a product and a workshop in the Studio while the page updates beside it](https://caretcms.com/preview/caretcms-demo.gif)
 
 ## Packages
 

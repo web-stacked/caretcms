@@ -55,7 +55,7 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
   if (!STUDIO_PATH) {
     studioButton?.setAttribute('hidden', 'hidden');
     studioButton?.setAttribute('aria-hidden', 'true');
-    return { iframe: null, closePanel() {}, placeOpposite() {}, openAt() {}, navigateFrame() {} };
+    return { iframe: null, closePanel() {}, openAt() {}, navigateFrame() {} };
   }
   const studioPath = STUDIO_PATH;
 
@@ -218,15 +218,6 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
       : null);
   }
   window.addEventListener('resize', reportLayout);
-
-  /** Keep the selected page content beside the drawer without reflowing host layout.
-   * @param {Element} element
-   */
-  function placeOpposite(element) {
-    if (!(element instanceof Element) || window.innerWidth <= 768) return;
-    const rect = element.getBoundingClientRect();
-    setPanelSide(rect.left + rect.width / 2 < window.innerWidth / 2 ? 'right' : 'left');
-  }
 
   // Fixed bars (headers, nav and cookie bars) don't move with the padding
   // push, so the drawer would cover their start. While it pushes, each one is
@@ -541,5 +532,5 @@ export function mountStudioPanel({ studioButton, toolbar, toolbarTabStop = () =>
     openPanel();
   }
 
-  return { iframe, closePanel, placeOpposite, openAt, navigateFrame };
+  return { iframe, closePanel, openAt, navigateFrame };
 }

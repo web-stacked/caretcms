@@ -8,6 +8,35 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-11
+
+### Added
+
+- In `astro dev`, the CaretCMS toolbar app's Highlight all also labels each
+  bound element with its `collection::id::field` key, so you can read off the
+  page which field an element saves to.
+
+### Changed
+
+- The toolbar, toasts and the editor's popovers share one look: a dark glass
+  capsule with borderless controls. Edit and Preview are a sliding switch, and
+  Studio and Publish are the only filled buttons.
+- Toasts appear centred above the toolbar instead of in the page's corner, and
+  follow the toolbar when the Studio drawer moves it aside.
+- Saved goes away after a few seconds, stays while the pointer is on it
+  (so Undo is reachable), and gives way to a newer confirmation such as an
+  image update instead of stacking with it.
+- The Studio drawer stays on the side the editor chose, the left by default. It
+  no longer jumps to the other side depending on which element was selected.
+- Edit and Preview have tooltips saying what they do.
+
+### Fixed
+
+- Saving a field no longer shows its new text or image on other entries'
+  fields that share its short name. Items bound as `data-caret="price"` under
+  different `data-caret-scope` parents all showed the saved value until the
+  page was reloaded; the stored data was always correct.
+
 ## [0.6.0] - 2026-11-10
 
 Redesigns the Studio and the toolbar and opens the Studio over the site.
@@ -771,7 +800,8 @@ requirements, and deployment retry limitations.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
-[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.1
 [0.6.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.0
 [0.5.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.5.0
 [0.4.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.4.0
