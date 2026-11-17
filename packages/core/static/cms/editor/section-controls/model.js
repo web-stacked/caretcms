@@ -63,6 +63,15 @@ export function normalizeSectionsFromData(entryData, fallbackFromDom) {
   return normalized;
 }
 
+/**
+ * A comparable string for a layout: two layouts with the same key render the
+ * same sections in the same order with the same visibility and spacing.
+ * @param {Section[]} sections @returns {string}
+ */
+export function layoutKey(sections) {
+  return JSON.stringify(sections.map(({ id, key, enabled, spacing_y }) => [id, key, enabled !== false, spacing_y ?? null]));
+}
+
 /** @param {Element[]} sectionNodes @returns {Section[]} */
 export function sectionsFromDom(sectionNodes) {
   const usedIds = new Set();

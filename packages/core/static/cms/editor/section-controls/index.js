@@ -7,6 +7,7 @@ import {
   isRecord,
 } from './utils.js';
 import {
+  layoutKey,
   normalizeSectionsFromData,
   sectionsFromDom,
 } from './model.js';
@@ -520,6 +521,26 @@ export function mountSectionControls({
     showToast(toastMessage, toastType);
   }
 
+  /**
+   * After a conflict: true (with the latest revision adopted) when the stored
+   * layout still matches the last one this editor loaded or saved, so only
+   * other fields of the entry changed.
+   */
+  async function catchUpIfLayoutUnchanged() {
+    const loaded = await fetchPageEntry({
+      collection: pageContext.collection,
+      id: pageContext.id,
+      onUnauthorized,
+    });
+    if (!loaded) return false;
+    const stored = normalizeSectionsFromData(loaded.data, savedLayout);
+    if (layoutKey(stored) !== layoutKey(savedLayout)) return false;
+    entryData = loaded.data;
+    revision = loaded.revision;
+    baseRevision = loaded.baseRevision;
+    return true;
+  }
+
   async function syncLatestLayoutAfterConflict() {
     const loaded = await fetchPageEntry({
       collection: pageContext.collection,
@@ -617,7 +638,7 @@ export function mountSectionControls({
     setStatus('saving', savesToDraft ? t('editor.sections.savingDraft') : t('editor.sections.savingLive'));
 
     try {
-      const result = await savePageLayout({
+      const save = () => savePageLayout({
         collection: pageContext.collection,
         id: pageContext.id,
         sections,
@@ -625,6 +646,13 @@ export function mountSectionControls({
         expectedBaseRevision: baseRevision,
         onUnauthorized,
       });
+      let result = await save();
+      // A text or image save on the same page moves the entry's revision too. If
+      // the stored layout is still the one this editor knows, the conflict
+      // isn't about the layout: catch up to the new revision and save again.
+      if (!result.ok && result.reason === 'conflict' && await catchUpIfLayoutUnchanged()) {
+        result = await save();
+      }
 
       if (!result.ok) {
         if (result.reason === 'conflict') {

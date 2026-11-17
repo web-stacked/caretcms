@@ -8,6 +8,13 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+### Fixed
+
+- Moving, hiding or spacing a section after editing text or an image on the
+  same page now saves. The layout save no longer fails on the page's newer
+  revision and silently puts the section back; it only reloads the layout when
+  someone else changed the layout itself.
+
 ## [0.6.1] - 2026-11-11
 
 ### Added

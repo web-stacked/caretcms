@@ -408,6 +408,29 @@ test.describe("inline editor — click to edit", () => {
     expect(stored.entries[0].data.layout.sections.map((section: { id: string }) => section.id)).toEqual(["hero", "philosophy"]);
   });
 
+  test("moving a section after editing text on the same page saves the move", async ({ page }) => {
+    await loginAsEditor(page);
+    await page.goto("/");
+    const hero = page.locator('section[data-caret-section-id="hero"]');
+    await expect(hero).toHaveClass(/cms-section-editable/);
+
+    // A text save moves the page entry's revision past the one the section
+    // controls loaded with.
+    const headline = page.locator(HEADLINE);
+    await replaceText(page, headline, "Edited before a layout change");
+    expect((await blurToSave(page, headline)).ok()).toBe(true);
+
+    await hero.hover();
+    await hero.getByRole("button", { name: "Down", exact: true }).click();
+    await expect(page.locator(".cms-toast", { hasText: "Undo" })).toBeVisible();
+    await expect(page.locator("main > section").first()).toHaveAttribute("data-caret-section-id", "philosophy");
+
+    const stored = await (await page.request.get("/api/cms/entries?collection=pages&id=home")).json();
+    const data = stored.entries[0].data;
+    expect(data.layout.sections.map((section: { id: string }) => section.id)).toEqual(["philosophy", "hero"]);
+    expect(data.hero.headline).toBe("Edited before a layout change");
+  });
+
   test("editing a headline persists and is served to anonymous visitors", async ({ page }) => {
     const NEW_HEADLINE = "Edited inline by the E2E suite";
 
