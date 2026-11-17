@@ -86,6 +86,10 @@ test.describe("inline editor — click to edit", () => {
     await expect(page.locator(HEADLINE)).toHaveAttribute("contenteditable", "false");
     await expect(page.locator(".cms-img-overlay")).toBeHidden();
     await expect(page.locator(".cms-section-controls").first()).toBeHidden();
+    // Nothing of the layout editor stays on the page visitors would see.
+    await expect(page.locator(".cms-section-insert-handle").first()).toBeHidden();
+    await expect(page.locator(".cms-section-gap-handle").first()).toBeHidden();
+    await expect(page.locator('section[data-caret-section-id="hero"]')).toHaveCSS("outline-color", "rgba(0, 0, 0, 0)");
 
     await edit.click();
     await expect(page.locator("body")).not.toHaveClass(/cms-preview-mode/);
