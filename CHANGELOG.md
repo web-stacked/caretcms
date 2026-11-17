@@ -17,6 +17,9 @@ Versions track the publishable `@caretcms/core` package.
 - Preview hides everything the layout editor adds to the page (section
   outlines and the insert and spacing handles), and hidden sections disappear
   instead of showing dimmed.
+- With static delivery or draft permissions, the toolbar says **Published**
+  once nothing is waiting for Publish, instead of **Draft** at all times. It
+  says **Draft** again as soon as a change is saved.
 
 ## [0.6.1] - 2026-11-11
 

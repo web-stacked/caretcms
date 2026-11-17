@@ -176,9 +176,12 @@ test("keeps a saved draft on reload without exposing it to other visitors", asyn
   });
   await page.goto("/");
   await expect(page.locator(".cms-toolbar")).toBeVisible();
+  // With nothing waiting for Publish, the pill doesn't call the page a draft.
+  await expect(page.locator(".cms-status-text")).toHaveText("Published");
   await page.locator('h1[data-caret]').fill(headline);
   await page.getByRole("button", { name: "Preview", exact: true }).click();
   await expect(page.locator(".cms-status-text")).toHaveText("Draft saved");
+  await expect(page.locator(".cms-status-text")).toHaveText("Draft", { timeout: 6_000 });
   // The confirmation says it isn't public yet.
   await expect(page.locator(".cms-toast-msg").filter({ hasText: "Draft saved. Publish to show it to visitors." })).toBeVisible();
 
