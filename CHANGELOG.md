@@ -8,7 +8,16 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
-## [0.6.2] - 2026-11-16
+## [0.6.2] - 2026-11-17
+
+### Changed
+
+- Moving a section is easy to follow, even when it's taller than the screen.
+  The page scrolls with the section you moved, so it stays where it was on
+  screen with its controls under your pointer, and the sections around it
+  slide into their new places. The moved section keeps its outline and pulses
+  once. Dragging keeps the drop target in place instead. Sections don't slide
+  when the system asks for reduced motion.
 
 ### Fixed
 

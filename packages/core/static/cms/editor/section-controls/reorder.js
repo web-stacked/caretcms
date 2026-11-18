@@ -49,7 +49,7 @@ export function bindDragSourceHandlers({
  *   getSections: () => Section[],
  *   setSections: (sections: Section[]) => void,
  *   clearDropIndicators: () => void,
- *   onReordered: () => void,
+ *   onReordered: (sourceId: string, targetId: string) => void,
  * }} options
  */
 export function bindDropTargetHandlers({
@@ -110,6 +110,6 @@ export function bindDropTargetHandlers({
     clearDropIndicators();
     if (nextSections === currentSections) return;
     setSections(nextSections);
-    onReordered();
+    onReordered(dragSourceId, sectionId);
   });
 }

@@ -412,6 +412,32 @@ test.describe("inline editor — click to edit", () => {
     expect(stored.entries[0].data.layout.sections.map((section: { id: string }) => section.id)).toEqual(["hero", "philosophy"]);
   });
 
+  test("a moved section stays where it was on screen and keeps its outline", async ({ page }) => {
+    // Short enough that the page scrolls, so the editor can follow the section.
+    await page.setViewportSize({ width: 1280, height: 360 });
+    await loginAsEditor(page);
+    await page.goto("/");
+    const philosophy = page.locator('section[data-caret-section-id="philosophy"]');
+    await expect(philosophy).toHaveClass(/cms-section-editable/);
+    // Room above, so the page can always scroll up as far as the section moves.
+    await page.evaluate(() => {
+      document.body.style.paddingTop = "2000px";
+      window.scrollTo(0, document.documentElement.scrollHeight);
+    });
+    const topOnScreen = () => philosophy.evaluate(node => node.getBoundingClientRect().top);
+    const before = await topOnScreen();
+
+    await philosophy.hover();
+    await philosophy.getByRole("button", { name: "Up", exact: true }).click();
+    await expect(page.locator("main > section").first()).toHaveAttribute("data-caret-section-id", "philosophy");
+    await expect(philosophy).toHaveClass(/cms-section-moved/);
+
+    // The page scrolled with it, so its controls are still under the pointer.
+    expect(Math.abs(await topOnScreen() - before)).toBeLessThan(2);
+    await expect(philosophy).toHaveClass(/cms-section-active/);
+    await expect(page.locator('section[data-caret-section-id="hero"]')).not.toHaveClass(/cms-section-active/);
+  });
+
   test("moving a section after editing text on the same page saves the move", async ({ page }) => {
     await loginAsEditor(page);
     await page.goto("/");

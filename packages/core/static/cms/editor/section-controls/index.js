@@ -24,6 +24,7 @@ import { mutateSections as mutateSectionsModel } from './mutations.js';
 import { createSectionSelectionController } from './selection.js';
 import { createSpacingDragController } from './spacing-drag.js';
 import { bindDragSourceHandlers, bindDropTargetHandlers } from './reorder.js';
+import { measureSections, settleSections } from './motion.js';
 import { bindSectionActivation } from './activation.js';
 import { isPolicyDraftMode, isStaticDelivery } from '../config.js';
 import { t } from '../i18n.js';
@@ -132,7 +133,8 @@ export function mountSectionControls({
         showToast(result.message, 'error');
         return;
       }
-      persistWithReload(result.message);
+      const inserted = sections[sections.findIndex((item) => item.id === sectionId) + 1]?.id;
+      persistWithReload(result.message, { anchorId: sectionId, focusId: inserted });
     },
   });
 
@@ -144,7 +146,7 @@ export function mountSectionControls({
         showToast(result.message, 'error');
         return;
       }
-      persistWithReload(result.message);
+      persistWithReload(result.message, { anchorId: sectionId, focusId: sectionId });
     },
   });
 
@@ -209,10 +211,13 @@ export function mountSectionControls({
     return false;
   }
 
+  /** Until then sections are sliding to new places: scrolling past them isn't the editor looking elsewhere. */
+  let settlingUntil = 0;
   const selectionController = createSectionSelectionController({
     sectionNodeById,
     isSelectionLocked: () =>
-      busy || refreshRequired || Boolean(dragSourceId) || Boolean(spacingDragController?.isDragging()),
+      busy || refreshRequired || Boolean(dragSourceId) || Boolean(spacingDragController?.isDragging()) ||
+      performance.now() < settlingUntil,
   });
 
   /** @param {string} sectionId @param {string | undefined} spacingY */
@@ -338,7 +343,7 @@ export function mountSectionControls({
           showToast(result.message, 'error');
           return;
         }
-        persistWithReload(result.message);
+        persistWithReload(result.message, { anchorId: currentSectionId, focusId: currentSectionId });
       });
 
       bindDragSourceHandlers({
@@ -355,6 +360,7 @@ export function mountSectionControls({
         sectionNode,
         sectionId,
         setActiveSection: (id) => selectionController.setActiveSection(id),
+        isSettling: () => performance.now() < settlingUntil,
       });
 
       bindDropTargetHandlers({
@@ -367,7 +373,9 @@ export function mountSectionControls({
           sections = nextSections;
         },
         clearDropIndicators,
-        onReordered: () => persistWithReload(t('editor.sections.reordered')),
+        // The drop target stays put; the dragged section slides in beside it.
+        onReordered: (sourceId, targetId) =>
+          persistWithReload(t('editor.sections.reordered'), { anchorId: targetId, focusId: sourceId }),
       });
 
       sectionNode.classList.add('cms-section-editable');
@@ -424,12 +432,18 @@ export function mountSectionControls({
     updateSectionChip(sectionId, sectionIndex + 1, sectionKey);
   }
 
-  /** @param {Section[]} nextSections @returns {boolean} */
-  function applySectionsToCanvas(nextSections) {
+  /**
+   * @param {Section[]} nextSections
+   * @param {{ anchorId?: string, focusId?: string }} [motion] the section that
+   *   stays put on screen, and the one the change was about.
+   * @returns {boolean}
+   */
+  function applySectionsToCanvas(nextSections, { anchorId, focusId } = {}) {
     if (!Array.isArray(nextSections) || !nextSections.length) return false;
 
     const parent = sectionNodes[0]?.parentNode;
     if (!parent) return false;
+    const before = measureSections(sectionNodes.filter((node) => node instanceof HTMLElement));
 
     const existingById = new Map();
     sectionNodes.forEach((node) => {
@@ -492,10 +506,16 @@ export function mountSectionControls({
       setSectionEnabledPreview(section.id, section.enabled);
     });
 
-    const firstSectionId = nextSections[0]?.id;
-    if (firstSectionId) {
-      selectionController.setActiveSection(firstSectionId);
-    }
+    settlingUntil = performance.now() + settleSections({
+      before,
+      nodes: sectionNodes,
+      anchor: anchorId ? sectionNodeById.get(anchorId) : null,
+      focus: focusId ? sectionNodeById.get(focusId) : null,
+    });
+
+    // Keep the outline on the section the change was about.
+    const activeId = [focusId, anchorId].find((id) => id && sectionNodeById.has(id)) ?? nextSections[0]?.id;
+    if (activeId) selectionController.setActiveSection(activeId);
     selectionController.startObserver();
 
     if (structureChanged && typeof onCanvasStructureChanged === 'function') {
@@ -615,19 +635,25 @@ export function mountSectionControls({
       if (!canEditLayout()) return;
       const section = sections.find((item) => item.id === sectionId);
       showToast(t('editor.sections.spacingIs', { spacing: spacingName(section?.spacing_y) }), 'success');
-      persistWithReload(t('editor.sections.spacingUpdated'));
+      persistWithReload(t('editor.sections.spacingUpdated'), { anchorId: sectionId, focusId: sectionId });
     },
   });
 
   // Undo saves the layout as it was before the last change.
-  /** @param {import('./model.js').Section[]} previous */
-  function undoLayout(previous) {
+  /**
+   * @param {import('./model.js').Section[]} previous
+   * @param {{ anchorId?: string, focusId?: string }} motion
+   */
+  function undoLayout(previous, motion) {
     sections = structuredClone(previous);
-    void persistWithReload(t('editor.undo.undone'), { undo: true });
+    void persistWithReload(t('editor.undo.undone'), { undo: true, ...motion });
   }
 
-  /** @param {string} successMessage @param {{ undo?: boolean }} [options] */
-  async function persistWithReload(successMessage, { undo = false } = {}) {
+  /**
+   * @param {string} successMessage
+   * @param {{ undo?: boolean, anchorId?: string, focusId?: string }} [options]
+   */
+  async function persistWithReload(successMessage, { undo = false, anchorId, focusId } = {}) {
     if (!canEditLayout()) return;
     if (busy) return;
 
@@ -675,7 +701,7 @@ export function mountSectionControls({
       const previousLayout = savedLayout;
       savedLayout = structuredClone(sections);
 
-      if (!applySectionsToCanvas(sections)) {
+      if (!applySectionsToCanvas(sections, { anchorId, focusId })) {
         markRefreshRequired({
           statusType: 'idle',
           statusMessage: savesToDraft ? t('editor.sections.draftSavedRefresh') : t('editor.sections.liveSavedRefresh'),
@@ -689,7 +715,7 @@ export function mountSectionControls({
       if (savesToDraft) window.dispatchEvent(new CustomEvent('cms:draftSaved'));
       showToast.saved(undo
         ? { message: successMessage }
-        : { message: successMessage, action: { label: t('editor.undo.undo'), onClick: () => undoLayout(previousLayout) } });
+        : { message: successMessage, action: { label: t('editor.undo.undo'), onClick: () => undoLayout(previousLayout, { anchorId: focusId ?? anchorId, focusId }) } });
     } catch {
       setStatus('error', t('editor.sections.layoutSaveFailed'));
       showToast(t('editor.sections.saveFailed'), 'error');
