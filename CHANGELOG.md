@@ -8,6 +8,30 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-17
+
+### Changed
+
+- Moving a section is easy to follow, even when it's taller than the screen.
+  The page scrolls with the section you moved, so it stays where it was on
+  screen with its controls under your pointer, and the sections around it
+  slide into their new places. The moved section keeps its outline and pulses
+  once. Dragging keeps the drop target in place instead. Sections don't slide
+  when the system asks for reduced motion.
+
+### Fixed
+
+- Moving, hiding or spacing a section after editing text or an image on the
+  same page now saves. The layout save no longer fails on the page's newer
+  revision and silently puts the section back; it only reloads the layout when
+  someone else changed the layout itself.
+- Preview hides everything the layout editor adds to the page (section
+  outlines and the insert and spacing handles), and hidden sections disappear
+  instead of showing dimmed.
+- With static delivery or draft permissions, the toolbar says **Published**
+  once nothing is waiting for Publish, instead of **Draft** at all times. It
+  says **Draft** again as soon as a change is saved.
+
 ## [0.6.1] - 2026-11-11
 
 ### Added
@@ -800,7 +824,8 @@ requirements, and deployment retry limitations.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
-[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.2
 [0.6.1]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.1
 [0.6.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.0
 [0.5.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.5.0

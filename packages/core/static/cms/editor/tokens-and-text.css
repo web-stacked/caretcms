@@ -110,8 +110,21 @@ body.cms-preview-mode img[data-caret][data-caret-img-mounted] {
 body.cms-preview-mode .cms-img-overlay,
 body.cms-preview-mode .cms-section-controls,
 body.cms-preview-mode .cms-section-chip,
+body.cms-preview-mode .cms-section-gap-handle,
+body.cms-preview-mode .cms-section-insert-handle,
 body.cms-preview-mode .cms-rich-toolbar,
 body.cms-preview-mode .cms-link-follow {
+  display: none !important;
+}
+
+/* Preview shows the page as visitors get it: no section outlines, and hidden
+   sections gone rather than dimmed. */
+body.cms-preview-mode .cms-section-editable {
+  outline-color: transparent !important;
+  box-shadow: none !important;
+}
+
+body.cms-preview-mode .cms-section-editable.cms-section-disabled-preview {
   display: none !important;
 }
 

@@ -136,7 +136,11 @@ function renderToolbar(staticDelivery) {
 export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onOpenHistory, onLogout }) {
   const staticDelivery = isStaticDelivery();
   const toolbar = renderToolbar(staticDelivery);
-  const modeLabel = staticDelivery || isPolicyDraftMode() ? t('editor.toolbar.draft') : t('editor.toolbar.live');
+  const draftMode = staticDelivery || isPolicyDraftMode();
+  // At rest the pill names where your work stands: "Live" when saves go
+  // straight to the site; in draft mode "Draft" while changes wait for
+  // Publish, "Published" once nothing does.
+  let modeLabel = draftMode ? t('editor.toolbar.draft') : t('editor.toolbar.live');
 
   const statusDot = toolbar.querySelector('.cms-status-dot');
   const statusText = toolbar.querySelector('.cms-status-text');
@@ -177,6 +181,23 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       }, 3000);
     }
     if (!panel.hidden) renderPanel();
+  }
+
+  /** Draft mode only: the resting label and panel hint follow the unpublished count. @param {number} count */
+  function showRestingMode(count) {
+    const label = count > 0 ? t('editor.toolbar.draft') : t('editor.toolbar.published');
+    const hint = count > 0 ? (staticDelivery ? t('editor.toolbar.hintStatic') : t('editor.toolbar.hintPolicy')) : t('editor.toolbar.hintPublished');
+    const wasResting = statusText?.textContent === modeLabel;
+    modeLabel = label;
+    pill.dataset.state = count > 0 ? 'draft' : 'published';
+    const mode = panel.querySelector('.cms-status-panel-mode strong');
+    if (mode) mode.textContent = label;
+    const hintLine = panel.querySelector('.cms-status-panel-hint');
+    if (hintLine) hintLine.textContent = hint;
+    if (current.state === 'idle' && wasResting) {
+      current = { state: 'idle', text: label };
+      if (statusText) statusText.textContent = label;
+    }
   }
 
   /** @param {number} at */
@@ -448,6 +469,8 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
 
   let canPublishDrafts = true;
   let draftCount = 0;
+  /** Whether the last count came from the server, rather than a failed request. */
+  let draftCountKnown = false;
   const retryRebuildButton = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-retry-rebuild-btn'));
   async function fetchDraftCount() {
     try {
@@ -459,8 +482,10 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       rebuildPending = data.retryRebuild && data.canPublish;
       if (rebuildPending && current.state === 'idle') setStatus('error', t('editor.publish.notUpdated'));
       draftCount = data.count;
+      draftCountKnown = true;
       return data.count;
     } catch {
+      draftCountKnown = false;
       return 0;
     }
   }
@@ -577,6 +602,8 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   async function refreshDraftControls() {
     const count = await fetchDraftCount();
     if (draftControls) draftControls.hidden = count === 0;
+    // An unknown count keeps "Draft": never claim it's published on a failed check.
+    if (draftMode && draftCountKnown) showRestingMode(count);
     const label = toolbar.querySelector('.cms-go-live-label');
     if (label) label.textContent = count > 0 ? t('editor.toolbar.publishCount', { count }) : t('editor.toolbar.publish');
     publishBtn?.setAttribute('aria-label', count > 0 ? t('editor.toolbar.publishChanges', { changes: changeCount(count) }) : t('editor.toolbar.publish'));

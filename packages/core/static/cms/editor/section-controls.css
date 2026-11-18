@@ -21,6 +21,22 @@
   opacity: 0.58;
 }
 
+/* The section a layout change was about pulses once, so the eye can find it
+   after the page reflows. */
+.cms-section-editable.cms-section-moved {
+  animation: cms-section-moved 1.1s ease-out;
+}
+
+@keyframes cms-section-moved {
+  0%, 30% {
+    outline-color: rgba(59, 130, 246, 0.95);
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.22);
+  }
+  100% {
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0);
+  }
+}
+
 .cms-section-editable.cms-section-disabled-preview .cms-section-controls,
 .cms-section-editable.cms-section-disabled-preview .cms-section-chip {
   opacity: 1;
