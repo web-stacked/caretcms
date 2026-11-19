@@ -183,10 +183,12 @@ it("refuses a different branch and resumes when the captured checkout is restore
 });
 
 it("records an already-current approved tree without creating an empty commit", async () => {
-  const { raw } = await publish("Original");
+  const { raw } = await publish();
+  // The developer commits the published file before the journal retries.
+  git("add", "src/content/blog/hello.md"); git("commit", "-qm", "developer commit");
   const head = git("rev-parse", "HEAD"), index = readFileSync(join(dir, ".git/index"));
   expect(await retryPublicationJournals(base(), raw, dir)).toMatchObject({ pending: 0, completed: 1, commit: head });
-  expect(git("rev-list", "--count", "HEAD")).toBe("1");
+  expect(git("rev-list", "--count", "HEAD")).toBe("2");
   expect(readFileSync(join(dir, ".git/index"))).toEqual(index);
 });
 
