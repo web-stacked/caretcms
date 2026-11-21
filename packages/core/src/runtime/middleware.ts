@@ -32,7 +32,7 @@ const _templateWinsNoted = new Set<string>();
 function noteTemplateWins(binding: string): void {
   if (_templateWinsNoted.has(binding)) return;
   _templateWinsNoted.add(binding);
-  console.info(`[caretcms] ${binding}: the template's text was changed after this value was saved, so the template's text shows. The next Publish removes the saved value.`);
+  console.info(`[caretcms] ${binding}: the template's text was changed after this value was saved, so the template's text shows. The saved value is removed the next time this entry is saved or published.`);
 }
 
 function warnMissingOverlay(): void {

@@ -41,6 +41,11 @@ export interface Inspection {
   envNotIgnored: boolean;
   /** Uploaded images no content file, draft or template mentions. */
   unusedUploads: string[];
+  /**
+   * Content collections whose Zod schema is `.strict()` and doesn't declare
+   * `__caret_template__`, while content files carry it: the build fails.
+   */
+  strictSchemaRisk: boolean;
   /** `.env` has no session secret, or still has the placeholder password. */
   missingSecret: boolean;
   placeholderPassword: boolean;
@@ -111,6 +116,16 @@ function findUnusedUploads(root: string): string[] {
   return files.filter((name) => !haystack.includes(`/uploads/${name}`)).sort();
 }
 
+/** A strict content schema that would reject the template-text record content files carry. */
+function findStrictSchemaRisk(root: string): boolean {
+  const config = ["src/content.config.ts", "src/content.config.mjs", "src/content.config.js", "src/content/config.ts", "src/content/config.mjs"]
+    .map((path) => resolve(root, path)).find(existsSync);
+  if (!config) return false;
+  const source = readFileSync(config, "utf8");
+  if (!/\.strict\s*\(/.test(source) || source.includes("__caret_template__")) return false;
+  return walk(resolve(root, "src", "content")).some((file) => /\.(md|mdx|json|ya?ml)$/.test(file) && readFileSync(file, "utf8").includes("__caret_template__"));
+}
+
 export function inspect(root: string): Inspection {
   const corePkg = resolve(root, "node_modules", "@caretcms", "core", "package.json");
   let coreVersion: string | null = null;
@@ -136,6 +151,7 @@ export function inspect(root: string): Inspection {
     draftsNotIgnored: isRepo && !ignored(root, ".caret/drafts/x"),
     envNotIgnored: isRepo && existsSync(resolve(root, ".env")) && !ignored(root, ".env"),
     unusedUploads: findUnusedUploads(root),
+    strictSchemaRisk: findStrictSchemaRisk(root),
     missingSecret: !env.CARET_SESSION_SECRET,
     placeholderPassword: env.CARET_EDIT_PASSWORD !== undefined && /^(|change-?me|changeme|password)$/i.test(env.CARET_EDIT_PASSWORD),
   };
@@ -175,6 +191,11 @@ export function report(found: Inspection, now: number, caretize = "npx @caretcms
   if (!found.configName) bad("No astro.config found: run this from the project's root folder");
   else if (found.configWired) ok(`${found.configName} uses CaretCMS`);
   else warn(`${found.configName} doesn't use CaretCMS`, `Wire it in with: ${caretize} init`);
+  if (found.strictSchemaRisk) {
+    bad("A .strict() content schema will reject the __caret_template__ key your content files carry, and the build fails",
+      "Add it to that collection's schema:",
+      "  __caret_template__: z.record(z.string(), z.string()).optional(),");
+  }
   if (found.missingSecret) warn(".env has no CARET_SESSION_SECRET", "Fine in dev. Set one before the site is reachable by others.");
   if (found.placeholderPassword) warn(".env still has the placeholder CARET_EDIT_PASSWORD", "Set a real password before the site is reachable by others.");
 

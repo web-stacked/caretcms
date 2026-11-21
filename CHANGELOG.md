@@ -31,9 +31,10 @@ Versions track the publishable `@caretcms/core` package.
   value for it. Before, the saved value kept replacing the template, so a
   developer's change to a heading seemed to do nothing. The saved value still
   shows until the template's text changes; then the newer template text shows,
-  the dev server and build log say so, and the next Publish removes the old
-  value. Entries record this in a reserved `__caret_template__` key in the
-  content file: commit it with your content. See
+  the dev server and build log say so, and the next save or Publish of that
+  entry removes the old value. Entries record this in a reserved `__caret_template__` key in the
+  content file: commit it with your content. A collection with a `.strict()`
+  Zod schema must declare it (`caretize doctor` checks). See
   [saving and visibility](docs/saving-and-visibility.md#text-written-in-templates).
 
 - With `CARET_GIT_ON_PUBLISH=true`, Publish asks before it commits a content

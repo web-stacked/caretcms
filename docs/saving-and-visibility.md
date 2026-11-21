@@ -53,8 +53,8 @@ says what it said when the value was saved.
 
 When a developer changes the template's text afterwards, the newer template
 text shows instead, in dev and in builds. The dev server and the build log name
-the binding. The next Publish of that entry removes the overtaken value from
-storage; an editor who edits that text again replaces the template's text as
+the binding. The next save or Publish of that entry removes the overtaken value
+from storage; an editor who edits that text again replaces the template's text as
 before.
 
 To tell which is newer, an entry stores a short hash of the template text each
@@ -67,7 +67,13 @@ __caret_template__:
 ```
 
 Leave that key in place and commit it with the value. It never reaches pages,
-the Studio or schema validation. A value saved before this record existed keeps
+the Studio or CaretCMS's schema validation. Astro's content collections drop
+unknown keys by default; if a collection's Zod schema uses `.strict()`, declare
+the key so the build accepts it (`npx @caretcms/caretize doctor` checks this):
+
+```ts
+__caret_template__: z.record(z.string(), z.string()).optional(),
+``` A value saved before this record existed keeps
 replacing the template until its entry is next published; delete the value from
 the content file to use the template's text.
 

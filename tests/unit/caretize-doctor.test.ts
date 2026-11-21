@@ -9,7 +9,7 @@ const NOW = Date.UTC(2026, 10, 21, 12);
 const healthy: Inspection = {
   coreVersion: "0.6.3", configName: "astro.config.mjs", configWired: true, drafts: [], git: true, uncommitted: [],
   commitsOnPublish: false, ignoredUploads: false, draftsNotIgnored: false, envNotIgnored: false, unusedUploads: [],
-  missingSecret: false, placeholderPassword: false,
+  missingSecret: false, placeholderPassword: false, strictSchemaRisk: false,
 };
 
 describe("caretize doctor report", () => {
@@ -93,6 +93,15 @@ describe("caretize doctor inspect", () => {
     expect(found.uncommitted.some((line) => line.endsWith("src/content/pages/home.md"))).toBe(true);
     expect(found.unusedUploads).toEqual(["unused.png"]);
     expect(found).toMatchObject({ draftsNotIgnored: true, envNotIgnored: true, ignoredUploads: false });
+  });
+
+  it("finds a strict content schema that would reject the template-text record", () => {
+    write("src/content.config.ts", "const pages = defineCollection({ schema: z.object({ headline: z.string() }).strict() });");
+    write("src/content/pages/about.md", '---\nheadline: x\n"__caret_template__":\n  headline: t1\n---\n');
+    expect(inspect(dir).strictSchemaRisk).toBe(true);
+    write("src/content.config.ts", "const pages = defineCollection({ schema: z.object({ headline: z.string(), __caret_template__: z.record(z.string(), z.string()).optional() }).strict() });");
+    expect(inspect(dir).strictSchemaRisk).toBe(false);
+    expect(report({ ...healthy, strictSchemaRisk: true }, NOW).problems).toBe(1);
   });
 
   it("works outside Git and without CaretCMS installed", () => {

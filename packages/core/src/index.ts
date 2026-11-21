@@ -1456,7 +1456,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
         );
         if (result.templateWins.length) {
           logger.info(
-            `${result.templateWins.length} saved ${result.templateWins.length === 1 ? "value was" : "values were"} left out because the template's text was changed after ${result.templateWins.length === 1 ? "it was" : "they were"} saved, so the template's text shows: ${result.templateWins.join(", ")}. The next Publish removes ${result.templateWins.length === 1 ? "it" : "them"} from your content files.`,
+            `${result.templateWins.length} saved ${result.templateWins.length === 1 ? "value was" : "values were"} left out because the template's text was changed after ${result.templateWins.length === 1 ? "it was" : "they were"} saved, so the template's text shows: ${result.templateWins.join(", ")}. ${result.templateWins.length === 1 ? "It is" : "They are"} removed from your content files the next time ${result.templateWins.length === 1 ? "its entry is" : "their entries are"} saved or published.`,
           );
         }
       },
