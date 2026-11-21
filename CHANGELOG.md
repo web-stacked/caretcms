@@ -36,6 +36,12 @@ Versions track the publishable `@caretcms/core` package.
   content file: commit it with your content. See
   [saving and visibility](docs/saving-and-visibility.md#text-written-in-templates).
 
+- With `CARET_GIT_ON_PUBLISH=true`, Publish asks before it commits a content
+  file that has uncommitted changes from outside CaretCMS. Before, a
+  developer's half-finished edit to the same file was committed along with the
+  editor's change, under the editor's name. **Publish anyway** includes them;
+  the API reports `uncommitted_source` and accepts `allowUncommitted: true`.
+
 ### Added
 
 - `caretize remove` takes CaretCMS out of a project and keeps your work. It

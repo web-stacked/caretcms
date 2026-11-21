@@ -603,12 +603,44 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     else showToast(t('editor.toolbar.publishUnconfirmed', { changes: changeCount(left) }), 'error');
   }
 
+  /** Titles of the entries a publish held back for uncommitted file changes. @param {unknown} result */
+  function heldForUncommitted(result) {
+    const conflicts = result && typeof result === 'object' ? /** @type {{ conflicts?: unknown }} */ (result).conflicts : null;
+    return (Array.isArray(conflicts) ? conflicts : [])
+      .filter(conflict => conflict && conflict.reason === 'uncommitted_source')
+      .map(conflict => typeof conflict.title === 'string' && conflict.title ? conflict.title : String(conflict.id ?? ''));
+  }
+
+  /**
+   * One result for a publish that ran twice: what the first pass published,
+   * plus everything the second pass reports.
+   * @param {unknown} first @param {unknown} second
+   */
+  function mergePublishResults(first, second) {
+    const a = /** @type {Record<string, unknown>} */ (first && typeof first === 'object' ? first : {});
+    const b = /** @type {Record<string, unknown>} */ (second && typeof second === 'object' ? second : {});
+    const list = (/** @type {unknown} */ value) => (Array.isArray(value) ? value : []);
+    return { ...b, published: [...list(a.published), ...list(b.published)] };
+  }
+
   /** @param {{ reload?: boolean }} [options] */
   async function publishDrafts({ reload = true } = {}) {
     setStatus('saving', t('editor.toolbar.publishing'));
     try { sessionStorage.setItem(PUBLISHING_KEY, JSON.stringify({ count: draftCount, at: Date.now() })); } catch { /* not carried */ }
     try {
-      const presentation = presentPublishResult(await draftClient.publish());
+      let result = await draftClient.publish();
+      // Entries held back because their file has changes Git hasn't committed:
+      // publishing would commit those too, so ask first.
+      const uncommitted = heldForUncommitted(result);
+      if (uncommitted.length > 0 && await confirmToolbarAction({
+        title: t(uncommitted.length === 1 ? 'editor.uncommitted.titleOne' : 'editor.uncommitted.titleOther', { count: uncommitted.length }),
+        copy: t('editor.uncommitted.copy', { names: uncommitted.join(', ') }),
+        confirmLabel: t('editor.uncommitted.publishAnyway'),
+      })) {
+        const forced = await draftClient.publish({ allowUncommitted: true });
+        result = mergePublishResults(result, forced);
+      }
+      const presentation = presentPublishResult(result);
       try { sessionStorage.removeItem(PUBLISHING_KEY); } catch { /* nothing to clear */ }
       await fetchDraftCount();
       if (retryRebuildButton) retryRebuildButton.hidden = !presentation.retryAvailable;

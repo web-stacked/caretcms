@@ -86,8 +86,9 @@ export function createDraftClient(options) {
     });
   }
 
-  async function publish() {
-    const response = await requireOk(await request('POST', '/publish', '{}'));
+  /** @param {{ allowUncommitted?: boolean }} [options] */
+  async function publish(options = {}) {
+    const response = await requireOk(await request('POST', '/publish', JSON.stringify(options.allowUncommitted ? { allowUncommitted: true } : {})));
     return /** @type {unknown} */ (await response.json());
   }
 

@@ -30,6 +30,12 @@ export interface PublishScope {
 export interface PublishOptions {
   /** Explicit opt-in; captured in the recovery plan before applying content. */
   journal?: { target: GitJournalTarget; authorName: string; authorEmail: string };
+  /**
+   * Asked for each entry about to be written. True holds the entry back with
+   * `uncommitted_source`: its source file has changes of someone else's that
+   * a commit of this publish would sweep in.
+   */
+  holdUncommitted?: (collection: string, id: string, deleted: boolean) => Promise<boolean>;
 }
 
 export interface PublishedEntry {
@@ -45,7 +51,7 @@ export interface PublishConflict {
   id: string;
   /** Body hashes, structured baselines, or legacy drafts failed validation.
    * The entry was not published and its draft is preserved. */
-  reason: "stale_body" | "invalid_body" | "stale_entry" | "legacy_draft" | "invalid_entry";
+  reason: "stale_body" | "invalid_body" | "stale_entry" | "legacy_draft" | "invalid_entry" | "uncommitted_source";
   /** For `stale_entry`: the fields changed both in the draft and on the site. */
   fields?: string[];
 }
@@ -176,6 +182,10 @@ export async function publishOverlay(
             return;
           }
           const deleted = isTombstoneData(draft.data);
+          if (options.holdUncommitted && await options.holdUncommitted(collection, id, deleted)) {
+            conflicts.push({ collection, id, reason: "uncommitted_source" });
+            return;
+          }
           const structured = state?.structured ?? (deleted || Object.keys(fields).length > 0);
           if (!state && structured) {
             conflicts.push({ collection, id, reason: "legacy_draft" });
