@@ -13,7 +13,9 @@ Versions track the publishable `@caretcms/core` package.
 Core 0.6.3 and caretize 0.6.1. Content files gain a `__caret_template__` key the
 first time edited template text is saved; commit it with your content. Run
 `npx @caretcms/caretize doctor` after upgrading. Release notes:
-[docs/releases/0.6.3.md](docs/releases/0.6.3.md).
+[docs/releases/0.6.3.md](docs/releases/0.6.3.md). Thanks to
+[@devskale](https://github.com/devskale) for the field report behind this
+release, and for the stale-draft guard and doctor ideas in their fork.
 
 ### Changed
 
