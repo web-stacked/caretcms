@@ -36,6 +36,10 @@ export interface Args {
   /** `caretize init` — wire CaretCMS into the project (deps + astro.config +
    *  .env) before tagging, instead of just warning that it isn't set up. */
   init: boolean;
+  /** `caretize remove` — take CaretCMS's tags out of the templates in place. */
+  remove: boolean;
+  /** With `--restore`: also put back files edited since caretize wrote them. */
+  force: boolean;
   help: boolean;
   version: boolean;
 }
@@ -46,7 +50,8 @@ export class CliUsageError extends Error {}
 export const HELP = `caretize · make an Astro project editable (data-caret + editable())
 
 Usage: npx @caretcms/caretize [path] [options]
-       npx @caretcms/caretize init   wire CaretCMS into the project, then tag
+       npx @caretcms/caretize init     wire CaretCMS into the project, then tag
+       npx @caretcms/caretize remove   take CaretCMS out again, keeping your edits
 
 By default caretize applies the safe edits, then shows a diff you can undo with
 --restore. Use --review to approve each change first, or --diff to preview only.
@@ -56,6 +61,11 @@ By default caretize applies the safe edits, then shows a diff you can undo with
                            .gitignore. Static Astro projects use auto static
                            delivery by default; server projects keep SSR adapter
                            wiring
+  remove                   take the data-caret attributes out of your templates
+                           as they are now, remove caret() from astro.config,
+                           and offer to uninstall @caretcms/core. Work done
+                           since caretize ran is kept. Lists what is left
+                           (saved content, .caret/) for you to keep or delete
   path                     file or directory to scan (default: src/)
   --review                 approve each default change before writing; the richer
                            tiers are still offered (decline with n)
@@ -87,7 +97,9 @@ By default caretize applies the safe edits, then shows a diff you can undo with
                            spots, so review the result
   --scope <collection::id> override the inferred scope
   --report <file>          write a JSON report
-  --restore                restore the most recent backup, then exit
+  --restore                put back the files of the most recent run, then exit.
+                           A file edited since is left alone (use remove)
+  --force                  with --restore: put back edited files too
   -h, --help               show this help
   -v, --version            print version
 `;
@@ -96,7 +108,7 @@ export function parseArgs(argv: string[]): Args {
   const a: Args = {
     dryRun: false, diff: false, yes: false, review: false, minConfidence: "high",
     noImages: false, rich: false, richClass: false, noProps: false, bindCollections: false,
-    bindRoutes: false, all: false, restore: false, init: false, help: false, version: false,
+    bindRoutes: false, all: false, restore: false, init: false, remove: false, force: false, help: false, version: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -114,6 +126,8 @@ export function parseArgs(argv: string[]): Args {
       case "--all": case "--everything": a.all = true; break;
       case "--restore": a.restore = true; break;
       case "init": a.init = true; break;
+      case "remove": a.remove = true; break;
+      case "--force": a.force = true; break;
       case "--help": case "-h": a.help = true; break;
       case "--version": case "-v": a.version = true; break;
       case "--min-confidence": {

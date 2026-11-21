@@ -36,8 +36,24 @@ Versions track the publishable `@caretcms/core` package.
   content file: commit it with your content. See
   [saving and visibility](docs/saving-and-visibility.md#text-written-in-templates).
 
+### Added
+
+- `caretize remove` takes CaretCMS out of a project and keeps your work. It
+  removes the `data-caret` attributes from the templates as they are now,
+  removes `caret()` from `astro.config`, offers to uninstall the package, and
+  lists what's left for you to keep or delete, including text saved in the
+  browser that the site will stop showing.
+
 ### Fixed
 
+- `caretize --restore` no longer deletes work done after caretize ran. It put
+  the backed-up file back over whatever was there, so a template edited since
+  lost those edits with no warning. It now restores only files that are still
+  exactly what caretize wrote, names the ones it left alone, and points to
+  `caretize remove`. `--restore --force` restores them anyway.
+- `caretize --restore` after `caretize init` puts back `astro.config` and
+  `.gitignore` too. It restored only the tagged templates, leaving the
+  integration wired.
 - The dev server sees a template edit straight away. The Studio and the page
   could keep showing a binding's old template text until a page using that
   template had been opened and the template changed again.
