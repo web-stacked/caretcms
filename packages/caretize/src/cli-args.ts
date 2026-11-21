@@ -38,6 +38,8 @@ export interface Args {
   init: boolean;
   /** `caretize remove` — take CaretCMS's tags out of the templates in place. */
   remove: boolean;
+  /** `caretize doctor` — check a project that uses CaretCMS; changes nothing. */
+  doctor: boolean;
   /** With `--restore`: also put back files edited since caretize wrote them. */
   force: boolean;
   help: boolean;
@@ -52,6 +54,7 @@ export const HELP = `caretize · make an Astro project editable (data-caret + ed
 Usage: npx @caretcms/caretize [path] [options]
        npx @caretcms/caretize init     wire CaretCMS into the project, then tag
        npx @caretcms/caretize remove   take CaretCMS out again, keeping your edits
+       npx @caretcms/caretize doctor   check a project that uses CaretCMS
 
 By default caretize applies the safe edits, then shows a diff you can undo with
 --restore. Use --review to approve each change first, or --diff to preview only.
@@ -66,6 +69,9 @@ By default caretize applies the safe edits, then shows a diff you can undo with
                            and offer to uninstall @caretcms/core. Work done
                            since caretize ran is kept. Lists what is left
                            (saved content, .caret/) for you to keep or delete
+  doctor                   check the setup, unpublished drafts, what Git has and
+                           hasn't got, and unused uploads. Changes nothing;
+                           exits 1 when something is broken
   path                     file or directory to scan (default: src/)
   --review                 approve each default change before writing; the richer
                            tiers are still offered (decline with n)
@@ -108,7 +114,7 @@ export function parseArgs(argv: string[]): Args {
   const a: Args = {
     dryRun: false, diff: false, yes: false, review: false, minConfidence: "high",
     noImages: false, rich: false, richClass: false, noProps: false, bindCollections: false,
-    bindRoutes: false, all: false, restore: false, init: false, remove: false, force: false, help: false, version: false,
+    bindRoutes: false, all: false, restore: false, init: false, remove: false, doctor: false, force: false, help: false, version: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -127,6 +133,7 @@ export function parseArgs(argv: string[]): Args {
       case "--restore": a.restore = true; break;
       case "init": a.init = true; break;
       case "remove": a.remove = true; break;
+      case "doctor": a.doctor = true; break;
       case "--force": a.force = true; break;
       case "--help": case "-h": a.help = true; break;
       case "--version": case "-v": a.version = true; break;

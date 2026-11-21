@@ -31,6 +31,7 @@ import { recordWritten, restoreLatest, writeBackup } from "./backup.js";
 import { freshConfig, planConfigWiring, renderEnvAdditions, renderGitignoreAdditions, type InitMode, type WiringNeeds } from "./init.js";
 import { lineDiff, formatHunks } from "./diff.js";
 import { savedTemplateText, stripBindings, unwireConfig } from "./remove.js";
+import { inspect, report } from "./doctor.js";
 import { buildReport } from "./report.js";
 import { applyKeyRegistry } from "./keys.js";
 import { isValidField } from "./name.js";
@@ -838,6 +839,12 @@ async function main(): Promise<void> {
 
   if (args.restore) { runRestore(root, args); return; }
   if (args.remove) { await runRemove(root, args); return; }
+  if (args.doctor) {
+    const result = report(inspect(root), Date.now(), CARETIZE);
+    process.stdout.write(`caretize doctor · checking this project\n\n${result.lines.join("\n")}\n`);
+    if (result.problems) process.exit(1);
+    return;
+  }
   if (args.init) {
     // init wires CaretCMS, then tags — one command for the first run.
     const init = await runInit(root, args);

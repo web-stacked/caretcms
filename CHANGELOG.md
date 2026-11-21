@@ -44,6 +44,10 @@ Versions track the publishable `@caretcms/core` package.
 
 ### Added
 
+- `caretize doctor` checks a project that uses CaretCMS and changes nothing.
+  It lists drafts nobody has published and how old they are, content and
+  uploads Git hasn't committed, uploaded images nothing uses, and `.gitignore`
+  mistakes, each with what to do about it. Run it before and after an upgrade.
 - `caretize remove` takes CaretCMS out of a project and keeps your work. It
   removes the `data-caret` attributes from the templates as they are now,
   removes `caret()` from `astro.config`, offers to uninstall the package, and

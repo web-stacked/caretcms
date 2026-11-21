@@ -105,6 +105,12 @@ Cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` over HTTPS.
 
 Full API reference: [`packages/core/README.md`](packages/core/README.md). Static delivery guide: [docs/static-delivery.md](docs/static-delivery.md). Docs site: **https://caretcms.com/docs**.
 
+### Upgrading, checking and removing
+
+- **Upgrading:** read the [changelog](CHANGELOG.md) for the version you're moving to before you upgrade a site people are editing. Releases that change stored content or URLs say so and link their upgrade steps.
+- **Checking a site:** `npx @caretcms/caretize doctor` reports unpublished drafts, content Git hasn't committed, unused uploads and `.gitignore` mistakes. It changes nothing.
+- **Removing CaretCMS:** `npx @caretcms/caretize remove` takes the attributes and the integration out and keeps the rest of your work.
+
 ## Develop in this repo
 
 ```sh
