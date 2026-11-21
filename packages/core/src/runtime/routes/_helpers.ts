@@ -1,4 +1,5 @@
 import type { StorageAdapter, UploadHandler } from "../../types.js";
+import type { DraftConflict } from "../storage/session-overlay-adapter.js";
 import { loadPageContent, withPageContent } from "../page-content.js";
 import {
   getRequestContext,
@@ -6,6 +7,8 @@ import {
   type CaretRequestContext,
 } from "../request-context.js";
 import { getRuntimeServices } from "../providers.js";
+import { entryDisplayTitle, humanizeEntryId } from "../entry-title.js";
+import { getRegisteredSchema, resolveCollectionStudioConfig } from "../schema-registry.js";
 
 let bootstrapContext: Promise<CaretRequestContext> | null = null;
 
@@ -204,4 +207,38 @@ export function getUploadHandler(): UploadHandler {
 
 export function getSessionId(): string | null {
   return requireRequestContext().sessionId;
+}
+
+/** Name entries the editor must act on (conflicts, failures) as the Studio does. */
+export async function withTitles<T extends { collection: string; id: string }>(
+  base: StorageAdapter,
+  overlay: StorageAdapter,
+  entries: T[],
+): Promise<Array<T & { title: string }>> {
+  return Promise.all(entries.map(async (entry) => {
+    const [config, stored] = await Promise.all([
+      resolveCollectionStudioConfig(base, entry.collection),
+      overlay.getEntry(entry.collection, entry.id).catch(() => null)
+        .then((draft) => draft ?? base.getEntry(entry.collection, entry.id).catch(() => null)),
+    ]);
+    return { ...entry, title: entryDisplayTitle(entry.collection, entry.id, stored?.data, config) };
+  }));
+}
+
+/** A value as short text for a message: strings as they are (markup removed), anything else as JSON. */
+function preview(value: unknown): string {
+  if (value === undefined || value === null || value === "") return "";
+  const text = typeof value === "string" ? value.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim() : JSON.stringify(value);
+  return text.length > 160 ? `${text.slice(0, 159)}…` : text;
+}
+
+/** Draft conflicts as the editor reads them: entry title, field labels and both values as text. */
+export async function describeDraftConflicts(base: StorageAdapter, overlay: StorageAdapter, conflicts: DraftConflict[]) {
+  return (await withTitles(base, overlay, conflicts)).map((conflict) => {
+    const properties = (getRegisteredSchema(conflict.collection) as { properties?: Record<string, { title?: unknown }> } | undefined)?.properties ?? {};
+    return { collection: conflict.collection, id: conflict.id, title: conflict.title, removed: conflict.removed,
+      fields: conflict.fields.map(({ field, mine, site }) => ({ field,
+        label: typeof properties[field]?.title === "string" ? properties[field].title as string : humanizeEntryId(field),
+        mine: preview(mine), site: preview(site) })) };
+  });
 }

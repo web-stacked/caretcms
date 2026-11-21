@@ -24,6 +24,56 @@ export function readDraftState(data: Record<string, unknown>): DraftState | null
   return state;
 }
 
+/** Same test as publish: the published entry moved since this draft was started. */
+export function isStaleDraft(state: DraftState, base: Record<string, unknown> | null): boolean {
+  return !sameContent(state.baseData, base);
+}
+
+export interface DraftRebase {
+  /** The draft as it applies to the current published entry. */
+  data: Record<string, unknown>;
+  /** Top-level fields changed both in the draft and in the published entry, to different values. */
+  conflicts: string[];
+  /** The published entry was deleted after the draft was started. */
+  removed: boolean;
+}
+
+/**
+ * Carry a structured draft over to the current published entry. The draft
+ * stores the entry it started from, so the editor's own change is the
+ * difference between that and the draft, field by field. Fields the editor
+ * didn't change follow the published entry; fields only the editor changed
+ * keep the draft's value. A field changed on both sides to different values
+ * is a conflict: the draft's value is kept and the field is reported.
+ * `content` must not carry draft state; other private keys (`__body`) pass through.
+ */
+export function rebaseDraft(
+  state: DraftState, content: Record<string, unknown>, base: Record<string, unknown> | null,
+): DraftRebase {
+  if (!isStaleDraft(state, base)) return { data: content, conflicts: [], removed: false };
+  const removed = base === null && state.baseData !== null;
+  const started = state.baseData ?? {};
+  const current = base ?? {};
+  const data: Record<string, unknown> = {};
+  const conflicts: string[] = [];
+  const keys = new Set([...Object.keys(current), ...Object.keys(content), ...Object.keys(started)]);
+  for (const key of keys) {
+    const mine = Object.hasOwn(content, key), was = Object.hasOwn(started, key), now = Object.hasOwn(current, key);
+    const edited = mine !== was || (mine && !sameContent(content[key], started[key]));
+    if (!edited) {
+      if (now) data[key] = current[key];
+      continue;
+    }
+    const moved = now !== was || (now && !sameContent(current[key], started[key]));
+    const agree = mine === now && (!mine || sameContent(content[key], current[key]));
+    if (moved && !agree) conflicts.push(key);
+    if (mine) data[key] = content[key];
+  }
+  // The entry was deleted underneath the draft: nothing to carry it over to.
+  if (removed) return { data: content, conflicts: conflicts.sort(), removed };
+  return { data, conflicts: conflicts.sort(), removed };
+}
+
 /** Object key ordering is not a content change. Arrays retain their order. */
 export function sameContent(a: unknown, b: unknown): boolean {
   if (a === b) return true;

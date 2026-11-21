@@ -301,14 +301,16 @@ it("publishes an engine-created coordinated draft and cleans up only that editor
 
 it("retains a coordinated structured draft when publication discovers a newer base version", async () => {
   const published = base();
-  await published.commitEntries([{ ...change(), expectedExists: false }]);
+  await published.commitEntries([{ ...change(), expectedExists: false, data: { title: "Original" } }]);
   const raw = await published.makeEditorOverlay("alice");
   const draft = new SessionOverlayAdapter(published, raw);
   await draft.commitEntries([change()]);
   await base().commitEntries([{ ...change("one", 1), data: { title: "Other writer" } }]);
+  // Both changed the title: the editor keeps seeing their own value.
+  expect((await draft.getEntry("posts", "one"))?.data.title).toBe("Private draft");
   const result = await publishOverlay(published, raw);
   expect(result.published).toEqual([]);
-  expect(result.conflicts).toHaveLength(1);
+  expect(result.conflicts).toEqual([{ collection: "posts", id: "one", reason: "stale_entry", fields: ["title"] }]);
   expect((await raw.getEntry("posts", "one"))?.data.title).toBe("Private draft");
   expect((await published.getEntry("posts", "one"))?.data.title).toBe("Other writer");
 });

@@ -3,6 +3,16 @@
  * @property {number} count
  * @property {boolean} canPublish
  * @property {boolean} retryRebuild
+ * @property {DraftConflict[]} conflicts
+ */
+/**
+ * A draft whose fields also changed on the site.
+ * @typedef {object} DraftConflict
+ * @property {string} collection
+ * @property {string} id
+ * @property {string} title
+ * @property {boolean} removed
+ * @property {{ field: string, label: string, mine: string, site: string }[]} fields
  */
 /**
  * @typedef {object} RetryDeploymentResult
@@ -57,12 +67,31 @@ export function createDraftClient(options) {
         : 0,
       canPublish: data.canPublish !== false,
       retryRebuild: data.retryRebuild === true,
+      conflicts: (Array.isArray(data.conflicts) ? data.conflicts : []).map(record)
+        .filter(conflict => typeof conflict.collection === 'string' && typeof conflict.id === 'string')
+        .map(conflict => ({
+          collection: String(conflict.collection),
+          id: String(conflict.id),
+          title: typeof conflict.title === 'string' ? conflict.title : '',
+          removed: conflict.removed === true,
+          fields: (Array.isArray(conflict.fields) ? conflict.fields : []).map(record).map(field => ({
+            field: String(field.field ?? ''),
+            label: String(field.label ?? field.field ?? ''),
+            mine: typeof field.mine === 'string' ? field.mine : '',
+            site: typeof field.site === 'string' ? field.site : '',
+          })),
+        })),
     });
   }
 
   async function publish() {
     const response = await requireOk(await request('POST', '/publish', '{}'));
     return /** @type {unknown} */ (await response.json());
+  }
+
+  /** @param {string} collection @param {string} id @param {'mine' | 'site'} keep */
+  async function resolveConflict(collection, id, keep) {
+    await requireOk(await request('POST', '/draft', JSON.stringify({ collection, id, keep })));
   }
 
   async function discard() {
@@ -83,5 +112,5 @@ export function createDraftClient(options) {
     });
   }
 
-  return { getState, publish, discard, retryDeployment };
+  return { getState, publish, discard, resolveConflict, retryDeployment };
 }

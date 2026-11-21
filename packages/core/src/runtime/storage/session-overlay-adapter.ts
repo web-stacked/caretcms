@@ -1,5 +1,6 @@
-import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, contentWithoutState, readDraftState } from "../draft-state.js";
+import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, contentWithoutState, isStaleDraft, readDraftState, rebaseDraft, sameContent, type DraftState } from "../draft-state.js";
 import { readAdapterSnapshot, readAdapterSnapshots } from "./read-snapshot.js";
+import { commitEntryChanges } from "./entry-commit.js";
 import type {
   CollectionMetadata,
   EntryCommit,
@@ -16,6 +17,15 @@ import type {
   StorageGuarantees,
 } from "../../types.js";
 
+/** A structured draft and the published entry disagree on these fields. */
+export interface DraftConflict {
+  collection: string;
+  id: string;
+  /** The published entry was deleted after the draft was started. */
+  removed: boolean;
+  fields: Array<{ field: string; mine: unknown; site: unknown }>;
+}
+
 /** Sentinel marking a deleted-in-overlay entry. Exported so the publish flow can
  *  recognize a draft deletion and apply it to the base as a real delete. */
 export const TOMBSTONE_KEY = "__caret_tombstone__";
@@ -28,8 +38,10 @@ function isTombstone(entry: EntryData | null): boolean {
  * Overlay adapter for demo / multi-tenant sandbox use. Reads check the overlay
  * first and fall back to the shared base adapter; writes go only to the overlay.
  *
- * Structured editor drafts retain a full snapshot and the first published base
- * for conflict detection. Body-only drafts and demo overlays merge over base.
+ * Structured editor drafts keep a full snapshot and the published entry they
+ * started from. Reads carry the draft over to the current published entry, so
+ * a later change to it shows through wherever the editor didn't edit. Body-only
+ * drafts and demo overlays merge over base.
  *
  * Deletes write a tombstone sentinel into the overlay rather than removing the
  * overlay key, so deleting a base-only entry stays deleted for the session
@@ -80,59 +92,116 @@ export class SessionOverlayAdapter implements StorageAdapter {
     return this.base.isKnownCollection(collection);
   }
 
+  /**
+   * What the editor sees for an entry they hold a draft of. A structured
+   * draft is carried over to the current published entry (`rebaseDraft`), so
+   * only the fields the editor changed differ from it. Body-only drafts and
+   * demo overlays merge over the published entry.
+   */
+  private view(own: EntryData, base: EntryData | null): EntryData {
+    const state = readDraftState(own.data);
+    const content = contentWithoutState(own.data);
+    if (state?.structured) return { ...own, data: rebaseDraft(state, content, base?.data ?? null).data };
+    return { ...own, data: base ? { ...base.data, ...content } : content };
+  }
+
+  /**
+   * A structured save onto a draft whose published entry has moved. When
+   * nothing collides, the draft restarts from the current published entry:
+   * it keeps only the editor's own changes, and a later published change is
+   * compared with what the editor last saw rather than with the first base.
+   * A draft in conflict keeps its original baseline until the editor decides.
+   */
+  private restart(state: DraftState | null, data: Record<string, unknown>, base: EntrySnapshot): { state: DraftState | null; data: Record<string, unknown> } {
+    const content = contentWithoutState(data);
+    if (!state?.structured || content[TOMBSTONE_KEY] === true) return { state, data: content };
+    const published = base.entry?.data ?? null;
+    if (!isStaleDraft(state, published)) return { state, data: content };
+    const carried = rebaseDraft(state, content, published);
+    if (carried.conflicts.length || carried.removed) return { state, data: content };
+    return { state: { ...state, baseRevision: base.revision, baseData: published }, data: carried.data };
+  }
+
   async getEntry(collection: string, id: string): Promise<EntryData | null> {
     if (this.coordinator) return (await this.getEntrySnapshot(collection, id)).entry;
     const overlaid = await this.overlay.getEntry(collection, id);
     if (isTombstone(overlaid)) return null;
     if (!overlaid) return this.base.getEntry(collection, id);
-    // Structured snapshots preserve removed fields. Body-only drafts and demo
-    // overlays merge over base so untouched fields remain current.
-    const base = await this.base.getEntry(collection, id);
-    const state = readDraftState(overlaid.data);
-    const content = contentWithoutState(overlaid.data);
-    return { ...overlaid, data: state?.structured || !base ? content : { ...base.data, ...content } };
+    return this.view(overlaid, await this.base.getEntry(collection, id));
   }
 
   async getEntrySnapshot(collection: string, id: string): Promise<EntrySnapshot> {
-    if (this.coordinator) return (await this.getEntrySnapshots(collection, [id]))[0];
-    const snapshot = await readAdapterSnapshot(this.overlay, collection, id);
-    const overlaid = snapshot.entry;
-    if (isTombstone(overlaid)) return { entry: null, revision: snapshot.revision };
-    const state = overlaid ? readDraftState(overlaid.data) : null;
-    if (overlaid && state?.structured) return {
-      entry: { ...overlaid, data: contentWithoutState(overlaid.data) }, revision: snapshot.revision,
-    };
-    const base = await readAdapterSnapshot(this.base, collection, id);
-    return { entry: overlaid ? { ...overlaid, data: { ...(base.entry?.data ?? {}), ...contentWithoutState(overlaid.data) } } : base.entry,
-      revision: snapshot.revision, ...(this.trackDrafts ? { baseRevision: base.revision } : {}) };
+    return (await this.getEntrySnapshots(collection, [id]))[0];
   }
 
   async getEntrySnapshots(collection: string, ids: readonly string[]): Promise<EntrySnapshot[]> {
-    if (this.coordinator) {
-      const paired = await this.coordinator.getEntrySnapshots(collection, ids);
-      return paired.map(({ overlay: own, base }) => {
-        if (isTombstone(own.entry)) return { entry: null, revision: own.revision };
-        if (own.entry && readDraftState(own.entry.data)?.structured) return {
-          entry: { ...own.entry, data: contentWithoutState(own.entry.data) }, revision: own.revision,
-        };
-        return { entry: own.entry ? { ...own.entry, data: { ...(base.entry?.data ?? {}), ...contentWithoutState(own.entry.data) } } : base.entry,
-          revision: own.revision, baseRevision: base.revision };
-      });
-    }
-    const own = await readAdapterSnapshots(this.overlay, collection, ids);
-    const needsBase = own.map((snapshot, index) => ({ snapshot, index }))
-      .filter(({ snapshot }) => !isTombstone(snapshot.entry) && !(snapshot.entry && readDraftState(snapshot.entry.data)?.structured));
-    const base = await readAdapterSnapshots(this.base, collection, needsBase.map(({ index }) => ids[index]));
-    const bases = new Map(needsBase.map(({ index }, position) => [index, base[position]]));
-    return own.map((snapshot, index) => {
-      if (isTombstone(snapshot.entry)) return { entry: null, revision: snapshot.revision };
-      if (snapshot.entry && readDraftState(snapshot.entry.data)?.structured) return {
-        entry: { ...snapshot.entry, data: contentWithoutState(snapshot.entry.data) }, revision: snapshot.revision,
-      };
-      const published = bases.get(index)!;
-      return { entry: snapshot.entry ? { ...snapshot.entry, data: { ...(published.entry?.data ?? {}), ...contentWithoutState(snapshot.entry.data) } } : published.entry,
-        revision: snapshot.revision, ...(this.trackDrafts ? { baseRevision: published.revision } : {}) };
+    const paired = this.coordinator
+      ? await this.coordinator.getEntrySnapshots(collection, ids)
+      : await this.pairedSnapshots(collection, ids);
+    return paired.map(({ overlay: own, base }) => {
+      if (isTombstone(own.entry)) return { entry: null, revision: own.revision };
+      if (own.entry && readDraftState(own.entry.data)?.structured) {
+        return { entry: this.view(own.entry, base.entry), revision: own.revision };
+      }
+      return { entry: own.entry ? this.view(own.entry, base.entry) : base.entry,
+        revision: own.revision, ...(this.trackDrafts || this.coordinator ? { baseRevision: base.revision } : {}) };
     });
+  }
+
+  /** Each id's own draft beside its published entry. Tombstones need no published read. */
+  private async pairedSnapshots(collection: string, ids: readonly string[]): Promise<Array<{ overlay: EntrySnapshot; base: EntrySnapshot }>> {
+    const own = await readAdapterSnapshots(this.overlay, collection, ids);
+    const needed = own.map((snapshot, index) => ({ snapshot, index })).filter(({ snapshot }) => !isTombstone(snapshot.entry));
+    const base = await readAdapterSnapshots(this.base, collection, needed.map(({ index }) => ids[index]));
+    const bases = new Map(needed.map(({ index }, position) => [index, base[position]]));
+    return own.map((snapshot, index) => ({ overlay: snapshot, base: bases.get(index) ?? { entry: null, revision: 0 } }));
+  }
+
+  /**
+   * The fields of this editor's structured draft that also changed on the
+   * published entry, each with both values. Null when nothing collides.
+   */
+  async draftConflict(collection: string, id: string): Promise<DraftConflict | null> {
+    const own = await this.overlay.getEntry(collection, id);
+    const state = own && !isTombstone(own) ? readDraftState(own.data) : null;
+    if (!own || !state?.structured) return null;
+    const base = (await this.base.getEntry(collection, id))?.data ?? null;
+    const carried = rebaseDraft(state, contentWithoutState(own.data), base);
+    if (!carried.conflicts.length && !carried.removed) return null;
+    return { collection, id, removed: carried.removed,
+      fields: carried.conflicts.map(field => ({ field, mine: carried.data[field], site: base?.[field] })) };
+  }
+
+  /**
+   * Settle a draft in conflict. "mine" keeps the editor's values and restarts
+   * the draft from the current published entry, so Publish puts them on top.
+   * "site" takes the published values for the fields in conflict and keeps the
+   * editor's other changes; a draft left with no change of its own is dropped.
+   * Returns false when the draft was not in conflict.
+   */
+  async resolveDraftConflict(collection: string, id: string, keep: "mine" | "site"): Promise<boolean> {
+    const revision = await this.overlay.getRevision(collection, id);
+    const own = await this.overlay.getEntry(collection, id);
+    if (own?.data[PUBLISH_RECOVERY_KEY]) throw new Error("Finish pending publication before editing this draft");
+    const state = own && !isTombstone(own) ? readDraftState(own.data) : null;
+    if (!own || !state?.structured) return false;
+    const base = await readAdapterSnapshot(this.base, collection, id);
+    const published = base.entry?.data ?? null;
+    const carried = rebaseDraft(state, contentWithoutState(own.data), published);
+    if (!carried.conflicts.length && !carried.removed) return false;
+    let data: Record<string, unknown> | null = { ...carried.data };
+    if (keep === "site") {
+      for (const field of carried.conflicts) {
+        if (published && Object.hasOwn(published, field)) data[field] = published[field];
+        else delete data[field];
+      }
+      // Nothing of the editor's own is left: the draft is over.
+      if (carried.removed || sameContent(data, published)) data = null;
+    }
+    const settled = await commitEntryChanges(this.overlay, [{ collection, id, expectedRevision: revision, expectedExists: true,
+      data: data && { ...data, [DRAFT_STATE_KEY]: { ...state, baseRevision: base.revision, baseData: published } } }]);
+    if (!settled.ok) throw new Error("Draft changed while it was being settled");
+    return true;
   }
 
   /** The overlay's OWN entry (draft deltas only), with no base fallback or
@@ -211,8 +280,12 @@ export class SessionOverlayAdapter implements StorageAdapter {
       state = { version: 1, baseRevision: base.revision,
         baseData: base.entry?.data ?? null, structured };
     }
+    let content = contentWithoutState(data);
+    if (this.trackDrafts && existing && state?.structured && structured) {
+      ({ state, data: content } = this.restart(state, content, await readAdapterSnapshot(this.base, collection, id)));
+    }
     if (state) state = { ...state, structured: state.structured || structured };
-    await this.overlay.writeEntry(collection, id, { ...contentWithoutState(data),
+    await this.overlay.writeEntry(collection, id, { ...content,
       ...(state ? { [DRAFT_STATE_KEY]: state } : {}) });
   }
 
@@ -275,13 +348,17 @@ export class SessionOverlayAdapter implements StorageAdapter {
         };
         baselines.push({ collection: change.collection, id: change.id, revision: base.revision });
       }
+      let content: Record<string, unknown> = contentWithoutState(change.data === null ? { [TOMBSTONE_KEY]: true } : change.data);
+      if (this.trackDrafts && existing && state?.structured && structured && change.data !== null) {
+        const base = paired?.base ?? await readAdapterSnapshot(this.base, change.collection, change.id);
+        ({ state, data: content } = this.restart(state, content, base));
+      }
       if (state) state = { ...state, structured: state.structured || structured };
-      const content = change.data === null ? { [TOMBSTONE_KEY]: true } : change.data;
       prepared.push({
         ...change,
         expectedExists: Boolean(existing),
         data: {
-          ...contentWithoutState(content),
+          ...content,
           ...(state ? { [DRAFT_STATE_KEY]: state } : {}),
         },
       });

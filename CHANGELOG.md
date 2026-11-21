@@ -8,6 +8,19 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+### Changed
+
+- A draft no longer hides newer content. When an entry changes on the site
+  after you started editing it (another editor publishes, or a developer
+  commits to the same file), you now see the newer content everywhere you
+  didn't edit, and Publish keeps it. Before, your draft showed its old copy of
+  the whole entry, so new images, text and sections seemed to disappear, and
+  Publish refused the entry even when you had changed something else.
+- When you and someone else changed the same field, the toolbar says
+  **1 needs your choice** and shows both versions. **Keep mine** or **Use the
+  site's version** settles it; your other changes are not affected. The
+  publish response lists the fields in `conflicts[].fields`.
+
 ### Fixed
 
 - Publish no longer writes an entry whose edits were undone. A draft that

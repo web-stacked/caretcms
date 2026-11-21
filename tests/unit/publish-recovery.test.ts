@@ -26,17 +26,28 @@ async function save(draft: SessionOverlayAdapter, field: string, value: string) 
 }
 
 describe("draft baseline protection", () => {
-  it.each(["title", "section"])("rejects a stale draft when the other editor changed %s", async field => {
+  it("rejects a draft when the other editor changed the same field, and names it", async () => {
     const { base, overlay, draft } = await fixture();
     const bob = await base.makeEditorOverlay("bob");
     await save(draft, "title", "Alice");
-    await save(new SessionOverlayAdapter(base, bob), field, "Bob");
+    await save(new SessionOverlayAdapter(base, bob), "title", "Bob");
     expect((await publishOverlay(base, bob)).published).toHaveLength(1);
     const before = await base.getEntry("pages", "home");
     const outcome = await publishOverlay(base, overlay);
-    expect(outcome.conflicts).toEqual([{ collection: "pages", id: "home", reason: "stale_entry" }]);
+    expect(outcome.conflicts).toEqual([{ collection: "pages", id: "home", reason: "stale_entry", fields: ["title"] }]);
     expect(await base.getEntry("pages", "home")).toEqual(before);
     expect(await overlay.getEntry("pages", "home")).not.toBeNull();
+  });
+
+  it("publishes beside the other editor's change to a different field", async () => {
+    const { base, overlay, draft } = await fixture();
+    const bob = await base.makeEditorOverlay("bob");
+    await save(draft, "title", "Alice");
+    await save(new SessionOverlayAdapter(base, bob), "section", "Bob");
+    expect((await publishOverlay(base, bob)).published).toHaveLength(1);
+    const outcome = await publishOverlay(base, overlay);
+    expect(outcome.conflicts).toEqual([]);
+    expect((await base.getEntry("pages", "home"))?.data).toMatchObject({ title: "Alice", section: "Bob" });
   });
 
   it("detects external source edits even without a revision bump", async () => {

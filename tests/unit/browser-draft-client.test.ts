@@ -17,9 +17,13 @@ describe("browser draft client", () => {
       count: 2.8,
       canPublish: false,
       retryRebuild: true,
+      conflicts: [{ collection: "pages", id: "home", title: "Home", removed: false,
+        fields: [{ field: "title", label: "Title", mine: "Mine", site: "Theirs" }] }],
     }));
     const result = await client(fetchImpl).getState();
-    expect(result).toEqual({ count: 2, canPublish: false, retryRebuild: true });
+    expect(result).toEqual({ count: 2, canPublish: false, retryRebuild: true,
+      conflicts: [{ collection: "pages", id: "home", title: "Home", removed: false,
+        fields: [{ field: "title", label: "Title", mine: "Mine", site: "Theirs" }] }] });
     expect(fetchImpl).toHaveBeenCalledWith(
       "https://site.test/api/cms/draft",
       expect.objectContaining({
@@ -72,11 +76,21 @@ describe("browser draft client", () => {
       count: "many",
       canPublish: "yes",
       retryRebuild: 1,
+      conflicts: [{ id: "no-collection" }, "nonsense", { collection: "pages", id: "home", fields: "x" }],
     }));
     expect(await client(fetchImpl).getState()).toEqual({
       count: 0,
       canPublish: true,
       retryRebuild: false,
+      conflicts: [{ collection: "pages", id: "home", title: "", removed: false, fields: [] }],
     });
+  });
+
+  it("sends the editor's choice for a draft in conflict", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ ok: true }));
+    await client(fetchImpl).resolveConflict("pages", "home", "site");
+    expect(fetchImpl.mock.calls[0][0]).toBe("https://site.test/api/cms/draft");
+    expect(fetchImpl.mock.calls[0][1]?.method).toBe("POST");
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toEqual({ collection: "pages", id: "home", keep: "site" });
   });
 });

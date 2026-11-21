@@ -30,6 +30,7 @@ function renderDraftControls(staticDelivery) {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/></svg>
             <span class="cms-go-live-label">${tHtml('editor.toolbar.publish')}</span>
           </button>
+          <button class="cms-conflict-btn" type="button" hidden></button>
           <button class="cms-discard-btn" type="button" title="${tHtml('editor.toolbar.discardTitle')}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             ${tHtml('editor.toolbar.discard')}
@@ -345,30 +346,18 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     }
   }
 
-  /** @param {number} count @param {boolean} canKeep @returns {Promise<'publish' | 'keep' | 'discard' | 'cancel'>} */
-  function chooseSignoutAction(count, canKeep) {
+  /**
+   * Wait for a choice in the toolbar dialog, whichever of its buttons are shown.
+   * @returns {Promise<'publish' | 'keep' | 'discard' | 'cancel'>}
+   */
+  function awaitDialogChoice() {
     const backdrop = /** @type {HTMLElement} */ (document.querySelector('.cms-dialog-backdrop'));
-    const dialog = /** @type {HTMLElement} */ (backdrop.querySelector('.cms-dialog'));
-    const copy = /** @type {HTMLElement} */ (backdrop.querySelector('#cms-signout-copy'));
     const publish = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-publish'));
     const keep = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-keep'));
     const discard = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-discard'));
     const cancel = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-cancel'));
-    const title = /** @type {HTMLElement} */ (backdrop.querySelector('#cms-signout-title'));
-    title.textContent = t('editor.toolbar.unpublishedTitle');
-    publish.textContent = t('editor.toolbar.publishAndSignOut');
-    publish.classList.remove('is-danger');
-    keep.textContent = t('editor.toolbar.keepAndSignOut');
-    discard.textContent = t('editor.toolbar.discardAndSignOut');
-    copy.textContent = canKeep
-      ? t(count === 1 ? 'editor.toolbar.signOutKeepOne' : 'editor.toolbar.signOutKeepOther', { count })
-      : t(count === 1 ? 'editor.toolbar.signOutLoseOne' : 'editor.toolbar.signOutLoseOther', { count });
-    publish.hidden = !canPublishDrafts;
-    keep.hidden = !canKeep;
-    discard.hidden = false;
     backdrop.hidden = false;
     cancel.focus();
-
     return new Promise((resolve) => {
       /** @param {'publish' | 'keep' | 'discard' | 'cancel'} action */
       function finish(action) {
@@ -405,6 +394,65 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       document.addEventListener('keydown', onKeydown, true);
     });
   }
+
+  /** @param {number} count @param {boolean} canKeep @returns {Promise<'publish' | 'keep' | 'discard' | 'cancel'>} */
+  function chooseSignoutAction(count, canKeep) {
+    const backdrop = /** @type {HTMLElement} */ (document.querySelector('.cms-dialog-backdrop'));
+    const dialog = /** @type {HTMLElement} */ (backdrop.querySelector('.cms-dialog'));
+    const copy = /** @type {HTMLElement} */ (backdrop.querySelector('#cms-signout-copy'));
+    const publish = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-publish'));
+    const keep = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-keep'));
+    const discard = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-discard'));
+    const cancel = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-cancel'));
+    const title = /** @type {HTMLElement} */ (backdrop.querySelector('#cms-signout-title'));
+    title.textContent = t('editor.toolbar.unpublishedTitle');
+    publish.textContent = t('editor.toolbar.publishAndSignOut');
+    publish.classList.remove('is-danger');
+    keep.textContent = t('editor.toolbar.keepAndSignOut');
+    discard.textContent = t('editor.toolbar.discardAndSignOut');
+    copy.textContent = canKeep
+      ? t(count === 1 ? 'editor.toolbar.signOutKeepOne' : 'editor.toolbar.signOutKeepOther', { count })
+      : t(count === 1 ? 'editor.toolbar.signOutLoseOne' : 'editor.toolbar.signOutLoseOther', { count });
+    publish.hidden = !canPublishDrafts;
+    keep.hidden = !canKeep;
+    discard.hidden = false;
+    return awaitDialogChoice();
+  }
+
+  /**
+   * Ask which version of an entry to keep when the same fields changed in the
+   * draft and on the site.
+   * @param {import('./draft-client.js').DraftConflict} conflict
+   * @returns {Promise<'mine' | 'site' | 'cancel'>}
+   */
+  async function chooseConflictAction(conflict) {
+    const backdrop = /** @type {HTMLElement} */ (document.querySelector('.cms-dialog-backdrop'));
+    const copy = /** @type {HTMLElement} */ (backdrop.querySelector('#cms-signout-copy'));
+    const publish = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-publish'));
+    const keep = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-keep'));
+    const discard = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-discard'));
+    const title = /** @type {HTMLElement} */ (backdrop.querySelector('#cms-signout-title'));
+    const name = conflict.title ? t('editor.publish.entryNamed', { title: conflict.title }) : t('editor.publish.entryUnnamed');
+    title.textContent = t(conflict.removed ? 'editor.conflict.removedTitle' : 'editor.conflict.title', { name });
+    const lines = conflict.removed
+      ? [t('editor.conflict.removedCopy')]
+      : [t('editor.conflict.copy'), ...conflict.fields.flatMap(field => ['',
+        t('editor.conflict.field', { label: field.label }),
+        t('editor.conflict.site', { value: field.site || t('editor.conflict.empty') }),
+        t('editor.conflict.mine', { value: field.mine || t('editor.conflict.empty') })])];
+    copy.textContent = lines.join('\n');
+    copy.style.whiteSpace = 'pre-line';
+    publish.textContent = t(conflict.removed ? 'editor.conflict.keepMineRemoved' : 'editor.conflict.keepMine');
+    publish.classList.remove('is-danger');
+    keep.textContent = t(conflict.removed ? 'editor.conflict.useSiteRemoved' : 'editor.conflict.useSite');
+    publish.hidden = false;
+    keep.hidden = false;
+    discard.hidden = true;
+    const choice = await awaitDialogChoice();
+    copy.style.whiteSpace = '';
+    return choice === 'publish' ? 'mine' : choice === 'keep' ? 'site' : 'cancel';
+  }
+
 
   /**
    * @param {{ title: string, copy: string, confirmLabel: string, danger?: boolean, restoreFocus?: HTMLElement | null }} options
@@ -469,6 +517,33 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
 
   let canPublishDrafts = true;
   let draftCount = 0;
+  /** @type {import('./draft-client.js').DraftConflict[]} */
+  let draftConflicts = [];
+  const conflictBtn = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-conflict-btn'));
+
+  /**
+   * Walk the editor through each draft that collides with the site. Keeping
+   * their own values needs no reload (the page already shows them); taking the
+   * site's changes what the page shows.
+   */
+  async function settleConflicts() {
+    let tookSite = false;
+    for (const conflict of [...draftConflicts]) {
+      const choice = await chooseConflictAction(conflict);
+      if (choice === 'cancel') break;
+      try {
+        await draftClient.resolveConflict(conflict.collection, conflict.id, choice);
+        if (choice === 'site') tookSite = true;
+      } catch {
+        showToast(t('editor.conflict.failed'), 'error');
+        break;
+      }
+    }
+    if (tookSite) { reloadWithToast(t('editor.conflict.tookSite'), 'success'); return; }
+    await refreshDraftControls();
+    if (draftConflicts.length === 0) showToast(t('editor.conflict.keptMine'), 'success');
+  }
+  conflictBtn?.addEventListener('click', settleConflicts);
   /** Whether the last count came from the server, rather than a failed request. */
   let draftCountKnown = false;
   const retryRebuildButton = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-retry-rebuild-btn'));
@@ -483,6 +558,11 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       if (rebuildPending && current.state === 'idle') setStatus('error', t('editor.publish.notUpdated'));
       draftCount = data.count;
       draftCountKnown = true;
+      draftConflicts = data.conflicts;
+      if (conflictBtn) {
+        conflictBtn.hidden = draftConflicts.length === 0;
+        conflictBtn.textContent = t(draftConflicts.length === 1 ? 'editor.conflict.buttonOne' : 'editor.conflict.buttonOther', { count: draftConflicts.length });
+      }
       return data.count;
     } catch {
       draftCountKnown = false;
@@ -517,6 +597,8 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       }
       if (presentation.reload && reload) reloadWithToast(presentation.toast.message, presentation.toast.kind);
       else showToast(presentation.toast.message, presentation.toast.kind);
+      // Entries held back because the site changed in the same place: ask now.
+      if (!presentation.completed && draftConflicts.length > 0 && reload) void settleConflicts();
       return presentation.completed;
     } catch {
       try { sessionStorage.removeItem(PUBLISHING_KEY); } catch { /* nothing to clear */ }

@@ -85,7 +85,11 @@ export function presentPublishResult(input) {
       status: { state: 'error', text: t('editor.publish.notPublished') },
       toast: {
         kind: 'error',
-        message: sentence(t(conflicts.length === 1 ? 'editor.publish.conflictOne' : 'editor.publish.conflictOther', { names: names(conflicts) })),
+        // A field changed on both sides can be settled in a dialog; other
+        // conflicts (body text that moved) still need the edit made again.
+        message: sentence(t(conflicts.every(conflict => conflict.reason === 'stale_entry')
+          ? (conflicts.length === 1 ? 'editor.publish.sameFieldOne' : 'editor.publish.sameFieldOther')
+          : (conflicts.length === 1 ? 'editor.publish.conflictOne' : 'editor.publish.conflictOther'), { names: names(conflicts) })),
       },
     };
   }
