@@ -12,7 +12,8 @@ Versions track the publishable `@caretcms/core` package.
 
 Core 0.6.3 and caretize 0.6.1. Content files gain a `__caret_template__` key the
 first time edited template text is saved; commit it with your content. Run
-`npx @caretcms/caretize doctor` after upgrading.
+`npx @caretcms/caretize doctor` after upgrading. Release notes:
+[docs/releases/0.6.3.md](docs/releases/0.6.3.md).
 
 ### Changed
 
@@ -32,7 +33,6 @@ first time edited template text is saved; commit it with your content. Run
   show up in a different paragraph, and blocked Publish until you discarded
   it. If the paragraph itself was rewritten, the toolbar shows your text so
   you can copy it.
-
 - Changing text in a template now shows, even when an editor had saved a
   value for it. Before, the saved value kept replacing the template, so a
   developer's change to a heading seemed to do nothing. The saved value still
@@ -42,7 +42,6 @@ first time edited template text is saved; commit it with your content. Run
   content file: commit it with your content. A collection with a `.strict()`
   Zod schema must declare it (`caretize doctor` checks). See
   [saving and visibility](docs/saving-and-visibility.md#text-written-in-templates).
-
 - With `CARET_GIT_ON_PUBLISH=true`, Publish asks before it commits a content
   file that has uncommitted changes from outside CaretCMS. Before, a
   developer's half-finished edit to the same file was committed along with the
