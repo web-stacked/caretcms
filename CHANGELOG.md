@@ -8,6 +8,12 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-11-21
+
+Core 0.6.3 and caretize 0.6.1. Content files gain a `__caret_template__` key the
+first time edited template text is saved; commit it with your content. Run
+`npx @caretcms/caretize doctor` after upgrading.
+
 ### Changed
 
 - A draft no longer hides newer content. When an entry changes on the site
@@ -895,7 +901,8 @@ requirements, and deployment retry limitations.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
-[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.3
 [0.6.2]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.2
 [0.6.1]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.1
 [0.6.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.0
