@@ -27,8 +27,20 @@ Versions track the publishable `@caretcms/core` package.
   it. If the paragraph itself was rewritten, the toolbar shows your text so
   you can copy it.
 
+- Changing text in a template now shows, even when an editor had saved a
+  value for it. Before, the saved value kept replacing the template, so a
+  developer's change to a heading seemed to do nothing. The saved value still
+  shows until the template's text changes; then the newer template text shows,
+  the dev server and build log say so, and the next Publish removes the old
+  value. Entries record this in a reserved `__caret_template__` key in the
+  content file: commit it with your content. See
+  [saving and visibility](docs/saving-and-visibility.md#text-written-in-templates).
+
 ### Fixed
 
+- The dev server sees a template edit straight away. The Studio and the page
+  could keep showing a binding's old template text until a page using that
+  template had been opened and the template changed again.
 - Publish no longer writes an entry whose edits were undone. A draft that
   matches what visitors already see, including an undone edit on text that
   only lived in the template, is cleared instead of being saved to your

@@ -44,6 +44,33 @@ the sign-out dialog offers **Keep drafts and sign out**. Only throwaway demo
 sessions lose their drafts on sign-out; there the dialog asks the editor to
 publish, discard, or cancel instead.
 
+## Text written in templates
+
+Text typed straight into a template (`<h1 data-caret="pages::home::headline">Our work</h1>`)
+has two possible sources once someone edits it: the template, and the value
+saved for that binding. The saved value shows, as long as the template still
+says what it said when the value was saved.
+
+When a developer changes the template's text afterwards, the newer template
+text shows instead, in dev and in builds. The dev server and the build log name
+the binding. The next Publish of that entry removes the overtaken value from
+storage; an editor who edits that text again replaces the template's text as
+before.
+
+To tell which is newer, an entry stores a short hash of the template text each
+saved value replaced, under the reserved key `__caret_template__`:
+
+```yaml
+headline: "Our best work"
+__caret_template__:
+  headline: t38925866
+```
+
+Leave that key in place and commit it with the value. It never reaches pages,
+the Studio or schema validation. A value saved before this record existed keeps
+replacing the template until its entry is next published; delete the value from
+the content file to use the template's text.
+
 See [static delivery](./static-delivery.md),
 [authorization policy](./authorization-policy.md), and
 [publish recovery](./publish-recovery.md) for the underlying runtime behavior.

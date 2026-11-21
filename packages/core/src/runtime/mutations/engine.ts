@@ -22,6 +22,9 @@ import { clearedRequiredText, emptyRequiredText, validateJsonSchema, type JsonSc
 import { getRequestContext } from "../request-context.js";
 import { publicationField } from "../collection-policy.js";
 import { commitEntryChanges, historyForEditor } from "../storage/entry-commit.js";
+import { SessionOverlayAdapter } from "../storage/session-overlay-adapter.js";
+import { trackTemplateText } from "../template-text.js";
+import { loadPageContent } from "../page-content.js";
 
 /** Request-scoped extras a route can thread into `executeMutation`. */
 export interface MutationOptions {
@@ -251,6 +254,19 @@ async function ensureExpectedRevisionMatches(
   return { ok: true, currentRevision };
 }
 
+/**
+ * Saves that go straight to published content (server delivery) keep the
+ * entry's template-text record current. Drafts carry no record: Publish
+ * writes it when the draft reaches the published entry.
+ */
+async function withTemplateRecord(
+  adapter: StorageAdapter, collection: string, id: string,
+  before: Record<string, unknown> | null, next: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (adapter instanceof SessionOverlayAdapter) return next;
+  return trackTemplateText(before, next, (await loadPageContent())[collection]?.[id]).data;
+}
+
 async function applySaveField(
   adapter: StorageAdapter,
   command: Extract<CmsMutationCommand, { type: "save_field" }>,
@@ -281,7 +297,7 @@ async function applySaveField(
     const committed = await commitEntryChanges(adapter, [{
       collection, id, expectedRevision: revision.currentRevision,
       expectedBaseRevision: command.expectedBaseRevision,
-      expectedExists: Boolean(beforeEntry), data: current,
+      expectedExists: Boolean(beforeEntry), data: await withTemplateRecord(adapter, collection, id, beforeEntry?.data ?? null, current),
       history: historyForEditor({ ts: Date.now(), action: "save", data: before }),
     }]);
     if (!committed.ok) return commitConflict(committed);
@@ -325,7 +341,7 @@ async function applyPutEntry(
     const committed = await commitEntryChanges(adapter, [{
       collection, id, expectedRevision: revision.currentRevision,
       expectedBaseRevision: command.expectedBaseRevision,
-      expectedExists: before !== null, data: write,
+      expectedExists: before !== null, data: await withTemplateRecord(adapter, collection, id, before, write),
       requireBaseRevision: command.expectedRevision !== undefined,
       ...(before !== null ? { history: historyForEditor({
         ts: Date.now(), action: "put", data: before,
@@ -456,7 +472,7 @@ async function applyUpdatePageLayout(
     const committed = await commitEntryChanges(adapter, [{
       collection, id, expectedRevision: revision.currentRevision,
       expectedBaseRevision: command.expectedBaseRevision,
-      expectedExists: Boolean(currentEntry), data: current,
+      expectedExists: Boolean(currentEntry), data: await withTemplateRecord(adapter, collection, id, currentEntry?.data ?? null, current),
       history: historyForEditor({ ts: Date.now(), action: "put", data: before }),
     }]);
     if (!committed.ok) return commitConflict(committed);

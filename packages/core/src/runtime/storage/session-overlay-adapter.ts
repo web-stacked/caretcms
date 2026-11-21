@@ -1,4 +1,5 @@
-import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, contentWithoutState, isStaleDraft, readDraftState, rebaseDraft, sameContent, type DraftState } from "../draft-state.js";
+import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, contentWithoutState, isStaleDraft, readDraftState, rebaseDraft, sameContent, TEMPLATE_TEXT_KEY, type DraftState } from "../draft-state.js";
+import { draftTemplateRecord } from "../template-text.js";
 import { readAdapterSnapshot, readAdapterSnapshots } from "./read-snapshot.js";
 import { commitEntryChanges } from "./entry-commit.js";
 import { BODY_OVERLAY_KEY } from "../../markdown/contracts.js";
@@ -106,7 +107,11 @@ export class SessionOverlayAdapter implements StorageAdapter {
   private view(own: EntryData, base: EntryData | null): EntryData {
     const state = readDraftState(own.data);
     const content = contentWithoutState(own.data);
-    if (state?.structured) return { ...own, data: rebaseDraft(state, content, base?.data ?? null).data };
+    if (state?.structured) {
+      const { [TEMPLATE_TEXT_KEY]: _own, ...data } = rebaseDraft(state, content, base?.data ?? null).data;
+      const record = draftTemplateRecord(data, base?.data ?? null);
+      return { ...own, data: record ? { ...data, [TEMPLATE_TEXT_KEY]: record } : data };
+    }
     return { ...own, data: base ? { ...base.data, ...content } : content };
   }
 
@@ -226,7 +231,8 @@ export class SessionOverlayAdapter implements StorageAdapter {
         else delete data[BODY_OVERLAY_KEY];
       }
       // Nothing of the editor's own is left: the draft is over.
-      const nothingLeft = state?.structured ? sameContent(data, published) : Object.keys(data).length === 0;
+      const own = (entry: Record<string, unknown> | null) => entry && Object.fromEntries(Object.entries(entry).filter(([key]) => key !== TEMPLATE_TEXT_KEY));
+      const nothingLeft = state?.structured ? sameContent(own(data), own(published)) : Object.keys(data).length === 0;
       if (carried?.removed || nothingLeft) data = null;
     }
     const nextState = state && fieldsCollide ? { ...state, baseRevision: base.revision, baseData: published } : state;

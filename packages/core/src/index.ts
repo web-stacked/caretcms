@@ -29,6 +29,7 @@ import { publicationField, resolvePreviewPath } from "./runtime/collection-polic
 import { withDevRequest } from "./runtime/dev-request-context.js";
 import { createSelfWriteReloadPlugin } from "./runtime/self-write-reload-plugin.js";
 import { createPageContentPlugin } from "./page-content-plugin.js";
+import { scanPageContent } from "./page-content-scan.js";
 import type { GitHubDeploymentOptions } from "./providers/deployment/github.js";
 
 // --- Public type re-exports ---
@@ -1047,6 +1048,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
   let ownedRoutePrefixes: string[] | null = null;
   let shouldBakeStaticOutput = false;
   let staticDevAuthoring = false;
+  let templateSourceDir: string | null = null;
   let effectiveDeliveryForBuild: EffectiveDeliveryConfig | null = null;
 
   return {
@@ -1056,6 +1058,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
         if (command === "dev" || command === "preview") {
           loadCaretEnvFiles(fileURLToPath(config.root), command === "dev" ? "development" : "production");
         }
+        templateSourceDir = fileURLToPath(new URL("./src/", config.root));
         const isStaticOutput = config.output === "static";
         assertDeliveryMatchesAstroOutput(resolved.delivery, config.output);
         const effectiveDelivery = resolveEffectiveDelivery(resolved.delivery, config.output);
@@ -1446,10 +1449,16 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
         const result = await bakeStaticHtmlFiles(dir, {
           adapter,
           allowedClasses: resolved.allowedClasses,
+          pageContent: templateSourceDir ? scanPageContent(templateSourceDir) : {},
         });
         logger.info(
           `static delivery bake complete (${result.rewritten}/${result.scanned} HTML files rewritten).`,
         );
+        if (result.templateWins.length) {
+          logger.info(
+            `${result.templateWins.length} saved ${result.templateWins.length === 1 ? "value was" : "values were"} left out because the template's text was changed after ${result.templateWins.length === 1 ? "it was" : "they were"} saved, so the template's text shows: ${result.templateWins.join(", ")}. The next Publish removes ${result.templateWins.length === 1 ? "it" : "them"} from your content files.`,
+          );
+        }
       },
 
       // An existing site may already own a route under /admin or /api/cms —

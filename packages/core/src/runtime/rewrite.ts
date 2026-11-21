@@ -14,6 +14,8 @@
 import type { StorageAdapter, EntryData } from "../types.js";
 import { BODY_OVERLAY_KEY, parseMdBinding, parseMdSrc, formatMdSrc, BLOCK_PATH_RE, type MdSrc } from "../markdown/contracts.js";
 import { canonicalBody } from "../markdown/canonical-body.js";
+import { loadPageContent, type PageContent } from "./page-content.js";
+import { templateWins } from "./template-text.js";
 import { reanchorBodyDrafts } from "../markdown/splice.js";
 import { sanitizeHtml } from "./sanitize-html.js";
 import { getNestedValue } from "./utils.js";
@@ -109,6 +111,14 @@ function hasChildMarkup(content: string): boolean {
   return /<[a-zA-Z]/.test(content);
 }
 
+export interface RewriteOptions {
+  allowedClasses?: Record<string, readonly string[]>;
+  /** The text templates state for their bindings. Defaults to the scan the running site holds; a build passes its own. */
+  pageContent?: PageContent;
+  /** Called with `collection::id::field` when a template's newer text is kept over a saved value. */
+  onTemplateWins?: (binding: string) => void;
+}
+
 // --- Body drafts ---
 
 function rangeKey(src: MdSrc | null | undefined): string | undefined {
@@ -182,7 +192,7 @@ function getNestedString(
 export async function rewriteCaretAttributes(
   html: string,
   adapter: StorageAdapter,
-  options?: { allowedClasses?: Record<string, readonly string[]> },
+  options?: RewriteOptions,
 ): Promise<string> {
   // 1. Find all data-caret bindings and collect unique entry keys
   const bindings: Binding[] = [];
@@ -248,6 +258,8 @@ export async function rewriteCaretAttributes(
   // 2. Batch-load entries
   const entries = await batchLoadEntries(adapter, entryKeys);
   if (entries.size === 0) return html;
+
+  const pageContent = options?.pageContent ?? await loadPageContent();
 
   // 3. Apply replacements (reverse order to preserve indices)
   const replacements: { binding: Binding; value: string }[] = [];
@@ -324,6 +336,11 @@ export async function rewriteCaretAttributes(
 
     const storedValue = getNestedString(entry.data, binding.field);
     if (storedValue === undefined) continue;
+    // The template's text was changed after this value was saved: it stays.
+    if (templateWins(entry.data, binding.field, pageContent[binding.collection]?.[binding.id]?.[binding.field])) {
+      options?.onTemplateWins?.(`${binding.collection}::${binding.id}::${binding.field}`);
+      continue;
+    }
 
     if (binding.isImg) {
       // Replace src attribute value in the img tag

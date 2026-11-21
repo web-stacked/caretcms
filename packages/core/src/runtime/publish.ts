@@ -14,6 +14,7 @@ import { withEntryLock } from "./mutations/engine.js";
 import { SessionOverlayAdapter, TOMBSTONE_KEY } from "./storage/session-overlay-adapter.js";
 import { draftChange } from "./unpublished.js";
 import { loadPageContent } from "./page-content.js";
+import { trackTemplateText } from "./template-text.js";
 import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, isStaleDraft, readDraftState, rebaseDraft } from "./draft-state.js";
 import { prepareSource, recoveryState, validPublicationSources, resumePublish, RecoveryConflict, type PublishRecovery } from "./publish-recovery.js";
 import { getRequestContext } from "./request-context.js";
@@ -191,7 +192,9 @@ export async function publishOverlay(
             conflicts.push({ collection, id, reason: "stale_entry", ...(carried?.conflicts.length ? { fields: carried.conflicts } : {}) });
             return;
           }
-          const after = deleted ? null : carried ? carried.data : structured ? fields : { ...(before ?? {}), ...fields };
+          const merged = deleted ? null : carried ? carried.data : structured ? fields : { ...(before ?? {}), ...fields };
+          // Record the template text each saved value replaces, and drop values an edited template has overtaken.
+          const after = merged && trackTemplateText(before, merged, seeds[collection]?.[id]).data;
           if ((await validateEntryTransition(base, collection, after)).length) {
             conflicts.push({ collection, id, reason: "invalid_entry" });
             return;

@@ -1,7 +1,9 @@
 /** Private overlay state. Never accepted from mutation payloads or exposed as content. */
 export const DRAFT_STATE_KEY = "__caret_draft__";
 export const PUBLISH_RECOVERY_KEY = "__caret_publish__";
-export const PRIVATE_ENTRY_KEYS = ["__body", "__caret_tombstone__", DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY] as const;
+/** Published with the entry: a hash of the template text each saved value replaced (see template-text.ts). */
+export const TEMPLATE_TEXT_KEY = "__caret_template__";
+export const PRIVATE_ENTRY_KEYS = ["__body", "__caret_tombstone__", DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, TEMPLATE_TEXT_KEY] as const;
 
 export interface DraftState {
   version: 1;
@@ -26,7 +28,13 @@ export function readDraftState(data: Record<string, unknown>): DraftState | null
 
 /** Same test as publish: the published entry moved since this draft was started. */
 export function isStaleDraft(state: DraftState, base: Record<string, unknown> | null): boolean {
-  return !sameContent(state.baseData, base);
+  return !sameContent(withoutTemplateRecord(state.baseData), withoutTemplateRecord(base));
+}
+
+function withoutTemplateRecord(data: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!data || !Object.hasOwn(data, TEMPLATE_TEXT_KEY)) return data;
+  const { [TEMPLATE_TEXT_KEY]: _record, ...content } = data;
+  return content;
 }
 
 export interface DraftRebase {
@@ -58,6 +66,8 @@ export function rebaseDraft(
   const conflicts: string[] = [];
   const keys = new Set([...Object.keys(current), ...Object.keys(content), ...Object.keys(started)]);
   for (const key of keys) {
+    // The template-text record belongs to the published entry, never to a draft.
+    if (key === TEMPLATE_TEXT_KEY) continue;
     const mine = Object.hasOwn(content, key), was = Object.hasOwn(started, key), now = Object.hasOwn(current, key);
     const edited = mine !== was || (mine && !sameContent(content[key], started[key]));
     if (!edited) {
