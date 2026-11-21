@@ -5,6 +5,7 @@ import type { StorageAdapter } from "../../types.js";
 import { setNestedValue, stripBodyOverlay } from "../utils.js";
 import { sanitizeHtml } from "../sanitize-html.js";
 import { canonicalBody } from "../../markdown/canonical-body.js";
+import { reanchorBodyDrafts } from "../../markdown/splice.js";
 import { BODY_OVERLAY_KEY, fnv1a32 } from "../../markdown/contracts.js";
 import { deriveBlockContext } from "../../markdown/block-context.js";
 import { htmlToSNodes, HtmlParseError } from "../../markdown/html-to-snodes.js";
@@ -540,18 +541,23 @@ async function applyMdBlock(
         ? (await overlayRead.getOwnEntry(collection, id))?.data ?? {}
         : before;
     const current: Record<string, unknown> = { ...ownData };
-    const drafts = isRecord(current[BODY_OVERLAY_KEY])
-      ? { ...(current[BODY_OVERLAY_KEY] as Record<string, unknown>) }
-      : {};
+    // Earlier drafts are compared where their blocks are in the body now: a
+    // block that moved keeps its draft key (its old path) but not its range.
+    const anchored = reanchorBodyDrafts(body, isRecord(current[BODY_OVERLAY_KEY])
+      ? current[BODY_OVERLAY_KEY] as Record<string, unknown> : {});
+    const drafts = { ...anchored.drafts };
     // blockPath is /^\d+(\.\d+)*$/ by the parse contract — safe as an own key.
     const target = group?.src ?? src;
     const members = new Set(command.sources?.map(source => source.blockPath) ?? [blockPath]);
+    const memberRanges = new Set((command.sources ?? [{ src }]).map(source => `${source.src.start}:${source.src.end}`));
     for (const [path, value] of Object.entries(drafts)) {
-      if (!isRecord(value) || !isRecord(value.src)) continue;
+      if (anchored.lost.includes(path) || !isRecord(value) || !isRecord(value.src)) continue;
       const previous = value.src as unknown as { start: number; end: number };
       if (previous.start >= target.end || previous.end <= target.start) continue;
+      const member = members.has(path) || memberRanges.has(`${previous.start}:${previous.end}`) ||
+        (previous.start === target.start && previous.end === target.end);
       // A stale tab must not replace only part of an already restructured run.
-      if ((!command.sources && Array.isArray(value.sources)) || !members.has(path) || previous.start < target.start || previous.end > target.end) {
+      if ((!command.sources && Array.isArray(value.sources)) || !member || previous.start < target.start || previous.end > target.end) {
         return fail(409, "This paragraph group changed. Reload before editing.");
       }
       delete drafts[path];

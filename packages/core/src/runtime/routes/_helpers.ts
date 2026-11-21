@@ -236,7 +236,7 @@ function preview(value: unknown): string {
 export async function describeDraftConflicts(base: StorageAdapter, overlay: StorageAdapter, conflicts: DraftConflict[]) {
   return (await withTitles(base, overlay, conflicts)).map((conflict) => {
     const properties = (getRegisteredSchema(conflict.collection) as { properties?: Record<string, { title?: unknown }> } | undefined)?.properties ?? {};
-    return { collection: conflict.collection, id: conflict.id, title: conflict.title, removed: conflict.removed,
+    return { collection: conflict.collection, id: conflict.id, title: conflict.title, removed: conflict.removed, body: conflict.body,
       fields: conflict.fields.map(({ field, mine, site }) => ({ field,
         label: typeof properties[field]?.title === "string" ? properties[field].title as string : humanizeEntryId(field),
         mine: preview(mine), site: preview(site) })) };

@@ -19,7 +19,7 @@ Fields are compared at the top level of the entry: two changes inside the same
 object or array are a conflict. A draft whose entry was deleted, and a deletion
 of an entry that changed, are also held back. Server delivery still saves
 structured fields live. Markdown body drafts continue to validate their source
-ranges and hashes.
+ranges and hashes (see [Body text](#body-text)).
 
 ### Settling a conflict
 
@@ -65,8 +65,22 @@ with `legacy_draft`. Body-only legacy drafts can still publish if their source
 hashes match. Private baseline and recovery keys never become public entry data
 and cannot be supplied through mutation commands.
 
-A body-text conflict (`stale_body`) can't be settled in the dialog yet: copy the
-draft edits somewhere safe, discard the draft, reload and make the edit again.
+### Body text
+
+A Markdown body draft points at its block by source range and a hash of the
+block's text. When text is added or removed elsewhere in the file, the block
+moves but reads the same, so the draft follows it: the page shows the draft in
+the block's new place, and Publish splices it there. A draft is matched to a
+block by that range, never by the block's position in the page, so it can't
+show in a different block.
+
+A block whose own text changed, or that can no longer be told from an
+identical block, can't take the draft. Publish holds the entry back with
+`stale_body`, and the dialog shows the editor's text with **Copy my text** and
+**Drop my edit**. `GET /api/cms/draft` lists that text in `conflicts[].body`;
+`POST /api/cms/draft` with `"keep": "site"` drops it and keeps the editor's
+other drafts for the entry.
+
 The toolbar's Discard button removes **all** of the editor's drafts. The
 authenticated `DELETE /api/cms/draft?collection=…&id=…` endpoint can discard a
 single entry. A draft in conflict is never discarded or overwritten on its own.

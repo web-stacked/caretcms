@@ -85,9 +85,9 @@ export function presentPublishResult(input) {
       status: { state: 'error', text: t('editor.publish.notPublished') },
       toast: {
         kind: 'error',
-        // A field changed on both sides can be settled in a dialog; other
-        // conflicts (body text that moved) still need the edit made again.
-        message: sentence(t(conflicts.every(conflict => conflict.reason === 'stale_entry')
+        // Content changed on both sides is settled in a dialog; other
+        // conflicts (a draft the schema rejects) need the edit made again.
+        message: sentence(t(conflicts.every(conflict => conflict.reason === 'stale_entry' || conflict.reason === 'stale_body')
           ? (conflicts.length === 1 ? 'editor.publish.sameFieldOne' : 'editor.publish.sameFieldOther')
           : (conflicts.length === 1 ? 'editor.publish.conflictOne' : 'editor.publish.conflictOther'), { names: names(conflicts) })),
       },

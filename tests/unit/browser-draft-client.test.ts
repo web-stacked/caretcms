@@ -17,12 +17,12 @@ describe("browser draft client", () => {
       count: 2.8,
       canPublish: false,
       retryRebuild: true,
-      conflicts: [{ collection: "pages", id: "home", title: "Home", removed: false,
+      conflicts: [{ collection: "pages", id: "home", title: "Home", removed: false, body: ["My text", 7],
         fields: [{ field: "title", label: "Title", mine: "Mine", site: "Theirs" }] }],
     }));
     const result = await client(fetchImpl).getState();
     expect(result).toEqual({ count: 2, canPublish: false, retryRebuild: true,
-      conflicts: [{ collection: "pages", id: "home", title: "Home", removed: false,
+      conflicts: [{ collection: "pages", id: "home", title: "Home", removed: false, body: ["My text"],
         fields: [{ field: "title", label: "Title", mine: "Mine", site: "Theirs" }] }] });
     expect(fetchImpl).toHaveBeenCalledWith(
       "https://site.test/api/cms/draft",
@@ -82,7 +82,7 @@ describe("browser draft client", () => {
       count: 0,
       canPublish: true,
       retryRebuild: false,
-      conflicts: [{ collection: "pages", id: "home", title: "", removed: false, fields: [] }],
+      conflicts: [{ collection: "pages", id: "home", title: "", removed: false, body: [], fields: [] }],
     });
   });
 

@@ -433,24 +433,44 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     const discard = /** @type {HTMLButtonElement} */ (backdrop.querySelector('.cms-signout-discard'));
     const title = /** @type {HTMLElement} */ (backdrop.querySelector('#cms-signout-title'));
     const name = conflict.title ? t('editor.publish.entryNamed', { title: conflict.title }) : t('editor.publish.entryUnnamed');
+    // Body text whose block changed can't be kept in place: it can be copied, then dropped.
+    const bodyOnly = !conflict.removed && conflict.fields.length === 0;
     title.textContent = t(conflict.removed ? 'editor.conflict.removedTitle' : 'editor.conflict.title', { name });
     const lines = conflict.removed
       ? [t('editor.conflict.removedCopy')]
-      : [t('editor.conflict.copy'), ...conflict.fields.flatMap(field => ['',
-        t('editor.conflict.field', { label: field.label }),
-        t('editor.conflict.site', { value: field.site || t('editor.conflict.empty') }),
-        t('editor.conflict.mine', { value: field.mine || t('editor.conflict.empty') })])];
-    copy.textContent = lines.join('\n');
+      : [
+        ...(conflict.fields.length ? [t('editor.conflict.copy'), ...conflict.fields.flatMap(field => ['',
+          t('editor.conflict.field', { label: field.label }),
+          t('editor.conflict.site', { value: field.site || t('editor.conflict.empty') }),
+          t('editor.conflict.mine', { value: field.mine || t('editor.conflict.empty') })])] : []),
+        ...(conflict.body.length ? [...(conflict.fields.length ? [''] : []), t('editor.conflict.bodyCopy'),
+          ...conflict.body.flatMap(text => ['', t('editor.conflict.bodyMine', { value: text || t('editor.conflict.empty') })])] : []),
+      ];
     copy.style.whiteSpace = 'pre-line';
-    publish.textContent = t(conflict.removed ? 'editor.conflict.keepMineRemoved' : 'editor.conflict.keepMine');
     publish.classList.remove('is-danger');
-    keep.textContent = t(conflict.removed ? 'editor.conflict.useSiteRemoved' : 'editor.conflict.useSite');
-    publish.hidden = false;
-    keep.hidden = false;
-    discard.hidden = true;
-    const choice = await awaitDialogChoice();
-    copy.style.whiteSpace = '';
-    return choice === 'publish' ? 'mine' : choice === 'keep' ? 'site' : 'cancel';
+    try {
+      for (;;) {
+        copy.textContent = lines.join('\n');
+        // Body text only: copy it (neutral) or drop it (the destructive slot).
+        // Otherwise: take the site's version, or keep mine.
+        publish.textContent = t(conflict.removed ? 'editor.conflict.keepMineRemoved' : 'editor.conflict.keepMine');
+        keep.textContent = t(bodyOnly ? 'editor.conflict.copyText' : conflict.removed ? 'editor.conflict.useSiteRemoved' : 'editor.conflict.useSite');
+        discard.textContent = t('editor.conflict.dropText');
+        publish.hidden = bodyOnly;
+        keep.hidden = false;
+        discard.hidden = !bodyOnly;
+        const choice = await awaitDialogChoice();
+        if (choice === 'cancel') return 'cancel';
+        if (choice === 'publish') return 'mine';
+        if (choice === 'discard' || !bodyOnly) return 'site';
+        try {
+          await navigator.clipboard.writeText(conflict.body.join('\n\n'));
+          showToast(t('editor.conflict.copied'), 'success');
+        } catch { /* the text stays on screen to copy by hand */ }
+      }
+    } finally {
+      copy.style.whiteSpace = '';
+    }
   }
 
 

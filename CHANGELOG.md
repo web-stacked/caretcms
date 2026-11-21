@@ -20,6 +20,12 @@ Versions track the publishable `@caretcms/core` package.
   **1 needs your choice** and shows both versions. **Keep mine** or **Use the
   site's version** settles it; your other changes are not affected. The
   publish response lists the fields in `conflicts[].fields`.
+- Edits to Markdown body text follow their paragraph. When someone adds or
+  removes text elsewhere in the file, your edit stays on the paragraph you
+  changed and publishes there. Before, the edit vanished from the page, could
+  show up in a different paragraph, and blocked Publish until you discarded
+  it. If the paragraph itself was rewritten, the toolbar shows your text so
+  you can copy it.
 
 ### Fixed
 

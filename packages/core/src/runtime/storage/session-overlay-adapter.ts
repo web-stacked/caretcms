@@ -1,6 +1,9 @@
 import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, contentWithoutState, isStaleDraft, readDraftState, rebaseDraft, sameContent, type DraftState } from "../draft-state.js";
 import { readAdapterSnapshot, readAdapterSnapshots } from "./read-snapshot.js";
 import { commitEntryChanges } from "./entry-commit.js";
+import { BODY_OVERLAY_KEY } from "../../markdown/contracts.js";
+import { canonicalBody } from "../../markdown/canonical-body.js";
+import { reanchorBodyDrafts } from "../../markdown/splice.js";
 import type {
   CollectionMetadata,
   EntryCommit,
@@ -24,6 +27,8 @@ export interface DraftConflict {
   /** The published entry was deleted after the draft was started. */
   removed: boolean;
   fields: Array<{ field: string; mine: unknown; site: unknown }>;
+  /** The editor's Markdown for each body block that changed in the source since they edited it. */
+  body: string[];
 }
 
 /** Sentinel marking a deleted-in-overlay entry. Exported so the publish flow can
@@ -157,49 +162,76 @@ export class SessionOverlayAdapter implements StorageAdapter {
     return own.map((snapshot, index) => ({ overlay: snapshot, base: bases.get(index) ?? { entry: null, revision: 0 } }));
   }
 
-  /**
-   * The fields of this editor's structured draft that also changed on the
-   * published entry, each with both values. Null when nothing collides.
-   */
-  async draftConflict(collection: string, id: string): Promise<DraftConflict | null> {
-    const own = await this.overlay.getEntry(collection, id);
-    const state = own && !isTombstone(own) ? readDraftState(own.data) : null;
-    if (!own || !state?.structured) return null;
-    const base = (await this.base.getEntry(collection, id))?.data ?? null;
-    const carried = rebaseDraft(state, contentWithoutState(own.data), base);
-    if (!carried.conflicts.length && !carried.removed) return null;
-    return { collection, id, removed: carried.removed,
-      fields: carried.conflicts.map(field => ({ field, mine: carried.data[field], site: base?.[field] })) };
+  /** Body drafts whose block can't be found in the current source: its text changed, or several identical blocks could be meant. */
+  private async lostBodyDrafts(collection: string, id: string, own: EntryData): Promise<string[]> {
+    const drafts = own.data[BODY_OVERLAY_KEY];
+    if (!drafts || typeof drafts !== "object" || !this.base.readBodySource) return [];
+    const source = await this.base.readBodySource(collection, id);
+    if (source === null) return Object.keys(drafts);
+    return reanchorBodyDrafts(canonicalBody(source).body, drafts as Record<string, unknown>).lost;
   }
 
   /**
-   * Settle a draft in conflict. "mine" keeps the editor's values and restarts
-   * the draft from the current published entry, so Publish puts them on top.
-   * "site" takes the published values for the fields in conflict and keeps the
-   * editor's other changes; a draft left with no change of its own is dropped.
+   * What stops this editor's draft of an entry from publishing: fields that
+   * also changed on the published entry (each with both values), and body
+   * text whose block changed in the source. Null when nothing does.
+   */
+  async draftConflict(collection: string, id: string): Promise<DraftConflict | null> {
+    const own = await this.overlay.getEntry(collection, id);
+    if (!own || isTombstone(own)) return null;
+    const state = readDraftState(own.data);
+    const base = (await this.base.getEntry(collection, id))?.data ?? null;
+    const carried = state?.structured ? rebaseDraft(state, contentWithoutState(own.data), base) : null;
+    const lost = await this.lostBodyDrafts(collection, id, own);
+    if (!carried?.conflicts.length && !carried?.removed && !lost.length) return null;
+    const drafts = (own.data[BODY_OVERLAY_KEY] ?? {}) as Record<string, { md?: unknown }>;
+    return { collection, id, removed: carried?.removed ?? false,
+      fields: (carried?.conflicts ?? []).map(field => ({ field, mine: carried!.data[field], site: base?.[field] })),
+      body: lost.map(path => (typeof drafts[path]?.md === "string" ? drafts[path].md as string : "")) };
+  }
+
+  /**
+   * Settle a draft in conflict. "mine" keeps the editor's field values and
+   * restarts the draft from the current published entry, so Publish puts them
+   * on top. "site" takes the published values for the fields in conflict,
+   * drops body text whose block changed, and keeps the editor's other changes;
+   * a draft left with no change of its own is dropped. Body text can't be
+   * kept over a block that changed, so "mine" leaves it for the editor to copy.
    * Returns false when the draft was not in conflict.
    */
   async resolveDraftConflict(collection: string, id: string, keep: "mine" | "site"): Promise<boolean> {
     const revision = await this.overlay.getRevision(collection, id);
     const own = await this.overlay.getEntry(collection, id);
     if (own?.data[PUBLISH_RECOVERY_KEY]) throw new Error("Finish pending publication before editing this draft");
-    const state = own && !isTombstone(own) ? readDraftState(own.data) : null;
-    if (!own || !state?.structured) return false;
+    if (!own || isTombstone(own)) return false;
+    const state = readDraftState(own.data);
     const base = await readAdapterSnapshot(this.base, collection, id);
     const published = base.entry?.data ?? null;
-    const carried = rebaseDraft(state, contentWithoutState(own.data), published);
-    if (!carried.conflicts.length && !carried.removed) return false;
-    let data: Record<string, unknown> | null = { ...carried.data };
+    const content = contentWithoutState(own.data);
+    const carried = state?.structured ? rebaseDraft(state, content, published) : null;
+    const lost = keep === "site" ? await this.lostBodyDrafts(collection, id, own) : [];
+    const fieldsCollide = Boolean(carried?.conflicts.length || carried?.removed);
+    if (!fieldsCollide && !lost.length) return false;
+
+    let data: Record<string, unknown> | null = { ...(carried?.data ?? content) };
     if (keep === "site") {
-      for (const field of carried.conflicts) {
+      for (const field of carried?.conflicts ?? []) {
         if (published && Object.hasOwn(published, field)) data[field] = published[field];
         else delete data[field];
       }
+      if (lost.length) {
+        const body = { ...(data[BODY_OVERLAY_KEY] as Record<string, unknown>) };
+        for (const path of lost) delete body[path];
+        if (Object.keys(body).length) data[BODY_OVERLAY_KEY] = body;
+        else delete data[BODY_OVERLAY_KEY];
+      }
       // Nothing of the editor's own is left: the draft is over.
-      if (carried.removed || sameContent(data, published)) data = null;
+      const nothingLeft = state?.structured ? sameContent(data, published) : Object.keys(data).length === 0;
+      if (carried?.removed || nothingLeft) data = null;
     }
+    const nextState = state && fieldsCollide ? { ...state, baseRevision: base.revision, baseData: published } : state;
     const settled = await commitEntryChanges(this.overlay, [{ collection, id, expectedRevision: revision, expectedExists: true,
-      data: data && { ...data, [DRAFT_STATE_KEY]: { ...state, baseRevision: base.revision, baseData: published } } }]);
+      data: data && { ...data, ...(nextState ? { [DRAFT_STATE_KEY]: nextState } : {}) } }]);
     if (!settled.ok) throw new Error("Draft changed while it was being settled");
     return true;
   }

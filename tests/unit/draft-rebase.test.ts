@@ -207,7 +207,7 @@ describe("settling a draft in conflict", () => {
 
   it("reports each colliding field with both values", async () => {
     const { draft } = await conflicted();
-    expect(await draft.draftConflict("pages", "home")).toEqual({ collection: "pages", id: "home", removed: false,
+    expect(await draft.draftConflict("pages", "home")).toEqual({ collection: "pages", id: "home", removed: false, body: [],
       fields: [{ field: "title", mine: "My title", site: "Their title" }] });
   });
 

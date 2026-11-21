@@ -13,6 +13,7 @@
  * @property {string} title
  * @property {boolean} removed
  * @property {{ field: string, label: string, mine: string, site: string }[]} fields
+ * @property {string[]} body The editor's text for each body block that changed on the site.
  */
 /**
  * @typedef {object} RetryDeploymentResult
@@ -74,6 +75,7 @@ export function createDraftClient(options) {
           id: String(conflict.id),
           title: typeof conflict.title === 'string' ? conflict.title : '',
           removed: conflict.removed === true,
+          body: (Array.isArray(conflict.body) ? conflict.body : []).filter(text => typeof text === 'string'),
           fields: (Array.isArray(conflict.fields) ? conflict.fields : []).map(record).map(field => ({
             field: String(field.field ?? ''),
             label: String(field.label ?? field.field ?? ''),

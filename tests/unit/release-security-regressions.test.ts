@@ -5,7 +5,7 @@ import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memo
 import { onRequest } from "../../packages/core/src/runtime/middleware";
 import { __setRuntimeServicesForTests } from "../../packages/core/src/runtime/providers";
 import { issueEditorSessionCookies } from "../../packages/core/src/runtime/auth/session";
-import { BODY_OVERLAY_KEY } from "../../packages/core/src/markdown/contracts";
+import { BODY_OVERLAY_KEY, fnv1a32, formatMdSrc } from "../../packages/core/src/markdown/contracts";
 import { readFormBody } from "../../packages/core/src/runtime/routes/_helpers";
 import { POST as login } from "../../packages/core/src/runtime/routes/auth-login";
 
@@ -64,8 +64,11 @@ it("previews a Markdown-only page and keeps its response private", async () => {
   // Resolve the persistent editor id from the same cookie used by middleware.
   const { getEditorId } = await import("../../packages/core/src/runtime/auth/session");
   const overlay = await adapter.makeEditorOverlay(getEditorId(context)!);
-  await overlay.writeEntry("pages", "home", { [BODY_OVERLAY_KEY]: { "0": { html: "Draft", md: "Draft" } } });
-  const response = await onRequest(context, async () => new Response('<p data-caret-md="pages::home::body::0">Original</p>', {
+  // The page's block and its draft point at the same range of the source body.
+  const src = { start: 0, end: 8, hash: fnv1a32("Original") };
+  (adapter as InMemoryAdapter & { readBodySource: () => Promise<string> }).readBodySource = async () => "Original";
+  await overlay.writeEntry("pages", "home", { [BODY_OVERLAY_KEY]: { "0": { html: "Draft", md: "Draft", src } } });
+  const response = await onRequest(context, async () => new Response(`<p data-caret-md="pages::home::body::0" data-caret-md-src="${formatMdSrc(src)}">Original</p>`, {
     headers: { "content-type": "text/html", "cache-control": "public, s-maxage=3600", etag: '"source"' },
   }));
   expect(await response.text()).toContain("Draft");
