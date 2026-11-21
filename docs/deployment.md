@@ -54,6 +54,9 @@ caret({
   those too, so CaretCMS holds the entry back and asks: **Publish anyway**
   commits both. The publish API reports it as a `conflicts` item with reason
   `uncommitted_source`; send `{ "allowUncommitted": true }` to include them.
+  Images the published entries use are committed first, in their own commit, so
+  a site deployed from Git never points at an image it doesn't have. Don't add
+  your uploads folder to `.gitignore`.
 - **Drafts** land under `.caret/drafts/<editorId>/`. Add `.caret/drafts/` to
   `.gitignore` (`caretize init` does) so unpublished drafts never get committed;
   only a Publish writes to tracked files.

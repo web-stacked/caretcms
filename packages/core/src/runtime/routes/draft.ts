@@ -8,6 +8,7 @@ import { isEditorAuthenticated, getEditorId } from "../auth/session.js";
 import { getRuntimeServices } from "../providers.js";
 import { discardOverlay, type PublishScope } from "../publish.js";
 import { countPendingDrafts, draftConflicts } from "../unpublished.js";
+import { draftOnlyUploads, removeDiscardedUploads } from "../upload-files.js";
 import { describeDraftConflicts, json, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
 import { SessionOverlayAdapter } from "../storage/session-overlay-adapter.js";
 import { withEntryLock } from "../mutations/engine.js";
@@ -100,7 +101,14 @@ export async function DELETE(context: APIContext): Promise<Response> {
   }
   const overlay = await base.makeEditorOverlay(editorId);
   try {
+    // Images uploaded for these drafts and never published go with them.
+    const { uploadHandler } = await getRuntimeServices();
+    const targets = scope.collection && scope.id ? [{ collection: scope.collection, id: scope.id }]
+      : (await Promise.all((scope.collection ? [scope.collection] : await overlay.discoverCollections())
+        .map(async (name) => (await overlay.listEntryIds(name)).map((entryId) => ({ collection: name, id: entryId }))))).flat();
+    const uploads = await draftOnlyUploads(uploadHandler, base, overlay, targets).catch(() => []);
     const cleared = await discardOverlay(overlay, scope);
+    await removeDiscardedUploads(uploadHandler, overlay, uploads).catch(() => []);
     return json({ ok: true, cleared });
   } catch {
     return json({ error: "Some drafts require publish recovery. Retry Publish before discarding them." }, 409);

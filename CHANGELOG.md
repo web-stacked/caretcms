@@ -52,6 +52,12 @@ Versions track the publishable `@caretcms/core` package.
 
 ### Fixed
 
+- With `CARET_GIT_ON_PUBLISH=true`, Publish commits the images the published
+  entries use. Before, only the content file was committed, so a site deployed
+  from Git showed a broken image after an editor replaced one.
+- Discarding a draft deletes the images uploaded for it. They stayed in
+  `public/uploads/` and shipped in the next build, although the editor had
+  decided not to publish them.
 - `caretize --restore` no longer deletes work done after caretize ran. It put
   the backed-up file back over whatever was there, so a template edited since
   lost those edits with no warning. It now restores only files that are still

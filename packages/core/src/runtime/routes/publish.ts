@@ -7,7 +7,8 @@ import { getRuntimeServices } from "../providers.js";
 import { withEditorPublishLock } from "../mutations/engine.js";
 import { publishOverlay, type PublishScope } from "../publish.js";
 import { journalPublishedEntries, retryPublicationJournals, durableGitJournalEnabled, hasGitJournalQueue, canRetryPublicationJournals } from "../publication-journal.js";
-import { hasUncommittedChanges, isGitRepo, getGitJournalTarget } from "../git-journal.js";
+import { commitPaths, hasUncommittedChanges, isGitRepo, getGitJournalTarget } from "../git-journal.js";
+import { publishedUploadFiles } from "../upload-files.js";
 import { triggerRebuildWebhook } from "../rebuild-webhook.js";
 import { json, enforceCsrfHeader, readJsonBody, withTitles } from "./_helpers.js";
 import { waitForSelfWriteReload } from "../self-writes.js";
@@ -127,6 +128,14 @@ export async function POST(context: APIContext): Promise<Response> {
         ...(targetRepository ? { journal: { target: targetRepository, authorName: `CaretCMS editor ${editorId.slice(0, 8)}`,
           authorEmail: "editor@caretcms.local" } } : {}),
         ...(holdUncommitted ? { holdUncommitted } : {}) });
+      // Images first: the content commit must never point at a file Git doesn't have.
+      if (commitsToGit && published.length > 0) {
+        const uploads = await publishedUploadFiles(services.uploadHandler, base, published).catch(() => []);
+        if (uploads.length) {
+          await commitPaths({ cwd: process.cwd(), paths: uploads, message: `publish uploads (${uploads.length})`,
+            authorName: `CaretCMS editor ${editorId.slice(0, 8)}`, authorEmail: "editor@caretcms.local" });
+        }
+      }
       const journal = durableJournal ? await retryPublicationJournals(base, overlay, process.cwd(), scope) : null;
       // The editor's changes are published; their Git record is the developer's to resolve.
       if (journal && journal.pending > 0) {
