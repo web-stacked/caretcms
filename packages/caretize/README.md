@@ -1,6 +1,6 @@
 # @caretcms/caretize
 
-Make an existing Astro site editable with [CaretCMS](https://github.com/web-stacked/caretcms): `caretize` scans your `.astro` templates and inserts `data-caret` attributes (plus `editable()` wraps for data arrays), turning static markup into inline-editable content — no schema or config rewrite required.
+Make an existing Astro site editable with [CaretCMS](https://github.com/web-stacked/caretcms): `caretize` scans your `.astro` templates and inserts `data-caret` attributes (plus `editable()` wraps for data arrays) so static markup becomes inline-editable content. Your schema and config stay as they are.
 
 The static HTML you already have *is* the seed content: CaretCMS renders the original text until an editor saves an override, so caretize only has to mark what's editable.
 
@@ -26,7 +26,7 @@ to `.gitignore`, then offers to tag your content. It asks before each step; pass
 `-y` to accept them all (needed when no one is at the terminal, such as in CI or
 an AI agent).
 
-- **Static Astro projects** (default): `caret()` auto-selects static delivery — no SSR adapter.
+- **Static Astro projects** (default): `caret()` auto-selects static delivery, with no SSR adapter.
 - **Server projects** (`output: "server"` already): keeps or adds adapter + `caret()`.
 
 An existing config is only edited via verified pure insertions (shown as a diff you
@@ -44,7 +44,7 @@ src/pages/index.astro
   [a]ccept [s]kip [e]dit [A]ll [S]kip-file [q]uit >
 ```
 
-- **Tags** pure-text leaf elements (`h1`–`h6`, `p`, `li`, `a`, …) and `<img>` `src` — exactly the set the CaretCMS rewrite engine can render, nothing more. It leaves out interface chrome (`<button>` labels, the `<a href="/">` home link/logo) and text a component's `<script>` writes (an element it finds by class, id or a valueless `data-*` attribute).
+- **Tags** pure-text leaf elements (`h1`–`h6`, `p`, `li`, `a`, …) and `<img>` `src`, which is the set the CaretCMS rewrite engine can render. It leaves out interface chrome (`<button>` labels, the `<a href="/">` home link/logo) and text a component's `<script>` writes (an element it finds by class, id or a valueless `data-*` attribute).
 - **Names fields from context**: labels from their text (`"Our Programs 🎨"` → `our_programs`), prose and images from the heading or landmark they sit under (`our_story_text`, `our_story_image`), hoisted props from the component and which use of it (`testimonial_quote`, `testimonial_2_quote`). Names are deterministic and never collide with existing bindings, so re-runs are idempotent.
 - **Text inside a component or layout is one value** shared by every use of it; the output says so.
 - **Wraps data arrays** (`const faqs = [...]` → `editable("pages::home::faqs", [...])`) so list content is editable too. Identifier fields (`key`, `id`, `slug`, …) stay exactly as written; an array whose other fields are compared or used as lookup keys is not wrapped.
@@ -54,7 +54,7 @@ src/pages/index.astro
 
 - **Nothing unsafe is written.** Every output is verified in memory first: it must re-parse as valid Astro and be a pure insertion of the original (your bytes survive untouched, in order).
 - **All-or-nothing:** if any file fails verification, the run aborts having written nothing.
-- **Backups:** every written file is first copied to `.caret/.caretize-bak/`; `caretize --restore` reverts the most recent run. Git is the real undo — caretize warns when a file it is about to edit has uncommitted changes.
+- **Backups:** every written file is first copied to `.caret/.caretize-bak/`; `caretize --restore` reverts the most recent run. Git is the real undo, and caretize warns when a file it is about to edit has uncommitted changes.
 - Multibyte-safe: offsets are computed and spliced on UTF-8 buffers (emoji/em-dashes can't corrupt a tag).
 
 ## Options

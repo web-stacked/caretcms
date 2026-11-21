@@ -12,7 +12,7 @@ blocks rendered from existing `.md` content collections.
 npm install @caretcms/core
 ```
 
-**Static Astro site?** Use `caret()` — no SSR adapter:
+**Static Astro site?** Use `caret()` with no SSR adapter:
 
 ```js
 integrations: [caret()],
@@ -76,13 +76,13 @@ export default defineConfig({
 });
 ```
 
-Edits are visible to visitors immediately — middleware rewrites HTML on each request.
+Edits are visible to visitors immediately because middleware rewrites HTML on each request.
 
 **Already have Astro content collections?** If your project has collections under
 `src/content/` and you haven't set `storage`, CaretCMS auto-selects
 `markdownStorage()` so the Studio lists those collections immediately (instead of
 "No collections yet") and edits write back to your `.md` files. Pass an
-explicit `storage` to override — `storage: filesystemStorage()` opts back out.
+explicit `storage` to override it. `storage: filesystemStorage()` opts back out.
 
 ### Edit Markdown prose on the page
 
@@ -109,7 +109,7 @@ the full setup, supported syntax, and publish workflow.
 
 ## Choose your path
 
-CaretCMS gives you two ways to make content editable. They share one storage layer and one login — you can mix them on the same site — but they answer different questions. Start at the top; reach for the next row only when you need it.
+CaretCMS gives you two ways to make content editable. They share one storage layer and one login, and you can mix them on the same site, but they answer different questions. Start at the top and move down a row only when you need it.
 
 | Start here if… | Use | What you write |
 |---|---|---|
@@ -117,11 +117,11 @@ CaretCMS gives you two ways to make content editable. They share one storage lay
 | The same fields repeat or you want short attribute names | **Scoped inline editing** | a `data-caret-scope` wrapper + short `data-caret` names |
 | Your content is dynamic data you query in frontmatter (a blog index, a list of products) | **Live collections** | `caretLoader` in `src/caret.config.ts`, then `getLiveEntry` / `getLiveCollection` |
 
-**The binding model in one line:** every edit is addressed as `collection::id::field`. Inline editing lets you spell that out in pieces — `data-caret-scope="pages::home"` sets `collection::id`, and `data-caret="headline"` fills in the `field`, so the element above resolves to `pages::home::headline`. Live collections address the same `collection` + `id` from frontmatter instead. Same content, same storage — two ways to reach it.
+**Binding model:** every edit is addressed as `collection::id::field`. Inline editing lets you spell that out in pieces: `data-caret-scope="pages::home"` sets `collection::id`, and `data-caret="headline"` fills in the `field`, so the element above resolves to `pages::home::headline`. Live collections address the same `collection` + `id` from frontmatter instead, and read the same storage.
 
 > Adding `data-caret` to an existing site by hand? `npx @caretcms/caretize` scans your Astro
-> project and interactively annotates your templates for you. The attributes below are all you
-> need either way — caretize just writes them.
+> project and interactively annotates your templates for you. The attributes below are the same
+> either way; caretize writes them for you.
 
 ## Inline editing
 
@@ -142,7 +142,7 @@ npm run dev
 ```
 
 With no password configured, dev uses a **temporary password kept in `.caret/dev-password`**
-(also shown by `astro dev logs`; dev only — production stays locked). To set your own, add
+(also shown by `astro dev logs`). It exists only in dev; production stays locked. To set your own, add
 `CARET_EDIT_PASSWORD=<your-password>` to a `.env` file.
 
 Log in at `/admin`, then click any tagged element on the page to edit it. The toolbar's
@@ -190,13 +190,13 @@ an edit never saves a fragment. Set `caret({ bindContent: false })` to turn this
 off.
 
 When you're signed in and land on a live page that has **no** editable bindings yet, CaretCMS
-shows a small "signed in · no editable fields on this page" hint pointing you at the next step —
-so a page that isn't annotated yet reads as "nothing to edit here" rather than "is this broken?".
+shows a small "signed in · no editable fields on this page" hint pointing you at the next step,
+so a page that isn't annotated yet doesn't look broken.
 The hint is editor-only (anonymous visitors never see it) and never appears inside the Studio.
 
 ## Live content collections
 
-You can also wire collections into Astro's native content layer using `caretLoader`. This lets you query CMS data with `getLiveEntry` and `getLiveCollection` from `astro:content` — the same API you use for any Astro live collection.
+You can also wire collections into Astro's native content layer using `caretLoader`. This lets you query CMS data with `getLiveEntry` and `getLiveCollection` from `astro:content`, the same API you use for any Astro live collection.
 
 > **Astro 6 and 7:** stable, no experimental flag required.
 
@@ -372,7 +372,7 @@ it there as well. Image, alternative text, title, and caption stay in the main
 item editor.
 
 **Already describe your collections with Zod?** If you have a `content.config.ts` Zod schema,
-don't write it twice — `@caretcms/zod` derives the Studio schema from that single source:
+you don't need to write it twice. `@caretcms/zod` derives the Studio schema from it:
 
 ```js
 // astro.config.mjs
@@ -382,7 +382,7 @@ import { blogSchema } from './src/schemas.mjs'; // the same object content.confi
 caret({ schemas: { blog: schemaFromZod(blogSchema) } });
 ```
 
-(Keep your Zod schemas in a plain module that imports only `zod` — not `astro:content` — so both
+(Keep your Zod schemas in a plain module that imports only `zod` (not `astro:content`) so both
 `content.config.ts` and `astro.config` can import them.) Schemas remain optional: with
 auto-detected `markdownStorage` the Studio already shows each collection with fields inferred from
 existing entries; deriving from Zod just adds proper labels, types, and widget hints.
@@ -641,11 +641,11 @@ for supported forms and formatting limits.
 - Rotate `CARET_EDIT_PASSWORD` and `CARET_SESSION_SECRET` together, then restart or redeploy
   every instance. Changing the session secret immediately invalidates all existing editor
   cookies; changing only the password does not revoke sessions that are already signed in.
-- `markdownStorage()` edits `src/content/*.md` **at request time** — a dev/git workflow. In
+- `markdownStorage()` edits `src/content/*.md` **at request time**, which fits a dev/git workflow. In
   production, pair it with commit-on-publish + a CI rebuild (fields rendered through
   `getCollection()` are baked at build time and only refresh on rebuild), or use a server-side
   adapter like [`@caretcms/cloudflare`](https://www.npmjs.com/package/@caretcms/cloudflare).
-- `localUploads()` writes to `public/uploads`, which built sites serve from `dist/client` —
+- `localUploads()` writes to `public/uploads`, which built sites serve from `dist/client`, so
   files uploaded *after* the build won't be served. Treat it as dev-only and use R2 (or your
   own `UploadHandler`) in production.
 - Defaults resolve paths from the **server process's working directory**; run the built server

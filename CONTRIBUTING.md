@@ -6,7 +6,7 @@ local setup, the layout of the repo, and the checks your change must pass.
 ## Setup
 
 Requirements are pinned in `.nvmrc` and `package.json` (`engines`): Node
-`^20.19.1 || >=22.12.0` and npm `>=10`.
+`>=22.12.0` and npm `>=10`.
 
 ```sh
 npm install
@@ -47,14 +47,14 @@ Before opening a pull request, run the full gate:
 npm run check
 ```
 
-This runs, in order: `validate:versions`, `typecheck:core`, `typecheck:cloudflare`,
-`build:core`, `build:cloudflare`, and `test:unit`. You can run any step individually:
+This runs `validate:versions`, then type-checks and builds all four packages
+(`core`, `cloudflare`, `caretize`, `zod`), then `test:unit`. Core builds first
+because the other packages type-check against its `dist/`. You can run any step
+individually:
 
 ```sh
-npm run typecheck:core         # type-check the core package
-npm run typecheck:cloudflare   # type-check the cloudflare package
-npm run build:core             # compile @caretcms/core to dist/
-npm run build:cloudflare       # compile @caretcms/cloudflare to dist/
+npm run typecheck:core         # type-check one package (also :cloudflare, :caretize, :zod)
+npm run build:core             # compile @caretcms/core to dist/ (also :cloudflare, :caretize, :zod)
 npm run test:unit              # Vitest unit tests
 ```
 
@@ -64,7 +64,7 @@ End-to-end tests run separately and build the core package automatically:
 npm run test:e2e         # Playwright; first run: npx playwright install chromium
 ```
 
-CI (`.github/workflows/ci.yml`) runs the Node gate on Node 20 and 22, a Bun
+CI (`.github/workflows/ci.yml`) runs the Node gate on Node 22.12 and 24, a Bun
 parity check, and the Playwright suite. All must be green to merge.
 
 ## Tests

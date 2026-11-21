@@ -36,7 +36,7 @@ function shownData(entry: EntryData | null, id: string, seed: Record<string, str
  * content is no change, nor is one that only stores the text the page shows
  * anyway (an edit undone on an entry nothing was saved for yet).
  */
-async function draftChange(
+export async function draftChange(
   drafts: SessionOverlayAdapter, published: StorageAdapter, collection: string, id: string,
   seed: Record<string, string> | undefined,
 ): Promise<UnpublishedEntry | null> {

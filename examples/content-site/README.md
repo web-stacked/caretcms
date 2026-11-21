@@ -47,7 +47,7 @@ npm install
 CARET_EDIT_PASSWORD=devpass npm run dev -w @caretcms/example-content-site
 ```
 
-(Or just `npm run dev` — without a password set, dev prints a temporary one.)
+(Without a password set, plain `npm run dev` prints a temporary one.)
 
 - `/` — homepage: hero (rich intro + cover upload), gallery, latest journal
 - `/about` — studio page + team grid

@@ -8,6 +8,13 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+### Fixed
+
+- Publish no longer writes an entry whose edits were undone. A draft that
+  matches what visitors already see, including an undone edit on text that
+  only lived in the template, is cleared instead of being saved to your
+  content files with a new revision and a History entry.
+
 ## [0.6.2] - 2026-11-17
 
 ### Changed

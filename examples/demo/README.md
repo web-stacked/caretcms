@@ -6,7 +6,7 @@ every visitor edits in a private, 2-hour session with no password, and the
 canonical content is never touched.
 
 > Building your own site? Start from `examples/starter` or `examples/content-site`
-> instead — those are the password-protected references. This one is wired as an
+> instead. Those are the password-protected references. This one is wired as an
 > open sandbox on purpose.
 
 ## What it shows
@@ -36,7 +36,7 @@ wrangler r2 bucket create caret-uploads
 wrangler secret put R2_PUBLIC_DOMAIN
 ```
 
-Demo mode needs no editor password — `CARET_DEMO_MODE` is set in `wrangler.toml`
+Demo mode needs no editor password. `CARET_DEMO_MODE` is set in `wrangler.toml`
 under `[vars]`. (Set `CARET_SESSION_SECRET` as a secret if you want signed cookies.)
 
 ## Deploy
@@ -58,5 +58,5 @@ npm run dev       # plain Astro dev server
 npm run preview   # runs against Wrangler with the KV/R2 bindings
 ```
 
-Open the site and click any line to edit it — no login. Each browser gets its own
+Open the site and click any line to edit it without signing in. Each browser gets its own
 isolated session. Visit `/admin/cms` to see the entries behind the page.

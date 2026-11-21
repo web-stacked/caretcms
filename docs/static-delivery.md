@@ -80,7 +80,7 @@ Add `data-caret` attributes by hand, or let caretize do the first pass:
 npx @caretcms/caretize
 ```
 
-Same binding model as server delivery — see
+The binding model is the same as server delivery. See
 [`packages/core/README.md`](../packages/core/README.md).
 
 ### 3. Author locally
@@ -105,8 +105,8 @@ The integration logs how many HTML files were rewritten, for example:
 [caretcms] static delivery bake complete (12/12 HTML files rewritten).
 ```
 
-Deploy `dist/` to your static host. Public pages contain baked content — no CMS
-routes in production output.
+Deploy `dist/` to your static host. Public pages contain baked content, and the
+production output has no CMS routes.
 
 ## Publish and rebuild
 
@@ -125,7 +125,7 @@ Add a `deployment` provider when the editor should track the accepted request
 through a real provider build and verify that the published revisions reached
 the live artifact. See [deployment completion status](./deployment-status.md).
 
-The publish still succeeds if the webhook fails — check server logs for webhook errors
+The publish still succeeds if the webhook fails. Check server logs for webhook errors
 and retry the deploy manually.
 
 Webhook body (JSON):

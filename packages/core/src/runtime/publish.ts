@@ -11,7 +11,9 @@ import { canPerform, PermissionDenied } from "./authorization.js";
 import type { StorageAdapter, PublicationSourceSnapshot, GitJournalTarget } from "../types.js";
 import { BODY_OVERLAY_KEY, parseMdSrc, formatMdSrc, type MdSrc } from "../markdown/contracts.js";
 import { withEntryLock } from "./mutations/engine.js";
-import { TOMBSTONE_KEY } from "./storage/session-overlay-adapter.js";
+import { SessionOverlayAdapter, TOMBSTONE_KEY } from "./storage/session-overlay-adapter.js";
+import { draftChange } from "./unpublished.js";
+import { loadPageContent } from "./page-content.js";
 import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, readDraftState, sameContent } from "./draft-state.js";
 import { prepareSource, recoveryState, validPublicationSources, resumePublish, RecoveryConflict, type PublishRecovery } from "./publish-recovery.js";
 import { getRequestContext } from "./request-context.js";
@@ -121,7 +123,9 @@ export async function canPublishOverlay(overlay: StorageAdapter, scope: PublishS
 }
 
 /**
- * Flush the overlay into the base. A tombstoned draft entry deletes from the
+ * Flush the overlay into the base. A draft that changes nothing visitors see
+ * (edited back, or an undone edit storing only the page's own text) is
+ * cleared without a write. A tombstoned draft entry deletes from the
  * base; any other draft entry is written, the base revision bumped, and a
  * `"publish"` history entry (carrying the pre-publish base data) appended. Each
  * published entry is then cleared from the overlay so it stops shadowing the
@@ -146,6 +150,8 @@ export async function publishOverlay(
   const journalVersions: PublishOutcome["journalVersions"] = [];
   const conflicts: PublishConflict[] = [];
   const failed: PublishOutcome["failed"] = [];
+  const drafts = new SessionOverlayAdapter(base, overlay);
+  const seeds = await loadPageContent();
   for (const { collection, id } of targets) {
     try {
       await withEntryLock(collection, id, async () => {
@@ -153,6 +159,10 @@ export async function publishOverlay(
         const draft = await overlay.getEntry(collection, id);
         if (!draft) return;
         let plan = recoveryState(draft.data);
+        if (!plan && !(await draftChange(drafts, base, collection, id, seeds[collection]?.[id]))) {
+          await commitEntryChanges(overlay, [{ collection, id, expectedRevision: draftRevision, expectedExists: true, data: null }]);
+          return;
+        }
         if (!plan) {
           const state = readDraftState(draft.data);
           const { [BODY_OVERLAY_KEY]: _body, [DRAFT_STATE_KEY]: _state,
