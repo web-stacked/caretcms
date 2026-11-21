@@ -54,7 +54,9 @@ src/pages/index.astro
 
 - **Nothing unsafe is written.** Every output is verified in memory first: it must re-parse as valid Astro and be a pure insertion of the original (your bytes survive untouched, in order).
 - **All-or-nothing:** if any file fails verification, the run aborts having written nothing.
-- **Backups:** every written file is first copied to `.caret/.caretize-bak/`; `caretize --restore` reverts the most recent run. Git is the real undo, and caretize warns when a file it is about to edit has uncommitted changes.
+- **Backups:** every written file is first copied to `.caret/.caretize-bak/`; `caretize --restore` puts back the files of the most recent run (`init` and its tagging count as one run). A file you edited after caretize wrote it is left alone, because putting the old file back would delete that work; `--restore --force` overrides. Git is the real undo, and caretize warns when a file it is about to edit has uncommitted changes.
+- **Checking a project:** `caretize doctor` looks at a project that already uses CaretCMS and changes nothing. It reports the installed version, whether the config is wired, drafts nobody has published (with their age and how to drop them), content and uploads Git hasn't committed, uploaded images nothing uses, and `.gitignore` mistakes such as an ignored uploads folder. It exits 1 when something would break a deploy.
+- **Removing CaretCMS:** `caretize remove` takes the `data-caret` attributes out of your templates as they are now, removes `caret()` from `astro.config`, and offers to uninstall the package. Everything else in the files stays, including work done since caretize ran. It then lists what's left: text saved in the browser over template text (the site shows the template's own text again, so copy what you want to keep), `.caret/`, and the `.env` and `.gitignore` lines. `--restore` undoes a removal.
 - Multibyte-safe: offsets are computed and spliced on UTF-8 buffers (emoji/em-dashes can't corrupt a tag).
 
 ## Options
@@ -92,7 +94,9 @@ caretize init                wire CaretCMS into the project, then tag
   --scope <collection::id> override the inferred scope (validated against the
                            runtime grammar: ^[a-z][a-z0-9_-]*$ :: ^[a-z0-9][a-z0-9_-]*$)
   --report <file>          write a JSON report
-  --restore                restore the most recent backup, then exit
+  --restore                put back the files of the most recent run, then exit.
+                           A file edited since is left alone (use remove)
+  --force                  with --restore: put back edited files too
 ```
 
 ## First run

@@ -9,10 +9,10 @@
  */
 
 import { createInterface } from "node:readline";
-import { writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { parseAstro } from "./parse.js";
 import { discoverAstroFiles } from "./discover.js";
 import { dirtyTreeWarning, preflight } from "./preflight.js";
@@ -27,9 +27,11 @@ import { detectPropWrapTargets, type FileReader } from "./props.js";
 import { detectPropHoistTargets, type PropHoistTarget } from "./prop-hoist.js";
 import { detectCollectionBindTargets, type CollectionBindTarget } from "./bind-collection.js";
 import { detectRouteBindTargets } from "./bind-route.js";
-import { restoreLatest, writeBackup } from "./backup.js";
+import { recordWritten, restoreLatest, writeBackup } from "./backup.js";
 import { freshConfig, planConfigWiring, renderEnvAdditions, renderGitignoreAdditions, type InitMode, type WiringNeeds } from "./init.js";
 import { lineDiff, formatHunks } from "./diff.js";
+import { savedTemplateText, stripBindings, unwireConfig } from "./remove.js";
+import { inspect, report } from "./doctor.js";
 import { buildReport } from "./report.js";
 import { applyKeyRegistry } from "./keys.js";
 import { isValidField } from "./name.js";
@@ -541,14 +543,136 @@ async function offerEscalation(
   return { sel: merged, plans: final.plans, tiers: effective };
 }
 
-/** Restore the most recent backup, reporting how many files came back. */
-function runRestore(root: string): void {
-  const restored = restoreLatest(root);
-  process.stdout.write(
-    restored.length
-      ? `✓ restored ${restored.length} file(s):\n${restored.map((f) => `  ${f}`).join("\n")}\n`
-      : "no backups found.\n",
-  );
+/** Restore the most recent run's backups, leaving alone any file edited since. */
+function runRestore(root: string, args: Args): void {
+  const { restored, changed } = restoreLatest(root, { force: args.force });
+  if (!restored.length && !changed.length) { process.stdout.write("no backups found.\n"); return; }
+  if (restored.length) {
+    process.stdout.write(`✓ restored ${restored.length} file(s):\n${restored.map((f) => `  ${f}`).join("\n")}\n`);
+  }
+  if (changed.length) {
+    process.stdout.write(
+      `${restored.length ? "\n" : ""}• left alone, because ${changed.length === 1 ? "it was" : "they were"} edited after caretize wrote ${changed.length === 1 ? "it" : "them"}:\n` +
+      `${changed.map((f) => `  ${f}`).join("\n")}\n` +
+      `  Restoring would put back the old file and lose those edits.\n` +
+      `  To take the tags out and keep your edits: ${CARETIZE} remove\n` +
+      `  To put the old files back anyway: ${CARETIZE} --restore --force\n`,
+    );
+  }
+}
+
+/** Every file under `dir`, relative to `root`. */
+function filesUnder(root: string, dir: string): string[] {
+  const start = resolve(root, dir);
+  if (!existsSync(start)) return [];
+  const out: string[] = [];
+  const walk = (path: string): void => {
+    for (const name of readdirSync(path)) {
+      const abs = join(path, name);
+      if (statSync(abs).isDirectory()) walk(abs);
+      else out.push(relative(root, abs).split("\\").join("/"));
+    }
+  };
+  walk(start);
+  return out.sort();
+}
+
+/**
+ * Take CaretCMS out of the project: strip the binding attributes from the
+ * templates as they are now, unwire astro.config, and offer to uninstall the
+ * package. Nothing is copied back from a backup, so later edits are kept; the
+ * files it changes are backed up as one run, so `--restore` can undo it.
+ */
+async function runRemove(root: string, args: Args): Promise<void> {
+  if (!args.yes && !(process.stdin.isTTY && process.stdout.isTTY)) {
+    fail(`non-interactive terminal: pass -y to accept each step (${CARETIZE} remove -y)`);
+  }
+  process.stdout.write("caretize remove · taking CaretCMS out of this project\n");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  rl.on("SIGINT", () => { process.stdout.write("\naborted\n"); process.exit(130); });
+  const change = (relPath: string, content: string): void => {
+    writeBackup(root, relPath, stamp);
+    writeFileSync(resolve(root, relPath), content, "utf8");
+    recordWritten(root, relPath, stamp);
+  };
+
+  try {
+    // 1) Templates — remove the attributes, leave everything else as it is.
+    const stripped: Array<{ relPath: string; output: string; removed: number }> = [];
+    const manual: string[] = [];
+    for (const abs of discoverAstroFiles(root, args.target)) {
+      const relPath = relative(root, abs).split("\\").join("/");
+      const result = await stripBindings(readFileSync(abs, "utf8"));
+      if (!result.ok) manual.push(relPath);
+      else if (result.removed > 0) stripped.push({ relPath, output: result.output, removed: result.removed });
+    }
+    const total = stripped.reduce((sum, file) => sum + file.removed, 0);
+    if (total === 0) process.stdout.write("\n✓ no data-caret attributes in the templates\n");
+    else if (await confirmYes(rl, args, `\nRemove ${total} data-caret attribute(s) from ${stripped.length} file(s)? [Y/n] `)) {
+      for (const file of stripped) change(file.relPath, file.output);
+      process.stdout.write(`✓ removed from:\n${stripped.map((file) => `  ${file.relPath} (${file.removed})`).join("\n")}\n`);
+    } else process.stdout.write("  skipped templates\n");
+    if (manual.length) {
+      process.stdout.write(`⚠ couldn't remove safely, edit by hand:\n${manual.map((file) => `  ${file}`).join("\n")}\n`);
+    }
+
+    // 2) astro.config — the import and the caret() entry.
+    const configName = findConfigName(root);
+    const configSrc = configName ? readFileSync(resolve(root, configName), "utf8") : null;
+    if (!configSrc || !configSrc.includes("@caretcms/core")) {
+      process.stdout.write("\n✓ astro.config doesn't use CaretCMS\n");
+    } else {
+      const unwired = unwireConfig(configSrc);
+      if (unwired === null) {
+        process.stdout.write(`\n⚠ couldn't safely edit ${configName}: remove the @caretcms/core import and its entry in integrations by hand\n`);
+      } else {
+        process.stdout.write(`\nProposed edit to ${configName}:\n\n`);
+        process.stdout.write(formatHunks(lineDiff(configSrc, unwired)));
+        if (await confirmYes(rl, args, "\n  apply? [Y/n] ")) {
+          change(configName!, unwired);
+          process.stdout.write(`✓ updated ${configName}\n`);
+        } else process.stdout.write("  skipped config\n");
+      }
+    }
+
+    // 3) The package.
+    const pkgPath = resolve(root, "package.json");
+    const pkg = existsSync(pkgPath) ? JSON.parse(readFileSync(pkgPath, "utf8")) as Record<string, Record<string, string> | undefined> : {};
+    const installed = ["@caretcms/core", "@caretcms/zod", "@caretcms/cloudflare"]
+      .filter((name) => name in { ...pkg.dependencies, ...pkg.devDependencies });
+    if (installed.length && await confirmYes(rl, args, `\nUninstall ${installed.join(", ")}? [Y/n] `)) {
+      process.stdout.write(`  npm uninstall ${installed.join(" ")}\n`);
+      execFileSync("npm", ["uninstall", ...installed], { cwd: root, stdio: "inherit" });
+      process.stdout.write("✓ uninstalled\n");
+    }
+
+    // 4) What is left, for the developer to keep or delete.
+    const otherUses = discoverAstroFiles(root).map((abs) => relative(root, abs).split("\\").join("/"))
+      .filter((relPath) => /@caretcms\//.test(readFileSync(resolve(root, relPath), "utf8")));
+    if (otherUses.length) {
+      process.stdout.write(`\n⚠ these files still import from @caretcms (editable(), loaders): edit them by hand\n${otherUses.map((file) => `  ${file}`).join("\n")}\n`);
+    }
+    const saved = filesUnder(root, "src/content")
+      .map((relPath) => ({ relPath, lines: savedTemplateText(readFileSync(resolve(root, relPath), "utf8")) }))
+      .filter((file) => file.lines.length);
+    if (saved.length) {
+      process.stdout.write(
+        "\n• Text that was edited in the browser for these templates is saved in content files.\n" +
+        "  Without CaretCMS the site shows the template's own text again. Copy what you want\n" +
+        "  to keep into the templates:\n" +
+        saved.map((file) => `  ${file.relPath}\n${file.lines.map((line) => `      ${line.trim()}`).join("\n")}`).join("\n") + "\n",
+      );
+    }
+    const left = [".caret", ".caretcms"].filter((dir) => existsSync(resolve(root, dir)));
+    process.stdout.write(
+      `\n• Left in place: ${[...left.map((dir) => `${dir}/ (drafts, history, backups)`), ".env secrets (CARET_*)", ".gitignore lines"].join(", ")}.\n` +
+      `  Delete them when you're sure. Entries edited in the browser stay in your content files.\n` +
+      `\n  changed your mind? ${CARETIZE} --restore\n`,
+    );
+  } finally {
+    rl.close();
+  }
 }
 
 /** Indent a multi-line block for display under a prompt. */
@@ -573,7 +697,7 @@ function findConfigName(root: string): string | null {
  * via verified pure insertions, falling back to a paste-me snippet when its
  * shape isn't safe to touch.
  */
-async function runInit(root: string, args: Args): Promise<{ tag: boolean; dirtyBefore: string[] | null }> {
+async function runInit(root: string, args: Args): Promise<{ tag: boolean; dirtyBefore: string[] | null; stamp: string }> {
   const pf = preflight(root);
   if (!pf.isAstroProject) {
     for (const e of pf.errors) process.stderr.write(`✗ ${e}\n`);
@@ -658,6 +782,7 @@ async function runInit(root: string, args: Args): Promise<{ tag: boolean; dirtyB
         if (await confirmYes(rl, args, `\n  apply? [Y/n] (backup → .caret/.caretize-bak/) `)) {
           writeBackup(root, configName!, stamp);
           writeFileSync(resolve(root, configName!), plan.output, "utf8");
+          recordWritten(root, configName!, stamp);
           process.stdout.write(`✓ updated ${configName}\n`);
         } else {
           process.stdout.write("  skipped config\n");
@@ -673,6 +798,7 @@ async function runInit(root: string, args: Args): Promise<{ tag: boolean; dirtyB
     if (env.append) {
       if (existingEnv) writeBackup(root, ".env", stamp);
       writeFileSync(envPath, existingEnv + env.append, "utf8");
+      if (existingEnv) recordWritten(root, ".env", stamp);
       process.stdout.write(`\n✓ .env: added ${env.added.join(", ")}\n`);
     } else {
       process.stdout.write("\n✓ .env already has CaretCMS secrets\n");
@@ -685,13 +811,14 @@ async function runInit(root: string, args: Args): Promise<{ tag: boolean; dirtyB
     if (ignore.append) {
       if (existingIgnore) writeBackup(root, ".gitignore", stamp);
       writeFileSync(ignorePath, existingIgnore + ignore.append, "utf8");
+      if (existingIgnore) recordWritten(root, ".gitignore", stamp);
       process.stdout.write(`✓ .gitignore: added ${ignore.added.join(", ")}\n`);
     } else {
       process.stdout.write("✓ .gitignore already covers CaretCMS files\n");
     }
     const tagNow = await confirmYes(rl, args, "\nTag your content as editable now? [Y/n] ");
     if (!tagNow) process.stdout.write(`  skipped — run later: ${CARETIZE}\n`);
-    return { tag: tagNow, dirtyBefore: pf.dirtyPaths };
+    return { tag: tagNow, dirtyBefore: pf.dirtyPaths, stamp };
   } finally {
     rl.close();
   }
@@ -710,19 +837,27 @@ async function main(): Promise<void> {
 
   const root = process.cwd();
 
-  if (args.restore) { runRestore(root); return; }
+  if (args.restore) { runRestore(root, args); return; }
+  if (args.remove) { await runRemove(root, args); return; }
+  if (args.doctor) {
+    const result = report(inspect(root), Date.now(), CARETIZE);
+    process.stdout.write(`caretize doctor · checking this project\n\n${result.lines.join("\n")}\n`);
+    if (result.problems) process.exit(1);
+    return;
+  }
   if (args.init) {
     // init wires CaretCMS, then tags — one command for the first run.
     const init = await runInit(root, args);
     // Init's own edits made the tree dirty; only changes from before it count.
-    if (init.tag) await runTag(root, args, { dirtyBefore: init.dirtyBefore });
+    // One run, one backup stamp: --restore undoes init's edits and the tags together.
+    if (init.tag) await runTag(root, args, { dirtyBefore: init.dirtyBefore, stamp: init.stamp });
     return;
   }
   await runTag(root, args);
 }
 
 /** Scan the project and add data-caret tags (the default command). */
-async function runTag(root: string, args: Args, opts: { dirtyBefore?: string[] | null } = {}): Promise<void> {
+async function runTag(root: string, args: Args, opts: { dirtyBefore?: string[] | null; stamp?: string } = {}): Promise<void> {
   const pf = preflight(root);
   const dirtyBefore = opts.dirtyBefore !== undefined ? opts.dirtyBefore : pf.dirtyPaths;
   for (const n of pf.notes) process.stdout.write(`• ${n}\n`);
@@ -856,7 +991,7 @@ async function runTag(root: string, args: Args, opts: { dirtyBefore?: string[] |
     return;
   }
 
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const stamp = opts.stamp ?? new Date().toISOString().replace(/[:.]/g, "-");
   const { written, backups } = commitRun(root, prepared, stamp);
   if (written.length === 0) {
     // Don't print the "click to edit" success footer for a no-op run — say

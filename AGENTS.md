@@ -2,7 +2,7 @@
 
 **Public**, MIT-licensed. The CaretCMS engine: an Astro integration that adds inline
 editing + a content Studio to any Astro site, with pluggable storage/upload adapters.
-Distributed via npm under the `@caretcms/` scope. Current release: v0.6.2
+Distributed via npm under the `@caretcms/` scope. Current release: v0.6.3
 (embedded mode; cloud mode is alpha).
 
 ## Packages

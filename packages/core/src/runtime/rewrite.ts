@@ -12,7 +12,11 @@
  */
 
 import type { StorageAdapter, EntryData } from "../types.js";
-import { BODY_OVERLAY_KEY, parseMdBinding, formatMdSrc, BLOCK_PATH_RE, type MdSrc } from "../markdown/contracts.js";
+import { BODY_OVERLAY_KEY, parseMdBinding, parseMdSrc, formatMdSrc, BLOCK_PATH_RE, type MdSrc } from "../markdown/contracts.js";
+import { canonicalBody } from "../markdown/canonical-body.js";
+import { loadPageContent, type PageContent } from "./page-content.js";
+import { templateWins } from "./template-text.js";
+import { reanchorBodyDrafts } from "../markdown/splice.js";
 import { sanitizeHtml } from "./sanitize-html.js";
 import { getNestedValue } from "./utils.js";
 import { scanHtmlTags, type HtmlTag } from "./html-tokens.js";
@@ -33,8 +37,10 @@ type Binding = {
   isImg: boolean;
   isRich: boolean;
   hasChildMarkup: boolean;
-  /** Set for `data-caret-md` bindings: the body-draft blockPath to swap from. */
+  /** Set for `data-caret-md` bindings: the block's path in the rendered body. */
   mdBlockPath?: string;
+  /** Set for `data-caret-md` bindings: the block's range in the source body, `start:end`. */
+  mdRange?: string;
 };
 
 type ScopeMatch = {
@@ -105,6 +111,58 @@ function hasChildMarkup(content: string): boolean {
   return /<[a-zA-Z]/.test(content);
 }
 
+export interface RewriteOptions {
+  allowedClasses?: Record<string, readonly string[]>;
+  /** The text templates state for their bindings. Defaults to the scan the running site holds; a build passes its own. */
+  pageContent?: PageContent;
+  /** Called with `collection::id::field` when a template's newer text is kept over a saved value. */
+  onTemplateWins?: (binding: string) => void;
+}
+
+// --- Body drafts ---
+
+function rangeKey(src: MdSrc | null | undefined): string | undefined {
+  return src ? `${src.start}:${src.end}` : undefined;
+}
+
+/** What a stamped block shows: a drafted block, a drafted paragraph group (on its first stamp), or nothing (a later stamp of a group). */
+type BodyDraftView =
+  | { kind: "block"; html: string }
+  | { kind: "group"; paragraphs: string[]; sources: Array<{ src: MdSrc; html: string }> }
+  | { kind: "consumed" };
+
+/**
+ * An entry's body drafts by the source range of the block they replace. A
+ * draft is matched to a stamped block by that range, not by the block's path:
+ * paths shift when text is added above, and a draft must never show in a
+ * different block. Drafts whose block only moved are found again
+ * (`reanchorBodyDrafts`); drafts whose text is gone show nothing.
+ */
+async function bodyDraftViews(adapter: StorageAdapter, collection: string, id: string, raw: unknown): Promise<Map<string, BodyDraftView>> {
+  const views = new Map<string, BodyDraftView>();
+  if (raw === null || typeof raw !== "object" || typeof adapter.readBodySource !== "function") return views;
+  const source = await adapter.readBodySource(collection, id);
+  if (source === null) return views;
+  const { drafts, lost } = reanchorBodyDrafts(canonicalBody(source).body, raw as Record<string, unknown>);
+  for (const [path, value] of Object.entries(drafts)) {
+    if (lost.includes(path) || value === null || typeof value !== "object") continue;
+    const block = value as Record<string, unknown>;
+    const key = rangeKey(block.src as MdSrc | undefined);
+    const sources = block.sources;
+    if (Array.isArray(block.paragraphs) && block.paragraphs.every(p => typeof p === "string") &&
+        Array.isArray(sources) && sources.length > 0 && sources.length <= 128 &&
+        sources.every(source => source && typeof source.blockPath === "string" && BLOCK_PATH_RE.test(source.blockPath) && source.src && typeof source.html === "string")) {
+      const members = sources as Array<{ src: MdSrc; html: string }>;
+      members.forEach((member, index) => views.set(rangeKey(member.src)!, index === 0
+        ? { kind: "group", paragraphs: block.paragraphs as string[], sources: members.map(({ src, html }) => ({ src, html })) }
+        : { kind: "consumed" }));
+    } else if (key && typeof block.html === "string") {
+      views.set(key, { kind: "block", html: block.html });
+    }
+  }
+  return views;
+}
+
 // --- Entry cache ---
 
 async function batchLoadEntries(
@@ -134,7 +192,7 @@ function getNestedString(
 export async function rewriteCaretAttributes(
   html: string,
   adapter: StorageAdapter,
-  options?: { allowedClasses?: Record<string, readonly string[]> },
+  options?: RewriteOptions,
 ): Promise<string> {
   // 1. Find all data-caret bindings and collect unique entry keys
   const bindings: Binding[] = [];
@@ -186,7 +244,7 @@ export async function rewriteCaretAttributes(
           contentStart: tag.start, contentEnd: tag.end,
           isImg: tag.name === "img", isRich: !md && tag.attributes.has("data-caret-rich"),
           hasChildMarkup: false,
-          ...(md ? { mdBlockPath: md.blockPath } : {}),
+          ...(md ? { mdBlockPath: md.blockPath, mdRange: rangeKey(parseMdSrc(tag.attributes.get("data-caret-md-src")?.value ?? "")) } : {}),
           ...(src ? { srcAttribute: { start: src.start - tag.start, end: src.end - tag.start } } : {}),
         };
         if (tag.void) bindings.push(binding);
@@ -201,10 +259,28 @@ export async function rewriteCaretAttributes(
   const entries = await batchLoadEntries(adapter, entryKeys);
   if (entries.size === 0) return html;
 
+  const pageContent = options?.pageContent ?? await loadPageContent();
+
   // 3. Apply replacements (reverse order to preserve indices)
   const replacements: { binding: Binding; value: string }[] = [];
   const replace = (binding: Binding, value: string): void => { replacements.push({ binding, value }); };
   const sorted = [...bindings].sort((a, b) => b.contentStart - a.contentStart);
+
+  // Body drafts per entry, and each stamped block's path by its source range.
+  const bodyDrafts = new Map<string, Map<string, BodyDraftView>>();
+  const pathsByRange = new Map<string, Map<string, string>>();
+  for (const binding of bindings) {
+    if (binding.mdBlockPath === undefined || !binding.mdRange) continue;
+    const entryKey = `${binding.collection}::${binding.id}`;
+    if (!pathsByRange.has(entryKey)) pathsByRange.set(entryKey, new Map());
+    pathsByRange.get(entryKey)!.set(binding.mdRange, binding.mdBlockPath);
+  }
+  await Promise.all([...pathsByRange.keys()].map(async (entryKey) => {
+    const drafts = entries.get(entryKey)?.data[BODY_OVERLAY_KEY];
+    if (drafts === undefined) return;
+    const [collection, id] = entryKey.split("::");
+    bodyDrafts.set(entryKey, await bodyDraftViews(adapter, collection, id, drafts));
+  }));
 
   for (const binding of sorted) {
     const entryKey = `${binding.collection}::${binding.id}`;
@@ -213,38 +289,26 @@ export async function rewriteCaretAttributes(
     // on the way out (defense in depth — it was sanitized at write time too).
     // Same trust model as the data-caret-rich path below.
     if (binding.mdBlockPath !== undefined) {
-      const entry = entries.get(entryKey);
-      if (!entry) continue;
-      const drafts = entry.data[BODY_OVERLAY_KEY];
-      if (drafts === null || typeof drafts !== "object") continue;
+      const view = binding.mdRange ? bodyDrafts.get(entryKey)?.get(binding.mdRange) : undefined;
+      if (!view) continue;
       // Structural drafts own several original stamps but splice one verified
       // contiguous range. Only their first stamp renders the editable group.
-      let consumed = false;
-      for (const [path, value] of Object.entries(drafts)) {
-        if (path === binding.mdBlockPath || !value || typeof value !== "object") continue;
-        const sources = (value as Record<string, unknown>).sources;
-        if (Array.isArray(sources) && sources.some(source => source?.blockPath === binding.mdBlockPath)) consumed = true;
-      }
-      if (consumed) {
+      if (view.kind === "consumed") {
         replace(binding, "");
         continue;
       }
-      const block = (drafts as Record<string, unknown>)[binding.mdBlockPath];
-      if (block === null || typeof block !== "object") continue;
-      const group = block as Record<string, unknown>;
-      if (Array.isArray(group.paragraphs) && group.paragraphs.every(p => typeof p === "string") &&
-          Array.isArray(group.sources) && group.sources.length > 0 && group.sources.length <= 128 &&
-          group.sources.every(source => source && typeof source.blockPath === "string" && BLOCK_PATH_RE.test(source.blockPath) && source.src && typeof source.html === "string")) {
-        const sources = group.sources.map(source => ({ blockPath: source.blockPath,
-          src: formatMdSrc(source.src as MdSrc), html: source.html }));
+      if (view.kind === "group") {
+        // Name each source by the path its block has on this page now.
+        const paths = pathsByRange.get(entryKey);
+        const sources = view.sources.map(source => ({ blockPath: paths?.get(rangeKey(source.src)!) ?? binding.mdBlockPath!,
+          src: formatMdSrc(source.src), html: source.html }));
         const bindingValue = `${binding.collection}::${binding.id}::body::${binding.mdBlockPath}`;
-        const paragraphs = group.paragraphs.map(p => `<p>${sanitizeHtml(p, { allowedClasses: options?.allowedClasses }) || "<br>"}</p>`).join("");
+        const paragraphs = view.paragraphs.map(p => `<p>${sanitizeHtml(p, { allowedClasses: options?.allowedClasses }) || "<br>"}</p>`).join("");
         const rendered = `<div data-caret-md="${escapeAttr(bindingValue)}" data-caret-md-src="${escapeAttr(sources[0].src)}" data-caret-md-sources="${escapeAttr(JSON.stringify(sources))}" data-caret-md-draft>${paragraphs || "<p><br></p>"}</div>`;
         replace(binding, rendered);
         continue;
       }
-      const draftHtml = (block as Record<string, unknown>).html;
-      if (typeof draftHtml !== "string") continue;
+      const draftHtml = view.html;
 
       const openTagEnd = binding.openingLength;
       const closeTagStart = binding.closingStart;
@@ -272,6 +336,11 @@ export async function rewriteCaretAttributes(
 
     const storedValue = getNestedString(entry.data, binding.field);
     if (storedValue === undefined) continue;
+    // The template's text was changed after this value was saved: it stays.
+    if (templateWins(entry.data, binding.field, pageContent[binding.collection]?.[binding.id]?.[binding.field])) {
+      options?.onTemplateWins?.(`${binding.collection}::${binding.id}::${binding.field}`);
+      continue;
+    }
 
     if (binding.isImg) {
       // Replace src attribute value in the img tag

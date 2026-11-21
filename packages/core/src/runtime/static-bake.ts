@@ -3,6 +3,7 @@ import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { StorageAdapter } from "../types.js";
 import { rewriteCaretAttributes } from "./rewrite.js";
+import type { PageContent } from "./page-content.js";
 import { scanHtmlTags } from "./html-tokens.js";
 
 const BINDING_PROBE_RE = /\bdata-caret(?:-scope)?\s*=\s*"/;
@@ -10,6 +11,8 @@ const BINDING_PROBE_RE = /\bdata-caret(?:-scope)?\s*=\s*"/;
 export interface StaticBakeOptions {
   adapter: StorageAdapter;
   allowedClasses?: Record<string, readonly string[]>;
+  /** The text templates state for their bindings (`scanPageContent`), so a template changed after a value was saved keeps its text. */
+  pageContent?: PageContent;
 }
 
 export interface StaticBakeFileResult {
@@ -20,6 +23,8 @@ export interface StaticBakeFileResult {
 export interface StaticBakeResult {
   scanned: number;
   rewritten: number;
+  /** Bindings (`collection::id::field`) whose template text was kept over an older saved value. */
+  templateWins: string[];
   files: StaticBakeFileResult[];
 }
 
@@ -83,7 +88,7 @@ export function stripBindingAttributes(html: string): string {
 
 export async function bakeStaticHtmlString(
   html: string,
-  options: StaticBakeOptions,
+  options: StaticBakeOptions & { onTemplateWins?: (binding: string) => void },
 ): Promise<{ html: string; rewritten: boolean }> {
   if (!BINDING_PROBE_RE.test(html)) {
     return { html, rewritten: false };
@@ -91,6 +96,8 @@ export async function bakeStaticHtmlString(
 
   const baked = stripBindingAttributes(await rewriteCaretAttributes(html, options.adapter, {
     allowedClasses: options.allowedClasses,
+    pageContent: options.pageContent ?? {},
+    onTemplateWins: options.onTemplateWins,
   }));
 
   return {
@@ -106,10 +113,11 @@ export async function bakeStaticHtmlFiles(
   const rootPath = pathFromRoot(root);
   const files = await listHtmlFiles(rootPath);
   const results: StaticBakeFileResult[] = [];
+  const templateWins = new Set<string>();
 
   for (const path of files) {
     const html = await readFile(path, "utf8");
-    const baked = await bakeStaticHtmlString(html, options);
+    const baked = await bakeStaticHtmlString(html, { ...options, onTemplateWins: (binding) => templateWins.add(binding) });
     if (baked.rewritten) {
       await writeFile(path, baked.html, "utf8");
     }
@@ -119,6 +127,7 @@ export async function bakeStaticHtmlFiles(
   return {
     scanned: results.length,
     rewritten: results.filter((result) => result.rewritten).length,
+    templateWins: [...templateWins].sort(),
     files: results,
   };
 }

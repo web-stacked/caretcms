@@ -1,7 +1,9 @@
 /** Private overlay state. Never accepted from mutation payloads or exposed as content. */
 export const DRAFT_STATE_KEY = "__caret_draft__";
 export const PUBLISH_RECOVERY_KEY = "__caret_publish__";
-export const PRIVATE_ENTRY_KEYS = ["__body", "__caret_tombstone__", DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY] as const;
+/** Published with the entry: a hash of the template text each saved value replaced (see template-text.ts). */
+export const TEMPLATE_TEXT_KEY = "__caret_template__";
+export const PRIVATE_ENTRY_KEYS = ["__body", "__caret_tombstone__", DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, TEMPLATE_TEXT_KEY] as const;
 
 export interface DraftState {
   version: 1;
@@ -22,6 +24,64 @@ export function readDraftState(data: Record<string, unknown>): DraftState | null
       typeof state.structured !== "boolean" ||
       (state.baseData !== null && (typeof state.baseData !== "object" || Array.isArray(state.baseData)))) return null;
   return state;
+}
+
+/** Same test as publish: the published entry moved since this draft was started. */
+export function isStaleDraft(state: DraftState, base: Record<string, unknown> | null): boolean {
+  return !sameContent(withoutTemplateRecord(state.baseData), withoutTemplateRecord(base));
+}
+
+function withoutTemplateRecord(data: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!data || !Object.hasOwn(data, TEMPLATE_TEXT_KEY)) return data;
+  const { [TEMPLATE_TEXT_KEY]: _record, ...content } = data;
+  return content;
+}
+
+export interface DraftRebase {
+  /** The draft as it applies to the current published entry. */
+  data: Record<string, unknown>;
+  /** Top-level fields changed both in the draft and in the published entry, to different values. */
+  conflicts: string[];
+  /** The published entry was deleted after the draft was started. */
+  removed: boolean;
+}
+
+/**
+ * Carry a structured draft over to the current published entry. The draft
+ * stores the entry it started from, so the editor's own change is the
+ * difference between that and the draft, field by field. Fields the editor
+ * didn't change follow the published entry; fields only the editor changed
+ * keep the draft's value. A field changed on both sides to different values
+ * is a conflict: the draft's value is kept and the field is reported.
+ * `content` must not carry draft state; other private keys (`__body`) pass through.
+ */
+export function rebaseDraft(
+  state: DraftState, content: Record<string, unknown>, base: Record<string, unknown> | null,
+): DraftRebase {
+  if (!isStaleDraft(state, base)) return { data: content, conflicts: [], removed: false };
+  const removed = base === null && state.baseData !== null;
+  const started = state.baseData ?? {};
+  const current = base ?? {};
+  const data: Record<string, unknown> = {};
+  const conflicts: string[] = [];
+  const keys = new Set([...Object.keys(current), ...Object.keys(content), ...Object.keys(started)]);
+  for (const key of keys) {
+    // The template-text record belongs to the published entry, never to a draft.
+    if (key === TEMPLATE_TEXT_KEY) continue;
+    const mine = Object.hasOwn(content, key), was = Object.hasOwn(started, key), now = Object.hasOwn(current, key);
+    const edited = mine !== was || (mine && !sameContent(content[key], started[key]));
+    if (!edited) {
+      if (now) data[key] = current[key];
+      continue;
+    }
+    const moved = now !== was || (now && !sameContent(current[key], started[key]));
+    const agree = mine === now && (!mine || sameContent(content[key], current[key]));
+    if (moved && !agree) conflicts.push(key);
+    if (mine) data[key] = content[key];
+  }
+  // The entry was deleted underneath the draft: nothing to carry it over to.
+  if (removed) return { data: content, conflicts: conflicts.sort(), removed };
+  return { data, conflicts: conflicts.sort(), removed };
 }
 
 /** Object key ordering is not a content change. Arrays retain their order. */

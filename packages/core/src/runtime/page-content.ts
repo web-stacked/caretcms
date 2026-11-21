@@ -1,15 +1,18 @@
 import type { EntryData, StorageAdapter } from "../types.js";
 import { getNestedValue, setNestedValue } from "./utils.js";
+import { templateWins } from "./template-text.js";
 
 /** collection → id → field path ("hero.headline") → the text (or image src) the template renders. */
 export type PageContent = Record<string, Record<string, Record<string, string>>>;
 
 /**
  * The content templates state for their `data-caret` bindings, scanned when
- * Astro starts (and again in dev when a template changes). Imported on each
- * use so a dev rescan is picked up without a restart.
+ * Astro starts. The dev server keeps its own scan, dropped whenever a template
+ * changes, so every read there sees the templates as they are now.
  */
 export async function loadPageContent(): Promise<PageContent> {
+  const dev = (globalThis as Record<symbol, unknown>)[Symbol.for("@caretcms/core/dev-page-content")] as { read(): PageContent } | undefined;
+  if (dev) return dev.read();
   try {
     const module = await import("virtual:caretcms/page-content");
     return module.default ?? {};
@@ -18,12 +21,13 @@ export async function loadPageContent(): Promise<PageContent> {
   }
 }
 
-/** The page's text fills each field path that has no stored value. */
+/** The page's text fills each field path that has no stored value, or whose stored value is older than the page's text. */
 export function merged(entry: EntryData | null, id: string, seed: Record<string, string> | undefined): EntryData | null {
   if (!seed) return entry;
   const data = entry ? structuredClone(entry.data) : {};
   for (const [path, value] of Object.entries(seed)) {
-    if (getNestedValue(data, path) !== undefined) continue;
+    // A saved value replaces the page's text, unless the page's text was changed after it was saved.
+    if (getNestedValue(data, path) !== undefined && !templateWins(data, path, value)) continue;
     try {
       setNestedValue(data, path, value);
     } catch {

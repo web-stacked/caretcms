@@ -8,8 +8,78 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-11-21
+
+Core 0.6.3 and caretize 0.6.1. Content files gain a `__caret_template__` key the
+first time edited template text is saved; commit it with your content. Run
+`npx @caretcms/caretize doctor` after upgrading.
+
+### Changed
+
+- A draft no longer hides newer content. When an entry changes on the site
+  after you started editing it (another editor publishes, or a developer
+  commits to the same file), you now see the newer content everywhere you
+  didn't edit, and Publish keeps it. Before, your draft showed its old copy of
+  the whole entry, so new images, text and sections seemed to disappear, and
+  Publish refused the entry even when you had changed something else.
+- When you and someone else changed the same field, the toolbar says
+  **1 needs your choice** and shows both versions. **Keep mine** or **Use the
+  site's version** settles it; your other changes are not affected. The
+  publish response lists the fields in `conflicts[].fields`.
+- Edits to Markdown body text follow their paragraph. When someone adds or
+  removes text elsewhere in the file, your edit stays on the paragraph you
+  changed and publishes there. Before, the edit vanished from the page, could
+  show up in a different paragraph, and blocked Publish until you discarded
+  it. If the paragraph itself was rewritten, the toolbar shows your text so
+  you can copy it.
+
+- Changing text in a template now shows, even when an editor had saved a
+  value for it. Before, the saved value kept replacing the template, so a
+  developer's change to a heading seemed to do nothing. The saved value still
+  shows until the template's text changes; then the newer template text shows,
+  the dev server and build log say so, and the next save or Publish of that
+  entry removes the old value. Entries record this in a reserved `__caret_template__` key in the
+  content file: commit it with your content. A collection with a `.strict()`
+  Zod schema must declare it (`caretize doctor` checks). See
+  [saving and visibility](docs/saving-and-visibility.md#text-written-in-templates).
+
+- With `CARET_GIT_ON_PUBLISH=true`, Publish asks before it commits a content
+  file that has uncommitted changes from outside CaretCMS. Before, a
+  developer's half-finished edit to the same file was committed along with the
+  editor's change, under the editor's name. **Publish anyway** includes them;
+  the API reports `uncommitted_source` and accepts `allowUncommitted: true`.
+
+### Added
+
+- `caretize doctor` checks a project that uses CaretCMS and changes nothing.
+  It lists drafts nobody has published and how old they are, content and
+  uploads Git hasn't committed, uploaded images nothing uses, and `.gitignore`
+  mistakes, each with what to do about it. Run it before and after an upgrade.
+- `caretize remove` takes CaretCMS out of a project and keeps your work. It
+  removes the `data-caret` attributes from the templates as they are now,
+  removes `caret()` from `astro.config`, offers to uninstall the package, and
+  lists what's left for you to keep or delete, including text saved in the
+  browser that the site will stop showing.
+
 ### Fixed
 
+- With `CARET_GIT_ON_PUBLISH=true`, Publish commits the images the published
+  entries use. Before, only the content file was committed, so a site deployed
+  from Git showed a broken image after an editor replaced one.
+- Discarding a draft deletes the images uploaded for it. They stayed in
+  `public/uploads/` and shipped in the next build, although the editor had
+  decided not to publish them.
+- `caretize --restore` no longer deletes work done after caretize ran. It put
+  the backed-up file back over whatever was there, so a template edited since
+  lost those edits with no warning. It now restores only files that are still
+  exactly what caretize wrote, names the ones it left alone, and points to
+  `caretize remove`. `--restore --force` restores them anyway.
+- `caretize --restore` after `caretize init` puts back `astro.config` and
+  `.gitignore` too. It restored only the tagged templates, leaving the
+  integration wired.
+- The dev server sees a template edit straight away. The Studio and the page
+  could keep showing a binding's old template text until a page using that
+  template had been opened and the template changed again.
 - Publish no longer writes an entry whose edits were undone. A draft that
   matches what visitors already see, including an undone edit on text that
   only lived in the template, is cleared instead of being saved to your
@@ -831,7 +901,8 @@ requirements, and deployment retry limitations.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
-[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.3
 [0.6.2]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.2
 [0.6.1]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.1
 [0.6.0]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.0

@@ -22,6 +22,22 @@ import { serializeWrite } from "./storage/atomic-write.js";
 const exec = promisify(execFile);
 
 /** True when `cwd` is inside a git work tree. */
+/**
+ * Whether any of these files has changes Git hasn't committed (modified or
+ * staged; a file Git doesn't track yet doesn't count). A publish that commits
+ * such a file would commit those changes too, under the editor's name.
+ */
+export async function hasUncommittedChanges(cwd: string, paths: readonly string[]): Promise<boolean> {
+  if (!paths.length) return false;
+  try {
+    const { stdout } = await exec("git", ["status", "--porcelain", "-z", "--untracked-files=no", "--", ...paths],
+      { cwd, env: { ...process.env, GIT_LITERAL_PATHSPECS: "1" } });
+    return stdout.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export async function isGitRepo(cwd: string): Promise<boolean> {
   try {
     const { stdout } = await exec("git", ["rev-parse", "--is-inside-work-tree"], { cwd });

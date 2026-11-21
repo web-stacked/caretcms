@@ -27,4 +27,9 @@ export class FilesystemUploadHandler implements UploadHandler {
 
     return { url: `/uploads/${filename}` };
   }
+
+  localFile(url: string): string | null {
+    const name = /^\/uploads\/([A-Za-z0-9][A-Za-z0-9._-]*)$/.exec(url)?.[1];
+    return name && !name.includes("..") ? join(this.uploadsDir, name) : null;
+  }
 }

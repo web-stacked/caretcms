@@ -84,7 +84,7 @@ describe("first structured draft versions", () => {
     expect((await executeMutation(draft, put(collection, { title: "Mine" }, 0, 0))).ok).toBe(true);
     await changeBase(base, collection);
     expect((await executeMutation(draft, put(collection, { title: "Mine again" }, 1, 0))).ok).toBe(true);
-    expect((await publishOverlay(base, overlay)).conflicts).toEqual([{ collection, id: "one", reason: "stale_entry" }]);
+    expect((await publishOverlay(base, overlay)).conflicts).toEqual([{ collection, id: "one", reason: "stale_entry", fields: ["title"] }]);
   });
 
   it.each([-1, 0.5, "0", Number.MAX_SAFE_INTEGER + 1])("rejects malformed base version %s", async value => {

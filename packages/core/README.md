@@ -100,9 +100,10 @@ Delete to merge, selection deletion, and browser undo. Paste accepts plain text
 with paragraph breaks. See [paragraph editing](../../docs/markdown-paragraph-editing.md)
 for boundaries, source preservation, preview styling, and browser coverage.
 
-Each draft records the source range and a hash of the original text. If the file
-changes before publish, Caret returns a conflict and leaves both the file and the
-draft untouched. Set `bodyEditing: false` in `caret()` to disable this feature.
+Each draft records the source range and a hash of the original text. If text is
+added or removed elsewhere in the file, the draft follows its block. If the
+block's own text changes before publish, Caret holds the entry back, leaves the
+file untouched, and shows the editor their text to copy. Set `bodyEditing: false` in `caret()` to disable this feature.
 
 See [Markdown body editing](https://caretcms.com/docs/markdown-body-editing/) for
 the full setup, supported syntax, and publish workflow.

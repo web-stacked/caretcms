@@ -1,12 +1,40 @@
 # Draft conflicts and publish recovery
 
-Structured drafts in static authoring retain the published revision and data
-from their first write. Publication compares both before changing base content.
-Any intervening entry change rejects the whole structured draft with
-`stale_entry`, including changes to different fields, nested objects, arrays,
-and deletions. This deliberately preserves the newer publication; automatic
-field merging is not implemented. Server delivery still saves structured fields
-live. Markdown body drafts continue to validate their source ranges and hashes.
+A structured draft in static authoring keeps the published entry it started
+from. The editor's change is the difference between that entry and the draft,
+field by field.
+
+When the published entry changes after the draft was started (another editor
+publishes, or a developer commits to the same file), CaretCMS carries the draft
+over to the newer entry:
+
+- Fields the editor didn't change follow the published entry. The editor sees
+  the newer values on the page and in the Studio, and Publish leaves them alone.
+- Fields only the editor changed keep the draft's value and publish as usual.
+- A field changed on both sides to different values is a conflict. Publish
+  holds that entry back with `stale_entry` and lists the fields in `fields`.
+  The editor keeps seeing their own value until they choose.
+
+Fields are compared at the top level of the entry: two changes inside the same
+object or array are a conflict. A draft whose entry was deleted, and a deletion
+of an entry that changed, are also held back. Server delivery still saves
+structured fields live. Markdown body drafts continue to validate their source
+ranges and hashes (see [Body text](#body-text)).
+
+### Settling a conflict
+
+The toolbar shows **1 needs your choice**, and Publish opens the same dialog
+for each entry it held back. The dialog shows the site's value and the editor's
+value for each field:
+
+- **Keep mine** keeps the editor's values. The draft now starts from the current
+  published entry, so the next Publish puts them on the site.
+- **Use the site's version** takes the site's values for those fields and keeps
+  the editor's other changes. A draft with nothing else in it is dropped.
+
+`GET /api/cms/draft` lists these drafts in `conflicts` (entry title, field
+labels and both values as short text). `POST /api/cms/draft` with
+`{ "collection", "id", "keep": "mine" | "site" }` settles one.
 
 ## Versions when saving the first draft
 
@@ -20,8 +48,9 @@ version. The same rule applies when converting a body-only draft into a
 structured draft. A missing or changed base version returns 409 with
 `currentRevision` and `currentBaseRevision`, without changing the draft. Reload
 and resolve the conflict before retrying. The first structured edit of a
-body-only draft captures the newly observed base; later structured saves retain
-that baseline for publication conflict checks. Unconditional commands without
+body-only draft captures the newly observed base. A later structured save
+restarts the draft from the current published entry when nothing collides, and
+keeps the first baseline while a field is in conflict. Unconditional commands without
 `expectedRevision` retain their unconditional semantics.
 
 These checks do not make two independent base/overlay Durable Objects a single
@@ -36,11 +65,25 @@ with `legacy_draft`. Body-only legacy drafts can still publish if their source
 hashes match. Private baseline and recovery keys never become public entry data
 and cannot be supplied through mutation commands.
 
-On a conflict, copy the draft edits somewhere safe before discarding them,
-reload the latest content, and reapply the intended changes. The toolbar's
-Discard button removes **all** of the editor's drafts. The authenticated
-`DELETE /api/cms/draft?collection=…&id=…` endpoint can discard a single entry.
-A conflicted draft is not automatically discarded or overwritten.
+### Body text
+
+A Markdown body draft points at its block by source range and a hash of the
+block's text. When text is added or removed elsewhere in the file, the block
+moves but reads the same, so the draft follows it: the page shows the draft in
+the block's new place, and Publish splices it there. A draft is matched to a
+block by that range, never by the block's position in the page, so it can't
+show in a different block.
+
+A block whose own text changed, or that can no longer be told from an
+identical block, can't take the draft. Publish holds the entry back with
+`stale_body`, and the dialog shows the editor's text with **Copy my text** and
+**Drop my edit**. `GET /api/cms/draft` lists that text in `conflicts[].body`;
+`POST /api/cms/draft` with `"keep": "site"` drops it and keeps the editor's
+other drafts for the entry.
+
+The toolbar's Discard button removes **all** of the editor's drafts. The
+authenticated `DELETE /api/cms/draft?collection=…&id=…` endpoint can discard a
+single entry. A draft in conflict is never discarded or overwritten on its own.
 
 New publications validate the final entry against current schema and managed
 publication requirements before creating a recovery plan or changing content.

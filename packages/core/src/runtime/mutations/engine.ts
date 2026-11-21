@@ -5,6 +5,7 @@ import type { StorageAdapter } from "../../types.js";
 import { setNestedValue, stripBodyOverlay } from "../utils.js";
 import { sanitizeHtml } from "../sanitize-html.js";
 import { canonicalBody } from "../../markdown/canonical-body.js";
+import { reanchorBodyDrafts } from "../../markdown/splice.js";
 import { BODY_OVERLAY_KEY, fnv1a32 } from "../../markdown/contracts.js";
 import { deriveBlockContext } from "../../markdown/block-context.js";
 import { htmlToSNodes, HtmlParseError } from "../../markdown/html-to-snodes.js";
@@ -21,6 +22,9 @@ import { clearedRequiredText, emptyRequiredText, validateJsonSchema, type JsonSc
 import { getRequestContext } from "../request-context.js";
 import { publicationField } from "../collection-policy.js";
 import { commitEntryChanges, historyForEditor } from "../storage/entry-commit.js";
+import { SessionOverlayAdapter } from "../storage/session-overlay-adapter.js";
+import { trackTemplateText } from "../template-text.js";
+import { loadPageContent } from "../page-content.js";
 
 /** Request-scoped extras a route can thread into `executeMutation`. */
 export interface MutationOptions {
@@ -250,6 +254,19 @@ async function ensureExpectedRevisionMatches(
   return { ok: true, currentRevision };
 }
 
+/**
+ * Saves that go straight to published content (server delivery) keep the
+ * entry's template-text record current. Drafts carry no record: Publish
+ * writes it when the draft reaches the published entry.
+ */
+async function withTemplateRecord(
+  adapter: StorageAdapter, collection: string, id: string,
+  before: Record<string, unknown> | null, next: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (adapter instanceof SessionOverlayAdapter) return next;
+  return trackTemplateText(before, next, (await loadPageContent())[collection]?.[id]).data;
+}
+
 async function applySaveField(
   adapter: StorageAdapter,
   command: Extract<CmsMutationCommand, { type: "save_field" }>,
@@ -280,7 +297,7 @@ async function applySaveField(
     const committed = await commitEntryChanges(adapter, [{
       collection, id, expectedRevision: revision.currentRevision,
       expectedBaseRevision: command.expectedBaseRevision,
-      expectedExists: Boolean(beforeEntry), data: current,
+      expectedExists: Boolean(beforeEntry), data: await withTemplateRecord(adapter, collection, id, beforeEntry?.data ?? null, current),
       history: historyForEditor({ ts: Date.now(), action: "save", data: before }),
     }]);
     if (!committed.ok) return commitConflict(committed);
@@ -324,7 +341,7 @@ async function applyPutEntry(
     const committed = await commitEntryChanges(adapter, [{
       collection, id, expectedRevision: revision.currentRevision,
       expectedBaseRevision: command.expectedBaseRevision,
-      expectedExists: before !== null, data: write,
+      expectedExists: before !== null, data: await withTemplateRecord(adapter, collection, id, before, write),
       requireBaseRevision: command.expectedRevision !== undefined,
       ...(before !== null ? { history: historyForEditor({
         ts: Date.now(), action: "put", data: before,
@@ -455,7 +472,7 @@ async function applyUpdatePageLayout(
     const committed = await commitEntryChanges(adapter, [{
       collection, id, expectedRevision: revision.currentRevision,
       expectedBaseRevision: command.expectedBaseRevision,
-      expectedExists: Boolean(currentEntry), data: current,
+      expectedExists: Boolean(currentEntry), data: await withTemplateRecord(adapter, collection, id, currentEntry?.data ?? null, current),
       history: historyForEditor({ ts: Date.now(), action: "put", data: before }),
     }]);
     if (!committed.ok) return commitConflict(committed);
@@ -540,18 +557,23 @@ async function applyMdBlock(
         ? (await overlayRead.getOwnEntry(collection, id))?.data ?? {}
         : before;
     const current: Record<string, unknown> = { ...ownData };
-    const drafts = isRecord(current[BODY_OVERLAY_KEY])
-      ? { ...(current[BODY_OVERLAY_KEY] as Record<string, unknown>) }
-      : {};
+    // Earlier drafts are compared where their blocks are in the body now: a
+    // block that moved keeps its draft key (its old path) but not its range.
+    const anchored = reanchorBodyDrafts(body, isRecord(current[BODY_OVERLAY_KEY])
+      ? current[BODY_OVERLAY_KEY] as Record<string, unknown> : {});
+    const drafts = { ...anchored.drafts };
     // blockPath is /^\d+(\.\d+)*$/ by the parse contract — safe as an own key.
     const target = group?.src ?? src;
     const members = new Set(command.sources?.map(source => source.blockPath) ?? [blockPath]);
+    const memberRanges = new Set((command.sources ?? [{ src }]).map(source => `${source.src.start}:${source.src.end}`));
     for (const [path, value] of Object.entries(drafts)) {
-      if (!isRecord(value) || !isRecord(value.src)) continue;
+      if (anchored.lost.includes(path) || !isRecord(value) || !isRecord(value.src)) continue;
       const previous = value.src as unknown as { start: number; end: number };
       if (previous.start >= target.end || previous.end <= target.start) continue;
+      const member = members.has(path) || memberRanges.has(`${previous.start}:${previous.end}`) ||
+        (previous.start === target.start && previous.end === target.end);
       // A stale tab must not replace only part of an already restructured run.
-      if ((!command.sources && Array.isArray(value.sources)) || !members.has(path) || previous.start < target.start || previous.end > target.end) {
+      if ((!command.sources && Array.isArray(value.sources)) || !member || previous.start < target.start || previous.end > target.end) {
         return fail(409, "This paragraph group changed. Reload before editing.");
       }
       delete drafts[path];

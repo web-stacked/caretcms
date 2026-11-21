@@ -1,5 +1,5 @@
 import { getRequestContext } from "./request-context.js";
-import { SessionOverlayAdapter } from "./storage/session-overlay-adapter.js";
+import { SessionOverlayAdapter, type DraftConflict } from "./storage/session-overlay-adapter.js";
 import { stripBodyOverlay } from "./utils.js";
 import { loadPageContent, merged } from "./page-content.js";
 import { PUBLISH_RECOVERY_KEY } from "./draft-state.js";
@@ -73,6 +73,19 @@ export async function countPendingDrafts(base: StorageAdapter, overlay: StorageA
     }
   }
   return count;
+}
+
+/** This editor's drafts whose fields also changed on the published entry (see `rebaseDraft`). */
+export async function draftConflicts(base: StorageAdapter, overlay: StorageAdapter): Promise<DraftConflict[]> {
+  const drafts = new SessionOverlayAdapter(base, overlay);
+  const found: DraftConflict[] = [];
+  for (const collection of await overlay.discoverCollections()) {
+    for (const id of await overlay.listEntryIds(collection)) {
+      const conflict = await drafts.draftConflict(collection, id);
+      if (conflict) found.push(conflict);
+    }
+  }
+  return found;
 }
 
 /** Every entry the current editor has not published yet, across collections. */

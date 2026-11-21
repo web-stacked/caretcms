@@ -420,6 +420,15 @@ export interface UploadHandler {
   upload(file: File, ctx?: UploadContext): Promise<{ url: string }>;
 
   /**
+   * Optional: the file on this machine that an upload's URL is served from, or
+   * null when the URL isn't one of this handler's files. Handlers that write
+   * into the project (the local handler) implement it, so a publish can commit
+   * the image with the content that uses it and a discarded draft's image can
+   * be deleted. Handlers that store elsewhere (R2) omit it.
+   */
+  localFile?(url: string): string | null;
+
+  /**
    * Optional: build a per-session wrapper that enforces sandbox quotas
    * (per-file size, total session bytes). Used by demo mode together with
    * `QuotaUploadHandler`. Adapters that don't support quota tracking can

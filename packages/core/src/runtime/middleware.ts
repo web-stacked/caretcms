@@ -26,6 +26,14 @@ type MiddlewareContext = {
 
 let _cachedRuntimeEnv: Record<string, unknown> | null | undefined;
 let _overlayWarned = false;
+const _templateWinsNoted = new Set<string>();
+
+/** Say once per binding why a saved value isn't showing: the developer's newer template text is. */
+function noteTemplateWins(binding: string): void {
+  if (_templateWinsNoted.has(binding)) return;
+  _templateWinsNoted.add(binding);
+  console.info(`[caretcms] ${binding}: the template's text was changed after this value was saved, so the template's text shows. The saved value is removed the next time this entry is saved or published.`);
+}
 
 function warnMissingOverlay(): void {
   if (_overlayWarned) return;
@@ -315,6 +323,7 @@ async function prepareRequest(
         }
         html = await rewriteCaretAttributes(html, rewriteAdapter, {
           allowedClasses: services.allowedClasses,
+          onTemplateWins: noteTemplateWins,
         });
         rewritten = true;
       }

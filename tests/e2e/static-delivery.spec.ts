@@ -246,7 +246,7 @@ test("keeps drafts for the next sign-in in the same browser", async ({ page }) =
   expect((await drafts.json()).count).toBe(1);
 });
 
-test("rejects an older editor draft and keeps Publish above the Astro toolbar", async ({ browser }) => {
+test("asks which headline to keep when two editors changed it, and keeps Publish above the Astro toolbar", async ({ browser }) => {
   const contexts = await Promise.all([browser.newContext({ baseURL: ORIGIN, viewport: { width: 1280, height: 850 } }), browser.newContext({ baseURL: ORIGIN })]);
   try {
     const pages = await Promise.all(contexts.map(context => context.newPage()));
@@ -270,10 +270,23 @@ test("rejects an older editor draft and keeps Publish above the Astro toolbar", 
     const result = pages[0].waitForResponse(response => response.url().includes("/api/cms/publish"));
     await pages[0].locator(".cms-publish-btn").click();
     await pages[0].getByRole("dialog", { name: /^Publish \d+ changes?\?$/ }).getByRole("button", { name: "Publish", exact: true }).click();
-    expect((await (await result).json()).conflicts).toEqual([{ collection: "pages", id: "home", reason: "stale_entry", title: "Older draft" }]);
+    expect((await (await result).json()).conflicts).toEqual([{ collection: "pages", id: "home", reason: "stale_entry", fields: ["headline"], title: "Older draft" }]);
     await expect(pages[0].locator(".cms-status-text")).toHaveText("Not published");
     expect(JSON.parse(readFileSync(resolve(FIXTURE, ".caret/data/pages/home.json"), "utf8")).headline).toBe("Newer published draft");
     expect((await (await pages[0].request.get("/api/cms/draft")).json()).count).toBe(1);
+
+    // Both editors changed the headline, so the editor is asked which to keep,
+    // with both values shown. Keeping theirs lets the next Publish go through.
+    const choice = pages[0].getByRole("dialog", { name: "“Older draft” also changed on the site" });
+    await expect(choice).toContainText("On the site now: Newer published draft");
+    await expect(choice).toContainText("Yours: Older draft");
+    await choice.getByRole("button", { name: "Keep mine" }).click();
+    await expect(pages[0].locator(".cms-conflict-btn")).toBeHidden();
+    const second = pages[0].waitForResponse(response => response.url().includes("/api/cms/publish"));
+    await pages[0].locator(".cms-publish-btn").click();
+    await pages[0].getByRole("dialog", { name: /^Publish \d+ changes?\?$/ }).getByRole("button", { name: "Publish", exact: true }).click();
+    expect((await (await second).json()).conflicts).toEqual([]);
+    expect(JSON.parse(readFileSync(resolve(FIXTURE, ".caret/data/pages/home.json"), "utf8")).headline).toBe("Older draft");
   } finally {
     await Promise.all(contexts.map(context => context.close()));
     // The following static-build test starts with the original published content.

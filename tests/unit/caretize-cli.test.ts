@@ -93,8 +93,27 @@ describe("commitRun + backups + restore", () => {
     expect(listBackups(dir)).toHaveLength(1);
 
     // restore reverts
-    const restored = restoreLatest(dir);
-    expect(restored).toEqual(["src/pages/index.astro"]);
+    expect(restoreLatest(dir)).toEqual({ restored: ["src/pages/index.astro"], changed: [] });
+    expect(readFileSync(join(dir, "src/pages/index.astro"), "utf8")).toBe(src);
+  });
+
+  it("restore leaves a file alone when it was edited after caretize wrote it", async () => {
+    const src = `<main>\n  <h1>Hello</h1>\n</main>\n`;
+    write("src/pages/index.astro", src);
+    const prepared: PreparedFile[] = [
+      await prepareFile("src/pages/index.astro", src, [
+        { startOffset: src.indexOf("<h1>"), attribute: 'data-caret="pages::home::headline"' },
+      ]),
+    ];
+    commitRun(dir, prepared, "2026-01-01T00-00-00-000Z");
+    // The developer keeps working on the template.
+    const edited = readFileSync(join(dir, "src/pages/index.astro"), "utf8").replace("</main>", "  <section>New work</section>\n</main>");
+    write("src/pages/index.astro", edited);
+
+    expect(restoreLatest(dir)).toEqual({ restored: [], changed: ["src/pages/index.astro"] });
+    expect(readFileSync(join(dir, "src/pages/index.astro"), "utf8")).toBe(edited);
+    // Only an explicit force puts the old bytes back.
+    expect(restoreLatest(dir, { force: true })).toEqual({ restored: ["src/pages/index.astro"], changed: [] });
     expect(readFileSync(join(dir, "src/pages/index.astro"), "utf8")).toBe(src);
   });
 

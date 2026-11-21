@@ -15,7 +15,7 @@ import { applyTags, type TagInsertion } from "./write.js";
 import { wrapConst, type WrapTarget } from "./wrap.js";
 import { wrapImport, wrapNamedImport } from "./import-wrap.js";
 import { hoistPropLiterals, verifyHoistResult, type PropHoistTarget } from "./prop-hoist.js";
-import { writeBackup } from "./backup.js";
+import { recordWritten, writeBackup } from "./backup.js";
 
 /** Apply the right editable() wrap for a target's origin. */
 function applyWrap(source: string, t: WrapTarget) {
@@ -257,6 +257,7 @@ export function commitRun(
       backups.push(backupAbs);
       verifySource(file);
       replaceAtomically(path, file.output, mode);
+      recordWritten(rootDir, file.relPath, stamp);
       thisRun.push({ file, backupAbs, mode });
       written.push(file.relPath);
     }

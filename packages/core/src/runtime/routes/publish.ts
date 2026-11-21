@@ -7,32 +7,15 @@ import { getRuntimeServices } from "../providers.js";
 import { withEditorPublishLock } from "../mutations/engine.js";
 import { publishOverlay, type PublishScope } from "../publish.js";
 import { journalPublishedEntries, retryPublicationJournals, durableGitJournalEnabled, hasGitJournalQueue, canRetryPublicationJournals } from "../publication-journal.js";
-import { isGitRepo, getGitJournalTarget } from "../git-journal.js";
+import { commitPaths, hasUncommittedChanges, isGitRepo, getGitJournalTarget } from "../git-journal.js";
+import { publishedUploadFiles } from "../upload-files.js";
 import { triggerRebuildWebhook } from "../rebuild-webhook.js";
-import { json, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
+import { json, enforceCsrfHeader, readJsonBody, withTitles } from "./_helpers.js";
 import { waitForSelfWriteReload } from "../self-writes.js";
-import { entryDisplayTitle } from "../entry-title.js";
-import { resolveCollectionStudioConfig } from "../schema-registry.js";
 
 declare const __ASTRO_CARET_DEV__: boolean | undefined;
 const isDev = typeof __ASTRO_CARET_DEV__ === "boolean" && __ASTRO_CARET_DEV__;
 import type { DeploymentTarget, RebuildReceipt, StorageAdapter } from "../../types.js";
-
-/** Name entries the editor must act on (conflicts, failures) as the Studio does. */
-async function withTitles<T extends { collection: string; id: string }>(
-  base: StorageAdapter,
-  overlay: StorageAdapter,
-  entries: T[],
-): Promise<Array<T & { title: string }>> {
-  return Promise.all(entries.map(async (entry) => {
-    const [config, stored] = await Promise.all([
-      resolveCollectionStudioConfig(base, entry.collection),
-      overlay.getEntry(entry.collection, entry.id).catch(() => null)
-        .then((draft) => draft ?? base.getEntry(entry.collection, entry.id).catch(() => null)),
-    ]);
-    return { ...entry, title: entryDisplayTitle(entry.collection, entry.id, stored?.data, config) };
-  }));
-}
 
 function commitMessage(scope: PublishScope, count: number): string {
   if (scope.collection && scope.id) return `publish ${scope.collection}/${scope.id}`;
@@ -74,7 +57,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
   const parsed = await readJsonBody(context.request);
   if (!parsed.ok) return parsed.response;
-  const body = (parsed.value ?? {}) as { collection?: unknown; id?: unknown; retryRebuild?: unknown; retryJournal?: unknown };
+  const body = (parsed.value ?? {}) as { collection?: unknown; id?: unknown; retryRebuild?: unknown; retryJournal?: unknown; allowUncommitted?: unknown };
 
   if (body.retryRebuild === true && body.retryJournal === true) return json({ error: "Choose one retry operation" }, 400);
   const scope: PublishScope = {};
@@ -133,9 +116,26 @@ export async function POST(context: APIContext): Promise<Response> {
       // In dev, Astro re-renders published files only once it has seen them;
       // answer after that, so the editor's reload shows what was published.
       const devContentReady = isDev ? waitForSelfWriteReload(3_000) : null;
-      const { published, conflicts, failed, journalSources, journalVersions, sourceChanged } = await publishOverlay(base, overlay, scope,
-        targetRepository ? { journal: { target: targetRepository, authorName: `CaretCMS editor ${editorId.slice(0, 8)}`,
-          authorEmail: "editor@caretcms.local" } } : {});
+      // Publishing commits each entry's source file. A file with changes that
+      // aren't committed yet would have them committed too, under the editor's
+      // name, so that entry waits until the editor says to include them.
+      const commitsToGit = process.env.CARET_GIT_ON_PUBLISH === "true" && Boolean(base.committableEntryPaths) && await isGitRepo(process.cwd());
+      const holdUncommitted = commitsToGit && body.allowUncommitted !== true
+        ? async (collection: string, id: string, deleted: boolean) =>
+            hasUncommittedChanges(process.cwd(), await base.committableEntryPaths!(collection, id, deleted))
+        : undefined;
+      const { published, conflicts, failed, journalSources, journalVersions, sourceChanged } = await publishOverlay(base, overlay, scope, {
+        ...(targetRepository ? { journal: { target: targetRepository, authorName: `CaretCMS editor ${editorId.slice(0, 8)}`,
+          authorEmail: "editor@caretcms.local" } } : {}),
+        ...(holdUncommitted ? { holdUncommitted } : {}) });
+      // Images first: the content commit must never point at a file Git doesn't have.
+      if (commitsToGit && published.length > 0) {
+        const uploads = await publishedUploadFiles(services.uploadHandler, base, published).catch(() => []);
+        if (uploads.length) {
+          await commitPaths({ cwd: process.cwd(), paths: uploads, message: `publish uploads (${uploads.length})`,
+            authorName: `CaretCMS editor ${editorId.slice(0, 8)}`, authorEmail: "editor@caretcms.local" });
+        }
+      }
       const journal = durableJournal ? await retryPublicationJournals(base, overlay, process.cwd(), scope) : null;
       // The editor's changes are published; their Git record is the developer's to resolve.
       if (journal && journal.pending > 0) {

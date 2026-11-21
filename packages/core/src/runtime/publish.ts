@@ -14,7 +14,8 @@ import { withEntryLock } from "./mutations/engine.js";
 import { SessionOverlayAdapter, TOMBSTONE_KEY } from "./storage/session-overlay-adapter.js";
 import { draftChange } from "./unpublished.js";
 import { loadPageContent } from "./page-content.js";
-import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, readDraftState, sameContent } from "./draft-state.js";
+import { trackTemplateText } from "./template-text.js";
+import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, isStaleDraft, readDraftState, rebaseDraft } from "./draft-state.js";
 import { prepareSource, recoveryState, validPublicationSources, resumePublish, RecoveryConflict, type PublishRecovery } from "./publish-recovery.js";
 import { getRequestContext } from "./request-context.js";
 import { commitEntryChanges } from "./storage/entry-commit.js";
@@ -29,6 +30,12 @@ export interface PublishScope {
 export interface PublishOptions {
   /** Explicit opt-in; captured in the recovery plan before applying content. */
   journal?: { target: GitJournalTarget; authorName: string; authorEmail: string };
+  /**
+   * Asked for each entry about to be written. True holds the entry back with
+   * `uncommitted_source`: its source file has changes of someone else's that
+   * a commit of this publish would sweep in.
+   */
+  holdUncommitted?: (collection: string, id: string, deleted: boolean) => Promise<boolean>;
 }
 
 export interface PublishedEntry {
@@ -44,7 +51,9 @@ export interface PublishConflict {
   id: string;
   /** Body hashes, structured baselines, or legacy drafts failed validation.
    * The entry was not published and its draft is preserved. */
-  reason: "stale_body" | "invalid_body" | "stale_entry" | "legacy_draft" | "invalid_entry";
+  reason: "stale_body" | "invalid_body" | "stale_entry" | "legacy_draft" | "invalid_entry" | "uncommitted_source";
+  /** For `stale_entry`: the fields changed both in the draft and on the site. */
+  fields?: string[];
 }
 
 export interface PublishOutcome {
@@ -173,6 +182,10 @@ export async function publishOverlay(
             return;
           }
           const deleted = isTombstoneData(draft.data);
+          if (options.holdUncommitted && await options.holdUncommitted(collection, id, deleted)) {
+            conflicts.push({ collection, id, reason: "uncommitted_source" });
+            return;
+          }
           const structured = state?.structured ?? (deleted || Object.keys(fields).length > 0);
           if (!state && structured) {
             conflicts.push({ collection, id, reason: "legacy_draft" });
@@ -181,11 +194,17 @@ export async function publishOverlay(
           const baseSnapshot = await readAdapterSnapshot(base, collection, id);
           const before = baseSnapshot.entry?.data ?? null;
           const beforeRevision = baseSnapshot.revision;
-          if (structured && state && (state.baseRevision !== beforeRevision || !sameContent(state.baseData, before))) {
-            conflicts.push({ collection, id, reason: "stale_entry" });
+          // The published entry moved since this draft started. Carry the
+          // draft over to it; only a field changed on both sides (or a
+          // deletion on either side) stops the publish.
+          const carried = structured && state && !deleted ? rebaseDraft(state, fields, before) : null;
+          if (carried?.conflicts.length || carried?.removed || (deleted && state && (state.baseRevision !== beforeRevision || isStaleDraft(state, before)))) {
+            conflicts.push({ collection, id, reason: "stale_entry", ...(carried?.conflicts.length ? { fields: carried.conflicts } : {}) });
             return;
           }
-          const after = deleted ? null : structured ? fields : { ...(before ?? {}), ...fields };
+          const merged = deleted ? null : carried ? carried.data : structured ? fields : { ...(before ?? {}), ...fields };
+          // Record the template text each saved value replaces, and drop values an edited template has overtaken.
+          const after = merged && trackTemplateText(before, merged, seeds[collection]?.[id]).data;
           if ((await validateEntryTransition(base, collection, after)).length) {
             conflicts.push({ collection, id, reason: "invalid_entry" });
             return;

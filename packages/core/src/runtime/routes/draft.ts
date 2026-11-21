@@ -7,8 +7,12 @@ import type { APIContext } from "astro";
 import { isEditorAuthenticated, getEditorId } from "../auth/session.js";
 import { getRuntimeServices } from "../providers.js";
 import { discardOverlay, type PublishScope } from "../publish.js";
-import { countPendingDrafts } from "../unpublished.js";
-import { json, enforceCsrfHeader } from "./_helpers.js";
+import { countPendingDrafts, draftConflicts } from "../unpublished.js";
+import { draftOnlyUploads, removeDiscardedUploads } from "../upload-files.js";
+import { describeDraftConflicts, json, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
+import { SessionOverlayAdapter } from "../storage/session-overlay-adapter.js";
+import { withEntryLock } from "../mutations/engine.js";
+import { requirePermission, PermissionDenied } from "../authorization.js";
 
 /**
  * GET /api/cms/draft — report whether the current editor has unpublished drafts.
@@ -28,7 +32,44 @@ export async function GET(context: APIContext): Promise<Response> {
   const journalPending = durableGitJournalEnabled() && hasGitJournalQueue(overlay)
     ? (await overlay.listGitJournalReceipts!()).length : 0;
   const retryJournal = journalPending > 0 && await canRetryPublicationJournals(overlay);
-  return json({ ...(journalPending > 0 ? { retryJournal, journalPending } : {}), ...(getRequestContext()?.authorize ? { canPublish: await canPublishOverlay(overlay) } : {}), hasDrafts: count > 0, count, retryRebuild: Boolean(await overlay.getRebuildReceipt?.()) });
+  const conflicts = await describeDraftConflicts(base, overlay, await draftConflicts(base, overlay));
+  return json({ ...(conflicts.length ? { conflicts } : {}), ...(journalPending > 0 ? { retryJournal, journalPending } : {}), ...(getRequestContext()?.authorize ? { canPublish: await canPublishOverlay(overlay) } : {}), hasDrafts: count > 0, count, retryRebuild: Boolean(await overlay.getRebuildReceipt?.()) });
+}
+
+/**
+ * POST /api/cms/draft — settle a draft whose fields also changed on the site.
+ * Body: `{ collection, id, keep: "mine" | "site" }`. "mine" keeps the editor's
+ * values (Publish then puts them on top); "site" takes the site's values for
+ * the fields in conflict and keeps the editor's other changes.
+ */
+export async function POST(context: APIContext): Promise<Response> {
+  const csrf = enforceCsrfHeader(context.request);
+  if (csrf) return csrf;
+  if (!isEditorAuthenticated(context)) return json({ error: "Unauthorized" }, 401);
+  const editorId = getEditorId(context);
+  if (!editorId) return json({ error: "No editor draft session" }, 400);
+
+  const parsed = await readJsonBody(context.request);
+  if (!parsed.ok) return parsed.response;
+  const { collection, id, keep } = (parsed.value ?? {}) as { collection?: unknown; id?: unknown; keep?: unknown };
+  if (typeof collection !== "string" || typeof id !== "string" || (keep !== "mine" && keep !== "site")) {
+    return json({ error: "collection, id and keep (\"mine\" or \"site\") are required" }, 400);
+  }
+
+  const { adapter: base } = await getRuntimeServices();
+  if (!base.makeEditorOverlay) {
+    return json({ error: "Drafts are not supported by the configured storage adapter" }, 400);
+  }
+  const overlay = await base.makeEditorOverlay(editorId);
+  try {
+    await requirePermission("edit", collection, id);
+    const settled = await withEntryLock(collection, id, () =>
+      new SessionOverlayAdapter(base, overlay).resolveDraftConflict(collection, id, keep));
+    return settled ? json({ ok: true }) : json({ error: "This draft has no conflict to settle" }, 409);
+  } catch (error) {
+    if (error instanceof PermissionDenied) return json({ error: "Forbidden" }, 403);
+    return json({ error: "The draft changed while it was being settled. Try again." }, 409);
+  }
 }
 
 /**
@@ -60,7 +101,14 @@ export async function DELETE(context: APIContext): Promise<Response> {
   }
   const overlay = await base.makeEditorOverlay(editorId);
   try {
+    // Images uploaded for these drafts and never published go with them.
+    const { uploadHandler } = await getRuntimeServices();
+    const targets = scope.collection && scope.id ? [{ collection: scope.collection, id: scope.id }]
+      : (await Promise.all((scope.collection ? [scope.collection] : await overlay.discoverCollections())
+        .map(async (name) => (await overlay.listEntryIds(name)).map((entryId) => ({ collection: name, id: entryId }))))).flat();
+    const uploads = await draftOnlyUploads(uploadHandler, base, overlay, targets).catch(() => []);
     const cleared = await discardOverlay(overlay, scope);
+    await removeDiscardedUploads(uploadHandler, overlay, uploads).catch(() => []);
     return json({ ok: true, cleared });
   } catch {
     return json({ error: "Some drafts require publish recovery. Retry Publish before discarding them." }, 409);
