@@ -7,7 +7,7 @@ CaretCMS is a reusable, open-core CMS for Astro:
 - **Inline canvas editing** — text, images, and section layout edited directly on the page
 - **Studio admin** for structured entry editing
 - **Attribute-first binding** — add `data-caret` attributes; no schema rewrite required
-- **Pluggable storage** — filesystem out of the box, coordinated Cloudflare Durable Object storage, plus KV/R2 adapters
+- **Pluggable storage** — filesystem by default, coordinated Cloudflare Durable Object storage, plus KV/R2 adapters
 - **Verified deployment status** — optional providers connect published revisions to a real build identity and outcome
 
 The CMS ships as `@caretcms/core`, an Astro integration you install into any Astro app.
@@ -93,8 +93,8 @@ export default defineConfig({
 
 ### After wiring either path
 
-- Add `data-caret` / `data-caret-scope` attributes — or run `npx @caretcms/caretize` to tag an existing site interactively
-- Run `npm run dev` — with no password configured, dev uses a temporary password kept in `.caret/dev-password` (also shown by `astro dev logs`)
+- Add `data-caret` / `data-caret-scope` attributes, or run `npx @caretcms/caretize` to tag an existing site interactively
+- Run `npm run dev`. With no password configured, dev uses a temporary password kept in `.caret/dev-password` (also shown by `astro dev logs`)
 - **Sign in at `/admin`**, then click tagged content to edit; the toolbar's **Studio** button opens the content Studio over the page
 - For production authoring, set `CARET_EDIT_PASSWORD` and `CARET_SESSION_SECRET` (see [deployment](docs/deployment.md))
 - Optionally create `src/caret.config.ts` with `caretLoader` for `getLiveEntry` / `getLiveCollection`

@@ -15,10 +15,10 @@ component tree, and editing happens in-context on the rendered page.
 ## 1. In-context editing is the primary surface
 
 Click-to-edit on the live page is the default way to edit. For a live collection
-(`caretLoader`), an authenticated editor gets stega-encoded strings — click-to-edit
+(`caretLoader`), an authenticated editor gets stega-encoded strings, so click-to-edit works
 with **zero** `data-caret` markup. The component tree already declares what's editable.
 
-**Studio is the fallback, not the destination.** It earns its keep for:
+**Studio is the fallback.** It earns its keep for:
 - **Structural** operations: list / create / reorder / delete entries.
 - **Non-visual** fields with no on-page representation: SEO metadata, draft flags,
   ordering keys.
@@ -30,7 +30,7 @@ making more of the site directly editable rather than adding admin forms.
 ## 2. The core stays dependency-free and storage-agnostic
 
 `@caretcms/core` has **zero runtime dependencies** and never imports a validation
-library — schemas arrive as plain JSON Schema. This is the property that makes
+library; schemas arrive as plain JSON Schema. This is the property that makes
 everything else composable:
 - Zod stays in an optional `@caretcms/zod` helper (peer dep), used only in
   `astro.config`. Core never sees it.
@@ -43,16 +43,16 @@ capabilities that need either belong in a sibling package behind an interface.
 ## 3. Content location is a swappable detail
 
 The same content code runs over filesystem, markdown, in-memory, or Cloudflare
-KV/R2 — because it only talks to `StorageAdapter`. Treat where content lives as a
+KV/R2, because it only talks to `StorageAdapter`. Treat where content lives as a
 first-class, documented choice (see [deployment.md](./deployment.md)), not an
 implementation footnote. A feature that only works for one backend should degrade
-gracefully (no-op) on the others, not break them — e.g. git-on-publish no-ops on KV.
+gracefully (no-op) on the others instead of breaking them. For example, git-on-publish no-ops on KV.
 
 ## 4. Edits should be reviewable, not just saved
 
 Because content is files, an edit can be a git commit (commit-on-publish) and a
 publish can be a reviewable diff. Lean into the version-control model the repo
-already has — blame, revert, branch-per-draft, PR review of content — instead of
+already has (blame, revert, branch-per-draft, PR review of content) instead of
 reinventing it inside the CMS. The sidecar (`.caretcms/`) holds only what git
 can't: monotonic revision counters for optimistic concurrency, and the fast
 restore-history cache.
@@ -62,5 +62,5 @@ restore-history cache.
 `caretize` writes to source files, so every transform is gated: a subsequence
 check (nothing deleted), an inverse check for deletion-bearing rewrites, and a
 final re-parse. A new tier ships only with the same rigor. When a transform is
-ambiguous, it stays a **flag**, never a guess — an incorrect binding corrupts
-user source.
+ambiguous, it stays a **flag** rather than a guess, because an incorrect binding
+corrupts user source.

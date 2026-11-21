@@ -48,7 +48,7 @@ bindings/secrets (`wrangler secret put …` or `[vars]` in `wrangler.toml`):
 | `CMS_R2` | R2 bucket for uploads (name configurable via `binding`). |
 | `R2_PUBLIC_DOMAIN` | Public R2 hostname (for example `assets.example.com` or the bucket's enabled `r2.dev` hostname). Required for uploads unless `publicBaseUrl` is configured explicitly. |
 | `CARET_EDIT_PASSWORD` | Editor login password. Without it the editor stays locked. |
-| `CARET_SESSION_SECRET` | HMAC secret for session cookies. **Required** in production — generate with `openssl rand -base64 32`. |
+| `CARET_SESSION_SECRET` | HMAC secret for session cookies. **Required** in production. Generate with `openssl rand -base64 32`. |
 | `CARET_DEMO_MODE` | `"true"` to enable the per-visitor demo sandbox. |
 
 The auth layer reads `CARET_EDIT_PASSWORD` / `CARET_SESSION_SECRET` from the Worker
@@ -109,8 +109,8 @@ private write as a base write. There is no fallback after rejection.
 CaretCMS serializes writes with an in-process lock and detects conflicts with a
 revision counter. On Workers that lock is per-isolate (isolates are numerous and
 ephemeral), and KV has no compare-and-swap and is eventually consistent. So two
-editors saving the same entry — or two saves to different entries in the same
-collection — can read the same revision/index, both pass the check, and the
+editors saving the same entry (or two saves to different entries in the same
+collection) can read the same revision/index, both pass the check, and the
 later write silently wins (a lost update). The separate Durable Object adapter
 addresses this; the KV adapter deliberately retains its existing behavior.
 

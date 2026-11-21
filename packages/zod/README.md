@@ -2,7 +2,7 @@
 
 Derive [CaretCMS](https://github.com/web-stacked/caretcms) Studio schemas from the Zod schemas you already have.
 
-CaretCMS's Studio consumes plain JSON Schema, and `@caretcms/core` stays deliberately Zod-agnostic (zero runtime deps). If you already describe a content collection with Zod — e.g. in Astro's `content.config.ts` — this helper turns that one source into the JSON-Schema map you hand to `caret({ schemas })`, so field definitions, labels, and widget hints live in a single place.
+CaretCMS's Studio consumes plain JSON Schema, and `@caretcms/core` stays deliberately Zod-agnostic (zero runtime deps). If you already describe a content collection with Zod (e.g. in Astro's `content.config.ts`), this helper turns that one source into the JSON-Schema map you hand to `caret({ schemas })`, so field definitions, labels, and widget hints live in a single place.
 
 ```sh
 npm install @caretcms/zod zod
@@ -29,6 +29,6 @@ What the conversion does beyond `z.toJSONSchema`:
 
 API: `schemaFromZod(zodObjectSchema, options?)` for one collection, `schemasFromZod({ name: schema, … }, options?)` for the whole map.
 
-Requires Zod v4 (peer dependency, uses `z.toJSONSchema`). Nothing here is imported by `@caretcms/core` — its Zod-agnostic boundary stays intact.
+Requires Zod v4 (peer dependency, uses `z.toJSONSchema`). `@caretcms/core` imports nothing from this package, so core stays Zod-agnostic.
 
 MIT © CaretCMS contributors

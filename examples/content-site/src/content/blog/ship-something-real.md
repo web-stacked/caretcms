@@ -1,6 +1,6 @@
 ---
 title: Ship something real every week
-excerpt: Momentum is a design tool. Use it.
+excerpt: Momentum is a design tool.
 date: "2026-03-11"
 author: Idris Vance
 tags:
@@ -14,8 +14,8 @@ The fastest way to kill a project is to let it live only in slides. Slides don't
 have edge cases. Real pages do, and the edge cases are where the design actually
 gets decided.
 
-So we ship something real every week — a live route, a working prototype, a page
-you can open on your phone. It keeps feedback honest and keeps the team out of
+So we ship something real every week: a live route or a working prototype you
+can open on your phone. It keeps feedback honest and keeps the team out of
 the swamp of hypotheticals.
 
 > A rough thing that exists beats a perfect thing that doesn't.

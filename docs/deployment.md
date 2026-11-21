@@ -2,7 +2,7 @@
 
 Content location is a swappable detail (see [design-principles.md](./design-principles.md)
 §3). Pick the storage adapter that fits how your content is authored and how often
-it changes — the rest of CaretCMS works the same either way.
+it changes. The rest of CaretCMS works the same either way.
 
 ## Delivery mode
 
@@ -27,8 +27,8 @@ delivery, and server output resolves to server delivery.
 | History / audit | **git** (commit-on-publish) + sidecar | sidecar revisions only |
 | Drafts overlay | `.caret/drafts/<editorId>/` (JSON) | separate per-editor objects |
 | Demo sandbox overlay | — | separate session object, 2h alarm |
-| Hosting | static CDN, or Node if using server delivery | Cloudflare Workers — no CMS to run |
-| Best for | docs sites, blogs, marketing — content reviewed like code | concurrent web editorial workflows |
+| Hosting | static CDN, or Node if using server delivery | Cloudflare Workers, no CMS server to run |
+| Best for | docs sites, blogs, marketing sites where content is reviewed like code | concurrent web editorial workflows |
 | Gives up | needs a writable disk; single-writer (embedded) | no git history of content edits |
 
 ## Filesystem + git (the "repo is the CMS" path)
@@ -42,14 +42,14 @@ caret({
 ```
 
 - The **same markdown files** serve `getCollection()` at build time and inline
-  editing at runtime — edits write back to frontmatter.
+  editing at runtime. Edits write back to frontmatter.
 - Opt into **commit-on-publish** so a publish becomes a git commit authored by the
   editor (blame, revert, content PRs):
   ```bash
   CARET_GIT_ON_PUBLISH=true
   ```
   Best-effort and scoped to the content dir; a git failure never blocks the publish.
-- **Drafts** land under `.caret/drafts/<editorId>/` — add `.caret/drafts/` to
+- **Drafts** land under `.caret/drafts/<editorId>/`. Add `.caret/drafts/` to
   `.gitignore` (`caretize init` does) so unpublished drafts never get committed;
   only a Publish writes to tracked files.
 
@@ -81,7 +81,7 @@ caret({
 - No server and no disk: content is KV/R2, the site runs on Workers.
 - Per-editor drafts use a `draft/<editorId>/` key prefix (no TTL); the demo
   sandbox overlay uses `session/<id>/` with a 2-hour TTL.
-- `CARET_GIT_ON_PUBLISH` is a no-op here (nothing to commit) — history is the
+- `CARET_GIT_ON_PUBLISH` is a no-op here (nothing to commit); history is the
   sidecar revision log.
 - **Single-writer only.** KV has no compare-and-swap and is eventually
   consistent, so the revision-based conflict check is best-effort: concurrent
@@ -89,7 +89,7 @@ caret({
   (the per-session/per-editor overlays are isolated and safe). See
   [`@caretcms/cloudflare` README](../packages/cloudflare/README.md#kv-concurrency-single-writer-only).
 - Set `CARET_SESSION_SECRET` (required in production) and `CARET_EDIT_PASSWORD`
-  as Worker secrets — the auth layer reads them from the Worker `env`.
+  as Worker secrets. The auth layer reads them from the Worker `env`.
 
 ## Cross-cutting runtime switches
 

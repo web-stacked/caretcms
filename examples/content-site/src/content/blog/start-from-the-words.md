@@ -11,8 +11,8 @@ cover_alt: A notebook open to a page of handwritten headlines.
 ---
 
 Most brand problems are writing problems wearing a visual costume. When a
-homepage feels vague, it's rarely the grid — it's that nobody decided what the
-first sentence should *say*.
+homepage feels vague, the cause is rarely the grid. Usually nobody decided what
+the first sentence should *say*.
 
 So we start from the words. Before any layout, we draft the headline, the
 sub-head, and the three things a visitor most needs to believe. Only then does
@@ -25,6 +25,6 @@ Read the page aloud with the images removed. If it still makes the case, the
 design has something to support. If it doesn't, no amount of kerning will save
 it.
 
-This post — like every word on the site — is a real markdown file. CaretCMS edits
+This post, like every word on the site, is a real markdown file. CaretCMS edits
 the **title and excerpt** as fields and lets an editor update supported prose
 blocks on the rendered page. Publish writes those changes back to this `.md` file.
