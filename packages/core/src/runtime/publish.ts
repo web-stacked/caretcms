@@ -25,6 +25,8 @@ export interface PublishScope {
   collection?: string;
   /** Limit to one entry; only honored together with `collection`. */
   id?: string;
+  /** Limit to these entries (within `collection`/`id` when those are given too). */
+  entries?: ReadonlyArray<{ collection: string; id: string }>;
 }
 
 export interface PublishOptions {
@@ -114,7 +116,9 @@ async function overlayEntriesInScope(
         : await overlay.listEntryIds(collection);
     for (const id of ids) out.push({ collection, id });
   }
-  return out;
+  if (!scope.entries) return out;
+  const wanted = new Set(scope.entries.map(entry => JSON.stringify([entry.collection, entry.id])));
+  return out.filter(entry => wanted.has(JSON.stringify([entry.collection, entry.id])));
 }
 
 /** Preflight the entire batch before any source, revision, journal or hook write. */

@@ -34,6 +34,16 @@
  * @property {DraftFieldChange[]} changes
  */
 /**
+ * One draft Publish would publish: the fields the editor changed, and whether it holds edited body text.
+ * @typedef {object} PendingDraft
+ * @property {string} collection
+ * @property {string} id
+ * @property {string} title
+ * @property {boolean} deleted
+ * @property {boolean} text
+ * @property {{ label: string, site: string, mine: string }[]} fields
+ */
+/**
  * @typedef {object} RetryDeploymentResult
  * @property {boolean} deploymentTracked
  */
@@ -104,9 +114,12 @@ export function createDraftClient(options) {
     });
   }
 
-  /** @param {{ allowUncommitted?: boolean }} [options] */
+  /** @param {{ allowUncommitted?: boolean, entries?: { collection: string, id: string }[] | null }} [options] `entries` limits the publish to those drafts. */
   async function publish(options = {}) {
-    const response = await requireOk(await request('POST', '/publish', JSON.stringify(options.allowUncommitted ? { allowUncommitted: true } : {})));
+    const response = await requireOk(await request('POST', '/publish', JSON.stringify({
+      ...(options.allowUncommitted ? { allowUncommitted: true } : {}),
+      ...(options.entries?.length ? { entries: options.entries } : {}),
+    })));
     return /** @type {unknown} */ (await response.json());
   }
 
@@ -138,6 +151,26 @@ export function createDraftClient(options) {
       })));
   }
 
+  /** What Publish would publish, by entry. */
+  async function getPending() {
+    const response = await requireOk(await request('GET', '/draft?changes=1', undefined));
+    const data = record(await response.json());
+    return /** @type {PendingDraft[]} */ ((Array.isArray(data.pending) ? data.pending : []).map(record)
+      .filter(entry => typeof entry.collection === 'string' && typeof entry.id === 'string')
+      .map(entry => ({
+        collection: String(entry.collection),
+        id: String(entry.id),
+        title: typeof entry.title === 'string' ? entry.title : '',
+        deleted: entry.deleted === true,
+        text: entry.text === true,
+        fields: (Array.isArray(entry.fields) ? entry.fields : []).map(record).map(field => ({
+          label: String(field.label ?? ''),
+          site: typeof field.site === 'string' ? field.site : '',
+          mine: typeof field.mine === 'string' ? field.mine : '',
+        })),
+      })));
+  }
+
   /** Take one field of a draft back to the site's value. @param {string} collection @param {string} id @param {string} field */
   async function revertField(collection, id, field) {
     await requireOk(await request('POST', '/draft', JSON.stringify({ collection, id, field })));
@@ -161,5 +194,5 @@ export function createDraftClient(options) {
     });
   }
 
-  return { getState, getChanges, publish, discard, resolveConflict, revertField, retryDeployment };
+  return { getState, getChanges, getPending, publish, discard, resolveConflict, revertField, retryDeployment };
 }

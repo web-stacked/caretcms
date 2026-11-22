@@ -144,3 +144,27 @@ describe("saving again while a field is in conflict", () => {
     expect((await draft.draftConflict("pages", "home"))?.fields.map(({ field }) => field)).toEqual(["title"]);
   });
 });
+
+describe("publishing some drafts and keeping the rest", () => {
+  it("publishes only the listed entries", async () => {
+    const { base, overlay, draft } = await setup();
+    await base.writeEntry("pages", "about", { title: "About" });
+    await draft.writeEntry("pages", "home", { title: "My title", hero: "old.jpg" });
+    await draft.writeEntry("pages", "about", { title: "My about" });
+    const outcome = await publishOverlay(base, overlay, { entries: [{ collection: "pages", id: "about" }] });
+    expect(outcome.published).toMatchObject([{ collection: "pages", id: "about" }]);
+    expect((await base.getEntry("pages", "about"))?.data).toEqual({ title: "My about" });
+    expect((await base.getEntry("pages", "home"))?.data).toEqual({ title: "Old title", hero: "old.jpg" });
+    // The other draft is still there, and still the editor's.
+    expect((await draft.getEntry("pages", "home"))?.data).toEqual({ title: "My title", hero: "old.jpg" });
+    expect((await publishOverlay(base, overlay)).published).toMatchObject([{ collection: "pages", id: "home" }]);
+  });
+
+  it("publishes nothing for a list naming no draft", async () => {
+    const { base, overlay, draft } = await setup();
+    await draft.writeEntry("pages", "home", { title: "My title", hero: "old.jpg" });
+    const outcome = await publishOverlay(base, overlay, { entries: [{ collection: "pages", id: "elsewhere" }] });
+    expect(outcome.published).toEqual([]);
+    expect((await base.getEntry("pages", "home"))?.data).toEqual({ title: "Old title", hero: "old.jpg" });
+  });
+});

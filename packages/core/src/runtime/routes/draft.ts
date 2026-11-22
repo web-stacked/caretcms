@@ -7,9 +7,9 @@ import type { APIContext } from "astro";
 import { isEditorAuthenticated, getEditorId } from "../auth/session.js";
 import { getRuntimeServices } from "../providers.js";
 import { discardOverlay, type PublishScope } from "../publish.js";
-import { countPendingDrafts, draftChangeList, draftConflicts } from "../unpublished.js";
+import { draftChangeList, draftConflicts, pendingDrafts } from "../unpublished.js";
 import { draftOnlyUploads, removeDiscardedUploads } from "../upload-files.js";
-import { describeDraftChanges, describeDraftConflicts, json, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
+import { describeDraftChanges, describeDraftConflicts, describePendingDrafts, json, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
 import { SessionOverlayAdapter } from "../storage/session-overlay-adapter.js";
 import { withEntryLock } from "../mutations/engine.js";
 import { requirePermission, PermissionDenied } from "../authorization.js";
@@ -17,7 +17,8 @@ import { requirePermission, PermissionDenied } from "../authorization.js";
 /**
  * GET /api/cms/draft — report whether the current editor has unpublished drafts.
  * With `?changes=1` the reply also lists, per draft, the fields the editor
- * changed and the fields that changed on the site since the draft was started.
+ * changed and the fields that changed on the site since the draft was started,
+ * and `pending`: what Publish would publish, by entry.
  */
 export async function GET(context: APIContext): Promise<Response> {
   if (!isEditorAuthenticated(context)) return json({ error: "Unauthorized" }, 401);
@@ -30,14 +31,16 @@ export async function GET(context: APIContext): Promise<Response> {
 
   const overlay = await base.makeEditorOverlay(editorId);
   // Drafts that change nothing visitors see (an undone edit) aren't counted.
-  const count = await countPendingDrafts(base, overlay);
+  const pendingEntries = await pendingDrafts(base, overlay);
+  const count = pendingEntries.length;
   const journalPending = durableGitJournalEnabled() && hasGitJournalQueue(overlay)
     ? (await overlay.listGitJournalReceipts!()).length : 0;
   const retryJournal = journalPending > 0 && await canRetryPublicationJournals(overlay);
   const conflicts = await describeDraftConflicts(base, overlay, await draftConflicts(base, overlay));
   const changes = context.url?.searchParams.get("changes") === "1"
     ? await describeDraftChanges(base, overlay, await draftChangeList(base, overlay)) : null;
-  return json({ ...(conflicts.length ? { conflicts } : {}), ...(changes ? { changes } : {}), ...(journalPending > 0 ? { retryJournal, journalPending } : {}), ...(getRequestContext()?.authorize ? { canPublish: await canPublishOverlay(overlay) } : {}), hasDrafts: count > 0, count, retryRebuild: Boolean(await overlay.getRebuildReceipt?.()) });
+  const pending = changes ? await describePendingDrafts(base, overlay, pendingEntries, changes) : null;
+  return json({ ...(conflicts.length ? { conflicts } : {}), ...(changes ? { changes, pending } : {}), ...(journalPending > 0 ? { retryJournal, journalPending } : {}), ...(getRequestContext()?.authorize ? { canPublish: await canPublishOverlay(overlay) } : {}), hasDrafts: count > 0, count, retryRebuild: Boolean(await overlay.getRebuildReceipt?.()) });
 }
 
 /**

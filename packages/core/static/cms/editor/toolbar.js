@@ -6,6 +6,7 @@ import { presentPublishResult } from './publish-result.js';
 import { createDraftClient } from './draft-client.js';
 import { createChangesView } from './changes-view.js';
 import { mountAwayNotice } from './away-notice.js';
+import { buildPublishReceipt } from './publish-receipt.js';
 import { mountToolbarKeys } from './toolbar-keys.js';
 import { t, tHtml } from './i18n.js';
 /** @typedef {'saving' | 'idle' | 'error'} ToolbarStatusState */
@@ -478,10 +479,11 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
 
 
   /**
-   * @param {{ title: string, copy: string, confirmLabel: string, danger?: boolean, restoreFocus?: HTMLElement | null }} options
+   * @param {{ title: string, copy: string, confirmLabel: string, danger?: boolean, restoreFocus?: HTMLElement | null, extra?: HTMLElement | null }} options
+   *   `extra` is shown between the copy and the buttons while the dialog is open.
    * @returns {Promise<boolean>}
    */
-  function confirmToolbarAction({ title, copy, confirmLabel, danger = false, restoreFocus = null }) {
+  function confirmToolbarAction({ title, copy, confirmLabel, danger = false, restoreFocus = null, extra = null }) {
     const backdrop = /** @type {HTMLElement} */ (document.querySelector('.cms-dialog-backdrop'));
     const titleEl = /** @type {HTMLElement} */ (backdrop.querySelector('#cms-signout-title'));
     const copyEl = /** @type {HTMLElement} */ (backdrop.querySelector('#cms-signout-copy'));
@@ -496,6 +498,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     confirm.hidden = false;
     keep.hidden = true;
     discard.hidden = true;
+    if (extra) copyEl.after(extra);
     backdrop.hidden = false;
     cancel.focus();
 
@@ -503,6 +506,8 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       /** @param {boolean} accepted */
       function finish(accepted) {
         backdrop.hidden = true;
+        extra?.remove();
+        confirm.disabled = false;
         document.removeEventListener('keydown', onKeydown, true);
         cancel.removeEventListener('click', cancelAction);
         confirm.removeEventListener('click', confirmAction);
@@ -518,8 +523,11 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       function onKeydown(event) {
         if (event.key === 'Escape') { event.preventDefault(); finish(false); }
         if (event.key !== 'Tab') return;
-        if (event.shiftKey && document.activeElement === cancel) { event.preventDefault(); confirm.focus(); }
-        else if (!event.shiftKey && document.activeElement === confirm) { event.preventDefault(); cancel.focus(); }
+        // Loop through whatever can take focus: the extra content's controls, Cancel, then the confirm button.
+        const controls = /** @type {HTMLElement[]} */ ([...(extra?.querySelectorAll('input, button') ?? []), cancel, ...(confirm.disabled ? [] : [confirm])]);
+        const first = controls[0], last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
       }
       cancel.addEventListener('click', cancelAction);
       confirm.addEventListener('click', confirmAction);
@@ -643,11 +651,12 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   }
 
   /** @param {{ reload?: boolean }} [options] */
-  async function publishDrafts({ reload = true } = {}) {
+  /** @param {{ reload?: boolean, entries?: { collection: string, id: string }[] | null }} [options] `entries` publishes only those drafts. */
+  async function publishDrafts({ reload = true, entries = null } = {}) {
     setStatus('saving', t('editor.toolbar.publishing'));
     try { sessionStorage.setItem(PUBLISHING_KEY, JSON.stringify({ count: draftCount, at: Date.now() })); } catch { /* not carried */ }
     try {
-      let result = await draftClient.publish();
+      let result = await draftClient.publish({ entries });
       // Entries held back because their file has changes Git hasn't committed:
       // publishing would commit those too, so ask first.
       const uncommitted = heldForUncommitted(result);
@@ -656,7 +665,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
         copy: t('editor.uncommitted.copy', { names: uncommitted.join(', ') }),
         confirmLabel: t('editor.uncommitted.publishAnyway'),
       })) {
-        const forced = await draftClient.publish({ allowUncommitted: true });
+        const forced = await draftClient.publish({ allowUncommitted: true, entries });
         result = mergePublishResults(result, forced);
       }
       const presentation = presentPublishResult(result);
@@ -716,7 +725,12 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   const publishBtn = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-publish-btn'));
   publishBtn?.addEventListener('click', async () => {
     const changes = changeCount(draftCount);
+    // What will be published, by name. Without the list the dialog still asks, as before.
+    const pending = await draftClient.getPending().catch(() => []);
+    const confirmButton = /** @type {HTMLButtonElement | null} */ (document.querySelector('.cms-dialog-backdrop .cms-signout-publish'));
+    const receipt = pending.length ? buildPublishReceipt(pending, (chosen) => { if (confirmButton) confirmButton.disabled = chosen === 0; }) : null;
     if (!(await confirmToolbarAction({
+      extra: receipt?.element,
       title: draftCount === 1 ? t('editor.toolbar.publishConfirmOne') : t('editor.toolbar.publishConfirmOther', { count: draftCount }),
       // When visitors see it depends on the server (a Markdown source can need
       // a rebuild), so only static delivery says it here; the result says it.
@@ -726,7 +740,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       confirmLabel: t('editor.toolbar.publish'),
       restoreFocus: publishBtn,
     }))) return;
-    await publishDrafts();
+    await publishDrafts({ entries: receipt?.chosen() ?? null });
   });
 
   const discardBtn = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-discard-btn'));

@@ -59,20 +59,27 @@ export async function unpublishedEntries(collection: string): Promise<Unpublishe
 }
 
 /**
- * How many entries in an editor's draft store still need publishing: drafts
+ * The entries in an editor's draft store that still need publishing: drafts
  * that change what visitors see, and drafts holding an unfinished publish.
  */
-export async function countPendingDrafts(base: StorageAdapter, overlay: StorageAdapter): Promise<number> {
+export async function pendingDrafts(base: StorageAdapter, overlay: StorageAdapter): Promise<UnpublishedEntry[]> {
   const drafts = new SessionOverlayAdapter(base, overlay);
   const content = await loadPageContent();
-  let count = 0;
+  const pending: UnpublishedEntry[] = [];
   for (const collection of await overlay.discoverCollections()) {
     for (const id of await overlay.listEntryIds(collection)) {
       const raw = await overlay.getEntry(collection, id);
-      if (raw?.data[PUBLISH_RECOVERY_KEY] || await draftChange(drafts, base, collection, id, content[collection]?.[id])) count += 1;
+      const change = raw?.data[PUBLISH_RECOVERY_KEY] ? { collection, id, deleted: false }
+        : await draftChange(drafts, base, collection, id, content[collection]?.[id]);
+      if (change) pending.push(change);
     }
   }
-  return count;
+  return pending;
+}
+
+/** How many entries in an editor's draft store still need publishing (see `pendingDrafts`). */
+export async function countPendingDrafts(base: StorageAdapter, overlay: StorageAdapter): Promise<number> {
+  return (await pendingDrafts(base, overlay)).length;
 }
 
 /** This editor's drafts whose fields also changed on the published entry (see `rebaseDraft`). */

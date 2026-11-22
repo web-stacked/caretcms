@@ -391,6 +391,44 @@ test("tells a returning editor what changed on the page, but not about their own
   }
 });
 
+test("lists what Publish will publish and publishes only the ticked drafts", async ({ page }) => {
+  try {
+    await page.request.post("/api/cms/auth/login", { data: { password: EDIT_PASSWORD }, headers: { Accept: "application/json" } });
+    writeFileSync(resolve(FIXTURE, ".caret/data/pages/about.json"), `${JSON.stringify({ headline: "About" }, null, 2)}\n`);
+    for (const [id, headline] of [["home", "Receipt headline"], ["about", "About headline"]]) {
+      const saved = await page.request.post("/api/cms/mutate", { headers: { "x-caret-request": "1" }, data: { type: "put_entry", collection: "pages", id, data: { headline } } });
+      expect(`${id} ${saved.status()} ${saved.ok() ? "" : await saved.text()}`).toBe(`${id} 200 `);
+    }
+    await page.goto("/");
+    await page.locator(".cms-publish-btn").click();
+    const dialog = page.getByRole("dialog", { name: "Publish 2 changes?" });
+    // Each draft is named, with the value on the site and the editor's.
+    await expect(dialog.locator(".cms-receipt li")).toHaveCount(2);
+    await expect(dialog).toContainText(`Headline: “${PUBLISHED_HEADLINE}” becomes “Receipt headline”`);
+    await expect(dialog).toContainText("About headline");
+
+    // With nothing ticked there is nothing to publish.
+    const boxes = dialog.getByRole("checkbox");
+    await boxes.nth(0).uncheck();
+    await boxes.nth(1).uncheck();
+    await expect(dialog.getByRole("button", { name: "Publish", exact: true })).toBeDisabled();
+
+    // Publish the home page only: the other draft stays a draft.
+    await dialog.getByRole("checkbox", { name: /Receipt headline/ }).check();
+    const result = page.waitForResponse(response => response.url().includes("/api/cms/publish"));
+    await dialog.getByRole("button", { name: "Publish", exact: true }).click();
+    const published = (await (await result).json()).published;
+    expect(published).toHaveLength(1);
+    expect(published[0]).toMatchObject({ collection: "pages", id: "home" });
+    expect(JSON.parse(readFileSync(resolve(FIXTURE, ".caret/data/pages/home.json"), "utf8")).headline).toBe("Receipt headline");
+    await expect.poll(async () => (await (await page.request.get("/api/cms/draft")).json()).count).toBe(1);
+  } finally {
+    rmSync(resolve(FIXTURE, ".caret"), { recursive: true, force: true });
+    rmSync(resolve(FIXTURE, ".caretcms"), { recursive: true, force: true });
+    seedPublishedEntry();
+  }
+});
+
 test("discards a draft and retries a failed deploy through toolbar requests", async ({ page }) => {
   try {
     const login = await page.request.post("/api/cms/auth/login", {
