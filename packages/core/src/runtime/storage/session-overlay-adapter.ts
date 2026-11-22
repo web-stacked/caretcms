@@ -1,4 +1,4 @@
-import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, contentFingerprint, contentWithoutState, draftFieldChanges, isStaleDraft, readDraftState, rebaseDraft, sameContent, TEMPLATE_TEXT_KEY, type DraftFieldChange, type DraftState } from "../draft-state.js";
+import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, contentFingerprint, contentWithoutState, draftFieldChanges, isStaleDraft, readDraftState, rebaseDraft, applyDifference, takeAt, valueAt, sameContent, TEMPLATE_TEXT_KEY, type DraftFieldChange, type DraftState } from "../draft-state.js";
 import { draftTemplateRecord } from "../template-text.js";
 import { readAdapterSnapshot, readAdapterSnapshots } from "./read-snapshot.js";
 import { commitEntryChanges } from "./entry-commit.js";
@@ -135,14 +135,9 @@ export class SessionOverlayAdapter implements StorageAdapter {
     if (!isStaleDraft(state, published)) return { state, data: content };
     const previous = contentWithoutState(stored);
     const shown = previous[TOMBSTONE_KEY] === true ? previous : rebaseDraft(state, previous, published).data;
-    const own: Record<string, unknown> = { ...previous };
-    for (const key of new Set([...Object.keys(shown), ...Object.keys(content)])) {
-      if (key === TEMPLATE_TEXT_KEY) continue;
-      const has = Object.hasOwn(content, key);
-      if (has === Object.hasOwn(shown, key) && (!has || sameContent(content[key], shown[key]))) continue;
-      if (has) own[key] = content[key];
-      else delete own[key];
-    }
+    const { [TEMPLATE_TEXT_KEY]: _shown, ...before } = shown;
+    const { [TEMPLATE_TEXT_KEY]: _saved, ...after } = content;
+    const own = applyDifference(previous, before, after);
     const carried = rebaseDraft(state, own, published);
     if (carried.conflicts.length || carried.removed) return { state, data: own };
     return { state: { ...state, baseRevision: base.revision, baseData: published }, data: carried.data };
@@ -207,7 +202,7 @@ export class SessionOverlayAdapter implements StorageAdapter {
     if (!carried?.conflicts.length && !carried?.removed && !lost.length) return null;
     const drafts = (own.data[BODY_OVERLAY_KEY] ?? {}) as Record<string, { md?: unknown }>;
     return { collection, id, removed: carried?.removed ?? false,
-      fields: (carried?.conflicts ?? []).map(field => ({ field, mine: carried!.data[field], site: base?.[field] })),
+      fields: (carried?.conflictPaths ?? []).map(path => ({ field: path.join("."), mine: valueAt(carried!.data, path), site: valueAt(base, path) })),
       body: lost.map(path => (typeof drafts[path]?.md === "string" ? drafts[path].md as string : "")) };
   }
 
@@ -236,10 +231,7 @@ export class SessionOverlayAdapter implements StorageAdapter {
 
     let data: Record<string, unknown> | null = { ...(carried?.data ?? content) };
     if (keep === "site") {
-      for (const field of carried?.conflicts ?? []) {
-        if (published && Object.hasOwn(published, field)) data[field] = published[field];
-        else delete data[field];
-      }
+      for (const path of carried?.conflictPaths ?? []) data = takeAt(data, published, path);
       if (lost.length) {
         const body = { ...(data[BODY_OVERLAY_KEY] as Record<string, unknown>) };
         for (const path of lost) delete body[path];
@@ -282,19 +274,20 @@ export class SessionOverlayAdapter implements StorageAdapter {
     if (!state?.structured) return false;
     const published = (await this.base.getEntry(collection, id))?.data ?? null;
     const content = contentWithoutState(own.data);
-    if (!draftFieldChanges(state, content, published).some(change => change.field === field && change.kind !== "site")) return false;
-    const data: Record<string, unknown> = { ...rebaseDraft(state, content, published).data };
-    if (published && Object.hasOwn(published, field)) data[field] = published[field];
-    else delete data[field];
+    const change = draftFieldChanges(state, content, published).find(candidate => candidate.field === field && candidate.kind !== "site");
+    if (!change) return false;
+    // One item of a list the site doesn't have can't be taken back alone: take the list back.
+    let path = change.path;
+    for (let depth = 1; depth < path.length; depth++) {
+      const prefix = path.slice(0, depth);
+      if (Array.isArray(valueAt(content, prefix)) && !Array.isArray(valueAt(published, prefix))) { path = prefix; break; }
+    }
+    const data = takeAt(rebaseDraft(state, content, published).data, published, path);
     const own_ = (entry: Record<string, unknown> | null) => entry && Object.fromEntries(Object.entries(entry).filter(([key]) => key !== TEMPLATE_TEXT_KEY));
     const nothingLeft = published ? sameContent(own_(data), own_(published)) : Object.keys(own_(data) ?? {}).length === 0;
-    const kept: Record<string, unknown> = { ...content };
-    if (Object.hasOwn(data, field)) kept[field] = data[field];
-    else delete kept[field];
+    const kept = takeAt(content, published, path);
     // The draft agrees with the site on this field again, so a later change to it there is no conflict.
-    const agreed: Record<string, unknown> = { ...(state.baseData ?? {}) };
-    if (published && Object.hasOwn(published, field)) agreed[field] = published[field];
-    else delete agreed[field];
+    const agreed = takeAt(state.baseData ?? {}, published, path);
     const settled = await commitEntryChanges(this.overlay, [{ collection, id, expectedRevision: revision, expectedExists: true,
       data: nothingLeft ? null : { ...kept, [DRAFT_STATE_KEY]: { ...state, baseData: state.baseData === null && !published ? null : agreed } } }]);
     if (!settled.ok) throw new Error("Draft changed while it was being settled");

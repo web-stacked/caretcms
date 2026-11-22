@@ -268,3 +268,69 @@ test("fields a writer may not edit are read-only and say why", async ({ browser 
     await admin.close();
   }
 });
+
+test("two editors who change different parts of the same section don't collide, and the same part is named", async ({ browser }) => {
+  test.setTimeout(60_000);
+  const admin = await identityContext(browser, "admin");
+  const reviewer = await identityContext(browser, "reviewer");
+  const SUBTEXT = 'p[data-caret="hero.subtext"]';
+  const publish = async (page: import("@playwright/test").Page) => {
+    await page.locator(".cms-publish-btn").click();
+    await page.getByRole("dialog", { name: /^Publish \d+ changes?\?$/ }).getByRole("button", { name: "Publish", exact: true }).click();
+    await expect(page.getByText(/^Published 1 change/)).toBeVisible();
+  };
+  try {
+    const adminPage = await admin.newPage();
+    await adminPage.goto("/");
+    await replaceText(adminPage, adminPage.locator(HEADLINE), "Admin headline");
+    expect((await blurToSave(adminPage, adminPage.locator(HEADLINE))).ok()).toBe(true);
+
+    // The reviewer starts from the same published page and changes both parts of the hero.
+    const reviewerPage = await reviewer.newPage();
+    await reviewerPage.goto("/");
+    await replaceText(reviewerPage, reviewerPage.locator(HEADLINE), "Reviewer headline");
+    expect((await blurToSave(reviewerPage, reviewerPage.locator(HEADLINE))).ok()).toBe(true);
+    await replaceText(reviewerPage, reviewerPage.locator(SUBTEXT), "Reviewer subtext");
+    expect((await blurToSave(reviewerPage, reviewerPage.locator(SUBTEXT))).ok()).toBe(true);
+
+    await publish(adminPage);
+
+    // Only the headline collides. It is named as an editor reads it, with both texts and no JSON.
+    await reviewerPage.reload();
+    await expect(reviewerPage.locator(".cms-changes-btn")).toHaveText("Changes · 2");
+    await reviewerPage.locator(".cms-conflict-btn").click();
+    const dialog = reviewerPage.getByRole("dialog", { name: /also changed on the site/ });
+    await expect(dialog).toContainText("Hero › Headline");
+    await expect(dialog).toContainText("On the site now: Admin headline");
+    await expect(dialog).toContainText("Yours: Reviewer headline");
+    await expect(dialog).not.toContainText("{");
+    await dialog.getByRole("button", { name: "Use the site’s version" }).click();
+
+    // The reviewer's other change is still theirs, and publishes on top of the admin's.
+    await expect(reviewerPage.locator(HEADLINE)).toHaveText("Admin headline");
+    await expect(reviewerPage.locator(SUBTEXT)).toHaveText("Reviewer subtext");
+    await reviewerPage.locator(".cms-publish-btn").click();
+    await expect(reviewerPage.getByRole("dialog", { name: /^Publish \d+ changes?\?$/ })).toContainText("Hero › Subtext");
+    await reviewerPage.getByRole("dialog", { name: /^Publish \d+ changes?\?$/ }).getByRole("button", { name: "Publish", exact: true }).click();
+    await expect(reviewerPage.getByText(/^Published 1 change/)).toBeVisible();
+    expect(JSON.parse(readFileSync(resolve(DATA, "pages/home.json"), "utf8")).hero).toEqual({ headline: "Admin headline", subtext: "Reviewer subtext" });
+
+    // Page history shows rich text and the template's own text for the time before anything was saved.
+    await reviewerPage.locator(".cms-tools-summary").click();
+    await reviewerPage.locator(".cms-page-history-btn").click();
+    const history = reviewerPage.getByRole("dialog", { name: "Page history" });
+    await expect(history).toContainText("Drag left to see the 2 earlier versions of this page.");
+    await history.getByRole("slider").fill("0");
+    await expect(history).toContainText("Version 1 of 3");
+    await expect(reviewerPage.locator(HEADLINE)).toHaveText(ORIGINAL);
+    await expect(reviewerPage.locator(SUBTEXT)).toContainText("Annotate normal HTML");
+    await history.getByRole("slider").fill("1");
+    await expect(reviewerPage.locator(HEADLINE)).toHaveText("Admin headline");
+    await expect(history).toContainText("1 difference from now");
+    await history.getByRole("button", { name: "Close" }).click();
+    await expect(reviewerPage.locator(SUBTEXT)).toHaveText("Reviewer subtext");
+  } finally {
+    await admin.close();
+    await reviewer.close();
+  }
+});

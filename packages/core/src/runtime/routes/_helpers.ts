@@ -226,32 +226,60 @@ export async function withTitles<T extends { collection: string; id: string }>(
   }));
 }
 
-/** A value as short text for a message: strings as they are (markup removed), anything else as JSON. */
+/** The words in a value: a string as it is (markup removed), a list or group as its texts in order. */
+function wordsIn(value: unknown): string[] {
+  if (value === undefined || value === null || value === "") return [];
+  if (typeof value === "string") return [value.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim()].filter(Boolean);
+  if (typeof value !== "object") return [String(value)];
+  return (Array.isArray(value) ? value : Object.values(value)).flatMap(wordsIn);
+}
+
+/** A value as short text for a message. An editor never reads JSON: a list or group reads as its texts. */
 function preview(value: unknown): string {
-  if (value === undefined || value === null || value === "") return "";
-  const text = typeof value === "string" ? value.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim() : JSON.stringify(value);
+  const text = wordsIn(value).join(" · ");
   return text.length > 160 ? `${text.slice(0, 159)}…` : text;
+}
+
+type LabelSchema = { title?: unknown; properties?: Record<string, LabelSchema>; items?: LabelSchema };
+
+/**
+ * A field path as the editor reads it: the schema's titles where it has them,
+ * readable key names otherwise, outermost first ("Hero › Headline"). A place
+ * in a list reads as its number ("Features 2 › Title").
+ */
+function pathLabel(collection: string, field: string): string {
+  let schema = getRegisteredSchema(collection) as LabelSchema | undefined;
+  const parts: string[] = [];
+  for (const key of field.split(".")) {
+    if (/^\d+$/.test(key) && parts.length && (!schema?.properties || !Object.hasOwn(schema.properties, key))) {
+      parts[parts.length - 1] += ` ${Number(key) + 1}`;
+      schema = schema?.items;
+      continue;
+    }
+    schema = schema?.properties && Object.hasOwn(schema.properties, key) ? schema.properties[key] : undefined;
+    parts.push(typeof schema?.title === "string" ? schema.title : humanizeEntryId(key));
+  }
+  return parts.join(" › ");
 }
 
 /** Draft conflicts as the editor reads them: entry title, field labels and both values as text. */
 export async function describeDraftConflicts(base: StorageAdapter, overlay: StorageAdapter, conflicts: DraftConflict[]) {
-  return (await withTitles(base, overlay, conflicts)).map((conflict) => {
-    const properties = (getRegisteredSchema(conflict.collection) as { properties?: Record<string, { title?: unknown }> } | undefined)?.properties ?? {};
-    return { collection: conflict.collection, id: conflict.id, title: conflict.title, removed: conflict.removed, body: conflict.body,
-      fields: conflict.fields.map(({ field, mine, site }) => ({ field,
-        label: typeof properties[field]?.title === "string" ? properties[field].title as string : humanizeEntryId(field),
-        mine: preview(mine), site: preview(site) })) };
-  });
+  return (await withTitles(base, overlay, conflicts)).map(conflict => ({
+    collection: conflict.collection, id: conflict.id, title: conflict.title, removed: conflict.removed, body: conflict.body,
+    fields: conflict.fields.map(({ field, mine, site }) => ({ field, label: pathLabel(conflict.collection, field), mine: preview(mine), site: preview(site) })),
+  }));
 }
 
 /** Draft changes as the editor reads them: entry title, field labels and each value as short text. */
 export async function describeDraftChanges(base: StorageAdapter, overlay: StorageAdapter, entries: EntryFieldChanges[]) {
+  // Where nothing is stored yet, the site shows the text written in the template: say that, not "empty".
+  const templates = await loadPageContent();
   return (await withTitles(base, overlay, entries)).map((entry) => {
-    const properties = (getRegisteredSchema(entry.collection) as { properties?: Record<string, { title?: unknown }> } | undefined)?.properties ?? {};
+    const template = templates[entry.collection]?.[entry.id] ?? {};
+    const shown = (value: unknown, field: string) => preview(value) || preview(template[field]);
     return { collection: entry.collection, id: entry.id, title: entry.title,
-      changes: entry.changes.map(({ field, kind, started, mine, site }) => ({ field, kind,
-        label: typeof properties[field]?.title === "string" ? properties[field].title as string : humanizeEntryId(field),
-        started: preview(started), mine: preview(mine), site: preview(site) })) };
+      changes: entry.changes.map(({ field, kind, started, mine, site }) => ({ field, kind, label: pathLabel(entry.collection, field),
+        started: shown(started, field), mine: kind === "site" ? shown(mine, field) : preview(mine), site: shown(site, field) })) };
   });
 }
 
