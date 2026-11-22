@@ -80,3 +80,32 @@ the content file to use the template's text.
 See [static delivery](./static-delivery.md),
 [authorization policy](./authorization-policy.md), and
 [publish recovery](./publish-recovery.md) for the underlying runtime behavior.
+
+## Seeing what changed, and taking it back
+
+Several people often work on one site: an editor in the browser, a developer
+in Git, and sometimes a second editor. The on-page editor shows what changed
+and lets an editor take a change back without the Studio.
+
+- **Changes** (in the toolbar while you have drafts) puts a dot beside each
+  element on the page that you changed (amber), that changed on the site after
+  you started editing (blue), or both. A dot opens a card with the site's value
+  and yours, with **Undo my change** for that one field. A change on both sides
+  opens the **Keep mine** / **Use the site's version** choice.
+- **Since you were last here.** When you come back to a page, content that
+  changed and isn't your own edit is announced, and **Show me** steps through
+  each change. What you last saw is remembered in your browser, per page.
+- **Publish** lists each draft by name with what it changes. With more than one
+  draft, untick the ones to keep as drafts.
+- **Undo** in the message after a publish puts back what that publish replaced,
+  as a new publish, so Git on publish commits it and a static site rebuilds. It
+  refuses when the page changed after your publish (another publish, or a
+  developer editing the file), while you have newer changes to the same page,
+  and for a publish that changed Markdown body text. Restore those from History
+  in the Studio.
+- **Tools → Page history** is a slider over the times this page's content was
+  published. Dragging it shows what plain text and images said then, on the page
+  itself. **Restore this version** saves it as a draft to publish like any other.
+- **Tools → How editing works** shows the short explanation a new editor sees on
+  their first sign-in in a browser.
+
