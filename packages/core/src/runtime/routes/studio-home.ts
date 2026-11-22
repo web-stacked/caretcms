@@ -11,7 +11,7 @@ import {
   getStudioCollections,
   resolveCollectionStudioConfig,
 } from "../schema-registry.js";
-import { COLLECTION_NAME_RE, ENTRY_ID_RE } from "../storage/id-contracts.js";
+import { COLLECTION_NAME_RE, ENTRY_ID_RE, entryIdPath } from "../storage/id-contracts.js";
 import type { StorageAdapter } from "../../types.js";
 import { allUnpublishedEntries } from "../unpublished.js";
 import { entryDisplayTitle } from "../entry-title.js";
@@ -82,7 +82,7 @@ export async function GET(context: APIContext): Promise<Response> {
   const navigation = await studioNavigation(runtime, adapter);
 
   const entryHref = (collection: string, id: string) =>
-    `${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`;
+    `${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${entryIdPath(id)}`;
 
   const pageEntryKeys = readPageEntryKeys(context.url);
   const pageEntries = await Promise.all(pageEntryKeys.map(async ({ collection, id }) => {

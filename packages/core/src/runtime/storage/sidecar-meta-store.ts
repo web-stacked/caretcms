@@ -3,7 +3,7 @@ import { validGitJournalReceipt } from "../git-journal-receipt.js";
 import { sameContent } from "../draft-state.js";
 import type { DeploymentTarget, RebuildReceipt, GitJournalReceipt } from "../../types.js";
 import { mkdir, readFile, readdir, rm, unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { CollectionMetadata, HistoryEntry } from "../../types.js";
 import { atomicWrite, serializeWrite } from "./atomic-write.js";
 import { COLLECTION_NAME_RE } from "./id-contracts.js";
@@ -256,7 +256,7 @@ export class SidecarMetaStore {
     entries: HistoryEntry[],
   ): Promise<void> {
     const filePath = this.historyFilePath(collection, id);
-    await mkdir(join(this.metaRoot, "history", collection), { recursive: true });
+    await mkdir(dirname(filePath), { recursive: true });
     await atomicWrite(filePath, `${JSON.stringify(entries, null, 2)}\n`);
   }
 

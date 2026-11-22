@@ -87,11 +87,58 @@ describe("MarkdownAdapter", () => {
       expect(await adapter.listEntryIds("blog")).toEqual(["x"]);
     });
 
-    it("does not descend into subdirectories", async () => {
+    it("lists files in sub-folders with their path as the id", async () => {
       await seed("blog", "top.md", `---\n---\n`);
-      await mkdir(join(contentRoot, "blog", "2024"), { recursive: true });
-      await writeFile(join(contentRoot, "blog", "2024", "nested.md"), `---\n---\n`, "utf8");
-      expect(await adapter.listEntryIds("blog")).toEqual(["top"]);
+      await mkdir(join(contentRoot, "blog", "en", "2024"), { recursive: true });
+      await mkdir(join(contentRoot, "blog", "_drafts"), { recursive: true });
+      await mkdir(join(contentRoot, "blog", "guides"), { recursive: true });
+      await writeFile(join(contentRoot, "blog", "en", "hello.md"), `---\n---\n`, "utf8");
+      await writeFile(join(contentRoot, "blog", "en", "2024", "nested.mdx"), `---\n---\n`, "utf8");
+      await writeFile(join(contentRoot, "blog", "_drafts", "hidden.md"), `---\n---\n`, "utf8");
+      // Astro names a folder's index file after the folder.
+      await writeFile(join(contentRoot, "blog", "guides", "index.md"), `---\n---\n`, "utf8");
+      expect(await adapter.listEntryIds("blog")).toEqual(["en/2024/nested", "en/hello", "guides", "top"]);
+    });
+  });
+
+  describe("entries in sub-folders", () => {
+    it("reads, rewrites and deletes an entry in place", async () => {
+      await mkdir(join(contentRoot, "blog", "en"), { recursive: true });
+      const path = join(contentRoot, "blog", "en", "hello.md");
+      await writeFile(path, `---\ntitle: Hello\n---\n\nBody stays.\n`, "utf8");
+      expect((await adapter.getEntry("blog", "en/hello"))?.data).toEqual({ title: "Hello" });
+      await adapter.writeEntry("blog", "en/hello", { title: "Hi" });
+      expect(await readFile(path, "utf8")).toBe(`---\ntitle: Hi\n---\n\nBody stays.\n`);
+      expect(await adapter.readBodySource("blog", "en/hello")).toContain("Body stays.");
+      await adapter.deleteEntry("blog", "en/hello");
+      expect(await adapter.getEntry("blog", "en/hello")).toBeNull();
+    });
+
+    it("creates the folders of a new entry", async () => {
+      await adapter.writeEntry("blog", "fr/2026/bonjour", { title: "Bonjour" });
+      expect(await readFile(join(contentRoot, "blog", "fr", "2026", "bonjour.md"), "utf8")).toContain("title: Bonjour");
+    });
+
+    it("edits a folder's index file under the folder's id", async () => {
+      await mkdir(join(contentRoot, "docs", "guides"), { recursive: true });
+      const path = join(contentRoot, "docs", "guides", "index.md");
+      await writeFile(path, `---\ntitle: Guides\n---\n`, "utf8");
+      await adapter.writeEntry("docs", "guides", { title: "All guides" });
+      expect(await readFile(path, "utf8")).toContain("title: All guides");
+      expect(await adapter.committableEntryPaths("docs", "guides", false)).toEqual([path]);
+    });
+
+    it("keeps history and revisions per path id", async () => {
+      await adapter.writeEntry("blog", "en/hello", { title: "Hello" });
+      expect(await adapter.bumpRevision("blog", "en/hello")).toBe(1);
+      expect(await adapter.getRevision("blog", "hello")).toBe(0);
+    });
+
+    it("refuses ids that could leave the collection folder", async () => {
+      for (const id of ["../secret", "en/../../secret", "/etc", "en/", "en//x", "en/.hidden", "en\\x"]) {
+        expect(await adapter.getEntry("blog", id)).toBeNull();
+        await expect(adapter.writeEntry("blog", id, { title: "x" })).rejects.toThrow(/invalid entry path/);
+      }
     });
   });
 

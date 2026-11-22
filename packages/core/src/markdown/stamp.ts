@@ -65,9 +65,9 @@ function normalizeRoot(contentRoot: string): string {
 
 /**
  * Resolve a source file to its `{collection, id}` under the content root, or
- * `null`. v1 scope: flat `<contentRoot>/<collection>/<id>.md` only — `.mdx`,
- * nested slugs, and identifiers failing the id grammar are intentionally
- * unmatched (and so never stamped).
+ * `null`. Scope: `<contentRoot>/<collection>/<id>.md`, where the id may be a
+ * path into sub-folders — `.mdx` and identifiers failing the id grammar are
+ * intentionally unmatched (and so never stamped).
  */
 export function resolveEntry(
   fileURL: string | URL | undefined,
@@ -79,12 +79,11 @@ export function resolveEntry(
   if (!path.startsWith(`${root}/`)) return null;
 
   const rel = path.slice(root.length + 1);
-  const segments = rel.split("/");
-  if (segments.length !== 2) return null; // nested slugs are out of scope in v1
-
-  const [collection, filename] = segments;
-  if (!filename.endsWith(".md")) return null; // .mdx stamped in a later version
-  const id = filename.slice(0, -".md".length);
+  const [collection, ...rest] = rel.split("/");
+  const file = rest.join("/");
+  if (!file.endsWith(".md")) return null; // .mdx stamped in a later version
+  // Astro names `guides/index.md` "guides".
+  const id = file.slice(0, -".md".length).replace(/\/index$/, "");
   if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) return null;
   return { collection, id };
 }

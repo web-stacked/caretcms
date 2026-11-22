@@ -1,3 +1,4 @@
+import { entryIdPath } from "./storage/id-contracts.js";
 import type { CollectionStudioConfig } from "../types.js";
 
 const FIELD_SEGMENT_RE = /^[A-Za-z_][A-Za-z0-9_-]*$/;
@@ -54,5 +55,5 @@ export function resolvePreviewPath(
   const configured = config?.previewPath;
   const template = typeof configured === "string" ? configured : configured?.[id];
   if (typeof template !== "string") return null;
-  return safeSameOriginPath(template.replaceAll("{id}", encodeURIComponent(id)));
+  return safeSameOriginPath(template.replaceAll("{id}", entryIdPath(id)));
 }

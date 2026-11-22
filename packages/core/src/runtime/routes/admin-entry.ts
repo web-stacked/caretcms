@@ -1,3 +1,4 @@
+import { entryIdPath } from "../storage/id-contracts.js";
 import { canPerform } from "../authorization.js";
 import { isPageCollection, loadPageContent } from "../page-content.js";
 export const prerender = false;
@@ -46,7 +47,7 @@ export async function GET(context: APIContext): Promise<Response> {
   const collectionConfig = await resolveCollectionStudioConfig(adapter, collection);
   if (collectionConfig.singletonId && id !== collectionConfig.singletonId) {
     return redirectResponse(
-      `${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(collectionConfig.singletonId)}`,
+      `${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${entryIdPath(collectionConfig.singletonId)}`,
     );
   }
   const label = collectionConfig.label || humanizeCollection(collection);
@@ -290,7 +291,7 @@ export async function GET(context: APIContext): Promise<Response> {
 
     <div id="not-found" hidden style="text-align:center;padding:5rem 0;color:var(--studio-text-dim);">
       <p>${escapeHtml(messages["entry.notFound"])}</p>
-      <a href="${escapeHtml(`${runtime.mountPath}/cms/${collection}`)}" style="margin-top:1rem;display:inline-block;font-size:0.75rem;color:var(--studio-accent);text-decoration:underline;">${escapeHtml(messages["entry.goBack"])}</a>
+      <a href="${escapeHtml(`${runtime.mountPath}/cms/${encodeURIComponent(collection)}`)}" style="margin-top:1rem;display:inline-block;font-size:0.75rem;color:var(--studio-accent);text-decoration:underline;">${escapeHtml(messages["entry.goBack"])}</a>
     </div>
 
     <div id="editor" hidden>

@@ -18,7 +18,7 @@ function readParagraphBinding(element) {
   if (!binding || !src) return null;
   const parts = binding.split('::');
   if (parts.length !== 4 || parts[2] !== 'body' || !/^\d+$/.test(parts[3])) return null;
-  if (!/^[a-z][a-z0-9_-]*$/.test(parts[0]) || !/^[a-z0-9][a-z0-9_-]*$/.test(parts[1])) return null;
+  if (!/^[a-z][a-z0-9_-]*$/.test(parts[0]) || !/^[a-z0-9][a-z0-9_-]*(?:\/[a-z0-9][a-z0-9_-]*)*$/.test(parts[1])) return null;
   if (!/^\d+:\d+:[0-9a-f]{8}$/.test(src)) return null;
   const [start, end] = src.split(':').map(Number);
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= end) return null;

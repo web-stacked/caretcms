@@ -1,3 +1,4 @@
+import { entryIdPath } from "../storage/id-contracts.js";
 import { canPerform } from "../authorization.js";
 import { isPageCollection, loadPageContent } from "../page-content.js";
 export const prerender = false;
@@ -48,7 +49,7 @@ export async function GET(context: APIContext): Promise<Response> {
   const collectionConfig = await resolveCollectionStudioConfig(adapter, collection);
   if (collectionConfig.singletonId) {
     return redirectResponse(
-      `${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(collectionConfig.singletonId)}`,
+      `${runtime.mountPath}/cms/${encodeURIComponent(collection)}/${entryIdPath(collectionConfig.singletonId)}`,
     );
   }
   const label = collectionConfig.label || humanizeCollection(collection);
@@ -300,7 +301,7 @@ export async function GET(context: APIContext): Promise<Response> {
     var THUMBNAIL_FIELD = ${serializeJsonForScript(collectionConfig.thumbnailField || null)};
     var SUBTITLE_FIELD = ${serializeJsonForScript(collectionConfig.subtitleField || null)};
     var CREATE_LABEL = ${serializeJsonForScript(createLabel)};
-    var ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+    var ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\\/[a-z0-9]+(?:-[a-z0-9]+)*)*$/;
     var allEntries = [];
     var currentPage = 1;
     var query = '';
@@ -431,7 +432,7 @@ export async function GET(context: APIContext): Promise<Response> {
           published === null ? '' : MSG[published ? 'collection.published' : 'collection.unpublished'],
         ].filter(Boolean).join(', ');
         var card = document.createElement('a');
-        card.href = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entry.id);
+        card.href = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entry.id).replace(/%2F/g, '/');
         card.className = 'entry-card studio-card';
         // Named by its title; subtitle and status are its description, so
         // they aren't read as one run-on name.
@@ -682,7 +683,7 @@ export async function GET(context: APIContext): Promise<Response> {
               idInput.select();
               return;
             }
-            var target = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entryId) + '?new=1';
+            var target = MOUNT + '/cms/' + encodeURIComponent(COLLECTION) + '/' + encodeURIComponent(entryId).replace(/%2F/g, '/') + '?new=1';
             if (TITLE_FIELD && titleInput.value.trim()) target += '&title=' + encodeURIComponent(titleInput.value.trim());
             window.location.href = target;
           });

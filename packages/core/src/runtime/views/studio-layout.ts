@@ -506,7 +506,7 @@ export function renderStudioPage(opts: StudioLayoutOptions): string {
                     var snippet = entry.match && typeof entry.match.snippet === 'string' ? entry.match.snippet : '';
                     var title = typeof entry.title === 'string' ? entry.title : entry.id;
                     // A singleton is named by its collection already.
-                    return { group: messages.entries, label: title, detail: title === item.label ? '' : item.label, snippet: snippet, href: mountPath + '/cms/' + encodeURIComponent(item.name) + '/' + encodeURIComponent(entry.id) };
+                    return { group: messages.entries, label: title, detail: title === item.label ? '' : item.label, snippet: snippet, href: mountPath + '/cms/' + encodeURIComponent(item.name) + '/' + encodeURIComponent(entry.id).replace(/%2F/g, '/') };
                   });
                 }).catch(function () { return []; });
             })).then(function (groups) {

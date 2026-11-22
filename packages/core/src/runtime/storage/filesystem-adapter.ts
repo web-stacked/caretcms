@@ -124,16 +124,26 @@ export class FilesystemAdapter implements StorageAdapter {
 
   async listEntryIds(collection: string): Promise<string[]> {
     if (!COLLECTION_NAME_RE.test(collection)) return [];
-    try {
-      const files = await readdir(this.collectionDir(collection), { withFileTypes: true });
-      return files
-        .filter((item) => item.isFile() && item.name.endsWith(".json"))
-        .map((item) => item.name.slice(0, -".json".length))
-        .filter((stem) => ENTRY_ID_RE.test(stem))
-        .sort((a, b) => a.localeCompare(b));
-    } catch {
-      return [];
-    }
+    const ids: string[] = [];
+    /** Collect the folder at `prefix` (an id path ending in "/", or ""). */
+    const walk = async (dir: string, prefix: string): Promise<void> => {
+      let files: import("node:fs").Dirent[];
+      try {
+        files = await readdir(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const item of files) {
+        if (item.isDirectory()) {
+          if (ENTRY_ID_RE.test(prefix + item.name)) await walk(join(dir, item.name), `${prefix}${item.name}/`);
+        } else if (item.isFile() && item.name.endsWith(".json")) {
+          const id = prefix + item.name.slice(0, -".json".length);
+          if (ENTRY_ID_RE.test(id)) ids.push(id);
+        }
+      }
+    };
+    await walk(this.collectionDir(collection), "");
+    return ids.sort((a, b) => a.localeCompare(b));
   }
 
   async listEntries(collection: string): Promise<EntryData[]> {
@@ -155,9 +165,8 @@ export class FilesystemAdapter implements StorageAdapter {
     if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) {
       throw new Error(`[caretcms] invalid entry path ${collection}/${id}`);
     }
-    const dir = this.collectionDir(collection);
-    await mkdir(dir, { recursive: true });
-    const filePath = join(dir, `${id}.json`);
+    const filePath = join(this.collectionDir(collection), `${id}.json`);
+    await mkdir(dirname(filePath), { recursive: true });
     await atomicWrite(filePath, `${JSON.stringify(data, null, 2)}\n`);
   }
 

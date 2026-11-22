@@ -165,9 +165,10 @@ function parseCollection(_adapter: StorageAdapter, value: unknown): string | nul
 }
 
 /**
- * Validate an entry id as a filesystem-safe slug. Blocks `..`, `/`, `\`,
- * leading `.`, and any character outside `[a-z0-9_-]`. Critical: prevents
- * path traversal in adapters that use the id as a filename.
+ * Validate an entry id as filesystem-safe: slug segments joined by `/`. Blocks
+ * `..`, `\`, a leading or trailing `/`, a leading `.`, and any other character
+ * outside `[a-z0-9_-]`. Critical: prevents path traversal in adapters that use
+ * the id as a file path.
  */
 export function parseEntryId(value: unknown): string | null {
   if (typeof value !== "string") return null;

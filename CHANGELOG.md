@@ -8,6 +8,76 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+Found by using 0.7.0 on the example sites with two editors signed in at once,
+and on a large open-source Astro template with a folder per language.
+
+### Added
+
+- **Entries in sub-folders are editable.** A collection that keeps its Markdown
+  in sub-folders (`src/content/blog/en/post-1.md`, one folder per language or
+  per year) used to show as "0 entries" in the Studio, and nothing from it could
+  be edited on the page. Entry ids may now be paths, as Astro names them:
+  `en/post-1`. Such entries are listed in the Studio, open at
+  `/admin/cms/blog/en/post-1`, are edited on the page (frontmatter and body
+  text), and publish to their own file. `guides/index.md` has the id `guides`,
+  as in Astro. A new entry can be given a path id, and its folders are created.
+  Every segment of an id follows the old rule (lowercase letters, digits, `-`
+  and `_`, starting with a letter or digit), so an id still can't leave its
+  collection folder.
+
+  For custom storage adapters: `StorageAdapter` methods can now receive ids
+  that contain `/`. `ENTRY_ID_RE` in `@caretcms/core/contracts` is the new
+  grammar. The filesystem, Markdown and Cloudflare adapters handle it.
+
+  After upgrading a site that has such entries, delete the `.astro` folder once
+  if their body text isn't editable: Astro caches rendered Markdown.
+
+### Fixed
+
+- **Two people editing different parts of the same section no longer collide.**
+  A draft was compared with the site one top-level field at a time, so for
+  nested content (`hero.headline`, `hero.subtext`) a change to the headline by
+  one person and to the subtext by another was reported as one conflict on the
+  whole `hero` object, shown as JSON, and **Use the site's version** dropped
+  the unrelated value too. Drafts are now compared value by value inside
+  objects: different values merge, and a conflict names the one value
+  ("Hero › Headline") with both texts. A list both sides changed is still one
+  conflict, because its items can't be matched safely. This was in 0.6.3 and
+  0.7.0. `conflicts[].fields` and `GET /api/cms/draft?changes=1` now name
+  nested values by their path (`hero.headline`).
+- A `data-caret` on the same element as its `data-caret-scope` looked editable
+  but never saved, and the server didn't show its stored value. An element's
+  own scope now counts everywhere. Text whose binding can't be resolved at all
+  is no longer editable, and says why.
+- **Changes** said "Nothing on this page has changed" when the only change was
+  edited Markdown body text. Body text now gets a dot too.
+- Lists and groups in the Changes card, the conflict dialog and the Publish
+  dialog read as their texts, not as JSON. Where nothing is stored yet, the
+  site's value is the text written in the template instead of "(empty)".
+- **Page history** now shows rich text (any text with bold, links or code in
+  it) and the template's own text for the time before anything was saved. It
+  no longer lists versions that look the same as the page does now.
+- On a site that saves live, **Restore this version** said the version "is now
+  a draft"; it says the version is back on the site. A restore is no longer
+  announced back to the editor as someone else's change.
+- **Undo** is not offered for a publish that changed body text (it was always
+  refused; History restores those), and **Undo last publish** goes away once
+  the page has changed since.
+- Page history and the status panel no longer open on top of each other.
+
+### Changed
+
+- "Since you were last here" gives the time for changes made earlier today
+  ("since 2:05 PM today") and drops the step counter and Skip when there is one
+  change.
+- Page history says how many earlier versions there are before you drag.
+- Publish results carry `text: true` for an entry whose body text changed, and
+  `GET /api/cms/history` returns `template`, the template's text per binding.
+
+Also since 0.7.0: the tour shows each change in a card beside it, page history
+outlines what differs and scrolls it into view, **Undo last publish** stays in
+the status panel for 30 minutes, and **Changes** shows a count.
+
 ## [0.7.0] - 2026-11-21
 
 Core 0.7.0 and cloudflare 0.6.1. Built for sites where an editor and a

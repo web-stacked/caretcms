@@ -105,9 +105,14 @@ describe("caretSatteriPlugin — stamps editable blocks", () => {
     expect(stamps(html)).toHaveLength(0);
   });
 
-  it("stamps nothing for a nested-slug path (v1 flat-only)", async () => {
+  it("stamps a file in a sub-folder with its path as the id", async () => {
     const html = await render("# Hi", fileURL("blog/2026/hi.md"));
-    expect(stamps(html)).toHaveLength(0);
+    expect(stamps(html).map((x) => x.binding.split("::").slice(0, 2).join("::"))).toEqual(["blog::2026/hi"]);
+  });
+
+  it("names a folder's index file after the folder, as Astro does", async () => {
+    const html = await render("# Hi", fileURL("docs/guides/index.md"));
+    expect(stamps(html).map((x) => x.binding.split("::").slice(0, 2).join("::"))).toEqual(["docs::guides"]);
   });
 
   it("maps non-ASCII (UTF-8 byte) offsets to string indices", async () => {

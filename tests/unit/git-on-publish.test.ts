@@ -93,14 +93,14 @@ it("journals a recovered Markdown plan from its persisted bytes after an adapter
   expect(readFileSync(join(contentRoot, "blog/hello.md"), "utf8")).toContain("Later body");
 });
 
-it("journals both deleted Markdown extensions and leaves a later recreation untouched", async () => {
+it("journals every file a deleted Markdown entry could be in and leaves a later recreation untouched", async () => {
   writeFileSync(join(contentRoot, "blog/hello.mdx"), "---\ntitle: Alternate\n---\nexport const x = 1;\n");
   git(dir, "add", "src/content/blog/hello.mdx"); git(dir, "commit", "-qm", "add alternate");
   const base = new MarkdownAdapter({ contentRoot, metaRoot: join(dir, "meta"), draftsRoot: join(dir, "drafts") });
   const overlay = await base.makeEditorOverlay("delete-editor");
   await new SessionOverlayAdapter(base, overlay).deleteEntry("blog", "hello");
   const { journalSources } = await publishOverlay(base, overlay);
-  expect(journalSources).toHaveLength(2);
+  expect(journalSources).toHaveLength(4);
   writeFileSync(join(contentRoot, "blog/hello.md"), "Recreated after publish\n");
   expect(await commitSnapshots({ cwd: dir, sources: journalSources!, message: "publish deletion" })).toBeTruthy();
   expect(git(dir, "ls-tree", "-r", "--name-only", "HEAD").trim()).toBe("");

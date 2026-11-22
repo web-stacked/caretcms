@@ -68,7 +68,7 @@ function enqueueSave(task) {
 function parseMdBinding(raw) {
   const parts = (raw || '').split('::');
   if (parts.length !== 4 || parts[2] !== 'body') return null;
-  if (!/^[a-z][a-z0-9_-]*$/.test(parts[0]) || !/^[a-z0-9][a-z0-9_-]*$/.test(parts[1])) return null;
+  if (!/^[a-z][a-z0-9_-]*$/.test(parts[0]) || !/^[a-z0-9][a-z0-9_-]*(?:\/[a-z0-9][a-z0-9_-]*)*$/.test(parts[1])) return null;
   if (!/^\d+(\.\d+)*$/.test(parts[3])) return null;
   return { collection: parts[0], id: parts[1], blockPath: parts[3] };
 }

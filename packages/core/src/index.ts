@@ -1294,7 +1294,7 @@ export function caret(options: CaretOptions = {}): AstroIntegration {
             entrypoint: new URL("./runtime/routes/collection-list.js", import.meta.url),
           });
           injectRoute({
-            pattern: `${resolved.mountPath}/cms/[collection]/[id]`,
+            pattern: `${resolved.mountPath}/cms/[collection]/[...id]`,
             entrypoint: new URL("./runtime/routes/admin-entry.js", import.meta.url),
           });
         }
