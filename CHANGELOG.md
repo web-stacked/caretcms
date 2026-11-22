@@ -8,6 +8,12 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-11-22
+
+Three fixes to what CaretCMS writes into your files, found on a new template
+set up from scratch. `@caretcms/caretize` 0.6.3 carries the hint below.
+Release notes: [docs/releases/0.7.2.md](docs/releases/0.7.2.md).
+
 ### Fixed
 
 - **Editing a paragraph no longer curls the quotes in its source.** Astro's
@@ -1080,7 +1086,8 @@ requirements, and deployment retry limitations.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
-[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/web-stacked/caretcms/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/web-stacked/caretcms/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/web-stacked/caretcms/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.3
