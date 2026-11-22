@@ -51,6 +51,8 @@ export const isMutatePost = (r: Response): boolean =>
 
 /** Replace an editable element's text the way a user does: focus → select all → type. */
 export async function replaceText(page: Page, target: Locator, text: string): Promise<void> {
+  // The editor loads after the page: typing before it has would go nowhere.
+  await expect(target).toHaveAttribute("contenteditable", /.+/);
   await target.click();
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.type(text);
