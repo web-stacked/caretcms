@@ -233,7 +233,7 @@ export async function rewriteCaretAttributes(
       const md = mdValue !== undefined && /^(h[1-6]|p|li)$/.test(tag.name) ? parseMdBinding(mdValue) : null;
       const caretValue = tag.attributes.get("data-caret")?.value;
       const resolved = caretValue !== undefined && (tag.name === "img" || textTags.has(tag.name))
-        ? resolveBinding(caretValue, findNearestScope(stack)) : null;
+        ? resolveBinding(caretValue, ownScope ?? findNearestScope(stack)) : null;
       if (md || resolved) {
         const key = md ?? resolved!;
         entryKeys.add(`${key.collection}::${key.id}`);
