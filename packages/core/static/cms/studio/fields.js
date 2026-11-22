@@ -134,10 +134,43 @@ export function createFieldRenderer({ updateField, buildSingleImage, buildImageG
   }
 
   /**
+   * A value with no form of its own, edited as JSON. Text that isn't valid
+   * JSON is not saved, and the field says so instead of looking saved.
+   * @param {unknown} value @param {(next: unknown) => void} onChange
+   */
+  function buildJsonControl(value, onChange) {
+    var area = document.createElement("textarea");
+    area.className = "studio-input";
+    area.style.fontFamily = "var(--studio-font-mono)";
+    area.style.fontSize = "11px";
+    area.rows = 4;
+    area.spellcheck = false;
+    area.value = value === undefined ? "" : JSON.stringify(value, null, 2);
+    area.addEventListener("input", function () {
+      var parsed;
+      try {
+        parsed = JSON.parse(area.value);
+      } catch (e) {
+        area.setCustomValidity(getMessage("field.jsonInvalid", "This isn't valid JSON yet, so it hasn't been saved. Text needs quotes: \"like this\"."));
+        area.setAttribute("aria-invalid", "true");
+        return;
+      }
+      area.setCustomValidity("");
+      area.removeAttribute("aria-invalid");
+      onChange(parsed);
+    });
+    area.addEventListener("blur", function () { area.reportValidity(); });
+    return area;
+  }
+
+  /**
    * The browser's own date (or date and time) picker.
    * @param {"date" | "date-time"} format @param {string} value @param {(next: string) => void} onChange
    */
   function buildDateControl(format, value, onChange) {
+    // A date-time field that holds a plain day (`pubDate: 2026-05-20`, as
+    // most Astro blogs write it) is edited, and stays, a day.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) format = "date";
     var input = document.createElement("input");
     input.type = format === "date" ? "date" : "datetime-local";
     input.className = "studio-input studio-input-date";
@@ -503,16 +536,14 @@ export function createFieldRenderer({ updateField, buildSingleImage, buildImageG
       } else {
         group = createFieldGroup(label, isRequired);
         group.dataset.fieldPath = path;
-        var jsonTa = document.createElement("textarea");
-        jsonTa.className = "studio-input";
-        jsonTa.style.fontFamily = "var(--studio-font-mono)";
-        jsonTa.style.fontSize = "11px";
-        jsonTa.rows = 4;
-        jsonTa.value = JSON.stringify(current, null, 2);
-        jsonTa.addEventListener("input", function () {
-          try { updateField(path, JSON.parse(jsonTa.value)); } catch (e) { /* ignore until valid */ }
-        });
-        group.appendChild(jsonTa);
+        // A value of several possible types that is, or may be, text (an
+        // Astro reference() to another entry is its id) is edited as text.
+        var takesText = Array.isArray(prop.anyOf) && prop.anyOf.some(function (/** @type {Schema} */ option) { return option && option.type === "string"; });
+        if (typeof current === "string" || (takesText && (current === undefined || current === null))) {
+          group.appendChild(buildTextControl(String(current || ""), function (next) { updateField(path, next); }));
+        } else {
+          group.appendChild(buildJsonControl(current, function (next) { updateField(path, next); }));
+        }
       }
 
       appendFieldDescription(group, prop, path);
@@ -611,16 +642,7 @@ export function createFieldRenderer({ updateField, buildSingleImage, buildImageG
       // Fallback to JSON
       var g9 = createFieldGroup(label, false);
       g9.dataset.fieldPath = path;
-      var jt = document.createElement("textarea");
-      jt.className = "studio-input";
-      jt.style.fontFamily = "var(--studio-font-mono)";
-      jt.style.fontSize = "11px";
-      jt.rows = 4;
-      jt.value = JSON.stringify(value, null, 2);
-      jt.addEventListener("input", function () {
-        try { updateField(path, JSON.parse(jt.value)); } catch (e) { /* ignore */ }
-      });
-      g9.appendChild(jt);
+      g9.appendChild(buildJsonControl(value, function (next) { updateField(path, next); }));
       container.appendChild(g9);
     });
   }

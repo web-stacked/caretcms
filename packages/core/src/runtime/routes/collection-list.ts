@@ -271,6 +271,11 @@ export async function GET(context: APIContext): Promise<Response> {
       <div class="modal-body">
         <label for="create-title-input" class="studio-label">${escapeHtml(titleField ? titleInputLabel : messages["collection.nameLabel"])}</label>
         <input id="create-title-input" type="text" class="studio-input" placeholder="${escapeHtml(messages["collection.entryTitlePlaceholder"])}" autocomplete="off" />
+        <!-- Shown when this collection keeps its entries in folders. -->
+        <div id="create-folder-row" style="margin-top:0.75rem;" hidden>
+          <label for="create-folder" class="studio-label">${escapeHtml(messages["collection.folder"])}</label>
+          <select id="create-folder" class="studio-input"></select>
+        </div>
         <!-- The address follows the name; changing it is optional. -->
         <details id="create-address" class="create-address">
           <summary><span id="create-address-preview" aria-live="polite"></span> <span class="create-address-change">${escapeHtml(messages["collection.changeAddress"])}</span></summary>
@@ -346,6 +351,8 @@ export async function GET(context: APIContext): Promise<Response> {
     var addressDetails = document.getElementById('create-address');
     var addressPreview = document.getElementById('create-address-preview');
     var idInput = document.getElementById('create-id-input');
+    var folderRow = document.getElementById('create-folder-row');
+    var folderSelect = document.getElementById('create-folder');
     var errorEl = document.getElementById('create-error');
     var confirmBtn = document.getElementById('btn-create-confirm');
     var createCloseBtn = document.getElementById('btn-create-close');
@@ -616,6 +623,7 @@ export async function GET(context: APIContext): Promise<Response> {
       idInput.value = '';
       idWasEdited = false;
       addressDetails.open = false;
+      listFolders();
       showAddress();
       errorEl.hidden = true;
       confirmBtn.disabled = true;
@@ -643,10 +651,37 @@ export async function GET(context: APIContext): Promise<Response> {
       for (var n = 2; taken(id); n++) id = (base.slice(0, 76) + '-' + n);
       return id;
     }
+    /**
+     * The folders this collection's entries are in (an entry "rope/lead-101"
+     * is in "rope"), most used first, and the choice to use none. A new entry
+     * starts in the most used one: on a site that lists entries by folder,
+     * one outside every folder would show nowhere.
+     */
+    function listFolders() {
+      var counts = {};
+      var loose = 0;
+      allEntries.forEach(function (entry) {
+        var cut = String(entry.id).lastIndexOf('/');
+        if (cut === -1) loose++;
+        else counts[entry.id.slice(0, cut)] = (counts[entry.id.slice(0, cut)] || 0) + 1;
+      });
+      var folders = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a] || a.localeCompare(b); });
+      folderSelect.textContent = '';
+      folderRow.hidden = folders.length === 0;
+      if (!folders.length) return;
+      folders.concat(['']).forEach(function (folder) {
+        var option = document.createElement('option');
+        option.value = folder;
+        option.textContent = folder || MSG['collection.noFolder'];
+        folderSelect.appendChild(option);
+      });
+      folderSelect.value = loose > counts[folders[0]] ? '' : folders[0];
+    }
     function followName() {
       // A name with no Latin letters still gets an address to start from.
       var base = suggestedId(titleInput.value) || (titleInput.value.trim() ? 'entry' : '');
-      if (!idWasEdited) idInput.value = freeAddress(base);
+      var folder = folderRow.hidden ? '' : folderSelect.value;
+      if (!idWasEdited) idInput.value = freeAddress(base && folder ? folder + '/' + base : base);
       showAddress();
     }
     function validate() {
@@ -695,6 +730,7 @@ export async function GET(context: APIContext): Promise<Response> {
           confirmBtn.textContent = CREATE_LABEL;
         });
     }
+    folderSelect.addEventListener('change', function () { idWasEdited = false; followName(); validate(); });
     if (newBtn) newBtn.addEventListener('click', openDialog);
     // The ⌘K palette's "New …" action links here with #new.
     function openDialogFromHash() {
