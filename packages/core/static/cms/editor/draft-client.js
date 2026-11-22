@@ -16,6 +16,34 @@
  * @property {string[]} body The editor's text for each body block that changed on the site.
  */
 /**
+ * One field of a draft: changed by the editor (`mine`), on the site since the
+ * draft was started (`site`), or by both to different values (`both`).
+ * @typedef {object} DraftFieldChange
+ * @property {string} field
+ * @property {string} label
+ * @property {'mine' | 'site' | 'both'} kind
+ * @property {string} started The value when the draft was started.
+ * @property {string} mine
+ * @property {string} site
+ */
+/**
+ * @typedef {object} DraftEntryChanges
+ * @property {string} collection
+ * @property {string} id
+ * @property {string} title
+ * @property {DraftFieldChange[]} changes
+ */
+/**
+ * One draft Publish would publish: the fields the editor changed, and whether it holds edited body text.
+ * @typedef {object} PendingDraft
+ * @property {string} collection
+ * @property {string} id
+ * @property {string} title
+ * @property {boolean} deleted
+ * @property {boolean} text
+ * @property {{ label: string, site: string, mine: string }[]} fields
+ */
+/**
  * @typedef {object} RetryDeploymentResult
  * @property {boolean} deploymentTracked
  */
@@ -86,15 +114,81 @@ export function createDraftClient(options) {
     });
   }
 
-  /** @param {{ allowUncommitted?: boolean }} [options] */
+  /** @param {{ allowUncommitted?: boolean, entries?: { collection: string, id: string }[] | null }} [options] `entries` limits the publish to those drafts. */
   async function publish(options = {}) {
-    const response = await requireOk(await request('POST', '/publish', JSON.stringify(options.allowUncommitted ? { allowUncommitted: true } : {})));
+    const response = await requireOk(await request('POST', '/publish', JSON.stringify({
+      ...(options.allowUncommitted ? { allowUncommitted: true } : {}),
+      ...(options.entries?.length ? { entries: options.entries } : {}),
+    })));
     return /** @type {unknown} */ (await response.json());
   }
 
   /** @param {string} collection @param {string} id @param {'mine' | 'site'} keep */
   async function resolveConflict(collection, id, keep) {
     await requireOk(await request('POST', '/draft', JSON.stringify({ collection, id, keep })));
+  }
+
+  /** Per draft: the fields the editor changed and the fields that changed on the site underneath. */
+  async function getChanges() {
+    const response = await requireOk(await request('GET', '/draft?changes=1', undefined));
+    const data = record(await response.json());
+    return /** @type {DraftEntryChanges[]} */ ((Array.isArray(data.changes) ? data.changes : []).map(record)
+      .filter(entry => typeof entry.collection === 'string' && typeof entry.id === 'string')
+      .map(entry => ({
+        collection: String(entry.collection),
+        id: String(entry.id),
+        title: typeof entry.title === 'string' ? entry.title : '',
+        changes: (Array.isArray(entry.changes) ? entry.changes : []).map(record)
+          .filter(change => typeof change.field === 'string' && (change.kind === 'mine' || change.kind === 'site' || change.kind === 'both'))
+          .map(change => ({
+            field: String(change.field),
+            label: String(change.label ?? change.field),
+            kind: /** @type {'mine' | 'site' | 'both'} */ (change.kind),
+            started: typeof change.started === 'string' ? change.started : '',
+            mine: typeof change.mine === 'string' ? change.mine : '',
+            site: typeof change.site === 'string' ? change.site : '',
+          })),
+      })));
+  }
+
+  /** What Publish would publish, by entry. */
+  async function getPending() {
+    const response = await requireOk(await request('GET', '/draft?changes=1', undefined));
+    const data = record(await response.json());
+    return /** @type {PendingDraft[]} */ ((Array.isArray(data.pending) ? data.pending : []).map(record)
+      .filter(entry => typeof entry.collection === 'string' && typeof entry.id === 'string')
+      .map(entry => ({
+        collection: String(entry.collection),
+        id: String(entry.id),
+        title: typeof entry.title === 'string' ? entry.title : '',
+        deleted: entry.deleted === true,
+        text: entry.text === true,
+        fields: (Array.isArray(entry.fields) ? entry.fields : []).map(record).map(field => ({
+          label: String(field.label ?? ''),
+          site: typeof field.site === 'string' ? field.site : '',
+          mine: typeof field.mine === 'string' ? field.mine : '',
+        })),
+      })));
+  }
+
+  /**
+   * Stage the undo of a publish as a draft: the entry as it was before the
+   * publish that produced `revision`. Returns null when staged, or why not:
+   * `changed` (changed since), `drafted` (the editor has a draft of it), `text`
+   * (that publish changed body text), `unknown`.
+   * @param {string} collection @param {string} id @param {number} revision @param {string} fingerprint
+   */
+  async function stageUndo(collection, id, revision, fingerprint) {
+    const response = await request('POST', '/draft', JSON.stringify({ collection, id, undoPublish: revision, fingerprint }));
+    if (response.ok) return null;
+    if (response.status !== 409) throw new CmsDraftRequestError(`CMS request failed (${response.status})`);
+    const reason = record(await response.json().catch(() => ({}))).reason;
+    return reason === 'changed' || reason === 'drafted' || reason === 'text' ? reason : 'unknown';
+  }
+
+  /** Take one field of a draft back to the site's value. @param {string} collection @param {string} id @param {string} field */
+  async function revertField(collection, id, field) {
+    await requireOk(await request('POST', '/draft', JSON.stringify({ collection, id, field })));
   }
 
   async function discard() {
@@ -115,5 +209,5 @@ export function createDraftClient(options) {
     });
   }
 
-  return { getState, publish, discard, resolveConflict, retryDeployment };
+  return { getState, getChanges, getPending, stageUndo, publish, discard, resolveConflict, revertField, retryDeployment };
 }

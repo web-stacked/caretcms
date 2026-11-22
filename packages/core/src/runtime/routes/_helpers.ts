@@ -1,5 +1,6 @@
 import type { StorageAdapter, UploadHandler } from "../../types.js";
 import type { DraftConflict } from "../storage/session-overlay-adapter.js";
+import type { EntryFieldChanges, UnpublishedEntry } from "../unpublished.js";
 import { loadPageContent, withPageContent } from "../page-content.js";
 import {
   getRequestContext,
@@ -241,4 +242,32 @@ export async function describeDraftConflicts(base: StorageAdapter, overlay: Stor
         label: typeof properties[field]?.title === "string" ? properties[field].title as string : humanizeEntryId(field),
         mine: preview(mine), site: preview(site) })) };
   });
+}
+
+/** Draft changes as the editor reads them: entry title, field labels and each value as short text. */
+export async function describeDraftChanges(base: StorageAdapter, overlay: StorageAdapter, entries: EntryFieldChanges[]) {
+  return (await withTitles(base, overlay, entries)).map((entry) => {
+    const properties = (getRegisteredSchema(entry.collection) as { properties?: Record<string, { title?: unknown }> } | undefined)?.properties ?? {};
+    return { collection: entry.collection, id: entry.id, title: entry.title,
+      changes: entry.changes.map(({ field, kind, started, mine, site }) => ({ field, kind,
+        label: typeof properties[field]?.title === "string" ? properties[field].title as string : humanizeEntryId(field),
+        started: preview(started), mine: preview(mine), site: preview(site) })) };
+  });
+}
+
+/**
+ * What Publish would publish, as the editor reads it: each pending draft by
+ * title, with the fields the editor changed (the site's value and theirs) and
+ * whether it also holds edited body text.
+ */
+export async function describePendingDrafts(
+  base: StorageAdapter, overlay: StorageAdapter, pending: UnpublishedEntry[], changes: Awaited<ReturnType<typeof describeDraftChanges>>,
+) {
+  return Promise.all((await withTitles(base, overlay, pending)).map(async (entry) => {
+    const body = (await overlay.getEntry(entry.collection, entry.id).catch(() => null))?.data.__body;
+    return { collection: entry.collection, id: entry.id, title: entry.title, deleted: entry.deleted,
+      text: Boolean(body && typeof body === "object" && Object.keys(body).length > 0),
+      fields: (changes.find(candidate => candidate.collection === entry.collection && candidate.id === entry.id)?.changes ?? [])
+        .filter(change => change.kind !== "site").map(({ label, site, mine }) => ({ label, site, mine })) };
+  }));
 }

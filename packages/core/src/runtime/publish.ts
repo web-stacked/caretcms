@@ -15,7 +15,7 @@ import { SessionOverlayAdapter, TOMBSTONE_KEY } from "./storage/session-overlay-
 import { draftChange } from "./unpublished.js";
 import { loadPageContent } from "./page-content.js";
 import { trackTemplateText } from "./template-text.js";
-import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, isStaleDraft, readDraftState, rebaseDraft } from "./draft-state.js";
+import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, contentFingerprint, isStaleDraft, readDraftState, rebaseDraft } from "./draft-state.js";
 import { prepareSource, recoveryState, validPublicationSources, resumePublish, RecoveryConflict, type PublishRecovery } from "./publish-recovery.js";
 import { getRequestContext } from "./request-context.js";
 import { commitEntryChanges } from "./storage/entry-commit.js";
@@ -25,6 +25,8 @@ export interface PublishScope {
   collection?: string;
   /** Limit to one entry; only honored together with `collection`. */
   id?: string;
+  /** Limit to these entries (within `collection`/`id` when those are given too). */
+  entries?: ReadonlyArray<{ collection: string; id: string }>;
 }
 
 export interface PublishOptions {
@@ -44,6 +46,8 @@ export interface PublishedEntry {
   /** New base revision after the flush (0 for a deleted entry). */
   revision: number;
   deleted: boolean;
+  /** `contentFingerprint` of what the publish wrote; an Undo checks the entry still matches it. */
+  fingerprint?: string;
 }
 
 export interface PublishConflict {
@@ -114,7 +118,9 @@ async function overlayEntriesInScope(
         : await overlay.listEntryIds(collection);
     for (const id of ids) out.push({ collection, id });
   }
-  return out;
+  if (!scope.entries) return out;
+  const wanted = new Set(scope.entries.map(entry => JSON.stringify([entry.collection, entry.id])));
+  return out.filter(entry => wanted.has(JSON.stringify([entry.collection, entry.id])));
 }
 
 /** Preflight the entire batch before any source, revision, journal or hook write. */
@@ -265,7 +271,7 @@ export async function publishOverlay(
           }
         }
         const revision = await resumePublish(base, overlay, collection, id, plan);
-        published.push({ collection, id, revision, deleted: plan.afterData === null });
+        published.push({ collection, id, revision, deleted: plan.afterData === null, fingerprint: contentFingerprint(plan.afterData) });
         if (plan.afterSource !== undefined && plan.afterSource !== plan.beforeSource) sourceChanged = true;
         if (!options.journal || !plan.journalReceipt) {
           journalVersions.push({ collection, id, revision: plan.beforeRevision + 1 });

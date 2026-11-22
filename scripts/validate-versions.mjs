@@ -83,7 +83,8 @@ for (const { dir, manifest } of manifests) {
       if (!name.startsWith('@caretcms/')) continue;
       const localVersion = localVersions[name];
       if (!localVersion) continue; // external / not in this monorepo
-      if (!caretSatisfies(range, localVersion)) {
+      // `^0.6.0 || ^0.7.0`: satisfied when any alternative is.
+      if (!String(range).split('||').some((alternative) => caretSatisfies(alternative.trim(), localVersion))) {
         errors.push(
           `packages/${dir} ${group}.${name} "${range}" is not satisfied by local ${name}@${localVersion} — bump the range`,
         );

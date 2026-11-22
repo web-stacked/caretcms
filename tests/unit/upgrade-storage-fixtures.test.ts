@@ -31,7 +31,8 @@ describe("frozen pre-hardening stores", () => {
     const result = await publishOverlay(base, overlay, { collection: "pages", id });
     expect(result.failed).toEqual([]);
     expect(result.conflicts).toEqual([]);
-    expect(result.published).toEqual([{ collection: "pages", id, revision: 8, deleted: false }]);
+    expect(result.published).toMatchObject([{ collection: "pages", id, revision: 8, deleted: false }]);
+    expect(result.published).toHaveLength(1);
     expect(result.journalSources).toBeNull();
     // A fresh adapter verifies the on-disk upgrade and retry, not cached state.
     const restarted = filesystem();
@@ -52,7 +53,8 @@ describe("frozen pre-hardening stores", () => {
     const overlay = await base.makeEditorOverlay("alice");
     const original = JSON.parse(await readFile(join(root, "drafts/alice/data/blog", `${id}.json`), "utf8"));
     const result = await publishOverlay(base, overlay, { collection: "blog", id });
-    expect(result.published).toEqual([{ collection: "blog", id, revision: 8, deleted: false }]);
+    expect(result.published).toMatchObject([{ collection: "blog", id, revision: 8, deleted: false }]);
+    expect(result.published).toHaveLength(1);
     expect(result.failed).toEqual([]);
     expect(result.conflicts).toEqual([]);
     expect(result.journalSources).toBeNull();
@@ -75,7 +77,8 @@ describe("frozen pre-hardening stores", () => {
     const result = await publishOverlay(base, await base.makeEditorOverlay("alice"), { collection, id });
     expect(result.failed).toEqual([]);
     expect(result.conflicts).toEqual([]);
-    expect(result.published).toEqual([{ collection, id, revision: deleted ? 0 : 8, deleted }]);
+    expect(result.published).toMatchObject([{ collection, id, revision: deleted ? 0 : 8, deleted }]);
+    expect(result.published).toHaveLength(1);
     expect(result.journalSources).toBeNull();
     const restarted = collection === "blog" ? markdown() : filesystem();
     expect((await restarted.getEntry(collection, id))?.data ?? null).toEqual(deleted ? null : { title: "Created" });

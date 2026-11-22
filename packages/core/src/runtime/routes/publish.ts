@@ -43,7 +43,8 @@ async function rememberAcceptedDeployment(
 
 /**
  * POST /api/cms/publish — flush the current editor's draft overlay into the base.
- * Body: `{ collection?, id? }` to scope to one entry/collection, or `{}` for all.
+ * Body: `{ collection?, id? }` to scope to one entry/collection, `{ entries }`
+ * (a list of `{ collection, id }`) for chosen drafts, or `{}` for all.
  * Returns the published entries with their NEW base revisions so the editor
  * client can reconcile its revision cache (avoiding a post-publish 409).
  */
@@ -57,12 +58,20 @@ export async function POST(context: APIContext): Promise<Response> {
 
   const parsed = await readJsonBody(context.request);
   if (!parsed.ok) return parsed.response;
-  const body = (parsed.value ?? {}) as { collection?: unknown; id?: unknown; retryRebuild?: unknown; retryJournal?: unknown; allowUncommitted?: unknown };
+  const body = (parsed.value ?? {}) as { collection?: unknown; id?: unknown; retryRebuild?: unknown; retryJournal?: unknown; allowUncommitted?: unknown; entries?: unknown };
 
   if (body.retryRebuild === true && body.retryJournal === true) return json({ error: "Choose one retry operation" }, 400);
   const scope: PublishScope = {};
   if (typeof body.collection === "string") scope.collection = body.collection;
   if (typeof body.id === "string") scope.id = body.id;
+  if (body.entries !== undefined) {
+    const entries = Array.isArray(body.entries) ? body.entries as Array<{ collection?: unknown; id?: unknown }> : null;
+    if (!entries || entries.length === 0 || entries.length > 500 ||
+        !entries.every(entry => entry && typeof entry.collection === "string" && typeof entry.id === "string")) {
+      return json({ error: "entries must list between 1 and 500 { collection, id } pairs" }, 400);
+    }
+    scope.entries = entries.map(entry => ({ collection: entry.collection as string, id: entry.id as string }));
+  }
   if (scope.id && !scope.collection) {
     return json({ error: "id requires a collection" }, 400);
   }

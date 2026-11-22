@@ -296,6 +296,250 @@ test("asks which headline to keep when two editors changed it, and keeps Publish
   }
 });
 
+test("marks the editor's own change on the page and undoes just that change", async ({ page }) => {
+  try {
+    await page.request.post("/api/cms/auth/login", { data: { password: EDIT_PASSWORD }, headers: { Accept: "application/json" } });
+    const saved = await page.request.post("/api/cms/mutate", { headers: { "x-caret-request": "1" }, data: { type: "put_entry", collection: "pages", id: "home", data: { headline: "My unpublished headline" } } });
+    expect(saved.ok()).toBe(true);
+    await page.goto("/");
+    await expect(page.locator("h1[data-caret]")).toHaveText("My unpublished headline");
+
+    // Changes puts a dot beside the changed heading; the dot opens a card with both values.
+    const changes = page.locator(".cms-changes-btn");
+    await changes.click();
+    await expect(changes).toHaveAttribute("aria-pressed", "true");
+    const dot = page.getByRole("button", { name: "Show the change to Headline" });
+    await expect(dot).toHaveCount(1);
+    await dot.click();
+    const card = page.getByRole("dialog", { name: "Headline" });
+    await expect(card).toContainText("Your change, not published yet");
+    await expect(card).toContainText(`Site${PUBLISHED_HEADLINE}`);
+    await expect(card).toContainText("YoursMy unpublished headline");
+
+    // Escape closes the card, and turning Changes off removes the dots.
+    await page.keyboard.press("Escape");
+    await expect(card).toHaveCount(0);
+    await changes.click();
+    await expect(dot).toHaveCount(0);
+
+    // Undoing the change leaves no draft and the page shows the published headline again.
+    await changes.click();
+    await dot.click();
+    await card.getByRole("button", { name: "Undo my change" }).click();
+    await expect(page.locator("h1[data-caret]")).toHaveText(PUBLISHED_HEADLINE);
+    await expect(page.getByText("Your change was undone.")).toBeVisible();
+    expect((await (await page.request.get("/api/cms/draft")).json()).count).toBe(0);
+    expect(JSON.parse(readFileSync(resolve(FIXTURE, ".caret/data/pages/home.json"), "utf8")).headline).toBe(PUBLISHED_HEADLINE);
+  } finally {
+    rmSync(resolve(FIXTURE, ".caret"), { recursive: true, force: true });
+    rmSync(resolve(FIXTURE, ".caretcms"), { recursive: true, force: true });
+    seedPublishedEntry();
+  }
+});
+
+test("tells a returning editor what changed on the page, but not about their own draft", async ({ page }) => {
+  const file = resolve(FIXTURE, ".caret/data/pages/home.json");
+  try {
+    await page.request.post("/api/cms/auth/login", { data: { password: EDIT_PASSWORD }, headers: { Accept: "application/json" } });
+    // First visit: the page is remembered and nothing is announced.
+    await page.goto("/");
+    await expect(page.locator(".cms-toolbar")).toBeVisible();
+    await expect(page.locator("h1[data-caret]")).toHaveText(PUBLISHED_HEADLINE);
+    await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
+
+    // A developer changes the headline in the content file while the editor is away.
+    writeFileSync(file, `${JSON.stringify({ headline: "Developer headline" }, null, 2)}\n`);
+    await page.goto("/");
+    await expect(page.locator("h1[data-caret]")).toHaveText("Developer headline");
+    const notice = page.getByText(/^1 thing on this page changed since /);
+    await expect(notice).toBeVisible();
+    await page.getByRole("button", { name: "Show me" }).click();
+    await expect(page.getByText(`1 of 1: “${PUBLISHED_HEADLINE}” is now “Developer headline”`)).toBeVisible();
+    await expect(page.locator("h1[data-caret]")).toHaveClass(/cms-away-spot/);
+    await page.getByRole("button", { name: "Done" }).click();
+    await expect(page.locator("h1[data-caret]")).not.toHaveClass(/cms-away-spot/);
+
+    // Seen once: the next visit says nothing.
+    await page.goto("/");
+    await expect(page.locator(".cms-toolbar")).toBeVisible();
+    await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
+
+    // The editor's own unpublished change is not news to them.
+    const saved = await page.request.post("/api/cms/mutate", { headers: { "x-caret-request": "1" }, data: { type: "put_entry", collection: "pages", id: "home", data: { headline: "My own headline" } } });
+    expect(saved.ok()).toBe(true);
+    await page.goto("/");
+    await expect(page.locator("h1[data-caret]")).toHaveText("My own headline");
+    await expect(page.locator(".cms-draft-controls")).toBeVisible();
+    await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
+
+    // Undoing their own change isn't news either.
+    await page.locator(".cms-changes-btn").click();
+    await page.getByRole("button", { name: "Show the change to Headline" }).click();
+    await page.getByRole("dialog", { name: "Headline" }).getByRole("button", { name: "Undo my change" }).click();
+    await expect(page.getByText("Your change was undone.")).toBeVisible();
+    await expect(page.locator("h1[data-caret]")).toHaveText("Developer headline");
+    await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
+
+    // A change left unlooked-at is announced again on the next visit.
+    expect((await page.request.delete("/api/cms/draft", { headers: { "x-caret-request": "1", Origin: ORIGIN } })).ok()).toBe(true);
+    writeFileSync(file, `${JSON.stringify({ headline: "Second developer headline" }, null, 2)}\n`);
+    await page.goto("/");
+    await expect(page.locator("h1[data-caret]")).toHaveText("Second developer headline");
+    await expect(page.getByText(/^1 thing on this page changed since /)).toBeVisible();
+    await page.goto("/");
+    await expect(page.getByText(/^1 thing on this page changed since /)).toBeVisible();
+    await page.getByRole("button", { name: "Dismiss" }).click();
+    await page.goto("/");
+    await expect(page.locator(".cms-toolbar")).toBeVisible();
+    await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
+  } finally {
+    rmSync(resolve(FIXTURE, ".caret"), { recursive: true, force: true });
+    rmSync(resolve(FIXTURE, ".caretcms"), { recursive: true, force: true });
+    seedPublishedEntry();
+  }
+});
+
+test("lists what Publish will publish and publishes only the ticked drafts", async ({ page }) => {
+  try {
+    await page.request.post("/api/cms/auth/login", { data: { password: EDIT_PASSWORD }, headers: { Accept: "application/json" } });
+    writeFileSync(resolve(FIXTURE, ".caret/data/pages/about.json"), `${JSON.stringify({ headline: "About" }, null, 2)}\n`);
+    for (const [id, headline] of [["home", "Receipt headline"], ["about", "About headline"]]) {
+      const saved = await page.request.post("/api/cms/mutate", { headers: { "x-caret-request": "1" }, data: { type: "put_entry", collection: "pages", id, data: { headline } } });
+      expect(`${id} ${saved.status()} ${saved.ok() ? "" : await saved.text()}`).toBe(`${id} 200 `);
+    }
+    await page.goto("/");
+    await page.locator(".cms-publish-btn").click();
+    const dialog = page.getByRole("dialog", { name: "Publish 2 changes?" });
+    // Each draft is named, with the value on the site and the editor's.
+    await expect(dialog.locator(".cms-receipt li")).toHaveCount(2);
+    await expect(dialog).toContainText(`Headline: “${PUBLISHED_HEADLINE}” becomes “Receipt headline”`);
+    await expect(dialog).toContainText("About headline");
+
+    // With nothing ticked there is nothing to publish.
+    const boxes = dialog.getByRole("checkbox");
+    await boxes.nth(0).uncheck();
+    await boxes.nth(1).uncheck();
+    await expect(dialog.getByRole("button", { name: "Publish", exact: true })).toBeDisabled();
+
+    // Publish the home page only: the other draft stays a draft.
+    await dialog.getByRole("checkbox", { name: /Receipt headline/ }).check();
+    const result = page.waitForResponse(response => response.url().includes("/api/cms/publish"));
+    await dialog.getByRole("button", { name: "Publish", exact: true }).click();
+    const published = (await (await result).json()).published;
+    expect(published).toHaveLength(1);
+    expect(published[0]).toMatchObject({ collection: "pages", id: "home" });
+    expect(JSON.parse(readFileSync(resolve(FIXTURE, ".caret/data/pages/home.json"), "utf8")).headline).toBe("Receipt headline");
+    await expect.poll(async () => (await (await page.request.get("/api/cms/draft")).json()).count).toBe(1);
+  } finally {
+    rmSync(resolve(FIXTURE, ".caret"), { recursive: true, force: true });
+    rmSync(resolve(FIXTURE, ".caretcms"), { recursive: true, force: true });
+    seedPublishedEntry();
+  }
+});
+
+test("undoes a publish from the message that confirms it", async ({ page }) => {
+  const file = resolve(FIXTURE, ".caret/data/pages/home.json");
+  try {
+    await page.request.post("/api/cms/auth/login", { data: { password: EDIT_PASSWORD }, headers: { Accept: "application/json" } });
+    const saved = await page.request.post("/api/cms/mutate", { headers: { "x-caret-request": "1" }, data: { type: "put_entry", collection: "pages", id: "home", data: { headline: "Published by mistake" } } });
+    expect(saved.ok()).toBe(true);
+    await page.goto("/");
+    await page.locator(".cms-publish-btn").click();
+    await page.getByRole("dialog", { name: "Publish 1 change?" }).getByRole("button", { name: "Publish", exact: true }).click();
+    await expect.poll(() => JSON.parse(readFileSync(file, "utf8")).headline).toBe("Published by mistake");
+
+    // The confirmation after the reload offers Undo.
+    const undo = page.getByRole("button", { name: "Undo", exact: true });
+    await expect(undo).toBeVisible();
+    await undo.click();
+    await expect.poll(() => JSON.parse(readFileSync(file, "utf8")).headline).toBe(PUBLISHED_HEADLINE);
+    await expect(page.locator("h1[data-caret]")).toHaveText(PUBLISHED_HEADLINE);
+    await expect(page.getByText(/^Undone\. The site is back as it was/)).toBeVisible();
+    await expect(undo).toHaveCount(0);
+    expect((await (await page.request.get("/api/cms/draft")).json()).count).toBe(0);
+    // Putting it back was the editor's own doing: nothing to announce.
+    await expect(page.locator(".cms-toolbar")).toBeVisible();
+    await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
+
+    // Undo is refused once the page changed after the publish.
+    const again = await page.request.post("/api/cms/mutate", { headers: { "x-caret-request": "1" }, data: { type: "put_entry", collection: "pages", id: "home", data: { headline: "Second publish" } } });
+    expect(again.ok()).toBe(true);
+    await page.goto("/");
+    await page.locator(".cms-publish-btn").click();
+    await page.getByRole("dialog", { name: "Publish 1 change?" }).getByRole("button", { name: "Publish", exact: true }).click();
+    await expect(undo).toBeVisible();
+    writeFileSync(file, `${JSON.stringify({ headline: "Developer headline" }, null, 2)}\n`);
+    await page.request.post("/api/cms/publish", { headers: { "x-caret-request": "1" }, data: {} });
+    await undo.click();
+    await expect(page.getByText("This publish can’t be undone: the page changed since.")).toBeVisible();
+    expect(JSON.parse(readFileSync(file, "utf8")).headline).toBe("Developer headline");
+  } finally {
+    rmSync(resolve(FIXTURE, ".caret"), { recursive: true, force: true });
+    rmSync(resolve(FIXTURE, ".caretcms"), { recursive: true, force: true });
+    seedPublishedEntry();
+  }
+});
+
+test("drags the page back through earlier versions and restores one as a draft", async ({ page }) => {
+  const file = resolve(FIXTURE, ".caret/data/pages/home.json");
+  try {
+    await page.request.post("/api/cms/auth/login", { data: { password: EDIT_PASSWORD }, headers: { Accept: "application/json" } });
+    for (const headline of ["First edition", "Second edition"]) {
+      const saved = await page.request.post("/api/cms/mutate", { headers: { "x-caret-request": "1" }, data: { type: "put_entry", collection: "pages", id: "home", data: { headline } } });
+      expect(saved.ok()).toBe(true);
+      expect((await (await page.request.post("/api/cms/publish", { headers: { "x-caret-request": "1" }, data: {} })).json()).published).toHaveLength(1);
+    }
+    await page.goto("/");
+    await expect(page.locator("h1[data-caret]")).toHaveText("Second edition");
+    await page.locator(".cms-tools-summary").click();
+    await page.getByRole("button", { name: "Page history" }).click();
+    const history = page.getByRole("dialog", { name: "Page history" });
+    const slider = history.getByRole("slider");
+    await expect(history).toContainText("This page now.");
+    await expect(history.getByRole("button", { name: "Restore this version" })).toBeHidden();
+
+    // Two publishes: the oldest stop is the page before both.
+    await slider.focus();
+    await page.keyboard.press("Home");
+    await expect(page.locator("h1[data-caret]")).toHaveText(PUBLISHED_HEADLINE);
+    await page.keyboard.press("ArrowRight");
+    await expect(page.locator("h1[data-caret]")).toHaveText("First edition");
+    await expect(history).toContainText("This page before the change on");
+
+    // Leaving with an old version on screen isn't remembered as what the page said.
+    await page.goto("/");
+    await expect(page.locator("h1[data-caret]")).toHaveText("Second edition");
+    await expect(page.locator(".cms-toolbar")).toBeVisible();
+    await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
+    await page.locator(".cms-tools-summary").click();
+    await page.getByRole("button", { name: "Page history" }).click();
+    await slider.focus();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowRight");
+
+    // Close puts today's text back without changing anything.
+    await history.getByRole("button", { name: "Close" }).click();
+    await expect(page.locator("h1[data-caret]")).toHaveText("Second edition");
+    expect(JSON.parse(readFileSync(file, "utf8")).headline).toBe("Second edition");
+
+    // Restore makes the earlier version a draft; the site keeps today's until it is published.
+    await page.locator(".cms-tools-summary").click();
+    await page.getByRole("button", { name: "Page history" }).click();
+    await slider.focus();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowRight");
+    await history.getByRole("button", { name: "Restore this version" }).click();
+    await expect(page.getByText("The earlier version is now a draft. Publish to make it live.")).toBeVisible();
+    await expect(page.locator("h1[data-caret]")).toHaveText("First edition");
+    expect(JSON.parse(readFileSync(file, "utf8")).headline).toBe("Second edition");
+    expect((await (await page.request.get("/api/cms/draft")).json()).count).toBe(1);
+  } finally {
+    rmSync(resolve(FIXTURE, ".caret"), { recursive: true, force: true });
+    rmSync(resolve(FIXTURE, ".caretcms"), { recursive: true, force: true });
+    seedPublishedEntry();
+  }
+});
+
 test("discards a draft and retries a failed deploy through toolbar requests", async ({ page }) => {
   try {
     const login = await page.request.post("/api/cms/auth/login", {

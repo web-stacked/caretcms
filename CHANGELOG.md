@@ -8,6 +8,44 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-21
+
+Core 0.7.0 and cloudflare 0.6.1. Built for sites where an editor and a
+developer (or two editors) keep working at the same time. Nothing to migrate.
+`@caretcms/cloudflare` 0.6.1 only widens its peer range to accept core 0.7;
+`@caretcms/caretize` and `@caretcms/zod` are unchanged.
+
+### Added
+
+- **Changes** in the toolbar marks, on the page, what you changed in a draft and
+  what changed on the site after you started editing. A dot opens a card with
+  both values and **Undo my change** for that one field.
+  `GET /api/cms/draft?changes=1` lists the fields per draft;
+  `POST /api/cms/draft` with `{ collection, id, field }` takes one field back.
+- **Since you were last here.** A returning editor is told what changed on the
+  page that isn't their own edit, and **Show me** steps through each change.
+- The **Publish** dialog lists each draft by name with what it changes, and with
+  more than one draft lets you publish some and keep the rest.
+  `POST /api/cms/publish` accepts `{ entries: [{ collection, id }] }`.
+- **Undo** after a publish puts back what it replaced, as a new publish (a Git
+  commit and a rebuild where those are configured). It refuses when the page
+  changed since, including a direct edit of the content file. Publish results
+  carry a `fingerprint` per entry for this; `POST /api/cms/draft` with
+  `{ collection, id, undoPublish, fingerprint }` stages the undo.
+- **Tools → Page history**: drag a slider back through the times a page was
+  published and see what it said, on the page. **Restore this version** makes
+  it a draft.
+- The first sign-in in a browser outlines what can be edited and says when
+  changes go live. **Tools → How editing works** shows it again.
+
+### Fixed
+
+- Saving a draft again while one of its fields was in conflict recorded the
+  site's newer values as the editor's own. A later change on the site then no
+  longer showed for that editor, and **Keep mine** followed by Publish could
+  write an older value over a newer one. Found by a new test that runs a
+  developer and two editors in random order.
+
 ## [0.6.3] - 2026-11-21
 
 Core 0.6.3 and caretize 0.6.1. Content files gain a `__caret_template__` key the
@@ -902,7 +940,8 @@ requirements, and deployment retry limitations.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
-[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.6.3...HEAD
+[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/web-stacked/caretcms/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.3
 [0.6.2]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.2
 [0.6.1]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.1

@@ -81,6 +81,7 @@
 .cms-toast-success .cms-toast-icon-wrap { background: var(--cms-green); color: #052e16; }
 .cms-toast-error .cms-toast-icon-wrap { background: var(--cms-red); color: #fff; }
 .cms-toast-warning .cms-toast-icon-wrap { background: var(--cms-amber, #eab308); color: #2a1f00; }
+.cms-toast-info .cms-toast-icon-wrap { background: #3b82f6; color: #fff; }
 .cms-toast-success .cms-toast-icon { stroke-width: 3; }
 
 /* Conflict prompt lays the action buttons below the message. */

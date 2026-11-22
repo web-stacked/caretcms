@@ -33,17 +33,42 @@ test.describe("onboarding — post-login landing", () => {
 });
 
 test.describe("onboarding — welcome reveal", () => {
-  test("first load after login flashes every editable region, then fades", async ({
-    page,
-  }) => {
-    // Drive the real login form: it sets the welcome flag, then redirects to
-    // editorHome ("/"), where the editor performs its one-time reveal on boot.
+  /** Sign in through the real form: it sets the welcome flag, then redirects to editorHome ("/"). */
+  async function signInThroughForm(page: import("@playwright/test").Page) {
     await page.goto("/admin");
     await page.fill("#password", EDIT_PASSWORD);
     await Promise.all([
       page.waitForURL("/"),
       page.click("#login-form button[type=submit]"),
     ]);
+  }
+
+  test("the first sign-in in a browser outlines what can be edited and says how it works", async ({ page }) => {
+    await signInThroughForm(page);
+    const intro = page.getByText(/^Welcome\. Everything outlined can be changed/);
+    await expect(intro).toBeVisible();
+    // The outlines stay while the message is open…
+    await page.waitForTimeout(3000);
+    await expect(page.locator("body")).toHaveClass(/cms-highlight-all/);
+    // …and go with it.
+    await page.getByRole("button", { name: "Got it" }).click();
+    await expect(intro).toHaveCount(0);
+    await expect(page.locator("body")).not.toHaveClass(/cms-highlight-all/);
+
+    // Tools shows it again on request.
+    await page.locator(".cms-tools-summary").click();
+    await page.getByRole("button", { name: "How editing works" }).click();
+    await expect(intro).toBeVisible();
+    await expect(page.locator("body")).toHaveClass(/cms-highlight-all/);
+    await page.getByRole("button", { name: "Got it" }).click();
+  });
+
+  test("a later sign-in flashes every editable region, then fades", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => { try { localStorage.setItem("caret:intro:v1", "1"); } catch { /* ignored */ } });
+    await signInThroughForm(page);
+    await expect(page.getByText(/^Welcome\. Everything outlined/)).toHaveCount(0);
 
     // Editor mounts, then the reveal adds the highlight-all class…
     await expect(page.locator("body")).toHaveClass(/cms-highlight-all/);

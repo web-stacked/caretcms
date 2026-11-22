@@ -4,12 +4,29 @@ import { buildCmsUrl, isStaticDelivery } from './config.js';
 import { createDeploymentStatusPoller } from './deployment-status.js';
 import { presentPublishResult } from './publish-result.js';
 import { createDraftClient } from './draft-client.js';
+import { createChangesView } from './changes-view.js';
+import { mountAwayNotice } from './away-notice.js';
+import { buildPublishReceipt } from './publish-receipt.js';
+import { createFirstVisit } from './first-visit.js';
+import { createPageHistory } from './page-history.js';
 import { mountToolbarKeys } from './toolbar-keys.js';
 import { t, tHtml } from './i18n.js';
 /** @typedef {'saving' | 'idle' | 'error'} ToolbarStatusState */
 
 // A Publish in progress, carried across a reload the dev server starts.
 const PUBLISHING_KEY = 'caret:publishing';
+
+/**
+ * The entries a publish published, with the revision each now has.
+ * @param {unknown} result
+ * @returns {{ collection: string, id: string, revision: number, fingerprint: string }[]}
+ */
+function publishedEntries(result) {
+  const list = result && typeof result === 'object' ? /** @type {{ published?: unknown }} */ (result).published : null;
+  return (Array.isArray(list) ? list : [])
+    .filter(entry => entry && typeof entry.collection === 'string' && typeof entry.id === 'string' && Number.isSafeInteger(entry.revision) && typeof entry.fingerprint === 'string')
+    .map(entry => ({ collection: entry.collection, id: entry.id, revision: entry.revision, fingerprint: entry.fingerprint }));
+}
 
 /** @param {number} count */
 function changeCount(count) {
@@ -31,6 +48,7 @@ function renderDraftControls(staticDelivery) {
             <span class="cms-go-live-label">${tHtml('editor.toolbar.publish')}</span>
           </button>
           <button class="cms-conflict-btn" type="button" hidden></button>
+          <button class="cms-changes-btn" type="button" aria-pressed="false" title="${tHtml('editor.changes.title')}">${tHtml('editor.changes.show')}</button>
           <button class="cms-discard-btn" type="button" title="${tHtml('editor.toolbar.discardTitle')}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             ${tHtml('editor.toolbar.discard')}
@@ -78,6 +96,8 @@ function renderToolbar(staticDelivery) {
               <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
               <span class="cms-highlight-label">${tHtml('editor.highlight.show')}</span>
             </button>
+            <button class="cms-page-history-btn" type="button">${tHtml('editor.pageHistory.title')}</button>
+            <button class="cms-intro-btn" type="button">${tHtml('editor.intro.again')}</button>
             <button class="cms-map-btn" type="button" aria-label="${tHtml('editor.map.title')}">
               <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
               ${tHtml('editor.map.title')}
@@ -270,9 +290,12 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     void undo.run();
   });
   // A Publish or Discard ends in a reload; carry its confirmation across it.
-  /** @param {string} message @param {'success' | 'error'} kind */
-  function reloadWithToast(message, kind) {
-    try { sessionStorage.setItem('caret:after-reload-toast', JSON.stringify({ message, kind })); } catch { /* shown nowhere */ }
+  /**
+   * @param {string} message @param {'success' | 'error'} kind
+   * @param {{ collection: string, id: string, revision: number, fingerprint: string }[]} [undoable] What a publish published, for its Undo.
+   */
+  function reloadWithToast(message, kind, undoable) {
+    try { sessionStorage.setItem('caret:after-reload-toast', JSON.stringify({ message, kind, ...(undoable?.length ? { undoable } : {}) })); } catch { /* shown nowhere */ }
     window.location.reload();
   }
   try {
@@ -282,9 +305,13 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     sessionStorage.removeItem(PUBLISHING_KEY);
     if (carried && typeof carried.message === 'string') {
       // Shown as the page comes back, so it stays long enough to be read.
+      // After a publish: Undo puts back what it replaced, while nothing has changed since.
+      const undoable = Array.isArray(carried.undoable) ? carried.undoable : [];
       setTimeout(() => (carried.kind === 'error'
         ? showToast(carried.message, 'error')
-        : showToast.saved({ message: carried.message })), 0);
+        : showToast.saved(undoable.length
+          ? { message: carried.message, duration: 15000, action: { label: t('editor.undoPublish.action'), onClick: () => undoPublish(undoable) } }
+          : { message: carried.message })), 0);
     } else if (publishing && typeof publishing.count === 'number' && Date.now() - publishing.at < 120000) {
       // Publishing writes the site's files, and the dev server can reload the
       // page before the answer arrives: say what happened from the drafts left.
@@ -475,10 +502,11 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
 
 
   /**
-   * @param {{ title: string, copy: string, confirmLabel: string, danger?: boolean, restoreFocus?: HTMLElement | null }} options
+   * @param {{ title: string, copy: string, confirmLabel: string, danger?: boolean, restoreFocus?: HTMLElement | null, extra?: HTMLElement | null }} options
+   *   `extra` is shown between the copy and the buttons while the dialog is open.
    * @returns {Promise<boolean>}
    */
-  function confirmToolbarAction({ title, copy, confirmLabel, danger = false, restoreFocus = null }) {
+  function confirmToolbarAction({ title, copy, confirmLabel, danger = false, restoreFocus = null, extra = null }) {
     const backdrop = /** @type {HTMLElement} */ (document.querySelector('.cms-dialog-backdrop'));
     const titleEl = /** @type {HTMLElement} */ (backdrop.querySelector('#cms-signout-title'));
     const copyEl = /** @type {HTMLElement} */ (backdrop.querySelector('#cms-signout-copy'));
@@ -493,6 +521,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     confirm.hidden = false;
     keep.hidden = true;
     discard.hidden = true;
+    if (extra) copyEl.after(extra);
     backdrop.hidden = false;
     cancel.focus();
 
@@ -500,6 +529,8 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       /** @param {boolean} accepted */
       function finish(accepted) {
         backdrop.hidden = true;
+        extra?.remove();
+        confirm.disabled = false;
         document.removeEventListener('keydown', onKeydown, true);
         cancel.removeEventListener('click', cancelAction);
         confirm.removeEventListener('click', confirmAction);
@@ -515,8 +546,11 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       function onKeydown(event) {
         if (event.key === 'Escape') { event.preventDefault(); finish(false); }
         if (event.key !== 'Tab') return;
-        if (event.shiftKey && document.activeElement === cancel) { event.preventDefault(); confirm.focus(); }
-        else if (!event.shiftKey && document.activeElement === confirm) { event.preventDefault(); cancel.focus(); }
+        // Loop through whatever can take focus: the extra content's controls, Cancel, then the confirm button.
+        const controls = /** @type {HTMLElement[]} */ ([...(extra?.querySelectorAll('input, button') ?? []), cancel, ...(confirm.disabled ? [] : [confirm])]);
+        const first = controls[0], last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
       }
       cancel.addEventListener('click', cancelAction);
       confirm.addEventListener('click', confirmAction);
@@ -529,12 +563,21 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   highlightBtn?.addEventListener('click', () => toggleHighlight(highlightBtn, showToast));
   const toolsMenu = /** @type {HTMLDetailsElement | null} */ (toolbar.querySelector('.cms-tools-menu'));
   toolbar.querySelector('.cms-map-btn')?.addEventListener('click', () => toolsMenu?.removeAttribute('open'));
+  // First visit in this browser: outline what can be edited and say how it works. Tools shows it again.
+  const firstVisit = createFirstVisit({ showToast, draftMode });
+  toolbar.querySelector('.cms-intro-btn')?.addEventListener('click', () => { toolsMenu?.removeAttribute('open'); firstVisit.show(); });
+  firstVisit.showOnce();
+  // Page history: drag back through earlier versions of this page; Restore makes one a draft.
+  const pageHistory = createPageHistory({ showToast, reload: message => reloadWithToast(message, 'success') });
+  toolbar.querySelector('.cms-page-history-btn')?.addEventListener('click', () => { toolsMenu?.removeAttribute('open'); void pageHistory.open(); });
   document.addEventListener('pointerdown', (event) => {
     if (toolsMenu?.open && event.target instanceof Node && !toolsMenu.contains(event.target)) {
       toolsMenu.removeAttribute('open');
     }
   });
 
+  /** @type {{ markOwn: (entries: { collection: string, id: string }[]) => void }} */
+  let awayNotice = { markOwn: () => {} };
   let canPublishDrafts = true;
   let draftCount = 0;
   /** @type {import('./draft-client.js').DraftConflict[]} */
@@ -564,6 +607,22 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     if (draftConflicts.length === 0) showToast(t('editor.conflict.keptMine'), 'success');
   }
   conflictBtn?.addEventListener('click', settleConflicts);
+
+  // The Changes view: a dot on each element the editor changed, or that changed on the site under their draft.
+  const changesBtn = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-changes-btn'));
+  const changesView = createChangesView({
+    getChanges: () => draftClient.getChanges(),
+    revertField: (collection, id, field) => draftClient.revertField(collection, id, field),
+    settleConflicts,
+    onReverted: () => reloadWithToast(t('editor.changes.undone'), 'success'),
+    onError: message => showToast(message, 'error'),
+  });
+  changesBtn?.addEventListener('click', async () => {
+    const marked = await changesView.toggle();
+    changesBtn.setAttribute('aria-pressed', String(changesView.isOn()));
+    if (marked === null) showToast(t('editor.changes.unavailable'), 'error');
+    else if (changesView.isOn() && marked === 0) showToast(t('editor.changes.none'), 'success');
+  });
   /** Whether the last count came from the server, rather than a failed request. */
   let draftCountKnown = false;
   const retryRebuildButton = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-retry-rebuild-btn'));
@@ -624,11 +683,44 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   }
 
   /** @param {{ reload?: boolean }} [options] */
-  async function publishDrafts({ reload = true } = {}) {
+  /**
+   * Undo a publish: stage what each entry was before it as a draft and publish
+   * those drafts. An entry changed since, or holding a newer draft, is left alone.
+   * @param {{ collection: string, id: string, revision: number, fingerprint: string }[]} published
+   */
+  async function undoPublish(published) {
+    /** @type {{ collection: string, id: string }[]} */
+    const staged = [];
+    /** @type {string[]} */
+    const refused = [];
+    for (const entry of published) {
+      try {
+        const reason = await draftClient.stageUndo(entry.collection, entry.id, entry.revision, entry.fingerprint);
+        if (reason) refused.push(reason);
+        else staged.push({ collection: entry.collection, id: entry.id });
+      } catch {
+        refused.push('unknown');
+      }
+    }
+    if (staged.length === 0) {
+      showToast(t(`editor.undoPublish.${refused[0] ?? 'unknown'}`), 'error');
+      return;
+    }
+    // What the page shows next is the editor's own doing, not news for "since you were last here".
+    awayNotice.markOwn(staged);
+    await publishDrafts({ entries: staged, undoing: true });
+    if (refused.length) showToast(t(`editor.undoPublish.${refused[0]}`), 'error');
+  }
+
+  /**
+   * @param {{ reload?: boolean, entries?: { collection: string, id: string }[] | null, undoing?: boolean }} [options]
+   *   `entries` publishes only those drafts; `undoing` says the publish puts back an earlier one.
+   */
+  async function publishDrafts({ reload = true, entries = null, undoing = false } = {}) {
     setStatus('saving', t('editor.toolbar.publishing'));
     try { sessionStorage.setItem(PUBLISHING_KEY, JSON.stringify({ count: draftCount, at: Date.now() })); } catch { /* not carried */ }
     try {
-      let result = await draftClient.publish();
+      let result = await draftClient.publish({ entries });
       // Entries held back because their file has changes Git hasn't committed:
       // publishing would commit those too, so ask first.
       const uncommitted = heldForUncommitted(result);
@@ -637,7 +729,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
         copy: t('editor.uncommitted.copy', { names: uncommitted.join(', ') }),
         confirmLabel: t('editor.uncommitted.publishAnyway'),
       })) {
-        const forced = await draftClient.publish({ allowUncommitted: true });
+        const forced = await draftClient.publish({ allowUncommitted: true, entries });
         result = mergePublishResults(result, forced);
       }
       const presentation = presentPublishResult(result);
@@ -647,7 +739,9 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       if (presentation.status) {
         setStatus(presentation.status.state, presentation.status.text);
       }
-      if (presentation.reload && reload) reloadWithToast(presentation.toast.message, presentation.toast.kind);
+      const undoable = presentation.completed && !undoing ? publishedEntries(result) : [];
+      const message = presentation.completed && undoing ? t('editor.undoPublish.done') : presentation.toast.message;
+      if (presentation.reload && reload) reloadWithToast(message, presentation.toast.kind, undoable);
       else showToast(presentation.toast.message, presentation.toast.kind);
       // Entries held back because the site changed in the same place: ask now.
       if (!presentation.completed && draftConflicts.length > 0 && reload) void settleConflicts();
@@ -697,7 +791,12 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   const publishBtn = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-publish-btn'));
   publishBtn?.addEventListener('click', async () => {
     const changes = changeCount(draftCount);
+    // What will be published, by name. Without the list the dialog still asks, as before.
+    const pending = await draftClient.getPending().catch(() => []);
+    const confirmButton = /** @type {HTMLButtonElement | null} */ (document.querySelector('.cms-dialog-backdrop .cms-signout-publish'));
+    const receipt = pending.length ? buildPublishReceipt(pending, (chosen) => { if (confirmButton) confirmButton.disabled = chosen === 0; }) : null;
     if (!(await confirmToolbarAction({
+      extra: receipt?.element,
       title: draftCount === 1 ? t('editor.toolbar.publishConfirmOne') : t('editor.toolbar.publishConfirmOther', { count: draftCount }),
       // When visitors see it depends on the server (a Markdown source can need
       // a rebuild), so only static delivery says it here; the result says it.
@@ -707,7 +806,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       confirmLabel: t('editor.toolbar.publish'),
       restoreFocus: publishBtn,
     }))) return;
-    await publishDrafts();
+    await publishDrafts({ entries: receipt?.chosen() ?? null });
   });
 
   const discardBtn = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-discard-btn'));
@@ -743,6 +842,13 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     publishBtn?.setAttribute('aria-label', count > 0 ? t('editor.toolbar.publishChanges', { changes: changeCount(count) }) : t('editor.toolbar.publish'));
   }
   refreshDraftControls();
+
+  // "Since you were last here": content on this page that changed and isn't the editor's own draft.
+  awayNotice = mountAwayNotice({
+    showToast,
+    ownChanges: async () => new Set((await draftClient.getChanges()).flatMap(entry =>
+      entry.changes.filter(change => change.kind !== 'site').map(change => `${entry.collection}::${entry.id}::${change.field}`))),
+  });
   window.addEventListener('cms:draftSaved', refreshDraftControls);
   // Drafts can change elsewhere (another tab, another device) while this page waits.
   document.addEventListener('visibilitychange', () => {

@@ -7,16 +7,20 @@ const ERROR_SVG =
 const WARNING_SVG =
   '<svg class="cms-toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
 
-/** @typedef {'success' | 'error' | 'warning'} ToastType */
+const INFO_SVG =
+  '<svg class="cms-toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 11v5"/><path d="M12 7.5h.01"/></svg>';
+
+/** @typedef {'success' | 'error' | 'warning' | 'info'} ToastType */
 /** @typedef {{ label: string, primary?: boolean, onClick: () => void | Promise<void> }} ToastAction */
 /** @typedef {{ message: string, sticky?: boolean, actions?: ToastAction[], role?: string, inline?: boolean, duration?: number }} ToastOptions */
-/** @typedef {{ message: string, action?: ToastAction }} SavedOptions */
+/** @typedef {{ message: string, action?: ToastAction, duration?: number }} SavedOptions */
 /** @typedef {{ message: string, onKeepMine: () => void | Promise<void>, onLoadLatest: () => void | Promise<void>, keepLabel?: string, latestLabel?: string }} ConflictOptions */
 /** @typedef {{ message: string, actions: ToastAction[] }} PendingOptions */
 /**
  * @typedef {((message: string, type?: 'success' | 'error') => HTMLDivElement) & {
  *   conflict: (options: ConflictOptions) => HTMLDivElement,
  *   pending: (options: PendingOptions) => HTMLDivElement,
+ *   notice: (options: PendingOptions) => HTMLDivElement,
  *   saved: (options: SavedOptions) => HTMLDivElement,
  *   onProblem?: (message: string) => void,
  *   dismiss: (toast: HTMLDivElement) => void,
@@ -31,6 +35,7 @@ const GRACE_MS = 1200;
 
 /** @param {ToastType} type @returns {string} */
 function iconFor(type) {
+  if (type === 'info') return INFO_SVG;
   if (type === 'success') return SUCCESS_SVG;
   if (type === 'warning') return WARNING_SVG;
   return ERROR_SVG;
@@ -220,13 +225,18 @@ export function createToast() {
   showToast.pending = ({ message, actions }) =>
     render('warning', { message, sticky: true, role: 'alert', actions });
 
+  // Something worth knowing, with what can be done about it (a welcome, a
+  // change to look at). Sticky like `pending`, but nothing is wrong.
+  showToast.notice = ({ message, actions }) =>
+    render('info', { message, sticky: true, role: 'status', actions });
+
   // A finished save, usually with Undo. One at a time, and long enough to
   // reach the button.
   /** @type {HTMLDivElement | null} */
   let savedToast = null;
-  showToast.saved = ({ message, action }) => {
+  showToast.saved = ({ message, action, duration = 3500 }) => {
     if (savedToast) dismiss(savedToast);
-    savedToast = render('success', { message, actions: action ? [action] : undefined, inline: true, duration: 3500 });
+    savedToast = render('success', { message, actions: action ? [action] : undefined, inline: true, duration });
     return savedToast;
   };
 

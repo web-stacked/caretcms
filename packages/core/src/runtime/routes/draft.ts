@@ -7,15 +7,18 @@ import type { APIContext } from "astro";
 import { isEditorAuthenticated, getEditorId } from "../auth/session.js";
 import { getRuntimeServices } from "../providers.js";
 import { discardOverlay, type PublishScope } from "../publish.js";
-import { countPendingDrafts, draftConflicts } from "../unpublished.js";
+import { draftChangeList, draftConflicts, pendingDrafts } from "../unpublished.js";
 import { draftOnlyUploads, removeDiscardedUploads } from "../upload-files.js";
-import { describeDraftConflicts, json, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
+import { describeDraftChanges, describeDraftConflicts, describePendingDrafts, json, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
 import { SessionOverlayAdapter } from "../storage/session-overlay-adapter.js";
 import { withEntryLock } from "../mutations/engine.js";
 import { requirePermission, PermissionDenied } from "../authorization.js";
 
 /**
  * GET /api/cms/draft — report whether the current editor has unpublished drafts.
+ * With `?changes=1` the reply also lists, per draft, the fields the editor
+ * changed and the fields that changed on the site since the draft was started,
+ * and `pending`: what Publish would publish, by entry.
  */
 export async function GET(context: APIContext): Promise<Response> {
   if (!isEditorAuthenticated(context)) return json({ error: "Unauthorized" }, 401);
@@ -28,12 +31,16 @@ export async function GET(context: APIContext): Promise<Response> {
 
   const overlay = await base.makeEditorOverlay(editorId);
   // Drafts that change nothing visitors see (an undone edit) aren't counted.
-  const count = await countPendingDrafts(base, overlay);
+  const pendingEntries = await pendingDrafts(base, overlay);
+  const count = pendingEntries.length;
   const journalPending = durableGitJournalEnabled() && hasGitJournalQueue(overlay)
     ? (await overlay.listGitJournalReceipts!()).length : 0;
   const retryJournal = journalPending > 0 && await canRetryPublicationJournals(overlay);
   const conflicts = await describeDraftConflicts(base, overlay, await draftConflicts(base, overlay));
-  return json({ ...(conflicts.length ? { conflicts } : {}), ...(journalPending > 0 ? { retryJournal, journalPending } : {}), ...(getRequestContext()?.authorize ? { canPublish: await canPublishOverlay(overlay) } : {}), hasDrafts: count > 0, count, retryRebuild: Boolean(await overlay.getRebuildReceipt?.()) });
+  const changes = context.url?.searchParams.get("changes") === "1"
+    ? await describeDraftChanges(base, overlay, await draftChangeList(base, overlay)) : null;
+  const pending = changes ? await describePendingDrafts(base, overlay, pendingEntries, changes) : null;
+  return json({ ...(conflicts.length ? { conflicts } : {}), ...(changes ? { changes, pending } : {}), ...(journalPending > 0 ? { retryJournal, journalPending } : {}), ...(getRequestContext()?.authorize ? { canPublish: await canPublishOverlay(overlay) } : {}), hasDrafts: count > 0, count, retryRebuild: Boolean(await overlay.getRebuildReceipt?.()) });
 }
 
 /**
@@ -41,6 +48,8 @@ export async function GET(context: APIContext): Promise<Response> {
  * Body: `{ collection, id, keep: "mine" | "site" }`. "mine" keeps the editor's
  * values (Publish then puts them on top); "site" takes the site's values for
  * the fields in conflict and keeps the editor's other changes.
+ * Body: `{ collection, id, field }` takes one field of the draft back to the
+ * site's value and keeps the rest.
  */
 export async function POST(context: APIContext): Promise<Response> {
   const csrf = enforceCsrfHeader(context.request);
@@ -51,9 +60,11 @@ export async function POST(context: APIContext): Promise<Response> {
 
   const parsed = await readJsonBody(context.request);
   if (!parsed.ok) return parsed.response;
-  const { collection, id, keep } = (parsed.value ?? {}) as { collection?: unknown; id?: unknown; keep?: unknown };
-  if (typeof collection !== "string" || typeof id !== "string" || (keep !== "mine" && keep !== "site")) {
-    return json({ error: "collection, id and keep (\"mine\" or \"site\") are required" }, 400);
+  const { collection, id, keep, field, undoPublish, fingerprint } = (parsed.value ?? {}) as { collection?: unknown; id?: unknown; keep?: unknown; field?: unknown; undoPublish?: unknown; fingerprint?: unknown };
+  if (undoPublish !== undefined) return stageUndo(editorId, collection, id, undoPublish, fingerprint);
+  const oneField = typeof field === "string" && field !== "";
+  if (typeof collection !== "string" || typeof id !== "string" || (!oneField && keep !== "mine" && keep !== "site")) {
+    return json({ error: "collection and id are required, with keep (\"mine\" or \"site\") or a field" }, 400);
   }
 
   const { adapter: base } = await getRuntimeServices();
@@ -63,12 +74,41 @@ export async function POST(context: APIContext): Promise<Response> {
   const overlay = await base.makeEditorOverlay(editorId);
   try {
     await requirePermission("edit", collection, id);
-    const settled = await withEntryLock(collection, id, () =>
-      new SessionOverlayAdapter(base, overlay).resolveDraftConflict(collection, id, keep));
-    return settled ? json({ ok: true }) : json({ error: "This draft has no conflict to settle" }, 409);
+    const drafts = new SessionOverlayAdapter(base, overlay);
+    const settled = await withEntryLock(collection, id, () => oneField
+      ? drafts.revertDraftField(collection, id, field as string)
+      : drafts.resolveDraftConflict(collection, id, keep as "mine" | "site"));
+    return settled ? json({ ok: true }) : json({ error: oneField ? "This draft doesn't change that field" : "This draft has no conflict to settle" }, 409);
   } catch (error) {
     if (error instanceof PermissionDenied) return json({ error: "Forbidden" }, 403);
     return json({ error: "The draft changed while it was being settled. Try again." }, 409);
+  }
+}
+
+/**
+ * POST /api/cms/draft `{ collection, id, undoPublish: revision, fingerprint }`:
+ * stage the entry as it was before the publish that produced `revision` (and
+ * wrote content with `fingerprint`, from the publish result), as a draft. The
+ * editor then publishes it like any draft. Refused when the entry changed since
+ * (409 `changed`), when the editor already has a draft of it (409 `drafted`),
+ * or when that publish changed body text (409 `text`).
+ */
+async function stageUndo(editorId: string, collection: unknown, id: unknown, revision: unknown, fingerprint: unknown): Promise<Response> {
+  if (typeof collection !== "string" || typeof id !== "string" || !Number.isSafeInteger(revision) || (revision as number) < 1 ||
+      typeof fingerprint !== "string" || fingerprint === "") {
+    return json({ error: "collection, id, undoPublish (a revision) and fingerprint are required" }, 400);
+  }
+  const { adapter: base } = await getRuntimeServices();
+  if (!base.makeEditorOverlay) return json({ error: "Drafts are not supported by the configured storage adapter" }, 400);
+  const overlay = await base.makeEditorOverlay(editorId);
+  try {
+    await requirePermission("edit", collection, id);
+    const outcome = await withEntryLock(collection, id, () =>
+      new SessionOverlayAdapter(base, overlay).stageUndoPublish(collection, id, revision as number, fingerprint));
+    return outcome === "staged" ? json({ ok: true }) : json({ error: "This publish can't be undone", reason: outcome }, 409);
+  } catch (error) {
+    if (error instanceof PermissionDenied) return json({ error: "Forbidden" }, 403);
+    return json({ error: "This publish can't be undone", reason: "changed" }, 409);
   }
 }
 

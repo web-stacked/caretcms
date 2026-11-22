@@ -84,6 +84,68 @@ export function rebaseDraft(
   return { data, conflicts: conflicts.sort(), removed };
 }
 
+/** One field that differs between a draft, the entry it started from and the published entry now. */
+export interface DraftFieldChange {
+  field: string;
+  /** `mine`: only the editor changed it. `site`: only the published entry changed. `both`: each changed it to a different value. */
+  kind: "mine" | "site" | "both";
+  /** The value when the draft was started, the editor's value and the published value now; `undefined` where the field is absent. */
+  started: unknown;
+  mine: unknown;
+  site: unknown;
+}
+
+/**
+ * What a structured draft changes and what changed underneath it, field by
+ * field, by the same rules as `rebaseDraft`. A field both sides changed to
+ * the same value is no change. Private keys and a deleted entry are left to
+ * the conflict report.
+ */
+export function draftFieldChanges(
+  state: DraftState, content: Record<string, unknown>, base: Record<string, unknown> | null,
+): DraftFieldChange[] {
+  if (base === null && state.baseData !== null) return [];
+  const started = state.baseData ?? {};
+  const current = base ?? {};
+  const privateKeys: readonly string[] = PRIVATE_ENTRY_KEYS;
+  const changes: DraftFieldChange[] = [];
+  for (const field of new Set([...Object.keys(current), ...Object.keys(content), ...Object.keys(started)])) {
+    if (privateKeys.includes(field)) continue;
+    const mine = Object.hasOwn(content, field), was = Object.hasOwn(started, field), now = Object.hasOwn(current, field);
+    const edited = mine !== was || (mine && !sameContent(content[field], started[field]));
+    const moved = now !== was || (now && !sameContent(current[field], started[field]));
+    if (!edited && !moved) continue;
+    const agree = mine === now && (!mine || sameContent(content[field], current[field]));
+    if (edited && moved && agree) continue;
+    changes.push({ field, kind: edited && moved ? "both" : edited ? "mine" : "site",
+      started: started[field], mine: edited ? content[field] : current[field], site: current[field] });
+  }
+  return changes.sort((a, b) => a.field.localeCompare(b.field));
+}
+
+/**
+ * A short fingerprint of entry content: equal content (by `sameContent`) gives
+ * an equal fingerprint. Used to tell that an entry is still exactly what a
+ * publish wrote, since a developer's direct file edit doesn't bump a revision.
+ */
+export function contentFingerprint(data: unknown): string {
+  const stable = (value: unknown): string => {
+    if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+    if (value && typeof value === "object") {
+      return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stable((value as Record<string, unknown>)[key])}`).join(",")}}`;
+    }
+    return JSON.stringify(value) ?? "null";
+  };
+  const text = stable(data);
+  let a = 0x811c9dc5, b = 0x01000193;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    a = Math.imul(a ^ code, 0x01000193);
+    b = Math.imul(b ^ code, 0x5bd1e995) ^ (b >>> 15);
+  }
+  return `${(a >>> 0).toString(36)}${(b >>> 0).toString(36)}`;
+}
+
 /** Object key ordering is not a content change. Arrays retain their order. */
 export function sameContent(a: unknown, b: unknown): boolean {
   if (a === b) return true;
