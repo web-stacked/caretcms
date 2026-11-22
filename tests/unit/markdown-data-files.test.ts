@@ -91,7 +91,7 @@ describe("spliceJson", () => {
       .replace('"I shape \\"products\\""', '"New words"'));
   });
 
-  it("re-serializes only a value whose structure changed, aligned to its line", () => {
+  it("rewrites only what gained or lost something, in the style it was written in", () => {
     const before = JSON.parse(HAND);
     const after = structuredClone(before);
     after.ring.push("/c.webp");
@@ -99,7 +99,8 @@ describe("spliceJson", () => {
     const out = spliceJson(HAND, before, after, 2);
     expect(JSON.parse(out)).toEqual(after);
     expect(out).toContain('{ "label": "Home", "href": "/" }');
-    expect(out).toContain('"ring": [\n    "/a.webp",\n    "/b.webp",\n    "/c.webp"\n  ]');
+    // The list gains its item in the style it was written in; the object gains its key.
+    expect(out).toMatch(/"ring": \[\s*"\/a\.webp",\s*"\/b\.webp",\s*"\/c\.webp"\s*\]/);
   });
 
   it("returns the source unchanged when nothing differs", () => {
