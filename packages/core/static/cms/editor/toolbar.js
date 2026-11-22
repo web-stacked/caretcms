@@ -8,6 +8,7 @@ import { createChangesView } from './changes-view.js';
 import { mountAwayNotice } from './away-notice.js';
 import { buildPublishReceipt } from './publish-receipt.js';
 import { createFirstVisit } from './first-visit.js';
+import { createPageHistory } from './page-history.js';
 import { mountToolbarKeys } from './toolbar-keys.js';
 import { t, tHtml } from './i18n.js';
 /** @typedef {'saving' | 'idle' | 'error'} ToolbarStatusState */
@@ -95,6 +96,7 @@ function renderToolbar(staticDelivery) {
               <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
               <span class="cms-highlight-label">${tHtml('editor.highlight.show')}</span>
             </button>
+            <button class="cms-page-history-btn" type="button">${tHtml('editor.pageHistory.title')}</button>
             <button class="cms-intro-btn" type="button">${tHtml('editor.intro.again')}</button>
             <button class="cms-map-btn" type="button" aria-label="${tHtml('editor.map.title')}">
               <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -565,6 +567,9 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   const firstVisit = createFirstVisit({ showToast, draftMode });
   toolbar.querySelector('.cms-intro-btn')?.addEventListener('click', () => { toolsMenu?.removeAttribute('open'); firstVisit.show(); });
   firstVisit.showOnce();
+  // Page history: drag back through earlier versions of this page; Restore makes one a draft.
+  const pageHistory = createPageHistory({ showToast, reload: message => reloadWithToast(message, 'success') });
+  toolbar.querySelector('.cms-page-history-btn')?.addEventListener('click', () => { toolsMenu?.removeAttribute('open'); void pageHistory.open(); });
   document.addEventListener('pointerdown', (event) => {
     if (toolsMenu?.open && event.target instanceof Node && !toolsMenu.contains(event.target)) {
       toolsMenu.removeAttribute('open');

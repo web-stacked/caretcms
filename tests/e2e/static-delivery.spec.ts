@@ -480,6 +480,66 @@ test("undoes a publish from the message that confirms it", async ({ page }) => {
   }
 });
 
+test("drags the page back through earlier versions and restores one as a draft", async ({ page }) => {
+  const file = resolve(FIXTURE, ".caret/data/pages/home.json");
+  try {
+    await page.request.post("/api/cms/auth/login", { data: { password: EDIT_PASSWORD }, headers: { Accept: "application/json" } });
+    for (const headline of ["First edition", "Second edition"]) {
+      const saved = await page.request.post("/api/cms/mutate", { headers: { "x-caret-request": "1" }, data: { type: "put_entry", collection: "pages", id: "home", data: { headline } } });
+      expect(saved.ok()).toBe(true);
+      expect((await (await page.request.post("/api/cms/publish", { headers: { "x-caret-request": "1" }, data: {} })).json()).published).toHaveLength(1);
+    }
+    await page.goto("/");
+    await expect(page.locator("h1[data-caret]")).toHaveText("Second edition");
+    await page.locator(".cms-tools-summary").click();
+    await page.getByRole("button", { name: "Page history" }).click();
+    const history = page.getByRole("dialog", { name: "Page history" });
+    const slider = history.getByRole("slider");
+    await expect(history).toContainText("This page now.");
+    await expect(history.getByRole("button", { name: "Restore this version" })).toBeHidden();
+
+    // Two publishes: the oldest stop is the page before both.
+    await slider.focus();
+    await page.keyboard.press("Home");
+    await expect(page.locator("h1[data-caret]")).toHaveText(PUBLISHED_HEADLINE);
+    await page.keyboard.press("ArrowRight");
+    await expect(page.locator("h1[data-caret]")).toHaveText("First edition");
+    await expect(history).toContainText("This page before the change on");
+
+    // Leaving with an old version on screen isn't remembered as what the page said.
+    await page.goto("/");
+    await expect(page.locator("h1[data-caret]")).toHaveText("Second edition");
+    await expect(page.locator(".cms-toolbar")).toBeVisible();
+    await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
+    await page.locator(".cms-tools-summary").click();
+    await page.getByRole("button", { name: "Page history" }).click();
+    await slider.focus();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowRight");
+
+    // Close puts today's text back without changing anything.
+    await history.getByRole("button", { name: "Close" }).click();
+    await expect(page.locator("h1[data-caret]")).toHaveText("Second edition");
+    expect(JSON.parse(readFileSync(file, "utf8")).headline).toBe("Second edition");
+
+    // Restore makes the earlier version a draft; the site keeps today's until it is published.
+    await page.locator(".cms-tools-summary").click();
+    await page.getByRole("button", { name: "Page history" }).click();
+    await slider.focus();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowRight");
+    await history.getByRole("button", { name: "Restore this version" }).click();
+    await expect(page.getByText("The earlier version is now a draft. Publish to make it live.")).toBeVisible();
+    await expect(page.locator("h1[data-caret]")).toHaveText("First edition");
+    expect(JSON.parse(readFileSync(file, "utf8")).headline).toBe("Second edition");
+    expect((await (await page.request.get("/api/cms/draft")).json()).count).toBe(1);
+  } finally {
+    rmSync(resolve(FIXTURE, ".caret"), { recursive: true, force: true });
+    rmSync(resolve(FIXTURE, ".caretcms"), { recursive: true, force: true });
+    seedPublishedEntry();
+  }
+});
+
 test("discards a draft and retries a failed deploy through toolbar requests", async ({ page }) => {
   try {
     const login = await page.request.post("/api/cms/auth/login", {

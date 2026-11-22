@@ -515,6 +515,40 @@
 .cms-change-actions button.cms-change-primary { background: var(--cms-fill-strong); font-weight: 600; }
 .cms-change-actions button:focus-visible { outline: 2px solid var(--cms-accent); outline-offset: 2px; }
 
+/* Page history: a slider docked above the toolbar. */
+.cms-page-history {
+  position: fixed;
+  left: 50%;
+  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  z-index: 99999;
+  width: min(32rem, calc(100vw - 24px));
+  translate: -50% 0;
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--cms-surface);
+  color: var(--cms-text);
+  box-shadow: var(--cms-edge), 0 18px 50px -14px rgba(0, 0, 0, 0.6);
+  font: 13.5px/1.45 var(--cms-font);
+}
+.cms-page-history label { font-weight: 600; }
+.cms-page-history input[type="range"] { width: 100%; accent-color: #22c55e; }
+.cms-page-history-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.cms-page-history-actions button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 17px;
+  background: var(--cms-fill);
+  color: var(--cms-text);
+  cursor: pointer;
+  font: 500 13px/1 var(--cms-font);
+}
+.cms-page-history-actions button.cms-page-history-restore { background: #22c55e; color: #052e16; font-weight: 600; }
+.cms-page-history-actions button:disabled { opacity: 0.45; cursor: default; }
+.cms-page-history button:focus-visible, .cms-page-history input:focus-visible { outline: 2px solid var(--cms-accent); outline-offset: 2px; }
+
 /* What Publish will publish: one row per draft inside the dialog. */
 .cms-dialog .cms-receipt {
   display: grid;
