@@ -1,4 +1,4 @@
-import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, contentWithoutState, isStaleDraft, readDraftState, rebaseDraft, sameContent, TEMPLATE_TEXT_KEY, type DraftState } from "../draft-state.js";
+import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, contentWithoutState, draftFieldChanges, isStaleDraft, readDraftState, rebaseDraft, sameContent, TEMPLATE_TEXT_KEY, type DraftFieldChange, type DraftState } from "../draft-state.js";
 import { draftTemplateRecord } from "../template-text.js";
 import { readAdapterSnapshot, readAdapterSnapshots } from "./read-snapshot.js";
 import { commitEntryChanges } from "./entry-commit.js";
@@ -238,6 +238,45 @@ export class SessionOverlayAdapter implements StorageAdapter {
     const nextState = state && fieldsCollide ? { ...state, baseRevision: base.revision, baseData: published } : state;
     const settled = await commitEntryChanges(this.overlay, [{ collection, id, expectedRevision: revision, expectedExists: true,
       data: data && { ...data, ...(nextState ? { [DRAFT_STATE_KEY]: nextState } : {}) } }]);
+    if (!settled.ok) throw new Error("Draft changed while it was being settled");
+    return true;
+  }
+
+  /** What this editor's structured draft of an entry changes, and what changed on the site underneath it. */
+  async draftChanges(collection: string, id: string): Promise<DraftFieldChange[]> {
+    const own = await this.overlay.getEntry(collection, id);
+    if (!own || isTombstone(own)) return [];
+    const state = readDraftState(own.data);
+    if (!state?.structured) return [];
+    return draftFieldChanges(state, contentWithoutState(own.data), (await this.base.getEntry(collection, id))?.data ?? null);
+  }
+
+  /**
+   * Take one field of a draft back to the published value (or to no value,
+   * when the site has none), keeping the editor's other changes. A draft left
+   * with no change of its own is dropped. Returns false when the draft holds
+   * no change to that field.
+   */
+  async revertDraftField(collection: string, id: string, field: string): Promise<boolean> {
+    const revision = await this.overlay.getRevision(collection, id);
+    const own = await this.overlay.getEntry(collection, id);
+    if (own?.data[PUBLISH_RECOVERY_KEY]) throw new Error("Finish pending publication before editing this draft");
+    if (!own || isTombstone(own)) return false;
+    const state = readDraftState(own.data);
+    if (!state?.structured) return false;
+    const published = (await this.base.getEntry(collection, id))?.data ?? null;
+    const content = contentWithoutState(own.data);
+    if (!draftFieldChanges(state, content, published).some(change => change.field === field && change.kind !== "site")) return false;
+    const data: Record<string, unknown> = { ...rebaseDraft(state, content, published).data };
+    if (published && Object.hasOwn(published, field)) data[field] = published[field];
+    else delete data[field];
+    const own_ = (entry: Record<string, unknown> | null) => entry && Object.fromEntries(Object.entries(entry).filter(([key]) => key !== TEMPLATE_TEXT_KEY));
+    const nothingLeft = published ? sameContent(own_(data), own_(published)) : Object.keys(own_(data) ?? {}).length === 0;
+    const kept: Record<string, unknown> = { ...content };
+    if (Object.hasOwn(data, field)) kept[field] = data[field];
+    else delete kept[field];
+    const settled = await commitEntryChanges(this.overlay, [{ collection, id, expectedRevision: revision, expectedExists: true,
+      data: nothingLeft ? null : { ...kept, [DRAFT_STATE_KEY]: state } }]);
     if (!settled.ok) throw new Error("Draft changed while it was being settled");
     return true;
   }

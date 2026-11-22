@@ -296,6 +296,47 @@ test("asks which headline to keep when two editors changed it, and keeps Publish
   }
 });
 
+test("marks the editor's own change on the page and undoes just that change", async ({ page }) => {
+  try {
+    await page.request.post("/api/cms/auth/login", { data: { password: EDIT_PASSWORD }, headers: { Accept: "application/json" } });
+    const saved = await page.request.post("/api/cms/mutate", { headers: { "x-caret-request": "1" }, data: { type: "put_entry", collection: "pages", id: "home", data: { headline: "My unpublished headline" } } });
+    expect(saved.ok()).toBe(true);
+    await page.goto("/");
+    await expect(page.locator("h1[data-caret]")).toHaveText("My unpublished headline");
+
+    // Changes puts a dot beside the changed heading; the dot opens a card with both values.
+    const changes = page.locator(".cms-changes-btn");
+    await changes.click();
+    await expect(changes).toHaveAttribute("aria-pressed", "true");
+    const dot = page.getByRole("button", { name: "Show the change to Headline" });
+    await expect(dot).toHaveCount(1);
+    await dot.click();
+    const card = page.getByRole("dialog", { name: "Headline" });
+    await expect(card).toContainText("Your change, not published yet");
+    await expect(card).toContainText(`Site${PUBLISHED_HEADLINE}`);
+    await expect(card).toContainText("YoursMy unpublished headline");
+
+    // Escape closes the card, and turning Changes off removes the dots.
+    await page.keyboard.press("Escape");
+    await expect(card).toHaveCount(0);
+    await changes.click();
+    await expect(dot).toHaveCount(0);
+
+    // Undoing the change leaves no draft and the page shows the published headline again.
+    await changes.click();
+    await dot.click();
+    await card.getByRole("button", { name: "Undo my change" }).click();
+    await expect(page.locator("h1[data-caret]")).toHaveText(PUBLISHED_HEADLINE);
+    await expect(page.getByText("Your change was undone.")).toBeVisible();
+    expect((await (await page.request.get("/api/cms/draft")).json()).count).toBe(0);
+    expect(JSON.parse(readFileSync(resolve(FIXTURE, ".caret/data/pages/home.json"), "utf8")).headline).toBe(PUBLISHED_HEADLINE);
+  } finally {
+    rmSync(resolve(FIXTURE, ".caret"), { recursive: true, force: true });
+    rmSync(resolve(FIXTURE, ".caretcms"), { recursive: true, force: true });
+    seedPublishedEntry();
+  }
+});
+
 test("discards a draft and retries a failed deploy through toolbar requests", async ({ page }) => {
   try {
     const login = await page.request.post("/api/cms/auth/login", {

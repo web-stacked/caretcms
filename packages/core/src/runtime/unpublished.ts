@@ -2,7 +2,7 @@ import { getRequestContext } from "./request-context.js";
 import { SessionOverlayAdapter, type DraftConflict } from "./storage/session-overlay-adapter.js";
 import { stripBodyOverlay } from "./utils.js";
 import { loadPageContent, merged } from "./page-content.js";
-import { PUBLISH_RECOVERY_KEY } from "./draft-state.js";
+import { PUBLISH_RECOVERY_KEY, type DraftFieldChange } from "./draft-state.js";
 import type { EntryData, StorageAdapter } from "../types.js";
 
 export type UnpublishedEntry = { collection: string; id: string; deleted: boolean };
@@ -83,6 +83,21 @@ export async function draftConflicts(base: StorageAdapter, overlay: StorageAdapt
     for (const id of await overlay.listEntryIds(collection)) {
       const conflict = await drafts.draftConflict(collection, id);
       if (conflict) found.push(conflict);
+    }
+  }
+  return found;
+}
+
+export type EntryFieldChanges = { collection: string; id: string; changes: DraftFieldChange[] };
+
+/** For each of this editor's drafts: the fields they changed and the fields that changed on the site underneath. */
+export async function draftChangeList(base: StorageAdapter, overlay: StorageAdapter): Promise<EntryFieldChanges[]> {
+  const drafts = new SessionOverlayAdapter(base, overlay);
+  const found: EntryFieldChanges[] = [];
+  for (const collection of await overlay.discoverCollections()) {
+    for (const id of await overlay.listEntryIds(collection)) {
+      const changes = await drafts.draftChanges(collection, id);
+      if (changes.length) found.push({ collection, id, changes });
     }
   }
   return found;

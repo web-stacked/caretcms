@@ -16,6 +16,24 @@
  * @property {string[]} body The editor's text for each body block that changed on the site.
  */
 /**
+ * One field of a draft: changed by the editor (`mine`), on the site since the
+ * draft was started (`site`), or by both to different values (`both`).
+ * @typedef {object} DraftFieldChange
+ * @property {string} field
+ * @property {string} label
+ * @property {'mine' | 'site' | 'both'} kind
+ * @property {string} started The value when the draft was started.
+ * @property {string} mine
+ * @property {string} site
+ */
+/**
+ * @typedef {object} DraftEntryChanges
+ * @property {string} collection
+ * @property {string} id
+ * @property {string} title
+ * @property {DraftFieldChange[]} changes
+ */
+/**
  * @typedef {object} RetryDeploymentResult
  * @property {boolean} deploymentTracked
  */
@@ -97,6 +115,34 @@ export function createDraftClient(options) {
     await requireOk(await request('POST', '/draft', JSON.stringify({ collection, id, keep })));
   }
 
+  /** Per draft: the fields the editor changed and the fields that changed on the site underneath. */
+  async function getChanges() {
+    const response = await requireOk(await request('GET', '/draft?changes=1', undefined));
+    const data = record(await response.json());
+    return /** @type {DraftEntryChanges[]} */ ((Array.isArray(data.changes) ? data.changes : []).map(record)
+      .filter(entry => typeof entry.collection === 'string' && typeof entry.id === 'string')
+      .map(entry => ({
+        collection: String(entry.collection),
+        id: String(entry.id),
+        title: typeof entry.title === 'string' ? entry.title : '',
+        changes: (Array.isArray(entry.changes) ? entry.changes : []).map(record)
+          .filter(change => typeof change.field === 'string' && (change.kind === 'mine' || change.kind === 'site' || change.kind === 'both'))
+          .map(change => ({
+            field: String(change.field),
+            label: String(change.label ?? change.field),
+            kind: /** @type {'mine' | 'site' | 'both'} */ (change.kind),
+            started: typeof change.started === 'string' ? change.started : '',
+            mine: typeof change.mine === 'string' ? change.mine : '',
+            site: typeof change.site === 'string' ? change.site : '',
+          })),
+      })));
+  }
+
+  /** Take one field of a draft back to the site's value. @param {string} collection @param {string} id @param {string} field */
+  async function revertField(collection, id, field) {
+    await requireOk(await request('POST', '/draft', JSON.stringify({ collection, id, field })));
+  }
+
   async function discard() {
     await requireOk(await request('DELETE', '/draft', undefined));
   }
@@ -115,5 +161,5 @@ export function createDraftClient(options) {
     });
   }
 
-  return { getState, publish, discard, resolveConflict, retryDeployment };
+  return { getState, getChanges, publish, discard, resolveConflict, revertField, retryDeployment };
 }

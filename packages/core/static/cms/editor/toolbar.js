@@ -4,6 +4,7 @@ import { buildCmsUrl, isStaticDelivery } from './config.js';
 import { createDeploymentStatusPoller } from './deployment-status.js';
 import { presentPublishResult } from './publish-result.js';
 import { createDraftClient } from './draft-client.js';
+import { createChangesView } from './changes-view.js';
 import { mountToolbarKeys } from './toolbar-keys.js';
 import { t, tHtml } from './i18n.js';
 /** @typedef {'saving' | 'idle' | 'error'} ToolbarStatusState */
@@ -31,6 +32,7 @@ function renderDraftControls(staticDelivery) {
             <span class="cms-go-live-label">${tHtml('editor.toolbar.publish')}</span>
           </button>
           <button class="cms-conflict-btn" type="button" hidden></button>
+          <button class="cms-changes-btn" type="button" aria-pressed="false" title="${tHtml('editor.changes.title')}">${tHtml('editor.changes.show')}</button>
           <button class="cms-discard-btn" type="button" title="${tHtml('editor.toolbar.discardTitle')}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             ${tHtml('editor.toolbar.discard')}
@@ -564,6 +566,22 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     if (draftConflicts.length === 0) showToast(t('editor.conflict.keptMine'), 'success');
   }
   conflictBtn?.addEventListener('click', settleConflicts);
+
+  // The Changes view: a dot on each element the editor changed, or that changed on the site under their draft.
+  const changesBtn = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-changes-btn'));
+  const changesView = createChangesView({
+    getChanges: () => draftClient.getChanges(),
+    revertField: (collection, id, field) => draftClient.revertField(collection, id, field),
+    settleConflicts,
+    onReverted: () => reloadWithToast(t('editor.changes.undone'), 'success'),
+    onError: message => showToast(message, 'error'),
+  });
+  changesBtn?.addEventListener('click', async () => {
+    const marked = await changesView.toggle();
+    changesBtn.setAttribute('aria-pressed', String(changesView.isOn()));
+    if (marked === null) showToast(t('editor.changes.unavailable'), 'error');
+    else if (changesView.isOn() && marked === 0) showToast(t('editor.changes.none'), 'success');
+  });
   /** Whether the last count came from the server, rather than a failed request. */
   let draftCountKnown = false;
   const retryRebuildButton = /** @type {HTMLButtonElement | null} */ (toolbar.querySelector('.cms-retry-rebuild-btn'));
