@@ -437,6 +437,49 @@ test("lists what Publish will publish and publishes only the ticked drafts", asy
   }
 });
 
+test("undoes a publish from the message that confirms it", async ({ page }) => {
+  const file = resolve(FIXTURE, ".caret/data/pages/home.json");
+  try {
+    await page.request.post("/api/cms/auth/login", { data: { password: EDIT_PASSWORD }, headers: { Accept: "application/json" } });
+    const saved = await page.request.post("/api/cms/mutate", { headers: { "x-caret-request": "1" }, data: { type: "put_entry", collection: "pages", id: "home", data: { headline: "Published by mistake" } } });
+    expect(saved.ok()).toBe(true);
+    await page.goto("/");
+    await page.locator(".cms-publish-btn").click();
+    await page.getByRole("dialog", { name: "Publish 1 change?" }).getByRole("button", { name: "Publish", exact: true }).click();
+    await expect.poll(() => JSON.parse(readFileSync(file, "utf8")).headline).toBe("Published by mistake");
+
+    // The confirmation after the reload offers Undo.
+    const undo = page.getByRole("button", { name: "Undo", exact: true });
+    await expect(undo).toBeVisible();
+    await undo.click();
+    await expect.poll(() => JSON.parse(readFileSync(file, "utf8")).headline).toBe(PUBLISHED_HEADLINE);
+    await expect(page.locator("h1[data-caret]")).toHaveText(PUBLISHED_HEADLINE);
+    await expect(page.getByText(/^Undone\. The site is back as it was/)).toBeVisible();
+    await expect(undo).toHaveCount(0);
+    expect((await (await page.request.get("/api/cms/draft")).json()).count).toBe(0);
+    // Putting it back was the editor's own doing: nothing to announce.
+    await expect(page.locator(".cms-toolbar")).toBeVisible();
+    await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
+
+    // Undo is refused once the page changed after the publish.
+    const again = await page.request.post("/api/cms/mutate", { headers: { "x-caret-request": "1" }, data: { type: "put_entry", collection: "pages", id: "home", data: { headline: "Second publish" } } });
+    expect(again.ok()).toBe(true);
+    await page.goto("/");
+    await page.locator(".cms-publish-btn").click();
+    await page.getByRole("dialog", { name: "Publish 1 change?" }).getByRole("button", { name: "Publish", exact: true }).click();
+    await expect(undo).toBeVisible();
+    writeFileSync(file, `${JSON.stringify({ headline: "Developer headline" }, null, 2)}\n`);
+    await page.request.post("/api/cms/publish", { headers: { "x-caret-request": "1" }, data: {} });
+    await undo.click();
+    await expect(page.getByText("This publish can’t be undone: the page changed since.")).toBeVisible();
+    expect(JSON.parse(readFileSync(file, "utf8")).headline).toBe("Developer headline");
+  } finally {
+    rmSync(resolve(FIXTURE, ".caret"), { recursive: true, force: true });
+    rmSync(resolve(FIXTURE, ".caretcms"), { recursive: true, force: true });
+    seedPublishedEntry();
+  }
+});
+
 test("discards a draft and retries a failed deploy through toolbar requests", async ({ page }) => {
   try {
     const login = await page.request.post("/api/cms/auth/login", {

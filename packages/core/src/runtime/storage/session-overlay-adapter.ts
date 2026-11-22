@@ -1,4 +1,4 @@
-import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, contentWithoutState, draftFieldChanges, isStaleDraft, readDraftState, rebaseDraft, sameContent, TEMPLATE_TEXT_KEY, type DraftFieldChange, type DraftState } from "../draft-state.js";
+import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, contentFingerprint, contentWithoutState, draftFieldChanges, isStaleDraft, readDraftState, rebaseDraft, sameContent, TEMPLATE_TEXT_KEY, type DraftFieldChange, type DraftState } from "../draft-state.js";
 import { draftTemplateRecord } from "../template-text.js";
 import { readAdapterSnapshot, readAdapterSnapshots } from "./read-snapshot.js";
 import { commitEntryChanges } from "./entry-commit.js";
@@ -299,6 +299,39 @@ export class SessionOverlayAdapter implements StorageAdapter {
       data: nothingLeft ? null : { ...kept, [DRAFT_STATE_KEY]: { ...state, baseData: state.baseData === null && !published ? null : agreed } } }]);
     if (!settled.ok) throw new Error("Draft changed while it was being settled");
     return true;
+  }
+
+  /**
+   * Stage the undo of a publish as a draft: the entry as it was before the
+   * publish that produced `revision` and wrote content with `fingerprint`.
+   * Publishing the draft puts it back through the normal publish path. Returns
+   * why it can't, when it can't: something changed the entry since (another
+   * publish, or a direct file edit that doesn't bump the revision), the editor
+   * already has a draft of it, or that publish changed body text (which only
+   * History can put back).
+   */
+  async stageUndoPublish(collection: string, id: string, revision: number, fingerprint: string): Promise<"staged" | "changed" | "drafted" | "text" | "unknown"> {
+    const current = await readAdapterSnapshot(this.base, collection, id);
+    if (current.revision !== revision || contentFingerprint(current.entry?.data ?? null) !== fingerprint) return "changed";
+    if (await this.overlay.getEntry(collection, id)) return "drafted";
+    const last = (await this.base.getHistory(collection, id))
+      .filter(entry => entry.action === "publish")
+      .sort((a, b) => b.ts - a.ts)[0];
+    if (!last) return "unknown";
+    // Markdown publishes keep the whole file from before. Only a publish that
+    // changed the body text needs it back, and a draft can't carry that.
+    if (typeof last.bodySource === "string") {
+      const now = await this.base.readBodySource?.(collection, id) ?? null;
+      if (now === null || canonicalBody(now).body !== canonicalBody(last.bodySource).body) return "text";
+    }
+    const before = last.data;
+    if (before === null) {
+      await this.deleteEntry(collection, id);
+      return "staged";
+    }
+    if (!before || typeof before !== "object" || Array.isArray(before)) return "unknown";
+    await this.writeEntry(collection, id, before as Record<string, unknown>);
+    return "staged";
   }
 
   /** The overlay's OWN entry (draft deltas only), with no base fallback or

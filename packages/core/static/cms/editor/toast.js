@@ -13,7 +13,7 @@ const INFO_SVG =
 /** @typedef {'success' | 'error' | 'warning' | 'info'} ToastType */
 /** @typedef {{ label: string, primary?: boolean, onClick: () => void | Promise<void> }} ToastAction */
 /** @typedef {{ message: string, sticky?: boolean, actions?: ToastAction[], role?: string, inline?: boolean, duration?: number }} ToastOptions */
-/** @typedef {{ message: string, action?: ToastAction }} SavedOptions */
+/** @typedef {{ message: string, action?: ToastAction, duration?: number }} SavedOptions */
 /** @typedef {{ message: string, onKeepMine: () => void | Promise<void>, onLoadLatest: () => void | Promise<void>, keepLabel?: string, latestLabel?: string }} ConflictOptions */
 /** @typedef {{ message: string, actions: ToastAction[] }} PendingOptions */
 /**
@@ -234,9 +234,9 @@ export function createToast() {
   // reach the button.
   /** @type {HTMLDivElement | null} */
   let savedToast = null;
-  showToast.saved = ({ message, action }) => {
+  showToast.saved = ({ message, action, duration = 3500 }) => {
     if (savedToast) dismiss(savedToast);
-    savedToast = render('success', { message, actions: action ? [action] : undefined, inline: true, duration: 3500 });
+    savedToast = render('success', { message, actions: action ? [action] : undefined, inline: true, duration });
     return savedToast;
   };
 

@@ -174,4 +174,11 @@ export function mountAwayNotice(options) {
   // A save changes which fields are the editor's own.
   window.addEventListener('cms:draftSaved', () => { void readOwn(); });
   void check();
+  return {
+    /** Count what these entries show as the editor's own doing (an undone publish), so it isn't announced. @param {{ collection: string, id: string }[]} entries */
+    markOwn(entries) {
+      const prefixes = entries.map(({ collection, id }) => `${collection}::${id}::`);
+      for (const key of bindingsOnPage().keys()) if (prefixes.some(prefix => key.startsWith(prefix))) own.add(key);
+    },
+  };
 }

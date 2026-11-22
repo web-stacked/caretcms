@@ -15,6 +15,18 @@ import { t, tHtml } from './i18n.js';
 // A Publish in progress, carried across a reload the dev server starts.
 const PUBLISHING_KEY = 'caret:publishing';
 
+/**
+ * The entries a publish published, with the revision each now has.
+ * @param {unknown} result
+ * @returns {{ collection: string, id: string, revision: number, fingerprint: string }[]}
+ */
+function publishedEntries(result) {
+  const list = result && typeof result === 'object' ? /** @type {{ published?: unknown }} */ (result).published : null;
+  return (Array.isArray(list) ? list : [])
+    .filter(entry => entry && typeof entry.collection === 'string' && typeof entry.id === 'string' && Number.isSafeInteger(entry.revision) && typeof entry.fingerprint === 'string')
+    .map(entry => ({ collection: entry.collection, id: entry.id, revision: entry.revision, fingerprint: entry.fingerprint }));
+}
+
 /** @param {number} count */
 function changeCount(count) {
   return count === 1 ? t('editor.toolbar.changesOne') : t('editor.toolbar.changesOther', { count });
@@ -276,9 +288,12 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     void undo.run();
   });
   // A Publish or Discard ends in a reload; carry its confirmation across it.
-  /** @param {string} message @param {'success' | 'error'} kind */
-  function reloadWithToast(message, kind) {
-    try { sessionStorage.setItem('caret:after-reload-toast', JSON.stringify({ message, kind })); } catch { /* shown nowhere */ }
+  /**
+   * @param {string} message @param {'success' | 'error'} kind
+   * @param {{ collection: string, id: string, revision: number, fingerprint: string }[]} [undoable] What a publish published, for its Undo.
+   */
+  function reloadWithToast(message, kind, undoable) {
+    try { sessionStorage.setItem('caret:after-reload-toast', JSON.stringify({ message, kind, ...(undoable?.length ? { undoable } : {}) })); } catch { /* shown nowhere */ }
     window.location.reload();
   }
   try {
@@ -288,9 +303,13 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     sessionStorage.removeItem(PUBLISHING_KEY);
     if (carried && typeof carried.message === 'string') {
       // Shown as the page comes back, so it stays long enough to be read.
+      // After a publish: Undo puts back what it replaced, while nothing has changed since.
+      const undoable = Array.isArray(carried.undoable) ? carried.undoable : [];
       setTimeout(() => (carried.kind === 'error'
         ? showToast(carried.message, 'error')
-        : showToast.saved({ message: carried.message })), 0);
+        : showToast.saved(undoable.length
+          ? { message: carried.message, duration: 15000, action: { label: t('editor.undoPublish.action'), onClick: () => undoPublish(undoable) } }
+          : { message: carried.message })), 0);
     } else if (publishing && typeof publishing.count === 'number' && Date.now() - publishing.at < 120000) {
       // Publishing writes the site's files, and the dev server can reload the
       // page before the answer arrives: say what happened from the drafts left.
@@ -552,6 +571,8 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     }
   });
 
+  /** @type {{ markOwn: (entries: { collection: string, id: string }[]) => void }} */
+  let awayNotice = { markOwn: () => {} };
   let canPublishDrafts = true;
   let draftCount = 0;
   /** @type {import('./draft-client.js').DraftConflict[]} */
@@ -657,8 +678,40 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   }
 
   /** @param {{ reload?: boolean }} [options] */
-  /** @param {{ reload?: boolean, entries?: { collection: string, id: string }[] | null }} [options] `entries` publishes only those drafts. */
-  async function publishDrafts({ reload = true, entries = null } = {}) {
+  /**
+   * Undo a publish: stage what each entry was before it as a draft and publish
+   * those drafts. An entry changed since, or holding a newer draft, is left alone.
+   * @param {{ collection: string, id: string, revision: number, fingerprint: string }[]} published
+   */
+  async function undoPublish(published) {
+    /** @type {{ collection: string, id: string }[]} */
+    const staged = [];
+    /** @type {string[]} */
+    const refused = [];
+    for (const entry of published) {
+      try {
+        const reason = await draftClient.stageUndo(entry.collection, entry.id, entry.revision, entry.fingerprint);
+        if (reason) refused.push(reason);
+        else staged.push({ collection: entry.collection, id: entry.id });
+      } catch {
+        refused.push('unknown');
+      }
+    }
+    if (staged.length === 0) {
+      showToast(t(`editor.undoPublish.${refused[0] ?? 'unknown'}`), 'error');
+      return;
+    }
+    // What the page shows next is the editor's own doing, not news for "since you were last here".
+    awayNotice.markOwn(staged);
+    await publishDrafts({ entries: staged, undoing: true });
+    if (refused.length) showToast(t(`editor.undoPublish.${refused[0]}`), 'error');
+  }
+
+  /**
+   * @param {{ reload?: boolean, entries?: { collection: string, id: string }[] | null, undoing?: boolean }} [options]
+   *   `entries` publishes only those drafts; `undoing` says the publish puts back an earlier one.
+   */
+  async function publishDrafts({ reload = true, entries = null, undoing = false } = {}) {
     setStatus('saving', t('editor.toolbar.publishing'));
     try { sessionStorage.setItem(PUBLISHING_KEY, JSON.stringify({ count: draftCount, at: Date.now() })); } catch { /* not carried */ }
     try {
@@ -681,7 +734,9 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       if (presentation.status) {
         setStatus(presentation.status.state, presentation.status.text);
       }
-      if (presentation.reload && reload) reloadWithToast(presentation.toast.message, presentation.toast.kind);
+      const undoable = presentation.completed && !undoing ? publishedEntries(result) : [];
+      const message = presentation.completed && undoing ? t('editor.undoPublish.done') : presentation.toast.message;
+      if (presentation.reload && reload) reloadWithToast(message, presentation.toast.kind, undoable);
       else showToast(presentation.toast.message, presentation.toast.kind);
       // Entries held back because the site changed in the same place: ask now.
       if (!presentation.completed && draftConflicts.length > 0 && reload) void settleConflicts();
@@ -784,7 +839,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   refreshDraftControls();
 
   // "Since you were last here": content on this page that changed and isn't the editor's own draft.
-  mountAwayNotice({
+  awayNotice = mountAwayNotice({
     showToast,
     ownChanges: async () => new Set((await draftClient.getChanges()).flatMap(entry =>
       entry.changes.filter(change => change.kind !== 'site').map(change => `${entry.collection}::${entry.id}::${change.field}`))),

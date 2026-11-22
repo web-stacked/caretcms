@@ -60,7 +60,8 @@ export async function POST(context: APIContext): Promise<Response> {
 
   const parsed = await readJsonBody(context.request);
   if (!parsed.ok) return parsed.response;
-  const { collection, id, keep, field } = (parsed.value ?? {}) as { collection?: unknown; id?: unknown; keep?: unknown; field?: unknown };
+  const { collection, id, keep, field, undoPublish, fingerprint } = (parsed.value ?? {}) as { collection?: unknown; id?: unknown; keep?: unknown; field?: unknown; undoPublish?: unknown; fingerprint?: unknown };
+  if (undoPublish !== undefined) return stageUndo(editorId, collection, id, undoPublish, fingerprint);
   const oneField = typeof field === "string" && field !== "";
   if (typeof collection !== "string" || typeof id !== "string" || (!oneField && keep !== "mine" && keep !== "site")) {
     return json({ error: "collection and id are required, with keep (\"mine\" or \"site\") or a field" }, 400);
@@ -81,6 +82,33 @@ export async function POST(context: APIContext): Promise<Response> {
   } catch (error) {
     if (error instanceof PermissionDenied) return json({ error: "Forbidden" }, 403);
     return json({ error: "The draft changed while it was being settled. Try again." }, 409);
+  }
+}
+
+/**
+ * POST /api/cms/draft `{ collection, id, undoPublish: revision, fingerprint }`:
+ * stage the entry as it was before the publish that produced `revision` (and
+ * wrote content with `fingerprint`, from the publish result), as a draft. The
+ * editor then publishes it like any draft. Refused when the entry changed since
+ * (409 `changed`), when the editor already has a draft of it (409 `drafted`),
+ * or when that publish changed body text (409 `text`).
+ */
+async function stageUndo(editorId: string, collection: unknown, id: unknown, revision: unknown, fingerprint: unknown): Promise<Response> {
+  if (typeof collection !== "string" || typeof id !== "string" || !Number.isSafeInteger(revision) || (revision as number) < 1 ||
+      typeof fingerprint !== "string" || fingerprint === "") {
+    return json({ error: "collection, id, undoPublish (a revision) and fingerprint are required" }, 400);
+  }
+  const { adapter: base } = await getRuntimeServices();
+  if (!base.makeEditorOverlay) return json({ error: "Drafts are not supported by the configured storage adapter" }, 400);
+  const overlay = await base.makeEditorOverlay(editorId);
+  try {
+    await requirePermission("edit", collection, id);
+    const outcome = await withEntryLock(collection, id, () =>
+      new SessionOverlayAdapter(base, overlay).stageUndoPublish(collection, id, revision as number, fingerprint));
+    return outcome === "staged" ? json({ ok: true }) : json({ error: "This publish can't be undone", reason: outcome }, 409);
+  } catch (error) {
+    if (error instanceof PermissionDenied) return json({ error: "Forbidden" }, 403);
+    return json({ error: "This publish can't be undone", reason: "changed" }, 409);
   }
 }
 

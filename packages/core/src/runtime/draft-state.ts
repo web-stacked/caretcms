@@ -123,6 +123,29 @@ export function draftFieldChanges(
   return changes.sort((a, b) => a.field.localeCompare(b.field));
 }
 
+/**
+ * A short fingerprint of entry content: equal content (by `sameContent`) gives
+ * an equal fingerprint. Used to tell that an entry is still exactly what a
+ * publish wrote, since a developer's direct file edit doesn't bump a revision.
+ */
+export function contentFingerprint(data: unknown): string {
+  const stable = (value: unknown): string => {
+    if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+    if (value && typeof value === "object") {
+      return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stable((value as Record<string, unknown>)[key])}`).join(",")}}`;
+    }
+    return JSON.stringify(value) ?? "null";
+  };
+  const text = stable(data);
+  let a = 0x811c9dc5, b = 0x01000193;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    a = Math.imul(a ^ code, 0x01000193);
+    b = Math.imul(b ^ code, 0x5bd1e995) ^ (b >>> 15);
+  }
+  return `${(a >>> 0).toString(36)}${(b >>> 0).toString(36)}`;
+}
+
 /** Object key ordering is not a content change. Arrays retain their order. */
 export function sameContent(a: unknown, b: unknown): boolean {
   if (a === b) return true;

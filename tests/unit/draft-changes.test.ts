@@ -168,3 +168,80 @@ describe("publishing some drafts and keeping the rest", () => {
     expect((await base.getEntry("pages", "home"))?.data).toEqual({ title: "Old title", hero: "old.jpg" });
   });
 });
+
+describe("undoing a publish", () => {
+  it("stages the entry as it was before the publish; publishing it puts the old values back", async () => {
+    const { base, overlay, draft } = await setup();
+    await draft.writeEntry("pages", "home", { title: "My title", hero: "old.jpg" });
+    const { published } = await publishOverlay(base, overlay);
+    expect((await base.getEntry("pages", "home"))?.data).toEqual({ title: "My title", hero: "old.jpg" });
+    expect(await draft.stageUndoPublish("pages", "home", published[0].revision, published[0].fingerprint!)).toBe("staged");
+    expect((await draft.getEntry("pages", "home"))?.data).toEqual({ title: "Old title", hero: "old.jpg" });
+    expect((await publishOverlay(base, overlay)).conflicts).toEqual([]);
+    expect((await base.getEntry("pages", "home"))?.data).toEqual({ title: "Old title", hero: "old.jpg" });
+  });
+
+  it("refuses when the entry changed after the publish", async () => {
+    const { base, overlay, draft } = await setup();
+    await draft.writeEntry("pages", "home", { title: "My title", hero: "old.jpg" });
+    const { published } = await publishOverlay(base, overlay);
+    await base.writeEntry("pages", "home", { title: "My title", hero: "new.jpg" });
+    await base.bumpRevision("pages", "home");
+    expect(await draft.stageUndoPublish("pages", "home", published[0].revision, published[0].fingerprint!)).toBe("changed");
+    expect(await overlay.getEntry("pages", "home")).toBeNull();
+  });
+
+  it("refuses when the content file was edited directly, though the revision didn't move", async () => {
+    const { base, overlay, draft } = await setup();
+    await draft.writeEntry("pages", "home", { title: "My title", hero: "old.jpg" });
+    const { published } = await publishOverlay(base, overlay);
+    const revision = await base.getRevision("pages", "home");
+    await base.writeEntry("pages", "home", { title: "My title", hero: "dev.jpg" });
+    expect(await base.getRevision("pages", "home")).toBe(revision);
+    expect(await draft.stageUndoPublish("pages", "home", published[0].revision, published[0].fingerprint!)).toBe("changed");
+  });
+
+  it("refuses when the editor already has a draft of the entry", async () => {
+    const { base, overlay, draft } = await setup();
+    await draft.writeEntry("pages", "home", { title: "My title", hero: "old.jpg" });
+    const { published } = await publishOverlay(base, overlay);
+    await draft.writeEntry("pages", "home", { title: "Next title", hero: "old.jpg" });
+    expect(await draft.stageUndoPublish("pages", "home", published[0].revision, published[0].fingerprint!)).toBe("drafted");
+    expect((await draft.getEntry("pages", "home"))?.data.title).toBe("Next title");
+  });
+
+  it("undoes a publish that created the entry by deleting it", async () => {
+    const { base, overlay, draft } = await setup();
+    await draft.writeEntry("pages", "new-page", { title: "New page" });
+    const { published } = await publishOverlay(base, overlay);
+    expect(await draft.stageUndoPublish("pages", "new-page", published[0].revision, published[0].fingerprint!)).toBe("staged");
+    await publishOverlay(base, overlay);
+    expect(await base.getEntry("pages", "new-page")).toBeNull();
+  });
+});
+
+describe("undoing a publish on a Markdown site", () => {
+  async function markdownSite(body: string) {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    const { MarkdownAdapter } = await import("../../packages/core/src/runtime/storage/markdown-adapter");
+    const root = mkdtempSync(join(tmpdir(), "caret-undo-"));
+    mkdirSync(join(root, "src/content/pages"), { recursive: true });
+    writeFileSync(join(root, "src/content/pages/home.md"), `---\ntitle: "Old"\nhours: "Mon–Fri"\n---\n${body}`);
+    const base = new MarkdownAdapter({ contentRoot: join(root, "src/content"), metaRoot: join(root, ".caretcms"), draftsRoot: join(root, ".caret/drafts"), projectRoot: root });
+    const overlay = await base.makeEditorOverlay("editor-1");
+    return { base, overlay, draft: new SessionOverlayAdapter(base, overlay) };
+  }
+
+  it("undoes a field publish though Markdown keeps the whole file in history", async () => {
+    const { base, overlay, draft } = await markdownSite("Some body text.\n");
+    const shown = (await draft.getEntry("pages", "home"))!.data;
+    await draft.writeEntry("pages", "home", { ...shown, hours: "Mon–Sat" });
+    const { published } = await publishOverlay(base, overlay);
+    expect(await draft.stageUndoPublish("pages", "home", published[0].revision, published[0].fingerprint!)).toBe("staged");
+    await publishOverlay(base, overlay);
+    expect((await base.getEntry("pages", "home"))?.data).toMatchObject({ title: "Old", hours: "Mon–Fri" });
+    expect(await base.readBodySource!("pages", "home")).toContain("Some body text.");
+  });
+});

@@ -171,6 +171,21 @@ export function createDraftClient(options) {
       })));
   }
 
+  /**
+   * Stage the undo of a publish as a draft: the entry as it was before the
+   * publish that produced `revision`. Returns null when staged, or why not:
+   * `changed` (changed since), `drafted` (the editor has a draft of it), `text`
+   * (that publish changed body text), `unknown`.
+   * @param {string} collection @param {string} id @param {number} revision @param {string} fingerprint
+   */
+  async function stageUndo(collection, id, revision, fingerprint) {
+    const response = await request('POST', '/draft', JSON.stringify({ collection, id, undoPublish: revision, fingerprint }));
+    if (response.ok) return null;
+    if (response.status !== 409) throw new CmsDraftRequestError(`CMS request failed (${response.status})`);
+    const reason = record(await response.json().catch(() => ({}))).reason;
+    return reason === 'changed' || reason === 'drafted' || reason === 'text' ? reason : 'unknown';
+  }
+
   /** Take one field of a draft back to the site's value. @param {string} collection @param {string} id @param {string} field */
   async function revertField(collection, id, field) {
     await requireOk(await request('POST', '/draft', JSON.stringify({ collection, id, field })));
@@ -194,5 +209,5 @@ export function createDraftClient(options) {
     });
   }
 
-  return { getState, getChanges, getPending, publish, discard, resolveConflict, revertField, retryDeployment };
+  return { getState, getChanges, getPending, stageUndo, publish, discard, resolveConflict, revertField, retryDeployment };
 }
