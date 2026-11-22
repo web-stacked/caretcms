@@ -100,7 +100,12 @@ function compare(path: string[], started: Slot, mine: Slot, site: Slot, found: D
   }
   const lists = present as unknown[][];
   if (leaves && kind !== "both" && present.every(Array.isArray) && lists.every(list => list.length === lists[0].length)) {
-    const at = (slot: Slot, index: number): Slot => (slot.has ? { has: true, value: (slot.value as unknown[])[index] } : ABSENT);
+    // An empty place in a list (the items before the one that was saved, when
+    // the list wasn't stored yet) holds nothing, like a list that isn't there.
+    const at = (slot: Slot, index: number): Slot => {
+      const item = slot.has ? (slot.value as unknown[])[index] : undefined;
+      return item === undefined || item === null ? ABSENT : { has: true, value: item };
+    };
     for (let index = 0; index < lists[0].length; index++) {
       compare([...path, String(index)], at(started, index), at(mine, index), at(site, index), found, leaves);
     }

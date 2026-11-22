@@ -219,8 +219,9 @@ export async function withTitles<T extends { collection: string; id: string }>(
   return Promise.all(entries.map(async (entry) => {
     const [config, stored] = await Promise.all([
       resolveCollectionStudioConfig(base, entry.collection),
+      // A draft that deletes the entry holds no title: name it as the site does.
       overlay.getEntry(entry.collection, entry.id).catch(() => null)
-        .then((draft) => draft ?? base.getEntry(entry.collection, entry.id).catch(() => null)),
+        .then((draft) => (draft && draft.data.__caret_tombstone__ !== true ? draft : base.getEntry(entry.collection, entry.id).catch(() => null))),
     ]);
     return { ...entry, title: entryDisplayTitle(entry.collection, entry.id, stored?.data, config) };
   }));

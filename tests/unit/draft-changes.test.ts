@@ -20,6 +20,12 @@ describe("draftFieldChanges", () => {
     expect(draftFieldChanges(state(started), { ...started }, { ...started })).toEqual([]);
   });
 
+  it("reports only the saved item of a list that wasn't stored yet, not the empty places before it", () => {
+    // Saving `stats.1.label` on a list that only the template holds stores [null, { label }].
+    const changes = draftFieldChanges(state({}), { stats: [null, { label: "reset every Monday" }] }, {});
+    expect(changes.map((change) => change.field)).toEqual(["stats.1.label"]);
+  });
+
   it("separates the editor's change, the site's change and a change on both sides", () => {
     const changes = draftFieldChanges(state(started),
       { title: "My title", hero: "old.jpg", cta: "Ring us" },
