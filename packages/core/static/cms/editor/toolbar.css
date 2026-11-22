@@ -460,6 +460,7 @@
 .cms-change-dot:focus-visible { outline: 2px solid var(--cms-accent); outline-offset: 3px; }
 .cms-change-card {
   position: absolute;
+  z-index: 2147483600;
   width: min(22rem, calc(100vw - 16px));
   padding: 14px 16px;
   border-radius: 16px;
@@ -484,6 +485,11 @@
   background: #f59e0b;
 }
 .cms-change-title.cms-change-site::before { background: #3b82f6; }
+.cms-change-card p.cms-change-note {
+  margin: 0;
+  color: var(--cms-text-quiet);
+  font: 13.5px/1.5 var(--cms-font);
+}
 .cms-change-row {
   display: grid;
   grid-template-columns: 3.5em minmax(0, 1fr);
@@ -532,7 +538,14 @@
   box-shadow: var(--cms-edge), 0 18px 50px -14px rgba(0, 0, 0, 0.6);
   font: 13.5px/1.45 var(--cms-font);
 }
-.cms-page-history label { font-weight: 600; }
+.cms-page-history label { display: grid; gap: 2px; }
+.cms-page-history label strong { font-weight: 600; }
+.cms-page-history-detail { color: var(--cms-text-quiet); }
+.cms-history-changed {
+  outline: 2px solid #3b82f6 !important;
+  outline-offset: 4px !important;
+  border-radius: 3px;
+}
 .cms-page-history input[type="range"] { width: 100%; accent-color: #22c55e; }
 .cms-page-history-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .cms-page-history-actions button {

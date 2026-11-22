@@ -304,8 +304,9 @@ test("marks the editor's own change on the page and undoes just that change", as
     await page.goto("/");
     await expect(page.locator("h1[data-caret]")).toHaveText("My unpublished headline");
 
-    // Changes puts a dot beside the changed heading; the dot opens a card with both values.
+    // Changes says how many things on this page it marks, and puts a dot beside the changed heading.
     const changes = page.locator(".cms-changes-btn");
+    await expect(changes).toHaveText("Changes · 1");
     await changes.click();
     await expect(changes).toHaveAttribute("aria-pressed", "true");
     const dot = page.getByRole("button", { name: "Show the change to Headline" });
@@ -354,7 +355,10 @@ test("tells a returning editor what changed on the page, but not about their own
     const notice = page.getByText(/^1 thing on this page changed since /);
     await expect(notice).toBeVisible();
     await page.getByRole("button", { name: "Show me" }).click();
-    await expect(page.getByText(`1 of 1: “${PUBLISHED_HEADLINE}” is now “Developer headline”`)).toBeVisible();
+    const step = page.getByRole("dialog", { name: "Change 1 of 1" });
+    await expect(step).toContainText("1 of 1 · Changed while you were away");
+    await expect(step).toContainText(`Was${PUBLISHED_HEADLINE}`);
+    await expect(step).toContainText("NowDeveloper headline");
     await expect(page.locator("h1[data-caret]")).toHaveClass(/cms-away-spot/);
     await page.getByRole("button", { name: "Done" }).click();
     await expect(page.locator("h1[data-caret]")).not.toHaveClass(/cms-away-spot/);
@@ -461,6 +465,25 @@ test("undoes a publish from the message that confirms it", async ({ page }) => {
     await expect(page.locator(".cms-toolbar")).toBeVisible();
     await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
 
+    // Once its message is gone, the last publish can still be undone from the status panel.
+    const again0 = await page.request.post("/api/cms/mutate", { headers: { "x-caret-request": "1" }, data: { type: "put_entry", collection: "pages", id: "home", data: { headline: "Published again" } } });
+    expect(again0.ok()).toBe(true);
+    await page.goto("/");
+    await page.locator(".cms-publish-btn").click();
+    await page.getByRole("dialog", { name: "Publish 1 change?" }).getByRole("button", { name: "Publish", exact: true }).click();
+    await expect.poll(() => JSON.parse(readFileSync(file, "utf8")).headline).toBe("Published again");
+    await expect(undo).toBeVisible();
+    await page.goto("/");
+    await page.locator(".cms-status-pill").click();
+    await page.getByRole("button", { name: "Undo last publish" }).click();
+    await expect.poll(() => JSON.parse(readFileSync(file, "utf8")).headline).toBe(PUBLISHED_HEADLINE);
+    await expect(page.getByText(/^Undone\. The site is back as it was/)).toBeVisible();
+    // Nothing left to undo after that.
+    await page.goto("/");
+    await page.locator(".cms-status-pill").click();
+    await expect(page.getByRole("button", { name: "Undo last publish" })).toBeHidden();
+    await page.keyboard.press("Escape");
+
     // Undo is refused once the page changed after the publish.
     const again = await page.request.post("/api/cms/mutate", { headers: { "x-caret-request": "1" }, data: { type: "put_entry", collection: "pages", id: "home", data: { headline: "Second publish" } } });
     expect(again.ok()).toBe(true);
@@ -495,7 +518,7 @@ test("drags the page back through earlier versions and restores one as a draft",
     await page.getByRole("button", { name: "Page history" }).click();
     const history = page.getByRole("dialog", { name: "Page history" });
     const slider = history.getByRole("slider");
-    await expect(history).toContainText("This page now.");
+    await expect(history).toContainText("Current version");
     await expect(history.getByRole("button", { name: "Restore this version" })).toBeHidden();
 
     // Two publishes: the oldest stop is the page before both.
@@ -504,7 +527,9 @@ test("drags the page back through earlier versions and restores one as a draft",
     await expect(page.locator("h1[data-caret]")).toHaveText(PUBLISHED_HEADLINE);
     await page.keyboard.press("ArrowRight");
     await expect(page.locator("h1[data-caret]")).toHaveText("First edition");
-    await expect(history).toContainText("This page before the change on");
+    await expect(history).toContainText("Version 2 of 3");
+    await expect(history).toContainText("1 difference from now, outlined.");
+    await expect(page.locator("h1[data-caret]")).toHaveClass(/cms-history-changed/);
 
     // Leaving with an old version on screen isn't remembered as what the page said.
     await page.goto("/");

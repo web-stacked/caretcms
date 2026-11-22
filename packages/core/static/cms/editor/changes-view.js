@@ -1,12 +1,12 @@
 import { parseCaretAttr, resolveBinding } from './helpers.js';
 import { t } from './i18n.js';
 import { changedPart } from './text-diff.js';
+import { buildChangeCard, placeChangeCard } from './change-card.js';
 
 /** @typedef {import('./draft-client.js').DraftEntryChanges} DraftEntryChanges */
 /** @typedef {import('./draft-client.js').DraftFieldChange} DraftFieldChange */
 /** @typedef {{ entry: DraftEntryChanges, change: DraftFieldChange, el: Element }} PageChange */
 
-const MARGIN = 8;
 
 /**
  * The Changes view: a dot beside every element on the page whose content the
@@ -54,77 +54,38 @@ export function createChangesView(options) {
     layer?.querySelectorAll('.cms-change-dot[aria-expanded="true"]').forEach(dot => dot.setAttribute('aria-expanded', 'false'));
   }
 
-  /** @param {string} label @param {string} value */
-  function row(label, value) {
-    const line = document.createElement('div');
-    line.className = 'cms-change-row';
-    const name = document.createElement('span');
-    name.textContent = label;
-    const text = document.createElement('strong');
-    text.textContent = value || t('editor.conflict.empty');
-    line.append(name, text);
-    return line;
-  }
-
-  /** @param {string} label @param {boolean} primary @param {() => void} run */
-  function action(label, primary, run) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = label;
-    if (primary) button.className = 'cms-change-primary';
-    button.addEventListener('click', run);
-    return button;
-  }
-
   /** @param {PageChange} item @param {HTMLButtonElement} dot */
   function openCard(item, dot) {
     closeCard();
-    const { entry, change } = item;
-    card = document.createElement('div');
-    card.className = 'cms-change-card';
-    card.setAttribute('role', 'dialog');
-    card.setAttribute('aria-label', change.label);
-    const title = document.createElement('p');
-    title.className = `cms-change-title cms-change-${change.kind}`;
-    title.textContent = t(`editor.changes.${change.kind}`);
-    const actions = document.createElement('div');
-    actions.className = 'cms-change-actions';
+    const { entry, change, el } = item;
+    const empty = t('editor.conflict.empty');
     const theirs = changedPart(change.site, change.mine);
-    if (change.kind === 'mine') {
-      card.append(title, row(t('editor.changes.siteValue'), theirs.before), row(t('editor.changes.yours'), theirs.after));
-      actions.append(action(t('editor.changes.close'), false, closeCard), action(t('editor.changes.undo'), true, async () => {
-        try {
-          await options.revertField(entry.collection, entry.id, change.field);
-          options.onReverted();
-        } catch {
-          options.onError(t('editor.changes.failed'));
-        }
-      }));
-    } else if (change.kind === 'site') {
-      const moved = changedPart(change.started, change.site);
-      card.append(title, row(t('editor.changes.was'), moved.before), row(t('editor.changes.now'), moved.after));
-      actions.append(action(t('editor.changes.close'), true, closeCard));
-    } else {
-      card.append(title, row(t('editor.changes.siteValue'), theirs.before), row(t('editor.changes.yours'), theirs.after));
-      actions.append(action(t('editor.changes.close'), false, closeCard),
-        action(t('editor.changes.choose'), true, () => { closeCard(); void options.settleConflicts(); }));
-    }
-    card.append(actions);
-    layer?.append(card);
+    const moved = changedPart(change.started, change.site);
+    const undo = async () => {
+      try {
+        await options.revertField(entry.collection, entry.id, change.field);
+        options.onReverted();
+      } catch {
+        options.onError(t('editor.changes.failed'));
+      }
+    };
+    card = buildChangeCard({
+      label: change.label,
+      title: t(`editor.changes.${change.kind}`),
+      tone: change.kind,
+      rows: change.kind === 'site'
+        ? [[t('editor.changes.was'), moved.before || empty], [t('editor.changes.now'), moved.after || empty]]
+        : [[t('editor.changes.siteValue'), theirs.before || empty], [t('editor.changes.yours'), theirs.after || empty]],
+      actions: change.kind === 'mine'
+        ? [{ label: t('editor.changes.close'), run: closeCard }, { label: t('editor.changes.undo'), primary: true, run: () => void undo() }]
+        : change.kind === 'site'
+          ? [{ label: t('editor.changes.close'), primary: true, run: closeCard }]
+          : [{ label: t('editor.changes.close'), run: closeCard },
+            { label: t('editor.changes.choose'), primary: true, run: () => { closeCard(); void options.settleConflicts(); } }],
+    });
+    document.body.append(card);
     dot.setAttribute('aria-expanded', 'true');
-    const at = dot.getBoundingClientRect();
-    const width = card.offsetWidth;
-    const left = Math.max(MARGIN, Math.min(at.left + window.scrollX, window.scrollX + document.documentElement.clientWidth - width - MARGIN));
-    card.style.left = `${left}px`;
-    // Below the element, unless that reaches the editor's toolbar at the bottom of the window: then above it.
-    const element = item.el.getBoundingClientRect();
-    const toolbarTop = document.querySelector('.cms-toolbar')?.getBoundingClientRect().top ?? window.innerHeight;
-    const room = Math.min(window.innerHeight, toolbarTop) - MARGIN;
-    const below = Math.max(at.bottom, element.bottom) + MARGIN;
-    const top = below + card.offsetHeight > room && element.top - MARGIN - card.offsetHeight >= 0
-      ? element.top - MARGIN - card.offsetHeight
-      : below;
-    card.style.top = `${top + window.scrollY}px`;
+    placeChangeCard(card, el, dot.getBoundingClientRect().left);
     /** @type {HTMLElement | null} */ (card.querySelector('button'))?.focus();
   }
 
@@ -189,5 +150,11 @@ export function createChangesView(options) {
     }
   }
 
-  return { toggle, isOn: () => on, hide: () => { on = false; clear(); } };
+  return {
+    toggle,
+    isOn: () => on,
+    hide: () => { on = false; clear(); },
+    /** How many elements on this page the view would mark. @param {DraftEntryChanges[]} entries */
+    countOnPage: (entries) => onPage(entries).length,
+  };
 }

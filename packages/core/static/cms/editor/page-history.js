@@ -86,6 +86,7 @@ export function createPageHistory({ showToast, reload }) {
   }
 
   function putBack() {
+    document.querySelectorAll('.cms-history-changed').forEach(el => el.classList.remove('cms-history-changed'));
     for (const [el, value] of original) {
       if (el instanceof HTMLImageElement) el.setAttribute('src', value.src ?? '');
       else el.textContent = value.text ?? '';
@@ -101,10 +102,32 @@ export function createPageHistory({ showToast, reload }) {
     dock.style.bottom = `${Math.max(12, window.innerHeight - top + 10)}px`;
   }
 
+  /** Room under the page while the panel is open, so the last texts can scroll above it. */
+  let paddingBefore = '';
+  function makeRoom() {
+    if (!dock) return;
+    paddingBefore = document.body.style.paddingBottom;
+    const height = window.innerHeight - dock.getBoundingClientRect().top;
+    document.body.style.paddingBottom = `${Math.max(height + 24, parseFloat(getComputedStyle(document.body).paddingBottom) || 0)}px`;
+  }
+
+  /** Scroll so the first outlined difference is visible above the panel, unless one already is. */
+  function revealDifference() {
+    if (!dock) return;
+    const changed = [...document.querySelectorAll('.cms-history-changed')];
+    if (changed.length === 0) return;
+    const limit = dock.getBoundingClientRect().top - 16;
+    const visible = changed.some((el) => { const box = el.getBoundingClientRect(); return box.top >= 0 && box.bottom <= limit; });
+    if (visible) return;
+    const box = changed[0].getBoundingClientRect();
+    window.scrollBy({ top: box.top - Math.max(16, (limit - box.height) / 2), behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }
+
   function close() {
     putBack();
     dock?.remove();
     dock = null;
+    document.body.style.paddingBottom = paddingBefore;
     window.removeEventListener('resize', place);
   }
 
@@ -119,13 +142,25 @@ export function createPageHistory({ showToast, reload }) {
       showToast(t('editor.pageHistory.failed'), 'error');
       return;
     }
+    // What each element shows at a moment, as one comparable string.
+    /** @param {number} at */
+    const viewAt = (at) => bound.map((item) => {
+      const state = at === Number.POSITIVE_INFINITY ? null : dataAt(histories.get(`${item.collection}::${item.id}`) ?? [], at);
+      return JSON.stringify(state ? valueAt(state.data, item.field) ?? null : '__now__');
+    }).join('\u0000');
+    // Stops: just before each change, oldest first, then now. A stop that looks
+    // the same on this page as the next one (the change was to a field this page
+    // doesn't show) is left out.
     const moments = [...new Set([...histories.values()].flat().map(item => item.ts))].sort((a, b) => a - b);
-    if (moments.length === 0) {
+    const all = [...moments.map(ts => ({ at: ts - 1, ts })), { at: Number.POSITIVE_INFINITY, ts: Number.POSITIVE_INFINITY }];
+    const views = all.map(stop => viewAt(stop.at));
+    const nowView = bound.map((item) => JSON.stringify(item.el instanceof HTMLImageElement ? item.el.getAttribute('src') : (item.el.textContent ?? ''))).join('\u0000');
+    const stops = all.filter((stop, index) => index === all.length - 1 ||
+      (views[index] !== views[index + 1] && views[index].replaceAll('"__now__"', '') !== nowView));
+    if (stops.length < 2) {
       showToast(t('editor.pageHistory.empty'), 'success');
       return;
     }
-    // Stops: just before each change, oldest first, then now.
-    const stops = [...moments.map(ts => ts - 1), Number.POSITIVE_INFINITY];
     dock = document.createElement('div');
     dock.className = 'cms-page-history';
     dock.setAttribute('role', 'dialog');
@@ -153,25 +188,39 @@ export function createPageHistory({ showToast, reload }) {
     dock.append(label, range, actions);
     document.body.append(dock);
     place();
+    makeRoom();
     window.addEventListener('resize', place);
 
     const format = (/** @type {number} */ ts) => new Date(ts).toLocaleString(document.documentElement.lang || undefined, { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+    const title = document.createElement('strong');
+    const detail = document.createElement('span');
+    detail.className = 'cms-page-history-detail';
+    label.append(title, detail);
     function render() {
       const index = Number(range.value);
-      const at = stops[index];
-      const now = at === Number.POSITIVE_INFINITY;
-      label.textContent = now ? t('editor.pageHistory.now') : t('editor.pageHistory.at', { date: format(moments[index]) });
+      const stop = stops[index];
+      const now = stop.at === Number.POSITIVE_INFINITY;
+      title.textContent = now ? t('editor.pageHistory.current') : t('editor.pageHistory.version', { index: index + 1, count: stops.length });
       restore.hidden = now;
+      let differences = 0;
       for (const item of bound) {
-        const state = now ? null : dataAt(histories.get(`${item.collection}::${item.id}`) ?? [], at);
-        show(item, state ? valueAt(state.data, item.field) : (original.get(item.el)?.text ?? original.get(item.el)?.src));
+        const state = now ? null : dataAt(histories.get(`${item.collection}::${item.id}`) ?? [], stop.at);
+        const before = original.get(item.el);
+        show(item, state ? valueAt(state.data, item.field) : (before?.text ?? before?.src));
+        const today = original.get(item.el);
+        const differs = !now && (item.el instanceof HTMLImageElement ? item.el.getAttribute('src') !== today?.src : item.el.textContent !== today?.text);
+        item.el.classList.toggle('cms-history-changed', differs);
+        if (differs) differences++;
       }
+      detail.textContent = now ? t('editor.pageHistory.dragHint')
+        : t(differences === 1 ? 'editor.pageHistory.differencesOne' : 'editor.pageHistory.differencesOther', { count: differences, date: format(stop.ts) });
       if (now) putBack();
+      else revealDifference();
     }
     range.addEventListener('input', render);
     done.addEventListener('click', close);
     restore.addEventListener('click', async () => {
-      const at = stops[Number(range.value)];
+      const at = stops[Number(range.value)].at;
       restore.disabled = true;
       try {
         for (const [key, items] of histories) {

@@ -120,6 +120,7 @@ function renderToolbar(staticDelivery) {
       <p class="cms-status-panel-line" data-line="build" hidden></p>
       <div class="cms-status-panel-actions">
         <button type="button" data-action="undo" hidden>${tHtml('editor.toolbar.undoLast')}</button>
+        <button type="button" data-action="undo-publish" hidden>${tHtml('editor.undoPublish.panel')}</button>
         <button type="button" data-action="history">${tHtml('editor.toolbar.history')}</button>
       </div>
     </div>
@@ -246,6 +247,30 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     setLine('build', buildLabel);
     const undoButton = /** @type {HTMLElement | null} */ (panel.querySelector('[data-action="undo"]'));
     if (undoButton) undoButton.hidden = !undo.available();
+    const undoPublishButton = /** @type {HTMLElement | null} */ (panel.querySelector('[data-action="undo-publish"]'));
+    if (undoPublishButton) undoPublishButton.hidden = lastPublish() === null;
+  }
+
+  // The last publish from this browser stays undoable from the status panel for
+  // a while after its message is gone. The server still refuses when the page
+  // changed since, so a stale entry here can't overwrite anything.
+  const LAST_PUBLISH_KEY = 'caret:last-publish';
+  const UNDO_WINDOW_MS = 30 * 60 * 1000;
+  /** @returns {{ collection: string, id: string, revision: number, fingerprint: string }[] | null} */
+  function lastPublish() {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(LAST_PUBLISH_KEY) || 'null');
+      return stored && Array.isArray(stored.undoable) && stored.undoable.length && Date.now() - stored.at < UNDO_WINDOW_MS ? stored.undoable : null;
+    } catch {
+      return null;
+    }
+  }
+  /** @param {{ collection: string, id: string, revision: number, fingerprint: string }[] | null} undoable */
+  function rememberPublish(undoable) {
+    try {
+      if (undoable?.length) sessionStorage.setItem(LAST_PUBLISH_KEY, JSON.stringify({ undoable, at: Date.now() }));
+      else sessionStorage.removeItem(LAST_PUBLISH_KEY);
+    } catch { /* the panel won't offer it */ }
   }
 
   function positionPanel() {
@@ -284,6 +309,11 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     if (!panel.hidden && event.target instanceof Node && !panel.contains(event.target) && !pill.contains(event.target)) {
       closePanel(false);
     }
+  });
+  panel.querySelector('[data-action="undo-publish"]')?.addEventListener('click', () => {
+    const undoable = lastPublish();
+    closePanel();
+    if (undoable) void undoPublish(undoable);
   });
   panel.querySelector('[data-action="undo"]')?.addEventListener('click', () => {
     closePanel();
@@ -617,6 +647,14 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     onReverted: () => reloadWithToast(t('editor.changes.undone'), 'success'),
     onError: message => showToast(message, 'error'),
   });
+  /** "Changes · 2": how many elements on this page the Changes view would mark. */
+  async function labelChanges() {
+    if (!changesBtn) return;
+    try {
+      const marked = changesView.countOnPage(await draftClient.getChanges());
+      changesBtn.textContent = marked > 0 ? t('editor.changes.showCount', { count: marked }) : t('editor.changes.show');
+    } catch { /* keep the plain label */ }
+  }
   changesBtn?.addEventListener('click', async () => {
     const marked = await changesView.toggle();
     changesBtn.setAttribute('aria-pressed', String(changesView.isOn()));
@@ -740,6 +778,8 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
         setStatus(presentation.status.state, presentation.status.text);
       }
       const undoable = presentation.completed && !undoing ? publishedEntries(result) : [];
+      // An undone publish has nothing left to undo; a new one replaces the last.
+      if (presentation.completed) rememberPublish(undoing ? null : undoable);
       const message = presentation.completed && undoing ? t('editor.undoPublish.done') : presentation.toast.message;
       if (presentation.reload && reload) reloadWithToast(message, presentation.toast.kind, undoable);
       else showToast(presentation.toast.message, presentation.toast.kind);
@@ -835,6 +875,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   async function refreshDraftControls() {
     const count = await fetchDraftCount();
     if (draftControls) draftControls.hidden = count === 0;
+    if (count > 0) void labelChanges();
     // An unknown count keeps "Draft": never claim it's published on a failed check.
     if (draftMode && draftCountKnown) showRestingMode(count);
     const label = toolbar.querySelector('.cms-go-live-label');
