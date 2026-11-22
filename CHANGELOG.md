@@ -8,6 +8,12 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-22
+
+0.7.0 was tagged but not published to npm; 0.7.1 is the first npm release of
+the 0.7 line. Release notes: [docs/releases/0.7.1.md](docs/releases/0.7.1.md).
+`@caretcms/caretize` 0.6.2 accepts entry ids with a path.
+
 Found by using 0.7.0 on the example sites with two editors signed in at once,
 and on a large open-source Astro template with a folder per language.
 
@@ -1010,7 +1016,8 @@ requirements, and deployment retry limitations.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
-[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/web-stacked/caretcms/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/web-stacked/caretcms/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.3
 [0.6.2]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.2
