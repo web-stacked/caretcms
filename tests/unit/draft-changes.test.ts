@@ -112,3 +112,35 @@ describe("taking one field of a draft back", () => {
     expect((await draft.getEntry("pages", "home"))?.data).toEqual({ title: "My title", hero: "new.jpg" });
   });
 });
+
+describe("saving again while a field is in conflict", () => {
+  it("doesn't record the site's newer values as the editor's own", async () => {
+    const { base, overlay, draft } = await setup();
+    await base.writeEntry("pages", "home", { title: "Old title", hero: "old.jpg", note: "Old note" });
+    await draft.writeEntry("pages", "home", { title: "My title", hero: "old.jpg", note: "Old note" });
+    // A developer changes the note and the title: the title is now in conflict.
+    await base.writeEntry("pages", "home", { title: "Their title", hero: "old.jpg", note: "Second note" });
+    // The editor saves the title again, sending the page as they were shown it.
+    const shown = (await draft.getEntry("pages", "home"))!.data;
+    expect(shown.note).toBe("Second note");
+    await draft.writeEntry("pages", "home", { ...shown, title: "My newer title" });
+    // The developer changes the note once more: the editor must see it, and it is no conflict.
+    await base.writeEntry("pages", "home", { title: "Their title", hero: "old.jpg", note: "Third note" });
+    expect((await draft.getEntry("pages", "home"))?.data).toEqual({ title: "My newer title", hero: "old.jpg", note: "Third note" });
+    expect((await draft.draftConflict("pages", "home"))?.fields.map(({ field }) => field)).toEqual(["title"]);
+    // Keeping their title publishes the title only.
+    expect(await draft.resolveDraftConflict("pages", "home", "mine")).toBe(true);
+    expect((await publishOverlay(base, overlay)).conflicts).toEqual([]);
+    expect((await base.getEntry("pages", "home"))?.data).toEqual({ title: "My newer title", hero: "old.jpg", note: "Third note" });
+  });
+
+  it("after undoing a field in such a draft, a later change to it on the site shows and is no conflict", async () => {
+    const { base, draft } = await setup();
+    await draft.writeEntry("pages", "home", { title: "My title", hero: "mine.jpg" });
+    await base.writeEntry("pages", "home", { title: "Their title", hero: "their.jpg" });
+    expect(await draft.revertDraftField("pages", "home", "hero")).toBe(true);
+    await base.writeEntry("pages", "home", { title: "Their title", hero: "newest.jpg" });
+    expect((await draft.getEntry("pages", "home"))?.data).toEqual({ title: "My title", hero: "newest.jpg" });
+    expect((await draft.draftConflict("pages", "home"))?.fields.map(({ field }) => field)).toEqual(["title"]);
+  });
+});

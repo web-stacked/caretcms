@@ -116,19 +116,35 @@ export class SessionOverlayAdapter implements StorageAdapter {
   }
 
   /**
-   * A structured save onto a draft whose published entry has moved. When
-   * nothing collides, the draft restarts from the current published entry:
-   * it keeps only the editor's own changes, and a later published change is
-   * compared with what the editor last saw rather than with the first base.
-   * A draft in conflict keeps its original baseline until the editor decides.
+   * A structured save onto a draft whose published entry has moved. The saved
+   * data is what the editor was shown plus their new edit, and what they were
+   * shown already carried the site's newer values. Only the difference from
+   * that view is the editor's: it is applied to the stored draft, so a value
+   * that merely followed the site is never recorded as the editor's change.
+   *
+   * When nothing collides, the draft then restarts from the current published
+   * entry: it keeps only the editor's own changes, and a later published
+   * change is compared with what the editor last saw rather than with the
+   * first base. A draft in conflict keeps its original baseline until the
+   * editor decides.
    */
-  private restart(state: DraftState | null, data: Record<string, unknown>, base: EntrySnapshot): { state: DraftState | null; data: Record<string, unknown> } {
+  private restart(state: DraftState | null, data: Record<string, unknown>, base: EntrySnapshot, stored: Record<string, unknown>): { state: DraftState | null; data: Record<string, unknown> } {
     const content = contentWithoutState(data);
     if (!state?.structured || content[TOMBSTONE_KEY] === true) return { state, data: content };
     const published = base.entry?.data ?? null;
     if (!isStaleDraft(state, published)) return { state, data: content };
-    const carried = rebaseDraft(state, content, published);
-    if (carried.conflicts.length || carried.removed) return { state, data: content };
+    const previous = contentWithoutState(stored);
+    const shown = previous[TOMBSTONE_KEY] === true ? previous : rebaseDraft(state, previous, published).data;
+    const own: Record<string, unknown> = { ...previous };
+    for (const key of new Set([...Object.keys(shown), ...Object.keys(content)])) {
+      if (key === TEMPLATE_TEXT_KEY) continue;
+      const has = Object.hasOwn(content, key);
+      if (has === Object.hasOwn(shown, key) && (!has || sameContent(content[key], shown[key]))) continue;
+      if (has) own[key] = content[key];
+      else delete own[key];
+    }
+    const carried = rebaseDraft(state, own, published);
+    if (carried.conflicts.length || carried.removed) return { state, data: own };
     return { state: { ...state, baseRevision: base.revision, baseData: published }, data: carried.data };
   }
 
@@ -275,8 +291,12 @@ export class SessionOverlayAdapter implements StorageAdapter {
     const kept: Record<string, unknown> = { ...content };
     if (Object.hasOwn(data, field)) kept[field] = data[field];
     else delete kept[field];
+    // The draft agrees with the site on this field again, so a later change to it there is no conflict.
+    const agreed: Record<string, unknown> = { ...(state.baseData ?? {}) };
+    if (published && Object.hasOwn(published, field)) agreed[field] = published[field];
+    else delete agreed[field];
     const settled = await commitEntryChanges(this.overlay, [{ collection, id, expectedRevision: revision, expectedExists: true,
-      data: nothingLeft ? null : { ...kept, [DRAFT_STATE_KEY]: state } }]);
+      data: nothingLeft ? null : { ...kept, [DRAFT_STATE_KEY]: { ...state, baseData: state.baseData === null && !published ? null : agreed } } }]);
     if (!settled.ok) throw new Error("Draft changed while it was being settled");
     return true;
   }
@@ -359,7 +379,7 @@ export class SessionOverlayAdapter implements StorageAdapter {
     }
     let content = contentWithoutState(data);
     if (this.trackDrafts && existing && state?.structured && structured) {
-      ({ state, data: content } = this.restart(state, content, await readAdapterSnapshot(this.base, collection, id)));
+      ({ state, data: content } = this.restart(state, content, await readAdapterSnapshot(this.base, collection, id), existing.data));
     }
     if (state) state = { ...state, structured: state.structured || structured };
     await this.overlay.writeEntry(collection, id, { ...content,
@@ -428,7 +448,7 @@ export class SessionOverlayAdapter implements StorageAdapter {
       let content: Record<string, unknown> = contentWithoutState(change.data === null ? { [TOMBSTONE_KEY]: true } : change.data);
       if (this.trackDrafts && existing && state?.structured && structured && change.data !== null) {
         const base = paired?.base ?? await readAdapterSnapshot(this.base, change.collection, change.id);
-        ({ state, data: content } = this.restart(state, content, base));
+        ({ state, data: content } = this.restart(state, content, base, existing.data));
       }
       if (state) state = { ...state, structured: state.structured || structured };
       prepared.push({
