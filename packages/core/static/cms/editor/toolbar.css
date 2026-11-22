@@ -559,7 +559,8 @@
   border-radius: 4px;
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
   position: relative;
-  z-index: 2147483000;
+  /* Above the page, below the editor's own toolbar, toasts and dialogs. */
+  z-index: 1000;
 }
 
 /* Discard and Sign out — quiet until hovered, then red. */
