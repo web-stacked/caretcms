@@ -115,7 +115,7 @@ export function mountAwayNotice(options) {
     if (!change) { finish(); return; }
     spotlight(change.el);
     const position = { index: index + 1, count: waiting.length };
-    options.showToast.pending({
+    options.showToast.notice({
       message: change.image
         ? t('editor.away.stepImage', position)
         : t('editor.away.step', { ...position, was: change.was || t('editor.conflict.empty'), now: change.now || t('editor.conflict.empty') }),
@@ -143,7 +143,7 @@ export function mountAwayNotice(options) {
     since = seen.at;
     if (waiting.length === 0) { writeSeen(new Set(), null); return; }
     const date = new Date(seen.at).toLocaleDateString(document.documentElement.lang || undefined, { day: 'numeric', month: 'short' });
-    options.showToast.pending({
+    options.showToast.notice({
       message: t(waiting.length === 1 ? 'editor.away.noticeOne' : 'editor.away.noticeOther', { count: waiting.length, date }),
       actions: [
         { label: t('editor.away.show'), primary: true, onClick: () => step(0) },

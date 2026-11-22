@@ -28,7 +28,7 @@ export function createFirstVisit({ showToast, draftMode }) {
   function show() {
     if (open) return;
     holdHighlight(true);
-    open = showToast.pending({
+    open = showToast.notice({
       message: t(draftMode ? 'editor.intro.draft' : 'editor.intro.live'),
       actions: [{ label: t('editor.intro.gotIt'), primary: true, onClick: close }],
     });
