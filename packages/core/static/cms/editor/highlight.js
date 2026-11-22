@@ -15,11 +15,19 @@ import { t } from './i18n.js';
  */
 
 let highlightActive = false;
+/** Held on by the first-visit intro, separately from the toolbar toggle. */
+let held = false;
+
+/** Keep every editable region outlined (the first-visit intro), or stop. @param {boolean} on */
+export function holdHighlight(on) {
+  held = on;
+  document.body.classList.toggle('cms-highlight-all', on || highlightActive);
+}
 
 /** @param {Element} highlightBtn @param {(message: string, type: 'success' | 'error') => void} showToast */
 export function toggleHighlight(highlightBtn, showToast) {
   highlightActive = !highlightActive;
-  document.body.classList.toggle('cms-highlight-all', highlightActive);
+  document.body.classList.toggle('cms-highlight-all', highlightActive || held);
   highlightBtn.classList.toggle('cms-highlight-btn-active', highlightActive);
   highlightBtn.setAttribute('aria-pressed', String(highlightActive));
 
@@ -41,10 +49,10 @@ export function toggleHighlight(highlightBtn, showToast) {
  * desyncs the toolbar button's state.
  */
 export function revealAndFade(durationMs = 2500) {
-  if (highlightActive) return;
+  if (highlightActive || held) return;
   document.body.classList.add('cms-highlight-all');
   setTimeout(() => {
-    if (highlightActive) return;
+    if (highlightActive || held) return;
     document.body.classList.remove('cms-highlight-all');
   }, durationMs);
 }
