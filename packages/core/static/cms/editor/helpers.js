@@ -27,7 +27,8 @@ export function parseCaretAttr(attr) {
 /**
  * Resolve a parsed binding by walking up the DOM to find data-caret-scope.
  * If the binding already has collection+id, returns as-is.
- * If field-only, walks up to nearest [data-caret-scope] ancestor.
+ * If field-only, uses the nearest [data-caret-scope]: the element's own, then
+ * each ancestor's.
  * Returns null if scope cannot be resolved.
  * @param {Element} el
  * @param {ParsedCaretBinding | null} parsed
@@ -43,8 +44,9 @@ export function resolveBinding(el, parsed) {
     return { collection: parsed.collection, id: parsed.id, field: parsed.field };
   }
 
-  // Walk up to find nearest data-caret-scope
-  let node = el.parentElement;
+  // The nearest data-caret-scope, starting with the element's own
+  /** @type {Element | null} */
+  let node = el;
   while (node) {
     const scope = node.getAttribute('data-caret-scope');
     if (scope) {

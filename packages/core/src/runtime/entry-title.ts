@@ -23,9 +23,9 @@ export function inferTitleField(schema: JsonSchemaNode | null | undefined): stri
   return (schema?.required ?? []).find((key) => !NOT_A_NAME.test(key) && isPlainString(properties[key]));
 }
 
-/** "01-mara" → "01 mara", "about_us" → "About us". */
+/** "01-mara" → "01 mara", "about_us" → "About us", "en/post-1" → "Post 1". */
 export function humanizeEntryId(id: string): string {
-  const text = id.replace(/[-_]+/g, " ").trim();
+  const text = id.slice(id.lastIndexOf("/") + 1).replace(/[-_]+/g, " ").trim();
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 

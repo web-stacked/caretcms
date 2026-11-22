@@ -119,21 +119,20 @@ function hydrateSessionFromUrl(config: CloudCmsClientConfig): CloudCmsClientConf
 }
 
 function parseScopeValue(value: string | null): Scope | null {
-  if (!value) return null;
-  const [collection, id] = value.split("::");
-  if (!collection || !id) return null;
-  return { collection, id };
+  const parts = value?.split("::");
+  return parts?.length === 2 ? { collection: parts[0], id: parts[1] } : null;
 }
 
 export function getNearestScope(element: Element): Scope | null {
-  // ANCESTORS only — never the element itself. The server's rewrite engine
-  // processes scope frames for tags opened BEFORE the bound element, so an
-  // element carrying both data-caret-scope and data-caret does not scope its
-  // own binding; a bare `closest()` here (which matches self) silently
-  // resolved such bindings differently from the published render.
-  const scopeElement = element.parentElement?.closest("[data-caret-scope]") ?? null;
-  if (!scopeElement) return null;
-  return parseScopeValue(scopeElement.getAttribute("data-caret-scope"));
+  // The element's own data-caret-scope counts, then each ancestor's; a
+  // malformed scope is skipped. Every resolver follows this rule (the rewrite
+  // engine, page-content-scan, the editor's helpers.js, the dev toolbar), held
+  // together by tests/unit/caret-parser-parity.test.ts.
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    const scope = parseScopeValue(node.getAttribute("data-caret-scope"));
+    if (scope) return scope;
+  }
+  return null;
 }
 
 export function resolveBindingValue(value: string, scope: Scope | null): Omit<Binding, "element" | "isImage" | "isRich" | "hasChildMarkup"> | null {

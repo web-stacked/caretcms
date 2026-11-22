@@ -536,15 +536,19 @@ function emitSeqItem(value: unknown, indent: number, depth: number): string[] {
   const inline = inlineScalar(value);
   if (inline !== null) return [`${pad}- ${inline}`];
 
-  // Non-empty array/object item: a bare dash, then the nested block indented.
-  const lines = [`${pad}-`];
+  // A list inside a list: a bare dash, then the nested items indented.
   if (Array.isArray(value)) {
+    const lines = [`${pad}-`];
     for (const item of value) lines.push(...emitSeqItem(item, indent + 2, depth + 1));
-  } else {
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      lines.push(...emitEntry(k, v, indent + 2, depth + 1));
-    }
+    return lines;
   }
+  // An object: its first key on the dash line (`- day: Tuesday`), the way
+  // people write them, so an untouched item reads as it did.
+  const lines: string[] = [];
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    lines.push(...emitEntry(k, v, indent + 2, depth + 1));
+  }
+  lines[0] = `${pad}- ${lines[0].slice(indent + 2)}`;
   return lines;
 }
 

@@ -1,6 +1,6 @@
 import { ContentReadError } from "../content-errors.js";
 import { mkdir, readFile, readdir, stat, unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { CollectionMetadata, EntryData, EntrySnapshot, HistoryEntry, StorageAdapter, PublicationSourceSnapshot } from "../../types.js";
 import { atomicWrite } from "./atomic-write.js";
 import { assertFilesystemRuntime } from "./fs-runtime.js";
@@ -29,7 +29,8 @@ function queueDataFileWrite<T>(path: string, task: () => Promise<T>): Promise<T>
 /**
  * StorageAdapter over Astro file-based content collections.
  *
- * Maps `<contentRoot>/<collection>/<id>.{md,mdx}` to entries: YAML frontmatter
+ * Maps `<contentRoot>/<collection>/<id>.{md,mdx}` to entries, where the id may
+ * be a path into sub-folders (`en/post-1`) as Astro names them: YAML frontmatter
  * becomes the entry `data`, and edits are written back IN-PLACE — the markdown
  * body (everything after the closing `---`, including MDX JSX/imports) is
  * spliced through byte-for-byte. Body block drafts publish through prepared,
@@ -46,8 +47,7 @@ function queueDataFileWrite<T>(path: string, task: () => Promise<T>): Promise<T>
  * (shared `SidecarMetaStore`), so the source `.md` files stay free of CMS state.
  *
  * v1 boundaries (intentional):
- *  - Flat collection directories only (no nested-slug subdirectories).
- *  - Filenames whose stem fails the entry-id contract are ignored.
+ *  - Files and folders whose name fails the entry-id contract are ignored.
  *  - `deleteCollection` never deletes source content — only sidecar state.
  *  - `makeSessionOverlay` is intentionally not implemented: ephemeral demo
  *    overlays make no sense for a source-file-backed adapter. `makeEditorOverlay`
@@ -149,8 +149,8 @@ export class MarkdownAdapter implements StorageAdapter {
     if (!COLLECTION_NAME_RE.test(collection) || !ENTRY_ID_RE.test(id)) throw new Error("Invalid entry path");
     const data = await this.dataCollection(collection);
     if (data) return [data.path];
-    if (deleted) return EXTENSIONS.map(ext => join(this.collectionDir(collection), `${id}${ext}`));
-    return [await this.resolveEntryPath(collection, id) ?? join(this.collectionDir(collection), `${id}.md`)];
+    if (deleted) return this.entryPaths(collection, id);
+    return [await this.resolveEntryPath(collection, id) ?? this.newEntryPath(collection, id)];
   }
 
   async preparePublicationSources(
@@ -169,14 +169,28 @@ export class MarkdownAdapter implements StorageAdapter {
     return [{ path: paths[0], content: result.content }];
   }
 
-  /** First existing `<id>.{md,mdx}` path for an entry, honoring .md precedence. */
+  /**
+   * Every file an entry can live in, in reading order: `<id>.md` before
+   * `<id>.mdx`, then `<id>/index.*`, which Astro gives the same id.
+   */
+  private entryPaths(collection: string, id: string): string[] {
+    const base = join(this.collectionDir(collection), ...id.split("/"));
+    return [...EXTENSIONS.map(ext => `${base}${ext}`), ...EXTENSIONS.map(ext => join(base, `index${ext}`))];
+  }
+
+  /** Where an entry that has no file yet is written. */
+  private newEntryPath(collection: string, id: string): string {
+    return this.entryPaths(collection, id)[0];
+  }
+
+  /** The existing file of an entry, or null. */
   private async resolveEntryPath(collection: string, id: string): Promise<string | null> {
-    for (const ext of EXTENSIONS) {
-      const path = join(this.collectionDir(collection), `${id}${ext}`);
+    for (const path of this.entryPaths(collection, id)) {
       try {
         if ((await stat(path)).isFile()) return path;
       } catch (error) {
-        if ((error as { code?: string }).code !== "ENOENT") throw new ContentReadError("storage_error");
+        const code = (error as { code?: string }).code;
+        if (code !== "ENOENT" && code !== "ENOTDIR") throw new ContentReadError("storage_error");
       }
     }
     return null;
@@ -263,9 +277,8 @@ export class MarkdownAdapter implements StorageAdapter {
     if (!(await this.isDocumentCollection(collection))) {
       throw new Error(`[caretcms] ${collection} is a data file; its entries have no document source`);
     }
-    const dir = this.collectionDir(collection);
-    await mkdir(dir, { recursive: true });
-    const path = (await this.resolveEntryPath(collection, id)) ?? join(dir, `${id}.md`);
+    const path = (await this.resolveEntryPath(collection, id)) ?? this.newEntryPath(collection, id);
+    await mkdir(dirname(path), { recursive: true });
     await atomicWrite(path, source);
   }
 
@@ -305,20 +318,30 @@ export class MarkdownAdapter implements StorageAdapter {
 
   private async listDocumentIds(collection: string): Promise<string[]> {
     if (!COLLECTION_NAME_RE.test(collection)) return [];
-    let files: import("node:fs").Dirent[];
-    try {
-      files = await readdir(this.collectionDir(collection), { withFileTypes: true });
-    } catch {
-      return [];
-    }
     const ids = new Set<string>();
-    for (const file of files) {
-      if (!file.isFile()) continue;
-      const ext = EXTENSIONS.find((e) => file.name.endsWith(e));
-      if (!ext) continue;
-      const stem = file.name.slice(0, -ext.length);
-      if (ENTRY_ID_RE.test(stem)) ids.add(stem);
-    }
+    /** Collect the folder at `prefix` (an id path ending in "/", or ""). */
+    const walk = async (dir: string, prefix: string): Promise<void> => {
+      let files: import("node:fs").Dirent[];
+      try {
+        files = await readdir(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const file of files) {
+        if (file.isDirectory()) {
+          if (ENTRY_ID_RE.test(prefix + file.name)) await walk(join(dir, file.name), `${prefix}${file.name}/`);
+          continue;
+        }
+        if (!file.isFile()) continue;
+        const ext = EXTENSIONS.find((e) => file.name.endsWith(e));
+        if (!ext) continue;
+        const stem = file.name.slice(0, -ext.length);
+        // Astro names `guides/index.md` "guides".
+        const id = stem === "index" && prefix ? prefix.slice(0, -1) : prefix + stem;
+        if (ENTRY_ID_RE.test(id)) ids.add(id);
+      }
+    };
+    await walk(this.collectionDir(collection), "");
     return [...ids].sort((a, b) => a.localeCompare(b));
   }
 
@@ -361,9 +384,8 @@ export class MarkdownAdapter implements StorageAdapter {
       throw new Error(`[caretcms] Refusing to overwrite ${collection}/${id}: ${serialized.reason}`);
     }
 
-    const dir = this.collectionDir(collection);
-    await mkdir(dir, { recursive: true });
-    const writePath = existing ?? join(dir, `${id}.md`);
+    const writePath = existing ?? this.newEntryPath(collection, id);
+    await mkdir(dirname(writePath), { recursive: true });
     await atomicWrite(writePath, serialized.content);
   }
 
@@ -378,13 +400,12 @@ export class MarkdownAdapter implements StorageAdapter {
       return;
     }
     // Remove every form so a .md delete doesn't merely un-shadow a sibling .mdx.
-    for (const ext of EXTENSIONS) {
-      const path = join(this.collectionDir(collection), `${id}${ext}`);
+    for (const path of this.entryPaths(collection, id)) {
       try {
         await unlink(path);
       } catch (error) {
         const code = (error as { code?: string })?.code;
-        if (code !== "ENOENT") throw error;
+        if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
       }
     }
   }

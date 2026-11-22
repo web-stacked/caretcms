@@ -1,6 +1,7 @@
 import { parseCaretAttr, resolveBinding } from './helpers.js';
 import { t } from './i18n.js';
 import { changedPart } from './text-diff.js';
+import { buildChangeCard, placeChangeCard } from './change-card.js';
 
 /**
  * "Since you were last here": what the editor saw on a page is remembered in
@@ -114,7 +115,20 @@ export function mountAwayNotice(options) {
     el.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
 
+  /** The card of the tour step on screen. @type {HTMLElement | null} */
+  let card = null;
+  function closeCard() {
+    card?.remove();
+    card = null;
+    document.removeEventListener('keydown', onKey, true);
+  }
+  /** @param {KeyboardEvent} event */
+  function onKey(event) {
+    if (event.key === 'Escape') { event.preventDefault(); finish(); }
+  }
+
   function finish() {
+    closeCard();
     spotlight(null);
     waiting = [];
     writeSeen(new Set(), null, own);
@@ -126,21 +140,35 @@ export function mountAwayNotice(options) {
     return { was: before || t('editor.conflict.empty'), now: after || t('editor.conflict.empty') };
   }
 
-  /** @param {number} index */
+  /** Step `index` of the tour: the element outlined, and a card beside it with what it said and says now. @param {number} index */
   function step(index) {
     const change = waiting[index];
     if (!change) { finish(); return; }
+    closeCard();
     spotlight(change.el);
     const position = { index: index + 1, count: waiting.length };
-    options.showToast.notice({
-      message: change.image
-        ? t('editor.away.stepImage', position)
-        : t('editor.away.step', { ...position, ...shortened(change) }),
+    const last = index === waiting.length - 1;
+    const { was, now } = shortened(change);
+    card = buildChangeCard({
+      label: t('editor.away.stepLabel', position),
+      title: waiting.length === 1 ? t('editor.away.stepTitleOnly') : t('editor.away.stepTitle', position),
+      tone: 'site',
+      rows: change.image ? [] : [[t('editor.changes.was'), was], [t('editor.changes.now'), now]],
+      note: change.image ? t('editor.away.imageReplaced') : undefined,
       actions: [
-        ...(index > 0 ? [{ label: t('editor.away.back'), onClick: () => step(index - 1) }] : []),
-        { label: t(index === waiting.length - 1 ? 'editor.away.done' : 'editor.away.next'), primary: true, onClick: () => step(index + 1) },
+        // One change needs no way around it: Done is the only step.
+        ...(index > 0 ? [{ label: t('editor.away.back'), run: () => step(index - 1) }]
+          : waiting.length > 1 ? [{ label: t('editor.away.skip'), run: finish }] : []),
+        { label: t(last ? 'editor.away.done' : 'editor.away.next'), primary: true, run: () => step(index + 1) },
       ],
     });
+    document.body.append(card);
+    // Place it once the element has scrolled into view.
+    const place = () => { if (card) placeChangeCard(card, change.el, change.el.getBoundingClientRect().left); };
+    place();
+    setTimeout(place, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 450);
+    document.addEventListener('keydown', onKey, true);
+    /** @type {HTMLElement | null} */ (card.querySelector('.cms-change-primary'))?.focus({ preventScroll: true });
   }
 
   async function check() {
@@ -158,9 +186,15 @@ export function mountAwayNotice(options) {
     waiting = differs.filter(change => !own.has(change.key));
     since = seen.at;
     if (waiting.length === 0) { writeSeen(new Set(), null, own); return; }
-    const date = new Date(seen.at).toLocaleDateString(document.documentElement.lang || undefined, { day: 'numeric', month: 'long' });
+    // Earlier today reads as a time; any other day as a date.
+    const then = new Date(seen.at);
+    const today = then.toDateString() === new Date().toDateString();
+    const locale = document.documentElement.lang || undefined;
+    const date = then.toLocaleDateString(locale, { day: 'numeric', month: 'long' });
+    const time = then.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
+    const one = waiting.length === 1;
     options.showToast.notice({
-      message: t(waiting.length === 1 ? 'editor.away.noticeOne' : 'editor.away.noticeOther', { count: waiting.length, date }),
+      message: t(today ? (one ? 'editor.away.noticeOneToday' : 'editor.away.noticeOtherToday') : (one ? 'editor.away.noticeOne' : 'editor.away.noticeOther'), { count: waiting.length, date, time }),
       actions: [
         { label: t('editor.away.show'), primary: true, onClick: () => step(0) },
         { label: t('editor.away.dismiss'), onClick: finish },

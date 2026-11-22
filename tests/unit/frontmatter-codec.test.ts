@@ -317,3 +317,36 @@ describe("rewriteFrontmatter", () => {
     expect(rewriteFrontmatter("---\na: &anchor value\n---\nBODY", { a: "changed" }).ok).toBe(false);
   });
 });
+
+describe("lists of objects", () => {
+  const source = `---
+title: Lead Climbing 101
+schedule:
+  - day: Tuesday
+    time: "18:30"
+  - day: Saturday
+    time: "10:00"
+---
+
+Body.
+`;
+
+  it("keeps the compact form people write when one item changes", () => {
+    const parsed = parseFrontmatter(source);
+    if (!parsed.ok) throw new Error(parsed.reason);
+    const schedule = structuredClone(parsed.data.schedule) as Array<{ day: string; time: string }>;
+    schedule[1].day = "Sunday";
+    const result = rewriteFrontmatter(source, { ...parsed.data, schedule });
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.content).toBe(source.replace("Saturday", "Sunday"));
+  });
+
+  it("writes nested objects and lists inside an item so they read back the same", () => {
+    const data = { items: [{ name: "a", tags: ["x", "y"], meta: { level: 1, notes: [] } }, { name: "b" }, ["n1", "n2"], "plain"] };
+    const written = serializeFrontmatter(data);
+    if (!written.ok) throw new Error(written.reason);
+    expect(written.content).toContain("  - name: a\n    tags:\n      - x");
+    const back = parseFrontmatter(`---\n${written.content}---\n`);
+    expect(back.ok && back.data).toEqual(data);
+  });
+});

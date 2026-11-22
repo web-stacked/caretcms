@@ -113,6 +113,13 @@ export function mountTextEditors({
 
     const attr = el.getAttribute('data-caret');
     if (!attr) return;
+    // A binding nothing can resolve (no scope, or a malformed value) has
+    // nowhere to save to: don't let anyone type into it.
+    if (!resolveBinding(el, parseCaretAttr(attr))) {
+      el.classList.add('cms-locked');
+      el.title = t('editor.text.unbound');
+      return;
+    }
     const key = bindingKey(el);
     // A plain binding with formatting inside: when the rich allowlist covers
     // every tag, edit it as rich text (the server renders it the same way);

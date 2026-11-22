@@ -1,9 +1,10 @@
 /**
  * data-caret parser parity.
  *
- * The triple/scope resolution rules exist in four places: the rewrite engine
- * (canonical, fuzz-tested), browser-runtime.ts (cloud live-sync), the editor's
- * static helpers.js, and the dev-toolbar's deliberately inlined copy. The two
+ * The triple/scope resolution rules exist in five places: the rewrite engine
+ * (canonical, fuzz-tested), the template scan (page-content-scan.ts),
+ * browser-runtime.ts (cloud live-sync), the editor's static helpers.js, and
+ * the dev-toolbar's deliberately inlined copy. The two
  * static-JS copies can't import the canonical implementation, so this test is
  * the lockstep mechanism: every copy must resolve the same corpus identically.
  */
@@ -11,7 +12,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { resolveBinding } from "../../packages/core/src/runtime/rewrite";
+import { resolveBinding, rewriteCaretAttributes } from "../../packages/core/src/runtime/rewrite";
+import { InMemoryAdapter } from "../../packages/core/src/runtime/storage/in-memory-adapter";
+import { scanTemplate } from "../../packages/core/src/page-content-scan";
 import {
   getNearestScope,
   resolveBindingValue,
@@ -52,8 +55,6 @@ const toolbarResolve = extractFunction(appJs, "resolveBinding");
 type FakeEl = {
   getAttribute(name: string): string | null;
   parentElement: FakeEl | null;
-  // closest() is what browser-runtime uses; emulate the ancestors-only walk
-  // it performs via parentElement?.closest(...).
   closest(selector: string): FakeEl | null;
 };
 function el(attrs: Record<string, string>, parent: FakeEl | null): FakeEl {
@@ -124,15 +125,31 @@ describe("data-caret parser parity (4 copies)", () => {
     }
   });
 
-  it("scope comes from ancestors only — an element's own data-caret-scope does not scope its own binding", () => {
-    // The server's scope stack only sees tags opened BEFORE the bound element,
-    // so all client copies must walk from parentElement, never self.
-    const selfScoped = el(
-      { "data-caret": "headline", "data-caret-scope": "pages::home" },
-      null,
-    );
-    expect(getNearestScope(selfScoped as unknown as Element)).toBeNull();
-    expect(helpersResolve(selfScoped, helpersParse("headline"))).toBeNull();
-    expect(toolbarResolve(selfScoped, toolbarParse("headline"))).toBeNull();
+  it("an element's own data-caret-scope scopes its own binding, in every copy", async () => {
+    const selfScoped = el({ "data-caret": "headline", "data-caret-scope": "pages::home" }, null);
+    const expected = { collection: "pages", id: "home", field: "headline" };
+    expect(getNearestScope(selfScoped as unknown as Element)).toEqual(SCOPE);
+    expect(helpersResolve(selfScoped, helpersParse("headline"))).toEqual(expected);
+    expect(toolbarResolve(selfScoped, toolbarParse("headline"))).toEqual(expected);
+
+    // The rewrite engine and the template scan, on the same markup.
+    const html = '<a data-caret-scope="pages::home" data-caret="headline">Template</a>';
+    const adapter = new InMemoryAdapter();
+    adapter.writeEntry("pages", "home", { headline: "Stored" });
+    expect(await rewriteCaretAttributes(html, adapter)).toContain(">Stored</a>");
+    expect(scanTemplate(html)).toEqual({ pages: { home: { headline: "Template" } } });
+  });
+
+  it("the own scope wins over an ancestor's, and a malformed one is skipped", () => {
+    const outer = el({ "data-caret-scope": "pages::about" }, null);
+    const own = el({ "data-caret": "headline", "data-caret-scope": "pages::home" }, outer);
+    expect(getNearestScope(own as unknown as Element)).toEqual(SCOPE);
+    expect(helpersResolve(own, helpersParse("headline"))).toMatchObject(SCOPE);
+    expect(toolbarResolve(own, toolbarParse("headline"))).toMatchObject(SCOPE);
+
+    const malformed = el({ "data-caret": "headline", "data-caret-scope": "nope" }, el({ "data-caret-scope": "pages::home" }, null));
+    expect(getNearestScope(malformed as unknown as Element)).toEqual(SCOPE);
+    expect(helpersResolve(malformed, helpersParse("headline"))).toMatchObject(SCOPE);
+    expect(toolbarResolve(malformed, toolbarParse("headline"))).toMatchObject(SCOPE);
   });
 });

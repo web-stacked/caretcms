@@ -20,9 +20,30 @@ import type { StorageAdapter } from "../../packages/core/src/types";
  *    changed is asked, because the server can't know which value they saw.
  *
  * Every write uses a value never used before, so "changed" is unambiguous.
+ * Fields are value paths: the model keeps them flat and `nest` builds the entry.
  */
 
-const FIELDS = ["title", "hero", "cta", "note"] as const;
+/** `{ "hero.headline": "x" }` as `{ hero: { headline: "x" } }`. */
+function nest(flat: Record<string, string>): Record<string, unknown> {
+  const entry: Record<string, unknown> = {};
+  for (const [path, value] of Object.entries(flat)) {
+    const keys = path.split(".");
+    let holder = entry;
+    for (const key of keys.slice(0, -1)) holder = (holder[key] ??= {}) as Record<string, unknown>;
+    holder[keys[keys.length - 1]] = value;
+  }
+  return entry;
+}
+
+/** A copy of `entry` with the value at `path` replaced. */
+function withValue(entry: Record<string, unknown>, path: string, value: string): Record<string, unknown> {
+  const [key, ...rest] = path.split(".");
+  return { ...entry, [key]: rest.length ? withValue((entry[key] ?? {}) as Record<string, unknown>, rest.join("."), value) : value };
+}
+
+// A plain field, two values in one object (two people must be able to change
+// one each) and a value two levels down.
+const FIELDS = ["title", "hero.headline", "hero.subtext", "seo.meta.description"] as const;
 type Field = (typeof FIELDS)[number];
 type Step =
   | { kind: "developer"; field: Field }
@@ -53,7 +74,7 @@ interface Person {
 async function run(steps: Step[]): Promise<void> {
   const base = new InMemoryAdapter();
   const site: Record<string, string> = Object.fromEntries(FIELDS.map(name => [name, `${name}-0`]));
-  await base.writeEntry("pages", "home", { ...site });
+  await base.writeEntry("pages", "home", nest(site));
   const people: Person[] = [];
   for (const name of ["editor-a", "editor-b"]) {
     const overlay = await base.makeEditorOverlay(name);
@@ -61,7 +82,7 @@ async function run(steps: Step[]): Promise<void> {
   }
   let counter = 0;
   const fresh = (who: string) => `${who}-${++counter}`;
-  const expectedView = (person: Person) => ({ ...site, ...Object.fromEntries(person.edited) });
+  const expectedView = (person: Person) => nest({ ...site, ...Object.fromEntries(person.edited) });
   /** The editor's fields whose published value moved away from the one the draft agreed with. */
   const collided = (person: Person) => [...person.edited.keys()].filter(name => person.agreed !== null && site[name] !== person.agreed[name]).sort();
   /** The draft agrees with the site as it is now, or is gone when it holds no change. */
@@ -71,13 +92,13 @@ async function run(steps: Step[]): Promise<void> {
     const at = `step ${index + 1} ${JSON.stringify(current)}`;
     if (current.kind === "developer") {
       site[current.field] = fresh("dev");
-      await base.writeEntry("pages", "home", { ...site });
+      await base.writeEntry("pages", "home", nest(site));
     } else {
       const person = people[current.editor];
       if (current.kind === "edit") {
         const value = fresh(`editor${current.editor}`);
         const shown = (await person.draft.getEntry("pages", "home"))!.data;
-        await person.draft.writeEntry("pages", "home", { ...shown, [current.field]: value });
+        await person.draft.writeEntry("pages", "home", withValue(shown, current.field, value));
         person.agreed ??= { ...site };
         person.edited.set(current.field, value);
         // A save with nothing in conflict restarts the draft from the site as it is now.
@@ -108,7 +129,7 @@ async function run(steps: Step[]): Promise<void> {
     }
 
     // After every step: the site holds what the model says, and each editor sees their own changes on top of it.
-    expect((await base.getEntry("pages", "home"))?.data, `site after ${at}`).toEqual(site);
+    expect((await base.getEntry("pages", "home"))?.data, `site after ${at}`).toEqual(nest(site));
     for (const [who, person] of people.entries()) {
       expect((await person.draft.getEntry("pages", "home"))?.data, `editor ${who} sees, after ${at}`).toEqual(expectedView(person));
       const changes = await person.draft.draftChanges("pages", "home");

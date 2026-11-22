@@ -1,12 +1,72 @@
 import { parseCaretAttr, resolveBinding } from './helpers.js';
 import { t } from './i18n.js';
 import { changedPart } from './text-diff.js';
+import { buildChangeCard, placeChangeCard } from './change-card.js';
 
 /** @typedef {import('./draft-client.js').DraftEntryChanges} DraftEntryChanges */
 /** @typedef {import('./draft-client.js').DraftFieldChange} DraftFieldChange */
-/** @typedef {{ entry: DraftEntryChanges, change: DraftFieldChange, el: Element }} PageChange */
+/** @typedef {{ entry: DraftEntryChanges, change: DraftFieldChange, el: Element }} FieldChange A changed field. */
+/** @typedef {{ body: true, el: Element, was: string | null }} BodyChange Body text the editor changed; `was` is the published text when the page knows it. */
+/** @typedef {FieldChange | BodyChange} PageChange */
 
-const MARGIN = 8;
+/** What an element's HTML reads as. @param {string} html */
+function textOf(html) {
+  return (new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html').body.textContent || '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Body-text blocks on this page that show the editor's unpublished edit. The
+ * page as the server renders it now says which (`data-caret-md-draft`), so an
+ * edit made or undone since the page loaded is counted correctly.
+ * @returns {Promise<BodyChange[]>}
+ */
+async function bodyChangesOnPage() {
+  if (!document.querySelector('[data-caret-md]')) return [];
+  /** @type {Document} */
+  let fresh;
+  try {
+    const response = await fetch(window.location.href, { credentials: 'same-origin', cache: 'no-store' });
+    if (!response.ok) return [];
+    fresh = new DOMParser().parseFromString(await response.text(), 'text/html');
+  } catch {
+    return [];
+  }
+  /** @type {BodyChange[]} */
+  const found = [];
+  const taken = new Set();
+  fresh.querySelectorAll('[data-caret-md][data-caret-md-draft]').forEach((draft) => {
+    const binding = draft.getAttribute('data-caret-md') || '';
+    const el = blockOnPage(binding);
+    if (!el || taken.has(el)) return;
+    taken.add(el);
+    const original = draft.getAttribute('data-caret-md-original');
+    found.push({ body: true, el, was: original === null ? null : textOf(original) });
+  });
+  return found;
+}
+
+/**
+ * The element on the live page for a body block. Paragraphs the editor grouped
+ * into one editable host lost their own binding, so look the block up in the
+ * host's sources.
+ * @param {string} binding `collection::id::body::path`
+ */
+function blockOnPage(binding) {
+  const direct = document.querySelector(`[data-caret-md="${CSS.escape(binding)}"]:not([data-caret-md-sources])`);
+  if (direct) return direct;
+  const path = binding.split('::')[3];
+  const prefix = binding.split('::').slice(0, 3).join('::');
+  for (const host of document.querySelectorAll('[data-caret-md-sources]')) {
+    if (!(host.getAttribute('data-caret-md') || '').startsWith(`${prefix}::`)) continue;
+    try {
+      const sources = /** @type {{ blockPath: string }[]} */ (JSON.parse(host.getAttribute('data-caret-md-sources') || '[]'));
+      const index = sources.findIndex(source => source.blockPath === path);
+      if (index >= 0) return host.children[index] ?? host;
+    } catch { /* not a host this page can read */ }
+  }
+  return null;
+}
+
 
 /**
  * The Changes view: a dot beside every element on the page whose content the
@@ -30,17 +90,20 @@ export function createChangesView(options) {
   let shown = [];
   let on = false;
 
-  /** Changes whose element is on this page. @param {DraftEntryChanges[]} entries */
+  /** Field changes whose element is on this page. @param {DraftEntryChanges[]} entries */
   function onPage(entries) {
-    /** @type {PageChange[]} */
+    /** @type {FieldChange[]} */
     const found = [];
     const seen = new Set();
     document.querySelectorAll('[data-caret]').forEach((el) => {
       const bound = resolveBinding(el, parseCaretAttr(el.getAttribute('data-caret') || ''));
       if (!bound) return;
       const entry = entries.find(candidate => candidate.collection === bound.collection && candidate.id === bound.id);
-      const change = entry?.changes.find(candidate => candidate.field === bound.field);
-      const key = `${bound.collection}::${bound.id}::${bound.field}`;
+      // The element's own value, or the list or group it belongs to when that changed as a whole
+      // (an item added or removed): then the first element inside it carries the dot.
+      const change = entry?.changes.find(candidate => candidate.field === bound.field)
+        ?? entry?.changes.find(candidate => bound.field.startsWith(`${candidate.field}.`));
+      const key = `${bound.collection}::${bound.id}::${change?.field}`;
       if (!entry || !change || seen.has(key)) return;
       seen.add(key);
       found.push({ entry, change, el });
@@ -54,77 +117,55 @@ export function createChangesView(options) {
     layer?.querySelectorAll('.cms-change-dot[aria-expanded="true"]').forEach(dot => dot.setAttribute('aria-expanded', 'false'));
   }
 
-  /** @param {string} label @param {string} value */
-  function row(label, value) {
-    const line = document.createElement('div');
-    line.className = 'cms-change-row';
-    const name = document.createElement('span');
-    name.textContent = label;
-    const text = document.createElement('strong');
-    text.textContent = value || t('editor.conflict.empty');
-    line.append(name, text);
-    return line;
-  }
-
-  /** @param {string} label @param {boolean} primary @param {() => void} run */
-  function action(label, primary, run) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = label;
-    if (primary) button.className = 'cms-change-primary';
-    button.addEventListener('click', run);
-    return button;
-  }
-
   /** @param {PageChange} item @param {HTMLButtonElement} dot */
   function openCard(item, dot) {
     closeCard();
-    const { entry, change } = item;
-    card = document.createElement('div');
-    card.className = 'cms-change-card';
-    card.setAttribute('role', 'dialog');
-    card.setAttribute('aria-label', change.label);
-    const title = document.createElement('p');
-    title.className = `cms-change-title cms-change-${change.kind}`;
-    title.textContent = t(`editor.changes.${change.kind}`);
-    const actions = document.createElement('div');
-    actions.className = 'cms-change-actions';
-    const theirs = changedPart(change.site, change.mine);
-    if (change.kind === 'mine') {
-      card.append(title, row(t('editor.changes.siteValue'), theirs.before), row(t('editor.changes.yours'), theirs.after));
-      actions.append(action(t('editor.changes.close'), false, closeCard), action(t('editor.changes.undo'), true, async () => {
-        try {
-          await options.revertField(entry.collection, entry.id, change.field);
-          options.onReverted();
-        } catch {
-          options.onError(t('editor.changes.failed'));
-        }
-      }));
-    } else if (change.kind === 'site') {
-      const moved = changedPart(change.started, change.site);
-      card.append(title, row(t('editor.changes.was'), moved.before), row(t('editor.changes.now'), moved.after));
-      actions.append(action(t('editor.changes.close'), true, closeCard));
-    } else {
-      card.append(title, row(t('editor.changes.siteValue'), theirs.before), row(t('editor.changes.yours'), theirs.after));
-      actions.append(action(t('editor.changes.close'), false, closeCard),
-        action(t('editor.changes.choose'), true, () => { closeCard(); void options.settleConflicts(); }));
+    if ('body' in item) {
+      const now = (item.el.textContent || '').replace(/\s+/g, ' ').trim();
+      const part = item.was === null ? null : changedPart(item.was, now);
+      card = buildChangeCard({
+        label: t('editor.changes.bodyLabel'),
+        title: t('editor.changes.mine'),
+        tone: 'mine',
+        rows: part ? [[t('editor.changes.siteValue'), part.before || t('editor.conflict.empty')], [t('editor.changes.yours'), part.after || t('editor.conflict.empty')]] : [],
+        note: t('editor.changes.bodyNote'),
+        actions: [{ label: t('editor.changes.close'), primary: true, run: closeCard }],
+      });
+      document.body.append(card);
+      dot.setAttribute('aria-expanded', 'true');
+      placeChangeCard(card, item.el, dot.getBoundingClientRect().left);
+      /** @type {HTMLElement | null} */ (card.querySelector('button'))?.focus();
+      return;
     }
-    card.append(actions);
-    layer?.append(card);
+    const { entry, change, el } = item;
+    const empty = t('editor.conflict.empty');
+    const theirs = changedPart(change.site, change.mine);
+    const moved = changedPart(change.started, change.site);
+    const undo = async () => {
+      try {
+        await options.revertField(entry.collection, entry.id, change.field);
+        options.onReverted();
+      } catch {
+        options.onError(t('editor.changes.failed'));
+      }
+    };
+    card = buildChangeCard({
+      label: change.label,
+      title: t(`editor.changes.${change.kind}`),
+      tone: change.kind,
+      rows: change.kind === 'site'
+        ? [[t('editor.changes.was'), moved.before || empty], [t('editor.changes.now'), moved.after || empty]]
+        : [[t('editor.changes.siteValue'), theirs.before || empty], [t('editor.changes.yours'), theirs.after || empty]],
+      actions: change.kind === 'mine'
+        ? [{ label: t('editor.changes.close'), run: closeCard }, { label: t('editor.changes.undo'), primary: true, run: () => void undo() }]
+        : change.kind === 'site'
+          ? [{ label: t('editor.changes.close'), primary: true, run: closeCard }]
+          : [{ label: t('editor.changes.close'), run: closeCard },
+            { label: t('editor.changes.choose'), primary: true, run: () => { closeCard(); void options.settleConflicts(); } }],
+    });
+    document.body.append(card);
     dot.setAttribute('aria-expanded', 'true');
-    const at = dot.getBoundingClientRect();
-    const width = card.offsetWidth;
-    const left = Math.max(MARGIN, Math.min(at.left + window.scrollX, window.scrollX + document.documentElement.clientWidth - width - MARGIN));
-    card.style.left = `${left}px`;
-    // Below the element, unless that reaches the editor's toolbar at the bottom of the window: then above it.
-    const element = item.el.getBoundingClientRect();
-    const toolbarTop = document.querySelector('.cms-toolbar')?.getBoundingClientRect().top ?? window.innerHeight;
-    const room = Math.min(window.innerHeight, toolbarTop) - MARGIN;
-    const below = Math.max(at.bottom, element.bottom) + MARGIN;
-    const top = below + card.offsetHeight > room && element.top - MARGIN - card.offsetHeight >= 0
-      ? element.top - MARGIN - card.offsetHeight
-      : below;
-    card.style.top = `${top + window.scrollY}px`;
+    placeChangeCard(card, el, dot.getBoundingClientRect().left);
     /** @type {HTMLElement | null} */ (card.querySelector('button'))?.focus();
   }
 
@@ -155,18 +196,18 @@ export function createChangesView(options) {
     if (event.key === 'Escape' && card) closeCard();
   }
 
-  /** @param {DraftEntryChanges[]} entries */
-  function draw(entries) {
+  /** @param {DraftEntryChanges[]} entries @param {BodyChange[]} body */
+  function draw(entries, body) {
     clear();
-    shown = onPage(entries);
+    shown = [...onPage(entries), ...body];
     layer = document.createElement('div');
     layer.className = 'cms-change-layer';
     layer.setAttribute('data-caret-ui', '');
     for (const item of shown) {
       const dot = document.createElement('button');
       dot.type = 'button';
-      dot.className = `cms-change-dot cms-change-${item.change.kind}`;
-      dot.setAttribute('aria-label', t('editor.changes.dot', { label: item.change.label }));
+      dot.className = `cms-change-dot cms-change-${'body' in item ? 'mine' : item.change.kind}`;
+      dot.setAttribute('aria-label', t('editor.changes.dot', { label: 'body' in item ? t('editor.changes.bodyLabel') : item.change.label }));
       dot.setAttribute('aria-expanded', 'false');
       dot.addEventListener('click', () => (dot.getAttribute('aria-expanded') === 'true' ? closeCard() : openCard(item, dot)));
       layer.append(dot);
@@ -181,7 +222,8 @@ export function createChangesView(options) {
   async function toggle() {
     if (on) { on = false; clear(); return 0; }
     try {
-      draw(await options.getChanges());
+      const [entries, body] = await Promise.all([options.getChanges(), bodyChangesOnPage()]);
+      draw(entries, body);
       on = true;
       return shown.length;
     } catch {
@@ -189,5 +231,11 @@ export function createChangesView(options) {
     }
   }
 
-  return { toggle, isOn: () => on, hide: () => { on = false; clear(); } };
+  return {
+    toggle,
+    isOn: () => on,
+    hide: () => { on = false; clear(); },
+    /** How many elements on this page the view would mark. @param {DraftEntryChanges[]} entries */
+    countOnPage: async (entries) => onPage(entries).length + (await bodyChangesOnPage()).length,
+  };
 }

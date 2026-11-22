@@ -40,6 +40,32 @@ export function templateFromSchema(schema) {
 }
 
 /**
+ * The form's data as it is saved: without the default values the form filled
+ * in for fields the stored entry doesn't have and the editor left alone. The
+ * site applies those defaults itself, so writing them would add values nobody
+ * chose (`draft: false`) to the file and to the list of changes.
+ * @param {Record<string, unknown>} data @param {unknown} stored @param {Schema | null | undefined} schema
+ * @returns {Record<string, unknown>}
+ */
+export function withoutUnchosenDefaults(data, stored, schema) {
+  if (!schema || !schema.properties) return data;
+  var had = stored && typeof stored === "object" && !Array.isArray(stored) ? /** @type {Record<string, unknown>} */ (stored) : {};
+  var required = Array.isArray(schema.required) ? schema.required : [];
+  /** @type {Record<string, unknown>} */
+  var out = {};
+  Object.keys(data).forEach(function (key) {
+    var prop = schema.properties?.[key];
+    var value = data[key];
+    if (prop && had[key] === undefined && !required.includes(key) && prop.default !== undefined
+        && JSON.stringify(value) === JSON.stringify(templateFromSchema(prop))) return;
+    out[key] = prop && prop.type === "object" && prop.properties && value && typeof value === "object" && !Array.isArray(value)
+      ? withoutUnchosenDefaults(/** @type {Record<string, unknown>} */ (value), had[key], prop)
+      : value;
+  });
+  return out;
+}
+
+/**
  * Fills keys the schema defines but the data lacks, exactly as rendering the
  * form does. Applying it before taking the clean snapshot keeps an untouched
  * form from counting as changed.

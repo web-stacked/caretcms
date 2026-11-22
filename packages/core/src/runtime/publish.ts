@@ -19,6 +19,7 @@ import { DRAFT_STATE_KEY, PUBLISH_RECOVERY_KEY, contentFingerprint, isStaleDraft
 import { prepareSource, recoveryState, validPublicationSources, resumePublish, RecoveryConflict, type PublishRecovery } from "./publish-recovery.js";
 import { getRequestContext } from "./request-context.js";
 import { commitEntryChanges } from "./storage/entry-commit.js";
+import { canonicalBody } from "../markdown/canonical-body.js";
 
 export interface PublishScope {
   /** Limit to one collection (with `id`, to one entry). Omit to publish all. */
@@ -48,6 +49,8 @@ export interface PublishedEntry {
   deleted: boolean;
   /** `contentFingerprint` of what the publish wrote; an Undo checks the entry still matches it. */
   fingerprint?: string;
+  /** The publish changed Markdown body text, which Undo can't put back (History can). */
+  text?: true;
 }
 
 export interface PublishConflict {
@@ -271,7 +274,10 @@ export async function publishOverlay(
           }
         }
         const revision = await resumePublish(base, overlay, collection, id, plan);
-        published.push({ collection, id, revision, deleted: plan.afterData === null, fingerprint: contentFingerprint(plan.afterData) });
+        const bodyChanged = typeof plan.beforeSource === "string" && typeof plan.afterSource === "string" &&
+          canonicalBody(plan.beforeSource).body !== canonicalBody(plan.afterSource).body;
+        published.push({ collection, id, revision, deleted: plan.afterData === null, fingerprint: contentFingerprint(plan.afterData),
+          ...(bodyChanged ? { text: true as const } : {}) });
         if (plan.afterSource !== undefined && plan.afterSource !== plan.beforeSource) sourceChanged = true;
         if (!options.journal || !plan.journalReceipt) {
           journalVersions.push({ collection, id, revision: plan.beforeRevision + 1 });

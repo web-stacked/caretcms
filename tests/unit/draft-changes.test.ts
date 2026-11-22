@@ -20,14 +20,20 @@ describe("draftFieldChanges", () => {
     expect(draftFieldChanges(state(started), { ...started }, { ...started })).toEqual([]);
   });
 
+  it("reports only the saved item of a list that wasn't stored yet, not the empty places before it", () => {
+    // Saving `stats.1.label` on a list that only the template holds stores [null, { label }].
+    const changes = draftFieldChanges(state({}), { stats: [null, { label: "reset every Monday" }] }, {});
+    expect(changes.map((change) => change.field)).toEqual(["stats.1.label"]);
+  });
+
   it("separates the editor's change, the site's change and a change on both sides", () => {
     const changes = draftFieldChanges(state(started),
       { title: "My title", hero: "old.jpg", cta: "Ring us" },
       { title: "Old title", hero: "new.jpg", cta: "Phone" });
     expect(changes).toEqual([
-      { field: "cta", kind: "both", started: "Call", mine: "Ring us", site: "Phone" },
-      { field: "hero", kind: "site", started: "old.jpg", mine: "new.jpg", site: "new.jpg" },
-      { field: "title", kind: "mine", started: "Old title", mine: "My title", site: "Old title" },
+      { field: "cta", path: ["cta"], kind: "both", started: "Call", mine: "Ring us", site: "Phone" },
+      { field: "hero", path: ["hero"], kind: "site", started: "old.jpg", mine: "new.jpg", site: "new.jpg" },
+      { field: "title", path: ["title"], kind: "mine", started: "Old title", mine: "My title", site: "Old title" },
     ]);
   });
 
@@ -38,9 +44,31 @@ describe("draftFieldChanges", () => {
   it("reports a field the editor added and one the site removed", () => {
     const { cta: _cta, ...withoutCta } = started;
     expect(draftFieldChanges(state(started), { ...started, note: "Mine" }, withoutCta)).toEqual([
-      { field: "cta", kind: "site", started: "Call", mine: undefined, site: undefined },
-      { field: "note", kind: "mine", started: undefined, mine: "Mine", site: undefined },
+      { field: "cta", path: ["cta"], kind: "site", started: "Call", mine: undefined, site: undefined },
+      { field: "note", path: ["note"], kind: "mine", started: undefined, mine: "Mine", site: undefined },
     ]);
+  });
+
+  it("names each value inside an object, as the page's bindings do", () => {
+    const nested = { hero: { headline: "Old", subtext: "Old sub" } };
+    expect(draftFieldChanges(state(nested), { hero: { headline: "Mine", subtext: "My sub" } }, { hero: { headline: "Theirs", subtext: "Old sub" } })
+      .map(({ field, kind, mine, site }) => ({ field, kind, mine, site }))).toEqual([
+      { field: "hero.headline", kind: "both", mine: "Mine", site: "Theirs" },
+      { field: "hero.subtext", kind: "mine", mine: "My sub", site: "Old sub" },
+    ]);
+  });
+
+  it("names a value in an object the site doesn't have yet", () => {
+    expect(draftFieldChanges(state({}), { hero: { headline: "Mine" } }, {}).map(({ field, kind, mine }) => ({ field, kind, mine })))
+      .toEqual([{ field: "hero.headline", kind: "mine", mine: "Mine" }]);
+  });
+
+  it("names the item of a list only one side changed, and the whole list otherwise", () => {
+    const list = { items: [{ title: "A" }, { title: "B" }] };
+    expect(draftFieldChanges(state(list), { items: [{ title: "A" }, { title: "Mine" }] }, list).map(change => change.field)).toEqual(["items.1.title"]);
+    expect(draftFieldChanges(state(list), { items: [{ title: "A" }] }, list).map(change => change.field)).toEqual(["items"]);
+    expect(draftFieldChanges(state(list), { items: [{ title: "A" }, { title: "Mine" }] }, { items: [{ title: "Theirs" }, { title: "B" }] })
+      .map(({ field, kind }) => ({ field, kind }))).toEqual([{ field: "items", kind: "both" }]);
   });
 
   it("ignores private keys and an entry deleted on the site", () => {
@@ -67,6 +95,68 @@ describe("the change list of a stored draft", () => {
     await draft.writeEntry("pages", "home", { title: "My title", hero: "old.jpg" });
     await base.writeEntry("pages", "home", { title: "Old title", hero: "new.jpg" });
     expect((await draft.draftChanges("pages", "home")).map(({ field, kind }) => `${field}:${kind}`)).toEqual(["hero:site", "title:mine"]);
+  });
+});
+
+describe("values inside an object", () => {
+  async function nested() {
+    const base = new InMemoryAdapter();
+    await base.writeEntry("pages", "home", { hero: { headline: "Old", subtext: "Old sub" } });
+    const overlay = await base.makeEditorOverlay("editor-1");
+    return { base, overlay, draft: new SessionOverlayAdapter(base, overlay) };
+  }
+
+  it("takes one value back and leaves the rest of the object as the editor has it", async () => {
+    const { base, overlay, draft } = await nested();
+    await draft.writeEntry("pages", "home", { hero: { headline: "Mine", subtext: "My sub" } });
+    expect(await draft.revertDraftField("pages", "home", "hero.headline")).toBe(true);
+    expect((await draft.getEntry("pages", "home"))?.data).toEqual({ hero: { headline: "Old", subtext: "My sub" } });
+    expect((await publishOverlay(base, overlay)).conflicts).toEqual([]);
+    expect((await base.getEntry("pages", "home"))?.data).toEqual({ hero: { headline: "Old", subtext: "My sub" } });
+  });
+
+  it("drops an object the editor created once its only value is taken back", async () => {
+    const { draft, overlay } = await nested();
+    await draft.writeEntry("pages", "home", { hero: { headline: "Old", subtext: "Old sub" }, seo: { title: "Mine" } });
+    expect(await draft.revertDraftField("pages", "home", "seo.title")).toBe(true);
+    expect((await draft.getEntry("pages", "home"))?.data).toEqual({ hero: { headline: "Old", subtext: "Old sub" } });
+    expect(await overlay.getEntry("pages", "home")).toBeNull();
+  });
+
+  it("publishes two people's changes to different values of one object", async () => {
+    const { base, overlay, draft } = await nested();
+    await draft.writeEntry("pages", "home", { hero: { headline: "Old", subtext: "My sub" } });
+    await base.writeEntry("pages", "home", { hero: { headline: "Their headline", subtext: "Old sub" } });
+    expect(await draft.draftConflict("pages", "home")).toBeNull();
+    expect((await draft.getEntry("pages", "home"))?.data).toEqual({ hero: { headline: "Their headline", subtext: "My sub" } });
+    expect((await publishOverlay(base, overlay)).conflicts).toEqual([]);
+    expect((await base.getEntry("pages", "home"))?.data).toEqual({ hero: { headline: "Their headline", subtext: "My sub" } });
+  });
+
+  it("settles a collision on one value and keeps the editor's other value in the same object", async () => {
+    const { base, overlay, draft } = await nested();
+    await draft.writeEntry("pages", "home", { hero: { headline: "Mine", subtext: "My sub" } });
+    await base.writeEntry("pages", "home", { hero: { headline: "Theirs", subtext: "Old sub" } });
+    expect((await draft.draftConflict("pages", "home"))?.fields).toEqual([{ field: "hero.headline", mine: "Mine", site: "Theirs" }]);
+    const blocked = await publishOverlay(base, overlay);
+    expect(blocked.conflicts).toMatchObject([{ reason: "stale_entry", fields: ["hero.headline"] }]);
+    expect(await draft.resolveDraftConflict("pages", "home", "site")).toBe(true);
+    expect((await draft.getEntry("pages", "home"))?.data).toEqual({ hero: { headline: "Theirs", subtext: "My sub" } });
+    expect((await publishOverlay(base, overlay)).conflicts).toEqual([]);
+    expect((await base.getEntry("pages", "home"))?.data).toEqual({ hero: { headline: "Theirs", subtext: "My sub" } });
+  });
+
+  it("a save after the site moved records only what the editor changed in the object", async () => {
+    const { base, draft } = await nested();
+    await draft.writeEntry("pages", "home", { hero: { headline: "Mine", subtext: "Old sub" } });
+    await base.writeEntry("pages", "home", { hero: { headline: "Theirs", subtext: "Site sub" } });
+    // The editor saves again, sending back what they were shown plus a new value.
+    const shown = (await draft.getEntry("pages", "home"))!.data as { hero: Record<string, string> };
+    await draft.writeEntry("pages", "home", { hero: { ...shown.hero, image: "mine.jpg" } });
+    await base.writeEntry("pages", "home", { hero: { headline: "Theirs", subtext: "Newer site sub" } });
+    // The subtext merely followed the site, so the site's newer one shows and isn't a collision.
+    expect((await draft.getEntry("pages", "home"))?.data).toEqual({ hero: { headline: "Mine", subtext: "Newer site sub", image: "mine.jpg" } });
+    expect((await draft.draftConflict("pages", "home"))?.fields.map(field => field.field)).toEqual(["hero.headline"]);
   });
 });
 

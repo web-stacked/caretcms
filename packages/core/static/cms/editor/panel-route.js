@@ -23,7 +23,7 @@ export function isStudioRoute(path) {
 
 /** @param {string} collection @param {string} id */
 export function entryRoute(collection, id) {
-  return `${STUDIO}/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`;
+  return `${STUDIO}/${encodeURIComponent(collection)}/${encodeURIComponent(id).replace(/%2F/g, '/')}`;
 }
 
 /** @param {Element} element @returns {{ collection: string, id: string } | null} */

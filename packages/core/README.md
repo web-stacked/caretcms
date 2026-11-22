@@ -90,6 +90,9 @@ When Astro renders a `.md` entry through `markdownStorage()`, Caret marks safe
 prose blocks automatically. Sign in, click a paragraph or heading, edit it on the
 page, then publish the draft to write the change back to the source file.
 
+Entries can sit in sub-folders. `src/content/blog/en/post-1.md` is the entry
+`en/post-1`, as Astro names it, and `guides/index.md` is `guides`.
+
 Caret supports paragraphs, ATX headings, list items, and paragraphs inside
 blockquotes. Bold, emphasis, links, inline code, and line breaks round-trip to
 Markdown. Code blocks, tables, raw HTML blocks, and MDX stay read-only. Nested
@@ -118,7 +121,7 @@ CaretCMS gives you two ways to make content editable. They share one storage lay
 | The same fields repeat or you want short attribute names | **Scoped inline editing** | a `data-caret-scope` wrapper + short `data-caret` names |
 | Your content is dynamic data you query in frontmatter (a blog index, a list of products) | **Live collections** | `caretLoader` in `src/caret.config.ts`, then `getLiveEntry` / `getLiveCollection` |
 
-**Binding model:** every edit is addressed as `collection::id::field`. Inline editing lets you spell that out in pieces: `data-caret-scope="pages::home"` sets `collection::id`, and `data-caret="headline"` fills in the `field`, so the element above resolves to `pages::home::headline`. Live collections address the same `collection` + `id` from frontmatter instead, and read the same storage.
+**Binding model:** every edit is addressed as `collection::id::field`. Inline editing lets you spell that out in pieces: `data-caret-scope="pages::home"` sets `collection::id`, and `data-caret="headline"` fills in the `field`, so the element above resolves to `pages::home::headline`. The scope can sit on a wrapper or on the bound element itself. Live collections address the same `collection` + `id` from frontmatter instead, and read the same storage.
 
 > Adding `data-caret` to an existing site by hand? `npx @caretcms/caretize` scans your Astro
 > project and interactively annotates your templates for you. The attributes below are the same

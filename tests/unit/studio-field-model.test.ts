@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fillDefaults, getNestedValue, humanizeKey, setNestedValue, templateFromSchema } from "../../packages/core/static/cms/studio/field-model.js";
+import { fillDefaults, withoutUnchosenDefaults, getNestedValue, humanizeKey, setNestedValue, templateFromSchema } from "../../packages/core/static/cms/studio/field-model.js";
 import { validateJsonSchema } from "../../packages/core/src/schema-utils";
 
 describe("Studio templates", () => {
@@ -125,5 +125,30 @@ describe("optional fields the entry doesn't have", () => {
   it("a number starts at 0 unless its minimum is positive", () => {
     expect(templateFromSchema({ type: "integer", minimum: -9007199254740991 } as never)).toBe(0);
     expect(templateFromSchema({ type: "number", minimum: 5 } as never)).toBe(5);
+  });
+});
+
+describe("withoutUnchosenDefaults", () => {
+  const schema = {
+    type: "object",
+    required: ["title"],
+    properties: {
+      title: { type: "string" },
+      draft: { type: "boolean", default: false },
+      order: { type: "number", default: 0 },
+      seo: { type: "object", properties: { index: { type: "boolean", default: true }, note: { type: "string" } } },
+    },
+  };
+
+  it("leaves out defaults the form filled in for fields the stored entry lacks", () => {
+    const stored = { title: "Post", seo: {} };
+    const form = { title: "Post, edited", draft: false, order: 0, seo: { index: true } };
+    expect(withoutUnchosenDefaults(form, stored, schema)).toEqual({ title: "Post, edited", seo: {} });
+  });
+
+  it("keeps a default the entry already stored, and any value the editor changed", () => {
+    const stored = { title: "Post", draft: false };
+    const form = { title: "Post", draft: false, order: 3, seo: { index: false, note: "x" } };
+    expect(withoutUnchosenDefaults(form, stored, schema)).toEqual(form);
   });
 });

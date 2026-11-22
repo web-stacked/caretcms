@@ -1,4 +1,4 @@
-import { deepClone, fillDefaults, templateFromSchema, generatedId, friendlyFileTitle, singularItemLabel, getTitle, humanizeKey, fieldIdFromPath, getNestedValue, setNestedValue } from './studio/field-model.js';
+import { deepClone, fillDefaults, withoutUnchosenDefaults, templateFromSchema, generatedId, friendlyFileTitle, singularItemLabel, getTitle, humanizeKey, fieldIdFromPath, getNestedValue, setNestedValue } from './studio/field-model.js';
 import { createFieldGroup, createFieldRenderer } from './studio/fields.js';
 import { createStudioMutationClient } from './studio/mutation-client.js';
 import { createStudioHistoryClient } from './studio/history-client.js';
@@ -123,6 +123,8 @@ import { createSessionRecovery, SESSION_RESTORED_EVENT } from './editor/session-
    * yet; undefined: edits save live, or the server didn't say).
    * @type {Record<string, unknown> | null | undefined} */
   var liveData = undefined;
+  /** The entry as storage last had it, before the form filled in defaults. @type {unknown} */
+  var storedData = null;
   var studioSync = createStudioSync({
     collection: COLLECTION,
     id: ID,
@@ -227,6 +229,7 @@ import { createSessionRecovery, SESSION_RESTORED_EVENT } from './editor/session-
   }
 
   /** Empty required text fields, so a new entry never starts with placeholder content.
+   * A choice from a list keeps its first option: the form shows it as chosen.
    * @param {Record<string, unknown>} data @param {Schema | null} schema */
   function blankRequiredText(data, schema) {
     if (!schema || !schema.properties) return;
@@ -234,7 +237,7 @@ import { createSessionRecovery, SESSION_RESTORED_EVENT } from './editor/session-
     Object.keys(schema.properties).forEach(function (key) {
       var prop = /** @type {Schema} */ (schema.properties && schema.properties[key]);
       if (!prop) return;
-      if (prop.type === "string" && required.indexOf(key) !== -1) data[key] = "";
+      if (prop.type === "string" && !prop.enum && required.indexOf(key) !== -1) data[key] = "";
       else if (prop.type === "object" && data[key] && typeof data[key] === "object" && !Array.isArray(data[key])) {
         blankRequiredText(/** @type {Record<string, unknown>} */ (data[key]), prop);
       }
@@ -627,11 +630,13 @@ import { createSessionRecovery, SESSION_RESTORED_EVENT } from './editor/session-
     saving = true;
     updateSaveButton();
     var preserveSaveStatus = false;
+    // A new entry is written whole; an existing one without the defaults nobody chose.
+    var sent = creating ? entryData : withoutUnchosenDefaults(entryData, storedData, entrySchema);
     /** @type {{ collection: string, id: string, data: Record<string, unknown>, expectedRevision?: number, expectedBaseRevision?: number, createOnly?: boolean }} */
     var payload = {
       collection: COLLECTION,
       id: ID,
-      data: entryData,
+      data: sent,
     };
     if (typeof entryRevision === "number") payload.expectedRevision = entryRevision;
     if (typeof entryBaseRevision === "number") payload.expectedBaseRevision = entryBaseRevision;
@@ -674,6 +679,7 @@ import { createSessionRecovery, SESSION_RESTORED_EVENT } from './editor/session-
           showStatus("dirty", msg("entry.conflictStatus", "Someone else saved this entry. Choose which version to keep."));
           var choice = await resolveConflict(rebase.theirChanges, rebase.overlapping, theirs, entryData);
           if (choice === "latest" || choice === "keep") {
+            storedData = deepClone(latest.data);
             entryRevision = latest.revision;
             entryBaseRevision = latest.baseRevision;
           }
@@ -701,6 +707,7 @@ import { createSessionRecovery, SESSION_RESTORED_EVENT } from './editor/session-
       if (result.kind === "error") throw new Error("save failed");
       clearFieldErrors();
       if (typeof result.revision === "number") entryRevision = result.revision;
+      storedData = deepClone(sent);
       if (creating) {
         creating = false;
         showEntryActions(true);
@@ -1674,6 +1681,7 @@ import { createSessionRecovery, SESSION_RESTORED_EVENT } from './editor/session-
         if (!result.data || typeof result.data !== "object" || Array.isArray(result.data)) {
           throw new Error("invalid restored entry data");
         }
+        storedData = deepClone(result.data);
         entryData = fillDefaults(deepClone(/** @type {Record<string, unknown>} */ (result.data)), entrySchema);
         originalJson = JSON.stringify(entryData);
         if (typeof result.revision === "number") entryRevision = result.revision;
@@ -1798,6 +1806,7 @@ import { createSessionRecovery, SESSION_RESTORED_EVENT } from './editor/session-
           return;
         }
         var initialData = result.data;
+        storedData = deepClone(initialData);
         entryData = fillDefaults(deepClone(initialData), entrySchema);
         entryRevision = result.revision;
         entryBaseRevision = result.baseRevision;

@@ -45,7 +45,9 @@ function resolveBinding(el, parsed) {
   if (parsed.collection !== null && parsed.id !== null) {
     return { collection: parsed.collection, id: parsed.id, field: parsed.field };
   }
-  let node = el.parentElement;
+  // The element's own scope counts, then each ancestor's (parity test).
+  /** @type {Element | null} */
+  let node = el;
   while (node) {
     const scope = node.getAttribute("data-caret-scope");
     if (scope) {
@@ -348,7 +350,7 @@ export default defineToolbarApp({
 
       for (const [gk, rows] of groups) {
         const [collection, id] = gk.split("::");
-        const studioHref = `${mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`;
+        const studioHref = `${mountPath}/cms/${encodeURIComponent(collection)}/${encodeURIComponent(id).replace(/%2F/g, '/')}`;
         html += `<div class="group">
           <div class="ghead"><span>${esc(gk)}</span><a href="${esc(studioHref)}" target="_blank" rel="noopener">Open in Studio ↗</a></div>`;
         for (const b of rows) {

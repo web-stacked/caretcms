@@ -19,12 +19,12 @@ describe("rebaseDraft", () => {
 
   it("returns the draft untouched while the published entry hasn't moved", () => {
     const draft = { ...started, title: "My title" };
-    expect(rebaseDraft(state(started), draft, { ...started })).toEqual({ data: draft, conflicts: [], removed: false });
+    expect(rebaseDraft(state(started), draft, { ...started })).toEqual({ data: draft, conflicts: [], conflictPaths: [], removed: false });
   });
 
   it("keeps the editor's field and takes the others from the published entry", () => {
     const out = rebaseDraft(state(started), { ...started, title: "My title" }, { ...started, hero: "new.jpg" });
-    expect(out).toEqual({ data: { title: "My title", hero: "new.jpg", cta: "Call" }, conflicts: [], removed: false });
+    expect(out).toEqual({ data: { title: "My title", hero: "new.jpg", cta: "Call" }, conflicts: [], conflictPaths: [], removed: false });
   });
 
   it("shows a field added to the published entry after the draft started", () => {
@@ -49,7 +49,7 @@ describe("rebaseDraft", () => {
 
   it("is no conflict when both sides made the same change", () => {
     const out = rebaseDraft(state(started), { ...started, title: "Same" }, { ...started, title: "Same", hero: "new.jpg" });
-    expect(out).toEqual({ data: { title: "Same", hero: "new.jpg", cta: "Call" }, conflicts: [], removed: false });
+    expect(out).toEqual({ data: { title: "Same", hero: "new.jpg", cta: "Call" }, conflicts: [], conflictPaths: [], removed: false });
   });
 
   it("reports a field changed on both sides and keeps the editor's value", () => {
@@ -76,9 +76,58 @@ describe("rebaseDraft", () => {
     expect(out.data).toEqual({ title: "Old title", hero: "new.jpg", cta: "Call", __body: body });
   });
 
+  describe("inside an object", () => {
+    const nested = { hero: { headline: "Old", subtext: "Old sub", image: "a.jpg" }, title: "T" };
+
+    it("merges changes to different keys of the same object", () => {
+      const out = rebaseDraft(state(nested), { ...nested, hero: { ...nested.hero, subtext: "My sub" } },
+        { ...nested, hero: { ...nested.hero, headline: "Their headline" } });
+      expect(out.conflicts).toEqual([]);
+      expect(out.data).toEqual({ hero: { headline: "Their headline", subtext: "My sub", image: "a.jpg" }, title: "T" });
+    });
+
+    it("names the key both sides changed and keeps the editor's value", () => {
+      const out = rebaseDraft(state(nested), { ...nested, hero: { ...nested.hero, headline: "Mine", subtext: "My sub" } },
+        { ...nested, hero: { ...nested.hero, headline: "Theirs", image: "b.jpg" } });
+      expect(out.conflicts).toEqual(["hero.headline"]);
+      expect(out.conflictPaths).toEqual([["hero", "headline"]]);
+      expect(out.data).toEqual({ hero: { headline: "Mine", subtext: "My sub", image: "b.jpg" }, title: "T" });
+    });
+
+    it("merges an object each side created with different keys", () => {
+      const out = rebaseDraft(state({ title: "T" }), { title: "T", hero: { subtext: "Mine" } }, { title: "T", hero: { headline: "Theirs" } });
+      expect(out.conflicts).toEqual([]);
+      expect(out.data).toEqual({ title: "T", hero: { headline: "Theirs", subtext: "Mine" } });
+    });
+
+    it("keeps a key the editor removed and a key the site removed", () => {
+      const out = rebaseDraft(state(nested), { ...nested, hero: { headline: "Old", image: "a.jpg" } },
+        { ...nested, hero: { headline: "Old", subtext: "Old sub" } });
+      expect(out.conflicts).toEqual([]);
+      expect(out.data).toEqual({ hero: { headline: "Old" }, title: "T" });
+    });
+
+    it("treats a list both sides changed as one value", () => {
+      const list = { items: [{ title: "A", featured: false }, { title: "B", featured: false }] };
+      const mine = { items: [{ title: "A", featured: true }, { title: "B", featured: false }] };
+      // The site swapped the two items: merging by position would feature the wrong one.
+      const site = { items: [{ title: "B", featured: false }, { title: "A", featured: false }] };
+      const out = rebaseDraft(state(list), mine, site);
+      expect(out.conflicts).toEqual(["items"]);
+      expect(out.data).toEqual(mine);
+    });
+
+    it("follows the site for a list only the site changed", () => {
+      const list = { items: [{ title: "A" }], title: "T" };
+      const out = rebaseDraft(state(list), { ...list, title: "Mine" }, { ...list, items: [{ title: "A" }, { title: "B" }] });
+      expect(out.conflicts).toEqual([]);
+      expect(out.data).toEqual({ items: [{ title: "A" }, { title: "B" }], title: "Mine" });
+    });
+  });
+
   it("marks a draft whose published entry was deleted", () => {
     const draft = { ...started, title: "Mine" };
-    expect(rebaseDraft(state(started), draft, null)).toEqual({ data: draft, conflicts: ["title"], removed: true });
+    expect(rebaseDraft(state(started), draft, null)).toEqual({ data: draft, conflicts: ["title"], conflictPaths: [["title"]], removed: true });
   });
 
   it("compares a new entry's draft with an entry that appeared under the same id", () => {

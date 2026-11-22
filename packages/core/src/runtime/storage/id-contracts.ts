@@ -10,8 +10,17 @@
 /** A collection name. */
 export const COLLECTION_NAME_RE = /^[a-z][a-z0-9_-]*$/;
 
-/** An entry id. */
-export const ENTRY_ID_RE = /^[a-z0-9][a-z0-9_-]*$/;
+/**
+ * An entry id: one or more segments joined by `/`, as Astro names an entry in
+ * a sub-folder (`en/post-1`). Every segment starts with a letter or digit, so
+ * an id can't be empty, start or end with a slash, or hold `.` or `..`.
+ */
+export const ENTRY_ID_RE = /^[a-z0-9][a-z0-9_-]*(?:\/[a-z0-9][a-z0-9_-]*)*$/;
+
+/** An entry id as a URL path: its segments stay separate path segments. */
+export function entryIdPath(id: string): string {
+  return id.split("/").map(encodeURIComponent).join("/");
+}
 
 /**
  * A draft / overlay id (an editor's session UUID). Used as a filesystem path

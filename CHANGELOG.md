@@ -8,6 +8,125 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-22
+
+0.7.0 was tagged but not published to npm; 0.7.1 is the first npm release of
+the 0.7 line. Release notes: [docs/releases/0.7.1.md](docs/releases/0.7.1.md).
+`@caretcms/caretize` 0.6.2 accepts entry ids with a path.
+
+Found by using 0.7.0 on the example sites with two editors signed in at once,
+on a large open-source Astro template with a folder per language, and on a
+new template set up from scratch with `caretize init`.
+
+### Added
+
+- **Entries in sub-folders are editable.** A collection that keeps its Markdown
+  in sub-folders (`src/content/blog/en/post-1.md`, one folder per language or
+  per year) used to show as "0 entries" in the Studio, and nothing from it could
+  be edited on the page. Entry ids may now be paths, as Astro names them:
+  `en/post-1`. Such entries are listed in the Studio, open at
+  `/admin/cms/blog/en/post-1`, are edited on the page (frontmatter and body
+  text), and publish to their own file. `guides/index.md` has the id `guides`,
+  as in Astro. A new entry can be given a path id, and its folders are created.
+  Every segment of an id follows the old rule (lowercase letters, digits, `-`
+  and `_`, starting with a letter or digit), so an id still can't leave its
+  collection folder.
+
+  For custom storage adapters: `StorageAdapter` methods can now receive ids
+  that contain `/`. `ENTRY_ID_RE` in `@caretcms/core/contracts` is the new
+  grammar. The filesystem, Markdown and Cloudflare adapters handle it.
+
+  After upgrading a site that has such entries, delete the `.astro` folder once
+  if their body text isn't editable: Astro caches rendered Markdown.
+- **Page history shows and restores Markdown body text.** A publish that
+  changed only body text is a version of its own; stepping back shows each
+  paragraph as it was (paragraphs added since are hidden, removed ones shown
+  again), outlined. **Restore this version** brings the body text back with
+  the version's source file, as History in the Studio does. Body text has no
+  draft of a whole version, so this publishes at once; on a site with drafts
+  the panel says so before you restore.
+- **New entry** offers the collection's folders when its entries are in
+  folders, and starts in the most used one. On a site that lists entries by
+  folder, an entry created outside every folder showed nowhere.
+- The page history slider has a notch per version (click one to jump to it),
+  "Oldest" and "Now" at its ends, and says when the version shown was
+  published. Messages show above the panel instead of covering it.
+
+### Fixed
+
+- **A new entry couldn't be created in a collection with a choice field.**
+  The form showed the first option as chosen (Level: Beginner) but treated it
+  as empty, so **Create** did nothing until the editor picked another option
+  and came back.
+- **A date written as a day showed as empty in the Studio.** `pubDate:
+  2026-05-20` under `z.coerce.date()`, as most Astro blogs have it, opened in
+  a date-and-time picker that can't show a plain day. It now opens as a date
+  and stays a day when changed.
+- An Astro `reference()` field showed as JSON (`"mara"`, with the quotes), and
+  typing an id without quotes was ignored without a word. It is now a plain
+  text field. Other JSON fields say when what you typed isn't valid JSON
+  instead of looking saved.
+- Changing one item of a list of objects in frontmatter rewrote every item
+  from `- day: Tuesday` to a bare dash with the keys below. Items are written
+  in the compact form, so only the changed line differs.
+- Editing one item of a list that only the template held (an `editable()`
+  array) listed the items before it as changes too: "Stats 1: (empty) becomes
+  (empty)".
+- An entry about to be deleted is named by its title in the Publish dialog,
+  not by its id.
+- **The Studio saved defaults nobody chose.** Changing a post's date also
+  wrote `draft: false` into its file and listed "Draft" as a change, because
+  the form shows a value for every field with a default. A default the entry
+  doesn't store is now saved only once the editor changes it.
+- **Page history on a site with drafts showed the editor's own draft saves,
+  not the site's publishes.** It now always shows the site's history. This
+  was in 0.7.0. (The Studio's History panel still shows your own saves, as
+  intended.)
+
+- **Two people editing different parts of the same section no longer collide.**
+  A draft was compared with the site one top-level field at a time, so for
+  nested content (`hero.headline`, `hero.subtext`) a change to the headline by
+  one person and to the subtext by another was reported as one conflict on the
+  whole `hero` object, shown as JSON, and **Use the site's version** dropped
+  the unrelated value too. Drafts are now compared value by value inside
+  objects: different values merge, and a conflict names the one value
+  ("Hero › Headline") with both texts. A list both sides changed is still one
+  conflict, because its items can't be matched safely. This was in 0.6.3 and
+  0.7.0. `conflicts[].fields` and `GET /api/cms/draft?changes=1` now name
+  nested values by their path (`hero.headline`).
+- A `data-caret` on the same element as its `data-caret-scope` looked editable
+  but never saved, and the server didn't show its stored value. An element's
+  own scope now counts everywhere. Text whose binding can't be resolved at all
+  is no longer editable, and says why.
+- **Changes** said "Nothing on this page has changed" when the only change was
+  edited Markdown body text. Body text now gets a dot too.
+- Lists and groups in the Changes card, the conflict dialog and the Publish
+  dialog read as their texts, not as JSON. Where nothing is stored yet, the
+  site's value is the text written in the template instead of "(empty)".
+- **Page history** now shows rich text (any text with bold, links or code in
+  it) and the template's own text for the time before anything was saved. It
+  no longer lists versions that look the same as the page does now.
+- On a site that saves live, **Restore this version** said the version "is now
+  a draft"; it says the version is back on the site. A restore is no longer
+  announced back to the editor as someone else's change.
+- **Undo** is not offered for a publish that changed body text (it was always
+  refused; History restores those), and **Undo last publish** goes away once
+  the page has changed since.
+- Page history and the status panel no longer open on top of each other.
+
+### Changed
+
+- "Since you were last here" gives the time for changes made earlier today
+  ("since 2:05 PM today") and drops the step counter and Skip when there is one
+  change.
+- Page history says how many earlier versions there are before you drag.
+- Publish results carry `text: true` for an entry whose body text changed, and
+  `GET /api/cms/history` returns `template`, the template's text per binding.
+
+Also since 0.7.0: the tour shows each change in a card beside it, page history
+outlines what differs and scrolls it into view, **Undo last publish** stays in
+the status panel for 30 minutes, and **Changes** shows a count.
+
 ## [0.7.0] - 2026-11-21
 
 Core 0.7.0 and cloudflare 0.6.1. Built for sites where an editor and a
@@ -940,7 +1059,8 @@ requirements, and deployment retry limitations.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
-[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/web-stacked/caretcms/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/web-stacked/caretcms/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.3
 [0.6.2]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.2

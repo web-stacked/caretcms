@@ -202,8 +202,10 @@ describe("publish body splice — full pipeline", () => {
 
   it("history publish snapshot carries the pre-publish source; restore puts it back", async () => {
     await draftBlock("1", "First paragraph — em dash included.", "Edited body.");
-    await publishOverlay(base, overlay, { collection: "blog", id: "hello" });
+    const { published } = await publishOverlay(base, overlay, { collection: "blog", id: "hello" });
     expect(await readFile(mdPath(), "utf8")).toContain("Edited body.");
+    // The publish says it changed body text, so the editor offers no Undo for it.
+    expect(published).toMatchObject([{ collection: "blog", id: "hello", text: true }]);
 
     const history = await base.getHistory("blog", "hello");
     const publishEntry = history.find((h) => h.action === "publish");

@@ -10,6 +10,8 @@ const POST = resolve(CONTENT_SITE, "src/content/blog/ship-something-real.md");
 const ORIGINAL = readFileSync(POST, "utf8");
 const HOME = resolve(CONTENT_SITE, "src/content/pages/home.md");
 const ORIGINAL_HOME = readFileSync(HOME, "utf8");
+const NESTED_POST = resolve(CONTENT_SITE, "src/content/blog/notes/keep-the-list-short.md");
+const ORIGINAL_NESTED_POST = readFileSync(NESTED_POST, "utf8");
 const GALLERY = ["01", "02", "03"].map((id) => {
   const path = resolve(CONTENT_SITE, `src/content/gallery/${id}.md`);
   return { path, source: readFileSync(path, "utf8") };
@@ -21,6 +23,7 @@ const REBUILT_ORIGIN = `http://localhost:${REBUILT_PORT}`;
 function resetFixture(): void {
   writeFileSync(POST, ORIGINAL);
   writeFileSync(HOME, ORIGINAL_HOME);
+  writeFileSync(NESTED_POST, ORIGINAL_NESTED_POST);
   GALLERY.forEach(({ path, source }) => writeFileSync(path, source));
   rmSync(resolve(CONTENT_SITE, ".caret"), { recursive: true, force: true });
   rmSync(resolve(CONTENT_SITE, ".caretcms"), { recursive: true, force: true });
@@ -1003,4 +1006,155 @@ test("Enter in a heading or list item finishes the edit without an error", async
   await expect(heading).not.toBeFocused();
   await expect(heading).toHaveText(before!);
   await expect(page.locator(".cms-toast-error")).toHaveCount(0);
+});
+
+test("a field whose data-caret-scope is on the element itself saves", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/");
+  const cta = page.locator('a[data-caret="cta_label"]');
+  await expect(cta).toHaveAttribute("data-caret-scope", "pages::home");
+  await expect(cta).toHaveAttribute("contenteditable", /.+/);
+  await cta.focus();
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.type("Read it all");
+  const [save] = await Promise.all([
+    page.waitForResponse(isMutatePost),
+    cta.evaluate((element) => (element as HTMLElement).blur()),
+  ]);
+  expect(save.ok(), await save.text()).toBeTruthy();
+  expect(readFileSync(HOME, "utf8")).toContain("cta_label: Read it all");
+});
+
+test("Changes marks edited body text, and its publish offers no Undo that would be refused", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/ship-something-real/");
+  const paragraph = page.locator(".post-body [data-caret-md]").first();
+  await replaceText(page, paragraph, EDITED_TEXT);
+  const [save] = await Promise.all([
+    page.waitForResponse(isMutatePost),
+    paragraph.evaluate((element) => (element as HTMLElement).blur()),
+  ]);
+  expect(save.ok(), await save.text()).toBeTruthy();
+
+  // The edited text is on this page: the view marks it instead of saying nothing here changed.
+  await expect(page.locator(".cms-changes-btn")).toHaveText("Changes · 1");
+  await page.locator(".cms-changes-btn").click();
+  await expect(page.locator(".cms-change-dot")).toHaveCount(1);
+  await expect(page.getByText("Nothing on this page has changed.")).toHaveCount(0);
+  await page.locator(".cms-change-dot").click();
+  const card = page.getByRole("dialog", { name: "Text on this page" });
+  await expect(card).toContainText("Your change, not published yet");
+  await card.getByRole("button", { name: "Close" }).click();
+
+  await page.locator(".cms-publish-btn").click();
+  await page.getByRole("dialog", { name: /^Publish \d+ changes?\?$/ }).getByRole("button", { name: "Publish", exact: true }).click();
+  const published = page.locator(".cms-toast-success").filter({ hasText: "Published 1 change" });
+  await expect(published).toBeVisible();
+  // Undo can't put body text back (History can), so it isn't offered.
+  await expect(published.getByRole("button", { name: "Undo" })).toHaveCount(0);
+  await page.locator(".cms-status-pill").click();
+  await expect(page.locator("#cms-status-panel")).toBeVisible();
+  await expect(page.locator("#cms-status-panel").getByRole("button", { name: "Undo last publish" })).toBeHidden();
+});
+
+test("on a site that saves live, restoring a page version says so and isn't announced as someone else's change", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/");
+  const title = page.locator('[data-caret="section_title"]');
+  const before = await title.textContent();
+  await replaceText(page, title, "A second pass");
+  const [save] = await Promise.all([
+    page.waitForResponse(isMutatePost),
+    title.evaluate((element) => (element as HTMLElement).blur()),
+  ]);
+  expect(save.ok(), await save.text()).toBeTruthy();
+  expect(readFileSync(HOME, "utf8")).toContain("section_title: A second pass");
+
+  await page.locator(".cms-tools-summary").click();
+  await page.locator(".cms-page-history-btn").click();
+  const history = page.getByRole("dialog", { name: "Page history" });
+  await expect(history).toContainText("Drag left to see the earlier version of this page.");
+  // One panel above the toolbar at a time.
+  await page.locator(".cms-status-pill").click();
+  await expect(history).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.locator(".cms-tools-summary").click();
+  await page.locator(".cms-page-history-btn").click();
+  await expect(page.locator("#cms-status-panel")).toBeHidden();
+
+  await history.getByRole("slider").fill("0");
+  await expect(title).toHaveText(before!);
+  await history.getByRole("button", { name: "Restore this version" }).click();
+  await expect(page.getByText("The earlier version is back on your site.")).toBeVisible();
+  await expect(title).toHaveText(before!);
+  await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
+  expect(readFileSync(HOME, "utf8")).toContain(`section_title: ${before}`);
+});
+
+test("a post in a sub-folder is listed, edited on its page and published to its own file", async ({ page }) => {
+  await loginAsEditor(page);
+  // The Studio lists it under its path id and opens it at a path URL.
+  const listed = await page.request.get("/api/cms/entries?collection=blog&pageSize=100");
+  const { entries } = await listed.json() as { entries: Array<{ id: string }> };
+  expect(entries.map((entry) => entry.id)).toContain("notes/keep-the-list-short");
+  const studio = await page.request.get("/admin/cms/blog/notes/keep-the-list-short");
+  expect(studio.status()).toBe(200);
+  expect(await studio.text()).toContain("Keep the list short");
+
+  await page.goto("/blog/notes/keep-the-list-short/");
+  const title = page.locator('[data-caret-scope="blog::notes/keep-the-list-short"] [data-caret="title"]');
+  await replaceText(page, title, "Keep the list shorter");
+  const [titleSave] = await Promise.all([
+    page.waitForResponse(isMutatePost),
+    title.evaluate((element) => (element as HTMLElement).blur()),
+  ]);
+  expect(titleSave.ok(), await titleSave.text()).toBeTruthy();
+  const paragraph = page.locator(".post-body [data-caret-md]").first();
+  await expect(paragraph).toHaveAttribute("data-caret-md", /^blog::notes\/keep-the-list-short::body::/);
+  await replaceText(page, paragraph, EDITED_TEXT);
+  const [bodySave] = await Promise.all([
+    page.waitForResponse(isMutatePost),
+    paragraph.evaluate((element) => (element as HTMLElement).blur()),
+  ]);
+  expect(bodySave.ok(), await bodySave.text()).toBeTruthy();
+
+  await page.locator(".cms-publish-btn").click();
+  await page.getByRole("dialog", { name: /^Publish \d+ changes?\?$/ }).getByRole("button", { name: "Publish", exact: true }).click();
+  await expect(page.locator(".cms-toast-success").filter({ hasText: "Published 1 change" })).toBeVisible();
+
+  const source = readFileSync(NESTED_POST, "utf8");
+  expect(source).toContain("title: Keep the list shorter");
+  expect(source).toContain(EDITED_TEXT);
+  expect(source).toContain("cover_alt: A short handwritten list pinned above a desk.");
+  const history = await page.request.get("/api/cms/history?collection=blog&id=notes/keep-the-list-short");
+  expect(((await history.json()) as { history: unknown[] }).history.length).toBeGreaterThan(0);
+});
+
+test("page history restores body text that was published, with its source file", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/ship-something-real/");
+  const paragraph = page.locator(".post-body [data-caret-md]").first();
+  await replaceText(page, paragraph, EDITED_TEXT);
+  const [save] = await Promise.all([
+    page.waitForResponse(isMutatePost),
+    paragraph.evaluate((element) => (element as HTMLElement).blur()),
+  ]);
+  expect(save.ok(), await save.text()).toBeTruthy();
+  await page.locator(".cms-publish-btn").click();
+  await page.getByRole("dialog", { name: /^Publish \d+ changes?\?$/ }).getByRole("button", { name: "Publish", exact: true }).click();
+  await expect(page.locator(".cms-toast-success").filter({ hasText: "Published 1 change" })).toBeVisible();
+  expect(readFileSync(POST, "utf8")).toContain(EDITED_TEXT);
+
+  // A publish that changed only body text is a version of its own.
+  await page.goto("/blog/ship-something-real/");
+  await page.locator(".cms-tools-summary").click();
+  await page.locator(".cms-page-history-btn").click();
+  const history = page.getByRole("dialog", { name: "Page history" });
+  await expect(history).toContainText("Drag left to see the earlier version of this page.");
+  await history.getByRole("slider").fill("0");
+  // This server renders the body as built, so the version's text can't be shown on the page; it says so.
+  await expect(history).toContainText("Its body text differs from the site’s, but this page shows the site as last built.");
+  await history.getByRole("button", { name: "Restore this version" }).click();
+  await expect(page.getByText("The earlier version is back on your site, body text included.")).toBeVisible();
+  expect(readFileSync(POST, "utf8")).toBe(ORIGINAL);
 });

@@ -1,3 +1,4 @@
+import { entryIdPath } from "../storage/id-contracts.js";
 import { canPerform } from "../authorization.js";
 import { isPageCollection, loadPageContent } from "../page-content.js";
 import type { CaretRuntimeConfig } from "../config.js";
@@ -26,7 +27,7 @@ export async function studioNavigation(
       name,
       icon: config.icon,
       label,
-      href: config.singletonId ? `${base}/${encodeURIComponent(config.singletonId)}` : base,
+      href: config.singletonId ? `${base}/${entryIdPath(config.singletonId)}` : base,
       ...(selected !== undefined ? { selected: name === selected } : {}),
       ...(creatable
         ? { create: { label: `${runtime.messages["collection.newNamed"]} ${entryLabel || runtime.messages["palette.entry"]}`, href: `${base}#new` } }
