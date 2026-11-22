@@ -356,7 +356,8 @@ test("tells a returning editor what changed on the page, but not about their own
     await expect(notice).toBeVisible();
     await page.getByRole("button", { name: "Show me" }).click();
     const step = page.getByRole("dialog", { name: "Change 1 of 1" });
-    await expect(step).toContainText("1 of 1 · Changed while you were away");
+    await expect(step).toContainText("Changed while you were away");
+    await expect(step.getByRole("button", { name: "Skip" })).toHaveCount(0);
     await expect(step).toContainText(`Was${PUBLISHED_HEADLINE}`);
     await expect(step).toContainText("NowDeveloper headline");
     await expect(page.locator("h1[data-caret]")).toHaveClass(/cms-away-spot/);

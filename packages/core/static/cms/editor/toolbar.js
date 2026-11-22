@@ -17,14 +17,16 @@ import { t, tHtml } from './i18n.js';
 const PUBLISHING_KEY = 'caret:publishing';
 
 /**
- * The entries a publish published, with the revision each now has.
+ * The entries a publish published that Undo can put back, with the revision
+ * each now has. A publish that changed body text is left out: only History
+ * can restore that.
  * @param {unknown} result
  * @returns {{ collection: string, id: string, revision: number, fingerprint: string }[]}
  */
 function publishedEntries(result) {
   const list = result && typeof result === 'object' ? /** @type {{ published?: unknown }} */ (result).published : null;
   return (Array.isArray(list) ? list : [])
-    .filter(entry => entry && typeof entry.collection === 'string' && typeof entry.id === 'string' && Number.isSafeInteger(entry.revision) && typeof entry.fingerprint === 'string')
+    .filter(entry => entry && typeof entry.collection === 'string' && typeof entry.id === 'string' && Number.isSafeInteger(entry.revision) && typeof entry.fingerprint === 'string' && entry.text !== true)
     .map(entry => ({ collection: entry.collection, id: entry.id, revision: entry.revision, fingerprint: entry.fingerprint }));
 }
 
@@ -281,6 +283,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   }
 
   async function openPanel() {
+    pageHistory.close();
     panel.hidden = false;
     pill.setAttribute('aria-expanded', 'true');
     renderPanel();
@@ -598,7 +601,15 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   toolbar.querySelector('.cms-intro-btn')?.addEventListener('click', () => { toolsMenu?.removeAttribute('open'); firstVisit.show(); });
   firstVisit.showOnce();
   // Page history: drag back through earlier versions of this page; Restore makes one a draft.
-  const pageHistory = createPageHistory({ showToast, reload: message => reloadWithToast(message, 'success') });
+  const pageHistory = createPageHistory({
+    showToast,
+    draftMode,
+    reload: message => reloadWithToast(message, 'success'),
+    // One panel above the toolbar at a time.
+    onOpen: () => closePanel(false),
+    // What the page shows after a restore is the editor's own doing, not news for "since you were last here".
+    onRestore: entries => awayNotice.markOwn(entries),
+  });
   toolbar.querySelector('.cms-page-history-btn')?.addEventListener('click', () => { toolsMenu?.removeAttribute('open'); void pageHistory.open(); });
   document.addEventListener('pointerdown', (event) => {
     if (toolsMenu?.open && event.target instanceof Node && !toolsMenu.contains(event.target)) {
@@ -651,7 +662,7 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
   async function labelChanges() {
     if (!changesBtn) return;
     try {
-      const marked = changesView.countOnPage(await draftClient.getChanges());
+      const marked = await changesView.countOnPage(await draftClient.getChanges());
       changesBtn.textContent = marked > 0 ? t('editor.changes.showCount', { count: marked }) : t('editor.changes.show');
     } catch { /* keep the plain label */ }
   }
@@ -741,6 +752,11 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
       }
     }
     if (staged.length === 0) {
+      // A page that changed since, or whose text only History can restore, stays that way: stop offering the undo.
+      if (refused.every(reason => reason === 'changed' || reason === 'text')) {
+        rememberPublish(null);
+        if (!panel.hidden) renderPanel();
+      }
       showToast(t(`editor.undoPublish.${refused[0] ?? 'unknown'}`), 'error');
       return;
     }

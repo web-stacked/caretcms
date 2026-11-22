@@ -151,12 +151,14 @@ export function mountAwayNotice(options) {
     const { was, now } = shortened(change);
     card = buildChangeCard({
       label: t('editor.away.stepLabel', position),
-      title: t('editor.away.stepTitle', position),
+      title: waiting.length === 1 ? t('editor.away.stepTitleOnly') : t('editor.away.stepTitle', position),
       tone: 'site',
       rows: change.image ? [] : [[t('editor.changes.was'), was], [t('editor.changes.now'), now]],
       note: change.image ? t('editor.away.imageReplaced') : undefined,
       actions: [
-        ...(index > 0 ? [{ label: t('editor.away.back'), run: () => step(index - 1) }] : [{ label: t('editor.away.skip'), run: finish }]),
+        // One change needs no way around it: Done is the only step.
+        ...(index > 0 ? [{ label: t('editor.away.back'), run: () => step(index - 1) }]
+          : waiting.length > 1 ? [{ label: t('editor.away.skip'), run: finish }] : []),
         { label: t(last ? 'editor.away.done' : 'editor.away.next'), primary: true, run: () => step(index + 1) },
       ],
     });
@@ -184,9 +186,15 @@ export function mountAwayNotice(options) {
     waiting = differs.filter(change => !own.has(change.key));
     since = seen.at;
     if (waiting.length === 0) { writeSeen(new Set(), null, own); return; }
-    const date = new Date(seen.at).toLocaleDateString(document.documentElement.lang || undefined, { day: 'numeric', month: 'long' });
+    // Earlier today reads as a time; any other day as a date.
+    const then = new Date(seen.at);
+    const today = then.toDateString() === new Date().toDateString();
+    const locale = document.documentElement.lang || undefined;
+    const date = then.toLocaleDateString(locale, { day: 'numeric', month: 'long' });
+    const time = then.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
+    const one = waiting.length === 1;
     options.showToast.notice({
-      message: t(waiting.length === 1 ? 'editor.away.noticeOne' : 'editor.away.noticeOther', { count: waiting.length, date }),
+      message: t(today ? (one ? 'editor.away.noticeOneToday' : 'editor.away.noticeOtherToday') : (one ? 'editor.away.noticeOne' : 'editor.away.noticeOther'), { count: waiting.length, date, time }),
       actions: [
         { label: t('editor.away.show'), primary: true, onClick: () => step(0) },
         { label: t('editor.away.dismiss'), onClick: finish },

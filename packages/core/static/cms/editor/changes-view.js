@@ -5,7 +5,67 @@ import { buildChangeCard, placeChangeCard } from './change-card.js';
 
 /** @typedef {import('./draft-client.js').DraftEntryChanges} DraftEntryChanges */
 /** @typedef {import('./draft-client.js').DraftFieldChange} DraftFieldChange */
-/** @typedef {{ entry: DraftEntryChanges, change: DraftFieldChange, el: Element }} PageChange */
+/** @typedef {{ entry: DraftEntryChanges, change: DraftFieldChange, el: Element }} FieldChange A changed field. */
+/** @typedef {{ body: true, el: Element, was: string | null }} BodyChange Body text the editor changed; `was` is the published text when the page knows it. */
+/** @typedef {FieldChange | BodyChange} PageChange */
+
+/** What an element's HTML reads as. @param {string} html */
+function textOf(html) {
+  return (new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html').body.textContent || '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Body-text blocks on this page that show the editor's unpublished edit. The
+ * page as the server renders it now says which (`data-caret-md-draft`), so an
+ * edit made or undone since the page loaded is counted correctly.
+ * @returns {Promise<BodyChange[]>}
+ */
+async function bodyChangesOnPage() {
+  if (!document.querySelector('[data-caret-md]')) return [];
+  /** @type {Document} */
+  let fresh;
+  try {
+    const response = await fetch(window.location.href, { credentials: 'same-origin', cache: 'no-store' });
+    if (!response.ok) return [];
+    fresh = new DOMParser().parseFromString(await response.text(), 'text/html');
+  } catch {
+    return [];
+  }
+  /** @type {BodyChange[]} */
+  const found = [];
+  const taken = new Set();
+  fresh.querySelectorAll('[data-caret-md][data-caret-md-draft]').forEach((draft) => {
+    const binding = draft.getAttribute('data-caret-md') || '';
+    const el = blockOnPage(binding);
+    if (!el || taken.has(el)) return;
+    taken.add(el);
+    const original = draft.getAttribute('data-caret-md-original');
+    found.push({ body: true, el, was: original === null ? null : textOf(original) });
+  });
+  return found;
+}
+
+/**
+ * The element on the live page for a body block. Paragraphs the editor grouped
+ * into one editable host lost their own binding, so look the block up in the
+ * host's sources.
+ * @param {string} binding `collection::id::body::path`
+ */
+function blockOnPage(binding) {
+  const direct = document.querySelector(`[data-caret-md="${CSS.escape(binding)}"]:not([data-caret-md-sources])`);
+  if (direct) return direct;
+  const path = binding.split('::')[3];
+  const prefix = binding.split('::').slice(0, 3).join('::');
+  for (const host of document.querySelectorAll('[data-caret-md-sources]')) {
+    if (!(host.getAttribute('data-caret-md') || '').startsWith(`${prefix}::`)) continue;
+    try {
+      const sources = /** @type {{ blockPath: string }[]} */ (JSON.parse(host.getAttribute('data-caret-md-sources') || '[]'));
+      const index = sources.findIndex(source => source.blockPath === path);
+      if (index >= 0) return host.children[index] ?? host;
+    } catch { /* not a host this page can read */ }
+  }
+  return null;
+}
 
 
 /**
@@ -30,17 +90,20 @@ export function createChangesView(options) {
   let shown = [];
   let on = false;
 
-  /** Changes whose element is on this page. @param {DraftEntryChanges[]} entries */
+  /** Field changes whose element is on this page. @param {DraftEntryChanges[]} entries */
   function onPage(entries) {
-    /** @type {PageChange[]} */
+    /** @type {FieldChange[]} */
     const found = [];
     const seen = new Set();
     document.querySelectorAll('[data-caret]').forEach((el) => {
       const bound = resolveBinding(el, parseCaretAttr(el.getAttribute('data-caret') || ''));
       if (!bound) return;
       const entry = entries.find(candidate => candidate.collection === bound.collection && candidate.id === bound.id);
-      const change = entry?.changes.find(candidate => candidate.field === bound.field);
-      const key = `${bound.collection}::${bound.id}::${bound.field}`;
+      // The element's own value, or the list or group it belongs to when that changed as a whole
+      // (an item added or removed): then the first element inside it carries the dot.
+      const change = entry?.changes.find(candidate => candidate.field === bound.field)
+        ?? entry?.changes.find(candidate => bound.field.startsWith(`${candidate.field}.`));
+      const key = `${bound.collection}::${bound.id}::${change?.field}`;
       if (!entry || !change || seen.has(key)) return;
       seen.add(key);
       found.push({ entry, change, el });
@@ -57,6 +120,23 @@ export function createChangesView(options) {
   /** @param {PageChange} item @param {HTMLButtonElement} dot */
   function openCard(item, dot) {
     closeCard();
+    if ('body' in item) {
+      const now = (item.el.textContent || '').replace(/\s+/g, ' ').trim();
+      const part = item.was === null ? null : changedPart(item.was, now);
+      card = buildChangeCard({
+        label: t('editor.changes.bodyLabel'),
+        title: t('editor.changes.mine'),
+        tone: 'mine',
+        rows: part ? [[t('editor.changes.siteValue'), part.before || t('editor.conflict.empty')], [t('editor.changes.yours'), part.after || t('editor.conflict.empty')]] : [],
+        note: t('editor.changes.bodyNote'),
+        actions: [{ label: t('editor.changes.close'), primary: true, run: closeCard }],
+      });
+      document.body.append(card);
+      dot.setAttribute('aria-expanded', 'true');
+      placeChangeCard(card, item.el, dot.getBoundingClientRect().left);
+      /** @type {HTMLElement | null} */ (card.querySelector('button'))?.focus();
+      return;
+    }
     const { entry, change, el } = item;
     const empty = t('editor.conflict.empty');
     const theirs = changedPart(change.site, change.mine);
@@ -116,18 +196,18 @@ export function createChangesView(options) {
     if (event.key === 'Escape' && card) closeCard();
   }
 
-  /** @param {DraftEntryChanges[]} entries */
-  function draw(entries) {
+  /** @param {DraftEntryChanges[]} entries @param {BodyChange[]} body */
+  function draw(entries, body) {
     clear();
-    shown = onPage(entries);
+    shown = [...onPage(entries), ...body];
     layer = document.createElement('div');
     layer.className = 'cms-change-layer';
     layer.setAttribute('data-caret-ui', '');
     for (const item of shown) {
       const dot = document.createElement('button');
       dot.type = 'button';
-      dot.className = `cms-change-dot cms-change-${item.change.kind}`;
-      dot.setAttribute('aria-label', t('editor.changes.dot', { label: item.change.label }));
+      dot.className = `cms-change-dot cms-change-${'body' in item ? 'mine' : item.change.kind}`;
+      dot.setAttribute('aria-label', t('editor.changes.dot', { label: 'body' in item ? t('editor.changes.bodyLabel') : item.change.label }));
       dot.setAttribute('aria-expanded', 'false');
       dot.addEventListener('click', () => (dot.getAttribute('aria-expanded') === 'true' ? closeCard() : openCard(item, dot)));
       layer.append(dot);
@@ -142,7 +222,8 @@ export function createChangesView(options) {
   async function toggle() {
     if (on) { on = false; clear(); return 0; }
     try {
-      draw(await options.getChanges());
+      const [entries, body] = await Promise.all([options.getChanges(), bodyChangesOnPage()]);
+      draw(entries, body);
       on = true;
       return shown.length;
     } catch {
@@ -155,6 +236,6 @@ export function createChangesView(options) {
     isOn: () => on,
     hide: () => { on = false; clear(); },
     /** How many elements on this page the view would mark. @param {DraftEntryChanges[]} entries */
-    countOnPage: (entries) => onPage(entries).length,
+    countOnPage: async (entries) => onPage(entries).length + (await bodyChangesOnPage()).length,
   };
 }

@@ -91,7 +91,13 @@ and lets an editor take a change back without the Studio.
   element on the page that you changed (amber), that changed on the site after
   you started editing (blue), or both. A dot opens a card with the site's value
   and yours, with **Undo my change** for that one field. A change on both sides
-  opens the **Keep mine** / **Use the site's version** choice.
+  opens the **Keep mine** / **Use the site's version** choice. Edited body text
+  gets a dot too.
+- **What counts as the same content.** Two people only collide when they change
+  the same value. In a group of values (a `hero` with a headline and a subtext),
+  one person can change the headline and another the subtext, and both publish.
+  A list is one value: when two people change the same list, the second is
+  asked which version to keep.
 - **Since you were last here.** When you come back to a page, content that
   changed and isn't your own edit is announced, and **Show me** steps through
   each change. What you last saw is remembered in your browser, per page.
@@ -101,11 +107,14 @@ and lets an editor take a change back without the Studio.
   as a new publish, so Git on publish commits it and a static site rebuilds. It
   refuses when the page changed after your publish (another publish, or a
   developer editing the file), while you have newer changes to the same page,
-  and for a publish that changed Markdown body text. Restore those from History
-  in the Studio.
+  and for a publish that changed Markdown body text (Undo isn't offered for
+  those). Restore them from History in the Studio. **Undo last publish** stays
+  in the status panel for 30 minutes.
 - **Tools → Page history** is a slider over the times this page's content was
-  published. Dragging it shows what plain text and images said then, on the page
-  itself. **Restore this version** saves it as a draft to publish like any other.
+  published. Dragging it shows what text and images said then, on the page
+  itself, with what differs from today outlined. **Restore this version** saves
+  it as a draft to publish like any other; on a site that saves live it goes
+  live at once. Markdown body text keeps today's version.
 - **Tools → How editing works** shows the short explanation a new editor sees on
   their first sign-in in a browser.
 

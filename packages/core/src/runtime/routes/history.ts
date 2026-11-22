@@ -7,6 +7,7 @@ import { readAdapterSnapshot } from "../storage/read-snapshot.js";
 import { canPerform } from "../authorization.js";
 import { getRequestContext } from "../request-context.js";
 import { getRuntimeServices } from "../providers.js";
+import { loadPageContent } from "../page-content.js";
 export const prerender = false;
 
 import type { APIContext } from "astro";
@@ -36,7 +37,10 @@ export async function GET(context: APIContext): Promise<Response> {
   const editorId = getEditorId(context);
   const history = (await adapter.getHistory(collectionRaw, id)).map((item) =>
     editorId && item.editor?.id === editorId ? { ...item, editor: { ...item.editor, current: true } } : item);
-  return json({ history });
+  // What the template itself says for each binding: the text the page showed
+  // whenever the entry held no value for it.
+  const template = (await loadPageContent())[collectionRaw]?.[id] ?? {};
+  return json({ history, template });
 }
 
 export async function POST(context: APIContext): Promise<Response> {
