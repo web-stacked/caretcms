@@ -1,5 +1,6 @@
 import { parseCaretAttr, resolveBinding } from './helpers.js';
 import { t } from './i18n.js';
+import { changedPart } from './text-diff.js';
 
 /** @typedef {import('./draft-client.js').DraftEntryChanges} DraftEntryChanges */
 /** @typedef {import('./draft-client.js').DraftFieldChange} DraftFieldChange */
@@ -88,8 +89,9 @@ export function createChangesView(options) {
     title.textContent = t(`editor.changes.${change.kind}`);
     const actions = document.createElement('div');
     actions.className = 'cms-change-actions';
+    const theirs = changedPart(change.site, change.mine);
     if (change.kind === 'mine') {
-      card.append(title, row(t('editor.changes.siteValue'), change.site), row(t('editor.changes.yours'), change.mine));
+      card.append(title, row(t('editor.changes.siteValue'), theirs.before), row(t('editor.changes.yours'), theirs.after));
       actions.append(action(t('editor.changes.close'), false, closeCard), action(t('editor.changes.undo'), true, async () => {
         try {
           await options.revertField(entry.collection, entry.id, change.field);
@@ -99,10 +101,11 @@ export function createChangesView(options) {
         }
       }));
     } else if (change.kind === 'site') {
-      card.append(title, row(t('editor.changes.was'), change.started), row(t('editor.changes.now'), change.site));
+      const moved = changedPart(change.started, change.site);
+      card.append(title, row(t('editor.changes.was'), moved.before), row(t('editor.changes.now'), moved.after));
       actions.append(action(t('editor.changes.close'), true, closeCard));
     } else {
-      card.append(title, row(t('editor.changes.siteValue'), change.site), row(t('editor.changes.yours'), change.mine));
+      card.append(title, row(t('editor.changes.siteValue'), theirs.before), row(t('editor.changes.yours'), theirs.after));
       actions.append(action(t('editor.changes.close'), false, closeCard),
         action(t('editor.changes.choose'), true, () => { closeCard(); void options.settleConflicts(); }));
     }
@@ -113,7 +116,15 @@ export function createChangesView(options) {
     const width = card.offsetWidth;
     const left = Math.max(MARGIN, Math.min(at.left + window.scrollX, window.scrollX + document.documentElement.clientWidth - width - MARGIN));
     card.style.left = `${left}px`;
-    card.style.top = `${at.bottom + window.scrollY + MARGIN}px`;
+    // Below the element, unless that reaches the editor's toolbar at the bottom of the window: then above it.
+    const element = item.el.getBoundingClientRect();
+    const toolbarTop = document.querySelector('.cms-toolbar')?.getBoundingClientRect().top ?? window.innerHeight;
+    const room = Math.min(window.innerHeight, toolbarTop) - MARGIN;
+    const below = Math.max(at.bottom, element.bottom) + MARGIN;
+    const top = below + card.offsetHeight > room && element.top - MARGIN - card.offsetHeight >= 0
+      ? element.top - MARGIN - card.offsetHeight
+      : below;
+    card.style.top = `${top + window.scrollY}px`;
     /** @type {HTMLElement | null} */ (card.querySelector('button'))?.focus();
   }
 

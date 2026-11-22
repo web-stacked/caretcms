@@ -1,4 +1,5 @@
 import { t } from './i18n.js';
+import { changedPart } from './text-diff.js';
 
 /** @typedef {import('./draft-client.js').PendingDraft} PendingDraft */
 
@@ -34,8 +35,10 @@ export function buildPublishReceipt(pending, onChange) {
     name.textContent = entry.title || entry.id;
     text.append(name);
     const lines = entry.deleted ? [t('editor.receipt.deleted')] : [
-      ...entry.fields.map(field => t('editor.receipt.field', { label: field.label,
-        site: field.site || t('editor.conflict.empty'), mine: field.mine || t('editor.conflict.empty') })),
+      ...entry.fields.map(field => {
+        const { before, after } = changedPart(field.site, field.mine);
+        return t('editor.receipt.field', { label: field.label, site: before || t('editor.conflict.empty'), mine: after || t('editor.conflict.empty') });
+      }),
       ...(entry.text ? [t('editor.receipt.text')] : []),
     ];
     const shown = lines.length > MAX_LINES ? [...lines.slice(0, MAX_LINES - 1), t('editor.receipt.more', { count: lines.length - (MAX_LINES - 1) })] : lines;

@@ -1,5 +1,6 @@
 import { parseCaretAttr, resolveBinding } from './helpers.js';
 import { t } from './i18n.js';
+import { changedPart } from './text-diff.js';
 
 /**
  * "Since you were last here": what the editor saw on a page is remembered in
@@ -14,7 +15,7 @@ const PREFIX = 'caret:seen:v1:';
 const MAX_TEXT = 200;
 const MAX_ITEMS = 400;
 
-/** @typedef {{ h: string, t: string }} Seen What an element showed: a hash of all of it and the start of its text. */
+/** @typedef {{ h: string, t: string, own?: true }} Seen What an element showed: a hash of all of it, the start of its text, and whether that was the editor's own unpublished edit. */
 /** @typedef {{ key: string, el: Element, image: boolean, was: string, now: string }} AwayChange */
 
 /** @param {string} text */
@@ -63,16 +64,20 @@ function readSeen() {
 /**
  * Remember what the page shows now. Bindings in `keep` hold on to what was
  * remembered before, so a change the editor hasn't looked at is announced again.
+ * Bindings in `own` show the editor's own unpublished edit: what they show next
+ * time (published, undone or discarded) is the editor's doing, not news.
  * @param {Set<string>} keep
  * @param {number | null} keepAt The time to keep while something is still unannounced.
+ * @param {Set<string>} own
  */
-function writeSeen(keep, keepAt) {
+function writeSeen(keep, keepAt, own) {
   const before = readSeen();
   /** @type {Record<string, Seen>} */
   const items = {};
   for (const [key, el] of bindingsOnPage()) {
     const text = shownBy(el);
-    items[key] = keep.has(key) && before?.items[key] ? before.items[key] : { h: hash(text), t: text.slice(0, MAX_TEXT) };
+    items[key] = keep.has(key) && before?.items[key] ? before.items[key]
+      : { h: hash(text), t: text.slice(0, MAX_TEXT), ...(own.has(key) ? { own: /** @type {const} */ (true) } : {}) };
   }
   try {
     localStorage.setItem(storageKey(), JSON.stringify({ at: keep.size && keepAt ? keepAt : Date.now(), items }));
@@ -94,6 +99,12 @@ export function mountAwayNotice(options) {
   let since = null;
   /** @type {Element | null} */
   let spotlit = null;
+  /** The bindings holding the editor's own unpublished edits, as last read. @type {Set<string>} */
+  let own = new Set();
+  async function readOwn() {
+    try { own = await options.ownChanges(); } catch { /* keep the last known set */ }
+    return own;
+  }
 
   function spotlight(/** @type {Element | null} */ el) {
     spotlit?.classList.remove('cms-away-spot');
@@ -106,7 +117,13 @@ export function mountAwayNotice(options) {
   function finish() {
     spotlight(null);
     waiting = [];
-    writeSeen(new Set(), null);
+    writeSeen(new Set(), null, own);
+  }
+
+  /** What a text said and says now, cut down to the part that changed. @param {AwayChange} change */
+  function shortened(change) {
+    const { before, after } = changedPart(change.was, change.now);
+    return { was: before || t('editor.conflict.empty'), now: after || t('editor.conflict.empty') };
   }
 
   /** @param {number} index */
@@ -118,7 +135,7 @@ export function mountAwayNotice(options) {
     options.showToast.notice({
       message: change.image
         ? t('editor.away.stepImage', position)
-        : t('editor.away.step', { ...position, was: change.was || t('editor.conflict.empty'), now: change.now || t('editor.conflict.empty') }),
+        : t('editor.away.step', { ...position, ...shortened(change) }),
       actions: [
         ...(index > 0 ? [{ label: t('editor.away.back'), onClick: () => step(index - 1) }] : []),
         { label: t(index === waiting.length - 1 ? 'editor.away.done' : 'editor.away.next'), primary: true, onClick: () => step(index + 1) },
@@ -128,21 +145,20 @@ export function mountAwayNotice(options) {
 
   async function check() {
     const seen = readSeen();
-    if (!seen) { writeSeen(new Set(), null); return; }
+    await readOwn();
+    if (!seen) { writeSeen(new Set(), null, own); return; }
     /** @type {AwayChange[]} */
     const differs = [];
     for (const [key, el] of bindingsOnPage()) {
       const before = seen.items[key];
       const now = shownBy(el);
-      if (before && before.h !== hash(now)) differs.push({ key, el, image: el instanceof HTMLImageElement, was: before.t, now: now.slice(0, MAX_TEXT) });
+      // What the editor last saw was their own edit: whatever shows now, they did it.
+      if (before && !before.own && before.h !== hash(now)) differs.push({ key, el, image: el instanceof HTMLImageElement, was: before.t, now: now.slice(0, MAX_TEXT) });
     }
-    if (differs.length === 0) { writeSeen(new Set(), null); return; }
-    let own = new Set();
-    try { own = await options.ownChanges(); } catch { /* without the list, the editor's own drafts are announced too */ }
     waiting = differs.filter(change => !own.has(change.key));
     since = seen.at;
-    if (waiting.length === 0) { writeSeen(new Set(), null); return; }
-    const date = new Date(seen.at).toLocaleDateString(document.documentElement.lang || undefined, { day: 'numeric', month: 'short' });
+    if (waiting.length === 0) { writeSeen(new Set(), null, own); return; }
+    const date = new Date(seen.at).toLocaleDateString(document.documentElement.lang || undefined, { day: 'numeric', month: 'long' });
     options.showToast.notice({
       message: t(waiting.length === 1 ? 'editor.away.noticeOne' : 'editor.away.noticeOther', { count: waiting.length, date }),
       actions: [
@@ -154,6 +170,8 @@ export function mountAwayNotice(options) {
 
   // Leaving the page: remember what is on screen, including the editor's own
   // edits, but keep unannounced changes so they are announced next time.
-  window.addEventListener('pagehide', () => writeSeen(new Set(waiting.map(change => change.key)), since));
+  window.addEventListener('pagehide', () => writeSeen(new Set(waiting.map(change => change.key)), since, own));
+  // A save changes which fields are the editor's own.
+  window.addEventListener('cms:draftSaved', () => { void readOwn(); });
   void check();
 }

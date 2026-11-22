@@ -354,7 +354,7 @@ test("tells a returning editor what changed on the page, but not about their own
     const notice = page.getByText(/^1 thing on this page changed since /);
     await expect(notice).toBeVisible();
     await page.getByRole("button", { name: "Show me" }).click();
-    await expect(page.getByText(`1 of 1. It said “${PUBLISHED_HEADLINE}”. Now it says “Developer headline”.`)).toBeVisible();
+    await expect(page.getByText(`1 of 1: “${PUBLISHED_HEADLINE}” is now “Developer headline”`)).toBeVisible();
     await expect(page.locator("h1[data-caret]")).toHaveClass(/cms-away-spot/);
     await page.getByRole("button", { name: "Done" }).click();
     await expect(page.locator("h1[data-caret]")).not.toHaveClass(/cms-away-spot/);
@@ -370,6 +370,14 @@ test("tells a returning editor what changed on the page, but not about their own
     await page.goto("/");
     await expect(page.locator("h1[data-caret]")).toHaveText("My own headline");
     await expect(page.locator(".cms-draft-controls")).toBeVisible();
+    await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
+
+    // Undoing their own change isn't news either.
+    await page.locator(".cms-changes-btn").click();
+    await page.getByRole("button", { name: "Show the change to Headline" }).click();
+    await page.getByRole("dialog", { name: "Headline" }).getByRole("button", { name: "Undo my change" }).click();
+    await expect(page.getByText("Your change was undone.")).toBeVisible();
+    await expect(page.locator("h1[data-caret]")).toHaveText("Developer headline");
     await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
 
     // A change left unlooked-at is announced again on the next visit.
