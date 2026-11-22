@@ -337,6 +337,60 @@ test("marks the editor's own change on the page and undoes just that change", as
   }
 });
 
+test("tells a returning editor what changed on the page, but not about their own draft", async ({ page }) => {
+  const file = resolve(FIXTURE, ".caret/data/pages/home.json");
+  try {
+    await page.request.post("/api/cms/auth/login", { data: { password: EDIT_PASSWORD }, headers: { Accept: "application/json" } });
+    // First visit: the page is remembered and nothing is announced.
+    await page.goto("/");
+    await expect(page.locator(".cms-toolbar")).toBeVisible();
+    await expect(page.locator("h1[data-caret]")).toHaveText(PUBLISHED_HEADLINE);
+    await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
+
+    // A developer changes the headline in the content file while the editor is away.
+    writeFileSync(file, `${JSON.stringify({ headline: "Developer headline" }, null, 2)}\n`);
+    await page.goto("/");
+    await expect(page.locator("h1[data-caret]")).toHaveText("Developer headline");
+    const notice = page.getByText(/^1 thing on this page changed since /);
+    await expect(notice).toBeVisible();
+    await page.getByRole("button", { name: "Show me" }).click();
+    await expect(page.getByText(`1 of 1. It said “${PUBLISHED_HEADLINE}”. Now it says “Developer headline”.`)).toBeVisible();
+    await expect(page.locator("h1[data-caret]")).toHaveClass(/cms-away-spot/);
+    await page.getByRole("button", { name: "Done" }).click();
+    await expect(page.locator("h1[data-caret]")).not.toHaveClass(/cms-away-spot/);
+
+    // Seen once: the next visit says nothing.
+    await page.goto("/");
+    await expect(page.locator(".cms-toolbar")).toBeVisible();
+    await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
+
+    // The editor's own unpublished change is not news to them.
+    const saved = await page.request.post("/api/cms/mutate", { headers: { "x-caret-request": "1" }, data: { type: "put_entry", collection: "pages", id: "home", data: { headline: "My own headline" } } });
+    expect(saved.ok()).toBe(true);
+    await page.goto("/");
+    await expect(page.locator("h1[data-caret]")).toHaveText("My own headline");
+    await expect(page.locator(".cms-draft-controls")).toBeVisible();
+    await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
+
+    // A change left unlooked-at is announced again on the next visit.
+    expect((await page.request.delete("/api/cms/draft", { headers: { "x-caret-request": "1", Origin: ORIGIN } })).ok()).toBe(true);
+    writeFileSync(file, `${JSON.stringify({ headline: "Second developer headline" }, null, 2)}\n`);
+    await page.goto("/");
+    await expect(page.locator("h1[data-caret]")).toHaveText("Second developer headline");
+    await expect(page.getByText(/^1 thing on this page changed since /)).toBeVisible();
+    await page.goto("/");
+    await expect(page.getByText(/^1 thing on this page changed since /)).toBeVisible();
+    await page.getByRole("button", { name: "Dismiss" }).click();
+    await page.goto("/");
+    await expect(page.locator(".cms-toolbar")).toBeVisible();
+    await expect(page.getByText(/on this page changed since/)).toHaveCount(0);
+  } finally {
+    rmSync(resolve(FIXTURE, ".caret"), { recursive: true, force: true });
+    rmSync(resolve(FIXTURE, ".caretcms"), { recursive: true, force: true });
+    seedPublishedEntry();
+  }
+});
+
 test("discards a draft and retries a failed deploy through toolbar requests", async ({ page }) => {
   try {
     const login = await page.request.post("/api/cms/auth/login", {

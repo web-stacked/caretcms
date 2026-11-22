@@ -5,6 +5,7 @@ import { createDeploymentStatusPoller } from './deployment-status.js';
 import { presentPublishResult } from './publish-result.js';
 import { createDraftClient } from './draft-client.js';
 import { createChangesView } from './changes-view.js';
+import { mountAwayNotice } from './away-notice.js';
 import { mountToolbarKeys } from './toolbar-keys.js';
 import { t, tHtml } from './i18n.js';
 /** @typedef {'saving' | 'idle' | 'error'} ToolbarStatusState */
@@ -761,6 +762,13 @@ export function mountToolbar({ showToast, clearDirty, hasUnsavedEdits, undo, onO
     publishBtn?.setAttribute('aria-label', count > 0 ? t('editor.toolbar.publishChanges', { changes: changeCount(count) }) : t('editor.toolbar.publish'));
   }
   refreshDraftControls();
+
+  // "Since you were last here": content on this page that changed and isn't the editor's own draft.
+  mountAwayNotice({
+    showToast,
+    ownChanges: async () => new Set((await draftClient.getChanges()).flatMap(entry =>
+      entry.changes.filter(change => change.kind !== 'site').map(change => `${entry.collection}::${entry.id}::${change.field}`))),
+  });
   window.addEventListener('cms:draftSaved', refreshDraftControls);
   // Drafts can change elsewhere (another tab, another device) while this page waits.
   document.addEventListener('visibilitychange', () => {

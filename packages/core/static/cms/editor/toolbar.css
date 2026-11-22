@@ -515,6 +515,16 @@
 .cms-change-actions button.cms-change-primary { background: var(--cms-fill-strong); font-weight: 600; }
 .cms-change-actions button:focus-visible { outline: 2px solid var(--cms-accent); outline-offset: 2px; }
 
+/* "Since you were last here": the element the tour is on. */
+.cms-away-spot {
+  outline: 3px solid #3b82f6 !important;
+  outline-offset: 5px !important;
+  border-radius: 4px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+  position: relative;
+  z-index: 2147483000;
+}
+
 /* Discard and Sign out — quiet until hovered, then red. */
 .cms-toolbar button.cms-discard-btn:hover,
 .cms-toolbar button.cms-exit-btn:hover {
