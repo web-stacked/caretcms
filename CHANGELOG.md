@@ -38,7 +38,9 @@ Release notes: [docs/releases/0.7.2.md](docs/releases/0.7.2.md).
 ## [0.7.1] - 2026-11-22
 
 0.7.0 was tagged but not published to npm; 0.7.1 is the first npm release of
-the 0.7 line. Release notes: [docs/releases/0.7.1.md](docs/releases/0.7.1.md).
+the 0.7 line, so it also carries everything listed under 0.7.0 below. Release
+notes: [docs/releases/0.7.1.md](docs/releases/0.7.1.md), which covers the 0.7
+features in full.
 `@caretcms/caretize` 0.6.2 accepts entry ids with a path.
 
 Found by using 0.7.0 on the example sites with two editors signed in at once,
