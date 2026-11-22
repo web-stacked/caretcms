@@ -18,7 +18,7 @@ import {
   type Skipped,
 } from "./detect.js";
 import { assignFields, deriveScope, slugifyText, type FieldContext, type Scope, type ScopeReason } from "./name.js";
-import { assetImportNames, frontmatterRange, imageComponentNames } from "./frontmatter.js";
+import { assetImportNames, frontmatterRange, imageComponentNames, importBindingNames } from "./frontmatter.js";
 
 export interface PlannedTag {
   candidate: Candidate;
@@ -45,6 +45,25 @@ export interface FilePlan {
    *  lower --min-confidence). Drives the "more can be made editable" summary —
    *  these are otherwise silently filtered and invisible to the user. */
   belowConfidence: number;
+  /** JSON data files this file imports and shows values from, left as they are: the page can't edit them. */
+  dataImports?: { name: string; specifier: string }[];
+}
+
+/**
+ * JSON files imported as plain data (`import site from "@/data/site.json"`)
+ * whose values the template reads. They aren't a collection, so nothing on the
+ * page is editable from them, and they can't be wrapped automatically: the
+ * values often reach attributes (`href={site.phone}`), which editable()'s
+ * encoding would corrupt.
+ */
+function unboundDataImports(source: string): { name: string; specifier: string }[] {
+  const fm = frontmatterRange(source);
+  if (!fm) return [];
+  const template = source.slice(fm.end);
+  return [...importBindingNames(source.slice(fm.start, fm.end))]
+    .filter(([name, meta]) => meta.importKind === "json" && new RegExp(`\\b${name.replace(/\$/g, "\\$")}\\s*\\.`).test(template))
+    .filter(([name]) => !new RegExp(`\\bconst\\s+${name.replace(/\$/g, "\\$")}\\s*=\\s*await\\s+editable\\s*\\(`).test(source))
+    .map(([name, meta]) => ({ name, specifier: meta.specifier }));
 }
 
 export interface PlanOptions {
@@ -142,7 +161,8 @@ export async function planFile(
     };
   });
 
-  return { relPath, scope, tags, skipped, flags, belowConfidence };
+  const dataImports = unboundDataImports(source);
+  return { relPath, scope, tags, skipped, flags, belowConfidence, ...(dataImports.length ? { dataImports } : {}) };
 }
 
 const LANDMARKS = new Set(["footer", "header", "nav", "aside"]);
