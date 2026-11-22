@@ -365,6 +365,17 @@ export function formatHints(plans: FilePlan[], opts: HintOpts = {}): string {
       `  on its own. Other data can be bound where it is loaded:\n` +
       `    const data = await editable("<collection>::<id>", value);  // from "@caretcms/core"\n`;
   }
+  const dataFiles = new Map<string, Set<string>>();
+  for (const p of plans) for (const d of p.dataImports ?? []) {
+    if (!dataFiles.has(d.specifier)) dataFiles.set(d.specifier, new Set());
+    dataFiles.get(d.specifier)!.add(p.relPath);
+  }
+  if (dataFiles.size) {
+    out += `↪ ${dataFiles.size} JSON file(s) are imported as plain data, so nothing on the page edits them:\n` +
+      [...dataFiles].map(([file, users]) => `    ${file}  (used in ${[...users].slice(0, 3).join(", ")}${users.size > 3 ? ", …" : ""})`).join("\n") + "\n" +
+      `  To make one editable, move it into a content collection with a file() loader, or\n` +
+      `  bind it where it is loaded. Values that end up in href/src attributes need a plain copy.\n`;
+  }
   if (styled) {
     const snippet = styledClasses.size
       ? renderAllowedClasses(styledClasses)

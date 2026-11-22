@@ -1,6 +1,6 @@
 {
   "name": "@caretcms/core",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "type": "module",
   "description": "Platform-neutral core for CaretCMS: attribute-first inline editing, mutation engine, studio admin, StorageAdapter interface.",
   "license": "MIT",

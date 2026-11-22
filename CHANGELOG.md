@@ -8,10 +8,39 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-11-22
+
+Three fixes to what CaretCMS writes into your files, found on a new template
+set up from scratch. `@caretcms/caretize` 0.6.3 carries the hint below.
+Release notes: [docs/releases/0.7.2.md](docs/releases/0.7.2.md).
+
+### Fixed
+
+- **Editing a paragraph no longer curls the quotes in its source.** Astro's
+  Markdown renders straight quotes as curly ones, and an edited paragraph
+  came back from the page with the curly ones. Publish now keeps the quotes
+  the file was written with: a block written with straight quotes stays
+  straight. A block that already had curly quotes is left as it is.
+
+- **Adding or removing an entry in a JSON data file no longer reformats the
+  file.** An FAQ or pricing file written with one object per line used to
+  come back with every object spread over several lines. A new item is now
+  written in the style of the ones before it, and a removed one takes only its
+  own line.
+
+### Changed
+
+- `caretize` names the JSON files a project imports as plain data
+  (`import site from "@/data/site.json"`) and says why nothing on the page
+  edits them, instead of the general note about data. Moving one into a
+  `file()` collection makes it editable.
+
 ## [0.7.1] - 2026-11-22
 
 0.7.0 was tagged but not published to npm; 0.7.1 is the first npm release of
-the 0.7 line. Release notes: [docs/releases/0.7.1.md](docs/releases/0.7.1.md).
+the 0.7 line, so it also carries everything listed under 0.7.0 below. Release
+notes: [docs/releases/0.7.1.md](docs/releases/0.7.1.md), which covers the 0.7
+features in full.
 `@caretcms/caretize` 0.6.2 accepts entry ids with a path.
 
 Found by using 0.7.0 on the example sites with two editors signed in at once,
@@ -1059,7 +1088,8 @@ requirements, and deployment retry limitations.
 - Editor authentication with `HttpOnly` / `SameSite=Lax` session cookies,
   optimistic-locking conflict handling, and revision history.
 
-[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/web-stacked/caretcms/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/web-stacked/caretcms/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/web-stacked/caretcms/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/web-stacked/caretcms/compare/v0.6.3...v0.7.0
 [0.6.3]: https://github.com/web-stacked/caretcms/releases/tag/v0.6.3

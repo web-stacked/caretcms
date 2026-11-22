@@ -255,3 +255,18 @@ describe("formatFailures", () => {
     expect(formatFailures([{ relPath: "a.astro", ok: true }])).toBe("");
   });
 });
+
+describe("formatHints: JSON data files imported as plain data", () => {
+  it("names each file and where it is used", () => {
+    const out = formatHints([
+      plan({ relPath: "src/components/Footer.astro", dataImports: [{ name: "site", specifier: "@/data/site.json" }] }),
+      plan({ relPath: "src/components/Header.astro", dataImports: [{ name: "site", specifier: "@/data/site.json" }] }),
+    ]);
+    expect(out).toContain("1 JSON file(s) are imported as plain data");
+    expect(out).toContain("@/data/site.json  (used in src/components/Footer.astro, src/components/Header.astro)");
+  });
+
+  it("says nothing when no file imports plain data", () => {
+    expect(formatHints([plan()])).not.toContain("JSON file(s)");
+  });
+});

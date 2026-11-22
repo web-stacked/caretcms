@@ -96,6 +96,17 @@ export function reanchorBodyDrafts(body: string, drafts: Record<string, unknown>
 }
 
 /**
+ * Astro's Markdown turns straight quotes into curly ones when it renders, so
+ * an edited block comes back from the page with curly quotes the author never
+ * wrote. When the block's source has straight quotes and no curly ones, the
+ * author writes straight: put the quotes back as they were written.
+ */
+export function keepWrittenQuotes(original: string, edited: string): string {
+  if (/[‘’“”]/.test(original) || !/['"]/.test(original)) return edited;
+  return edited.replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+}
+
+/**
  * Splice `blocks` into `fileSource`. Returns the new file content, or a
  * failure (`stale` = a block's text changed since the draft, or can no longer
  * be told apart; `overlap` = two drafts claim intersecting ranges, which can
@@ -128,7 +139,7 @@ export function spliceBodyBlocks(
   for (const { md, src } of ordered) {
     const start = fileOffsetOf(src.start);
     const end = fileOffsetOf(src.end);
-    content = content.slice(0, start) + md + content.slice(end);
+    content = content.slice(0, start) + keepWrittenQuotes(content.slice(start, end), md) + content.slice(end);
   }
   return { ok: true, content };
 }
