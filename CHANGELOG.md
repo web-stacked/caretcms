@@ -8,6 +8,27 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Editing a paragraph no longer curls the quotes in its source.** Astro's
+  Markdown renders straight quotes as curly ones, and an edited paragraph
+  came back from the page with the curly ones. Publish now keeps the quotes
+  the file was written with: a block written with straight quotes stays
+  straight. A block that already had curly quotes is left as it is.
+
+- **Adding or removing an entry in a JSON data file no longer reformats the
+  file.** An FAQ or pricing file written with one object per line used to
+  come back with every object spread over several lines. A new item is now
+  written in the style of the ones before it, and a removed one takes only its
+  own line.
+
+### Changed
+
+- `caretize` names the JSON files a project imports as plain data
+  (`import site from "@/data/site.json"`) and says why nothing on the page
+  edits them, instead of the general note about data. Moving one into a
+  `file()` collection makes it editable.
+
 ## [0.7.1] - 2026-11-22
 
 0.7.0 was tagged but not published to npm; 0.7.1 is the first npm release of
