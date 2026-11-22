@@ -1129,3 +1129,32 @@ test("a post in a sub-folder is listed, edited on its page and published to its 
   const history = await page.request.get("/api/cms/history?collection=blog&id=notes/keep-the-list-short");
   expect(((await history.json()) as { history: unknown[] }).history.length).toBeGreaterThan(0);
 });
+
+test("page history restores body text that was published, with its source file", async ({ page }) => {
+  await loginAsEditor(page);
+  await page.goto("/blog/ship-something-real/");
+  const paragraph = page.locator(".post-body [data-caret-md]").first();
+  await replaceText(page, paragraph, EDITED_TEXT);
+  const [save] = await Promise.all([
+    page.waitForResponse(isMutatePost),
+    paragraph.evaluate((element) => (element as HTMLElement).blur()),
+  ]);
+  expect(save.ok(), await save.text()).toBeTruthy();
+  await page.locator(".cms-publish-btn").click();
+  await page.getByRole("dialog", { name: /^Publish \d+ changes?\?$/ }).getByRole("button", { name: "Publish", exact: true }).click();
+  await expect(page.locator(".cms-toast-success").filter({ hasText: "Published 1 change" })).toBeVisible();
+  expect(readFileSync(POST, "utf8")).toContain(EDITED_TEXT);
+
+  // A publish that changed only body text is a version of its own.
+  await page.goto("/blog/ship-something-real/");
+  await page.locator(".cms-tools-summary").click();
+  await page.locator(".cms-page-history-btn").click();
+  const history = page.getByRole("dialog", { name: "Page history" });
+  await expect(history).toContainText("Drag left to see the earlier version of this page.");
+  await history.getByRole("slider").fill("0");
+  // This server renders the body as built, so the version's text can't be shown on the page; it says so.
+  await expect(history).toContainText("Its body text differs from the site’s, but this page shows the site as last built.");
+  await history.getByRole("button", { name: "Restore this version" }).click();
+  await expect(page.getByText("The earlier version is back on your site, body text included.")).toBeVisible();
+  expect(readFileSync(POST, "utf8")).toBe(ORIGINAL);
+});

@@ -539,14 +539,96 @@
   font: 13.5px/1.45 var(--cms-font);
 }
 .cms-page-history label { display: grid; gap: 2px; }
-.cms-page-history label strong { font-weight: 600; }
+.cms-page-history-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; }
+.cms-page-history-heading strong { font-weight: 600; }
+.cms-page-history-when { color: var(--cms-text); font-variant-numeric: tabular-nums; }
+.cms-page-history-when:not(:empty)::before { content: "·"; margin-right: 8px; color: var(--cms-text-quiet); }
 .cms-page-history-detail { color: var(--cms-text-quiet); }
 .cms-history-changed {
   outline: 2px solid #3b82f6 !important;
   outline-offset: 4px !important;
   border-radius: 3px;
 }
-.cms-page-history input[type="range"] { width: 100%; accent-color: #22c55e; }
+/* The timeline: notches on a track, under a transparent native slider whose
+   thumb (18px) travels exactly between the first and last notch. */
+.cms-page-history-timeline { position: relative; display: grid; padding-top: 2px; }
+.cms-page-history-track {
+  position: absolute;
+  inset: 11px 9px auto;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--cms-fill-strong);
+}
+.cms-page-history-span {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 2px;
+  background: rgba(34, 197, 94, 0.45);
+}
+.cms-page-history-notch {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: var(--cms-surface);
+  box-shadow: inset 0 0 0 2px var(--cms-text-quiet);
+  cursor: pointer;
+  transition: box-shadow 120ms ease, scale 120ms ease;
+}
+.cms-page-history-notch:hover { scale: 1.3; }
+.cms-page-history-notch.is-between { box-shadow: inset 0 0 0 2px #22c55e; }
+.cms-page-history-notch:last-child { background: #22c55e; box-shadow: none; }
+.cms-page-history-notch.is-chosen { visibility: hidden; }
+.cms-page-history input[type="range"] {
+  position: relative;
+  width: 100%;
+  height: 26px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  pointer-events: none;
+}
+.cms-page-history input[type="range"]::-webkit-slider-runnable-track { height: 26px; background: transparent; }
+.cms-page-history input[type="range"]::-moz-range-track { height: 26px; background: transparent; }
+.cms-page-history input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 4px;
+  border: 3px solid var(--cms-surface);
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 2px #22c55e;
+  pointer-events: auto;
+  cursor: grab;
+}
+.cms-page-history input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 3px solid var(--cms-surface);
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 2px #22c55e;
+  pointer-events: auto;
+  cursor: grab;
+}
+.cms-page-history input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
+/* Focus shows on the handle, not as a box around the whole timeline. */
+.cms-page-history input[type="range"]:focus-visible { outline: none; }
+.cms-page-history input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px #22c55e, 0 0 0 5px var(--cms-accent); }
+.cms-page-history input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px #22c55e, 0 0 0 5px var(--cms-accent); }
+.cms-page-history-ends {
+  display: flex;
+  justify-content: space-between;
+  color: var(--cms-text-quiet);
+  font-size: 11.5px;
+}
 .cms-page-history-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .cms-page-history-actions button {
   min-height: 34px;
@@ -560,7 +642,7 @@
 }
 .cms-page-history-actions button.cms-page-history-restore { background: #22c55e; color: #052e16; font-weight: 600; }
 .cms-page-history-actions button:disabled { opacity: 0.45; cursor: default; }
-.cms-page-history button:focus-visible, .cms-page-history input:focus-visible { outline: 2px solid var(--cms-accent); outline-offset: 2px; }
+.cms-page-history button:focus-visible { outline: 2px solid var(--cms-accent); outline-offset: 2px; }
 
 /* What Publish will publish: one row per draft inside the dialog. */
 .cms-dialog .cms-receipt {

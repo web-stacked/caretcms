@@ -1,3 +1,4 @@
+import { canonicalBody } from "../../markdown/canonical-body.js";
 import { parseFrontmatter } from "../storage/frontmatter-codec.js";
 import { sameContent } from "../draft-state.js";
 import { PUBLISH_RECOVERY_KEY } from "../draft-state.js";
@@ -11,11 +12,17 @@ import { loadPageContent } from "../page-content.js";
 export const prerender = false;
 
 import type { APIContext } from "astro";
+import type { StorageAdapter } from "../../types.js";
 import { getEditorId, getEditorIdentity, isEditorAuthenticated } from "../auth/session.js";
 import { parseEntryId } from "../mutations/contracts.js";
 import { withEntryLock } from "../mutations/engine.js";
 import { commitEntryChanges } from "../storage/entry-commit.js";
 import { json, resolveAdapter, enforceCsrfHeader, readJsonBody } from "./_helpers.js";
+
+/** The site's published store: the one under the editor's drafts, if any. */
+function publishedStore(adapter: StorageAdapter): StorageAdapter {
+  return getRequestContext()?.publishedAdapter ?? adapter;
+}
 
 export async function GET(context: APIContext): Promise<Response> {
   if (!isEditorAuthenticated(context)) {
@@ -31,16 +38,27 @@ export async function GET(context: APIContext): Promise<Response> {
   if (!(await adapter.isKnownCollection(collectionRaw)) || !id) {
     return json({ error: "Invalid collection or id" }, 400);
   }
+  // While drafts are on, the history is the editor's own saves (the Studio's
+  // History panel); `published=1` asks for the site's, as page history does.
+  const store = context.url.searchParams.get("published") === "1" ? publishedStore(adapter) : adapter;
 
   // Mark the requester's own snapshots so the Studio can say "You" when an
   // editor has no name or email (password sessions only carry an opaque id).
   const editorId = getEditorId(context);
-  const history = (await adapter.getHistory(collectionRaw, id)).map((item) =>
-    editorId && item.editor?.id === editorId ? { ...item, editor: { ...item.editor, current: true } } : item);
+  // A version's Markdown body also comes as its body text (`body`, as
+  // `canonicalBody` gives it): what the page shows, and what page history
+  // compares and shows.
+  const history = (await store.getHistory(collectionRaw, id)).map((item) => ({
+    ...item,
+    ...(typeof item.bodySource === "string" ? { body: canonicalBody(item.bodySource).body } : {}),
+    ...(editorId && item.editor?.id === editorId ? { editor: { ...item.editor, current: true } } : {}),
+  }));
   // What the template itself says for each binding: the text the page showed
   // whenever the entry held no value for it.
   const template = (await loadPageContent())[collectionRaw]?.[id] ?? {};
-  return json({ history, template });
+  // The body text today, to compare earlier versions with.
+  const source = await store.readBodySource?.(collectionRaw, id).catch(() => null) ?? null;
+  return json({ history, template, ...(source === null ? {} : { body: canonicalBody(source).body }) });
 }
 
 export async function POST(context: APIContext): Promise<Response> {
@@ -59,7 +77,10 @@ export async function POST(context: APIContext): Promise<Response> {
       : null;
   if (!body) return json({ error: "Invalid payload" }, 400);
 
-  const adapter = getRequestContext()?.authorize ? (await getRuntimeServices()).adapter : await resolveAdapter();
+  // `published: true` restores a version of the site's history (page history)
+  // straight to the site; otherwise one of the editor's own saves.
+  const current = getRequestContext()?.authorize ? (await getRuntimeServices()).adapter : await resolveAdapter();
+  const adapter = body.published === true ? publishedStore(current) : current;
   const collectionRaw = typeof body.collection === "string"
     ? body.collection.trim().toLowerCase()
     : "";
