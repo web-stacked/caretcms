@@ -15,7 +15,8 @@ the 0.7 line. Release notes: [docs/releases/0.7.1.md](docs/releases/0.7.1.md).
 `@caretcms/caretize` 0.6.2 accepts entry ids with a path.
 
 Found by using 0.7.0 on the example sites with two editors signed in at once,
-and on a large open-source Astro template with a folder per language.
+on a large open-source Astro template with a folder per language, and on a
+new template set up from scratch with `caretize init`.
 
 ### Added
 
@@ -37,8 +38,50 @@ and on a large open-source Astro template with a folder per language.
 
   After upgrading a site that has such entries, delete the `.astro` folder once
   if their body text isn't editable: Astro caches rendered Markdown.
+- **Page history shows and restores Markdown body text.** A publish that
+  changed only body text is a version of its own; stepping back shows each
+  paragraph as it was (paragraphs added since are hidden, removed ones shown
+  again), outlined. **Restore this version** brings the body text back with
+  the version's source file, as History in the Studio does. Body text has no
+  draft of a whole version, so this publishes at once; on a site with drafts
+  the panel says so before you restore.
+- **New entry** offers the collection's folders when its entries are in
+  folders, and starts in the most used one. On a site that lists entries by
+  folder, an entry created outside every folder showed nowhere.
+- The page history slider has a notch per version (click one to jump to it),
+  "Oldest" and "Now" at its ends, and says when the version shown was
+  published. Messages show above the panel instead of covering it.
 
 ### Fixed
+
+- **A new entry couldn't be created in a collection with a choice field.**
+  The form showed the first option as chosen (Level: Beginner) but treated it
+  as empty, so **Create** did nothing until the editor picked another option
+  and came back.
+- **A date written as a day showed as empty in the Studio.** `pubDate:
+  2026-05-20` under `z.coerce.date()`, as most Astro blogs have it, opened in
+  a date-and-time picker that can't show a plain day. It now opens as a date
+  and stays a day when changed.
+- An Astro `reference()` field showed as JSON (`"mara"`, with the quotes), and
+  typing an id without quotes was ignored without a word. It is now a plain
+  text field. Other JSON fields say when what you typed isn't valid JSON
+  instead of looking saved.
+- Changing one item of a list of objects in frontmatter rewrote every item
+  from `- day: Tuesday` to a bare dash with the keys below. Items are written
+  in the compact form, so only the changed line differs.
+- Editing one item of a list that only the template held (an `editable()`
+  array) listed the items before it as changes too: "Stats 1: (empty) becomes
+  (empty)".
+- An entry about to be deleted is named by its title in the Publish dialog,
+  not by its id.
+- **The Studio saved defaults nobody chose.** Changing a post's date also
+  wrote `draft: false` into its file and listed "Draft" as a change, because
+  the form shows a value for every field with a default. A default the entry
+  doesn't store is now saved only once the editor changes it.
+- **Page history on a site with drafts showed the editor's own draft saves,
+  not the site's publishes.** It now always shows the site's history. This
+  was in 0.7.0. (The Studio's History panel still shows your own saves, as
+  intended.)
 
 - **Two people editing different parts of the same section no longer collide.**
   A draft was compared with the site one top-level field at a time, so for
