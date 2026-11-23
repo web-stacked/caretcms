@@ -8,6 +8,14 @@ Versions track the publishable `@caretcms/core` package.
 
 ## [Unreleased]
 
+### Fixed
+
+- Installing the repo as a dependency from a Git URL (`npm install
+  github:web-stacked/caretcms`) no longer fails. The `prepare` hook ran
+  `git config`, which exits 128 when the extracted tarball has no `.git`
+  directory, taking the whole installation with it. The hook now sets the
+  hooks path only inside a real clone.
+
 ## [0.7.2] - 2026-11-22
 
 Three fixes to what CaretCMS writes into your files, found on a new template
