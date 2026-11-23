@@ -48,7 +48,7 @@ src/pages/index.astro
 - **Names fields from context**: labels from their text (`"Our Programs 🎨"` → `our_programs`), prose and images from the heading or landmark they sit under (`our_story_text`, `our_story_image`), hoisted props from the component and which use of it (`testimonial_quote`, `testimonial_2_quote`). Names are deterministic and never collide with existing bindings, so re-runs are idempotent.
 - **Text inside a component or layout is one value** shared by every use of it; the output says so.
 - **Wraps data arrays** (`const faqs = [...]` → `editable("pages::home::faqs", [...])`) so list content is editable too. Identifier fields (`key`, `id`, `slug`, …) stay exactly as written; an array whose other fields are compared or used as lookup keys is not wrapped.
-- **Flags what it can't tag** (loops, expressions, mixed markup) and tells you which flag unlocks each.
+- **Flags what it can't tag** (loops, expressions, mixed markup, and JSON files imported directly as plain data outside a `file()` content collection) and tells you which flag or collection move unlocks each.
 
 ## Safety model
 
@@ -92,7 +92,8 @@ caretize init                wire CaretCMS into the project, then tag
                            --bind-routes, --rich, --rich-class, AND
                            --min-confidence low
   --scope <collection::id> override the inferred scope (validated against the
-                           runtime grammar: ^[a-z][a-z0-9_-]*$ :: ^[a-z0-9][a-z0-9_-]*$)
+                           runtime grammar: ^[a-z][a-z0-9_-]*$ ::
+                           ^[a-z0-9][a-z0-9_-]*(?:\/[a-z0-9][a-z0-9_-]*)*$)
   --report <file>          write a JSON report
   --restore                put back the files of the most recent run, then exit.
                            A file edited since is left alone (use remove)

@@ -1,16 +1,28 @@
 # CaretCMS
 
-CaretCMS is a reusable, open-core CMS for Astro:
+CaretCMS is a reusable, open-core CMS for Astro 6 and 7. Add one HTML attribute — or point it at existing `.md` / `.json` content collections — to get inline page editing, a content Studio, and multi-editor draft workflows with zero SaaS lock-in.
 
-- **Static delivery** — keep `output: 'static'`; bake published edits into HTML at build time
-- **Live content collections** via `astro:content` live loaders
-- **Inline canvas editing** — text, images, and section layout edited directly on the page
-- **Studio admin** for structured entry editing
-- **Attribute-first binding** — add `data-caret` attributes; no schema rewrite required
-- **Pluggable storage** — filesystem by default, coordinated Cloudflare Durable Object storage, plus KV/R2 adapters
-- **Verified deployment status** — optional providers connect published revisions to a real build identity and outcome
+### What it does
 
-The CMS ships as `@caretcms/core`, an Astro integration you install into any Astro app.
+**Inline & Studio editing**
+- **Inline canvas editing** — edit text, rich text, images, Markdown prose (`data-caret-md`), and section layout directly on the live page
+- **Attribute-first & collection-aware** — use `data-caret` attributes on static markup, or edit `astro:content` Markdown (including sub-folders like `en/post-1.md`) and JSON `file()` collections in place
+- **Content Studio** — structured forms inferred from Astro/Zod schemas (enums, plain dates, `reference()` fields, galleries), opened as a drawer right over the site
+- **Live content collections** — native `astro:content` live loaders via `caretLoader()`
+
+**Editing together safely**
+- **On-page Changes view** — amber dots for your drafts, blue dots for teammate/developer edits made under you, and amber+blue rings for same-value conflicts, with word-diff cards and single-field undo
+- **Nested-object merging** — two people editing different keys in the same section (`hero.headline` and `hero.subtext`) merge automatically without colliding
+- **Selective Publish & guarded Undo** — tick which drafts to ship, keep works-in-progress as drafts, and undo a publish for 30 minutes as a new forward commit (Git history is never rewritten)
+- **Page history & While-away tour** — scrub a timeline slider right on the page (fields, images, rich text, and Markdown body text) and step through changes made since your last visit
+- **Minimal source diffs** — writes back to Markdown and JSON while keeping compact YAML lists, single-line JSON entries, and straight quotes intact
+
+**Delivery, storage & zero lock-in**
+- **Static or server delivery** — keep `output: 'static'` (build-time HTML bake + rebuild webhook) or run `output: 'server'` (per-request rewriting)
+- **Pluggable storage & auth** — Markdown/JSON or filesystem by default, coordinated Cloudflare Durable Objects / KV / R2 via `@caretcms/cloudflare`, optional identity/role policies, and verified deployment status providers
+- **Clean CLI lifecycle** — `caretize init` wires an existing site, `caretize doctor` audits drafts/Git/uploads, and `caretize remove` strips CaretCMS cleanly while keeping your work
+
+The CMS ships as `@caretcms/core`, an Astro integration you install into any Astro app. See [docs/README.md](docs/README.md) for the full documentation map.
 
 ![CaretCMS on a small shop's site: type a new headline, drag in a new photo, change a price and undo it, then edit a product and a workshop in the Studio while the page updates beside it](https://caretcms.com/preview/caretcms-demo.gif)
 

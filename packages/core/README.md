@@ -393,15 +393,16 @@ existing entries; deriving from Zod just adds proper labels, types, and widget h
 
 ## What you get
 
-- **Inline editing** on any `data-caret` element (text and images)
+- **Inline editing** on any `data-caret` element (text, rich text, and images) and rendered Markdown prose (`data-caret-md`), including entries in sub-folders (`en/post-1`)
 - **Live content collections** via `caretLoader` for `getLiveEntry` / `getLiveCollection` on Astro 6 and 7
-- **Content Studio** over the site (routes under `/admin/cms`) for structured CRUD
+- **Content Studio** over the site (routes under `/admin/cms`) for structured CRUD with schema-aware forms (enums, plain dates, Astro `reference()` fields, folders)
+- **Editing together safely** — on-page **Changes** dots (amber/blue/conflict ring) with word-diff cards and single-field undo, nested-object merging, **Since you were last here** change tours, selective **Publish** checkboxes, 30-minute guarded **Undo**, and **Tools → Page history** (fields, images, rich text, and Markdown body text)
 - **Section composer** for reordering and spacing page sections
 - **Response rewriting** middleware (server delivery) or **build-time HTML bake** (static delivery)
-- **Scoped bindings** via `data-caret-scope` to reduce repetition
+- **Scoped bindings** via `data-caret-scope` (on a wrapper or the bound element itself) to reduce repetition
 - **Dev Toolbar app** — in `astro dev`, inspect and highlight every binding on the page (no login required), grouped by entry with deep-links into Studio; it flags orphan bindings, duplicate keys and fields whose markup keeps them read-only
-- **Revision safety** with optimistic locking and restore from history
-- **Storage adapters** — filesystem (default), in-memory, or custom via `StorageAdapter` interface
+- **Revision safety** with optimistic locking, crash-recoverable publish, and restore from history
+- **Storage adapters** — Markdown/JSON or filesystem (default), in-memory, Cloudflare Durable Objects/KV via `@caretcms/cloudflare`, or custom via `StorageAdapter`
 
 ## Cloudflare deployment
 
@@ -443,7 +444,9 @@ All routes are under `/api/cms` by default (configurable via `apiBasePath`):
 | `/api/cms/entries` | GET | List entries by collection |
 | `/api/cms/schema` | GET | Collection schema (explicit or inferred) |
 | `/api/cms/mutate` | POST | Save content mutations |
-| `/api/cms/history` | GET | Entry revision history |
+| `/api/cms/draft` | GET / POST / DELETE | Inspect drafts/changes (`?changes=1`), settle conflicts, undo 1 field, stage publish undo, or discard drafts |
+| `/api/cms/publish` | POST | Publish all or selected (`{ entries }`) drafts, retry rebuilds, or retry Git history |
+| `/api/cms/history` | GET / POST | Read entry or published (`?published=1`) history (with template text and Markdown body) and restore a snapshot |
 | `/api/cms/upload` | POST | File uploads |
 | `/api/cms/deployment` | GET | Provider-backed status for the editor's latest accepted deployment |
 | `/api/cms/auth/login` | POST | Editor login |
@@ -645,7 +648,7 @@ for supported forms and formatting limits.
 - Rotate `CARET_EDIT_PASSWORD` and `CARET_SESSION_SECRET` together, then restart or redeploy
   every instance. Changing the session secret immediately invalidates all existing editor
   cookies; changing only the password does not revoke sessions that are already signed in.
-- `markdownStorage()` edits `src/content/*.md` **at request time**, which fits a dev/git workflow. In
+- `markdownStorage()` edits `src/content/**.md` **at request time**, which fits a dev/git workflow. In
   production, pair it with commit-on-publish + a CI rebuild (fields rendered through
   `getCollection()` are baked at build time and only refresh on rebuild), or use a server-side
   adapter like [`@caretcms/cloudflare`](https://www.npmjs.com/package/@caretcms/cloudflare).

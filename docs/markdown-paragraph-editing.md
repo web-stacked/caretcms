@@ -23,9 +23,12 @@ On conflict, copy unsaved edits before reloading.
 
 Unchanged paragraph HTML retains the corresponding original Markdown text, even
 if its position within the region changes. Changed paragraphs use the existing
-inline serializer. Paragraph separators normalize to a blank line. Within a
-changed paragraph, reference links normalize to inline links and link titles are
-removed; definitions elsewhere in the document remain untouched.
+inline serializer, keeping the quote style the original block was written with
+(straight quotes stay straight instead of picking up Astro's typographic curly
+quotes; blocks already written with curly quotes stay as they are). Paragraph
+separators normalize to a blank line. Within a changed paragraph, reference
+links normalize to inline links and link titles are removed; definitions
+elsewhere in the document remain untouched.
 
 The initial scope has deliberate boundaries:
 

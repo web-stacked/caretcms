@@ -15,11 +15,15 @@ over to the newer entry:
   holds that entry back with `stale_entry` and lists the fields in `fields`.
   The editor keeps seeing their own value until they choose.
 
-Fields are compared at the top level of the entry: two changes inside the same
-object or array are a conflict. A draft whose entry was deleted, and a deletion
-of an entry that changed, are also held back. Server delivery still saves
-structured fields live. Markdown body drafts continue to validate their source
-ranges and hashes (see [Body text](#body-text)).
+Nested objects are compared value by value, so two people changing different
+keys inside the same object (for example `hero.headline` and `hero.subtext`)
+merge without colliding, and `conflicts[].fields` reports conflicting nested
+values by their dotted path (`hero.headline`). An array changed on both sides is
+still one conflict on the whole list, because its items have no stable identity
+to match safely. A draft whose entry was deleted, and a deletion of an entry
+that changed, are also held back. Server delivery still saves structured fields
+live. Markdown body drafts continue to validate their source ranges and hashes
+(see [Body text](#body-text)).
 
 ### Settling a conflict
 

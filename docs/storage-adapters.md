@@ -179,9 +179,24 @@ collections it can't map to a source (a custom loader, a non-JSON file, a
 objects with a string `id`, or an object whose values are all objects, holds
 one entry per item, as Astro's `file()` loader reads it. Any other object is a
 single entry whose id is the file name. Writes to one file are serialized in
-the process and change only the text of the values that differ, so the file's
+the process and change only the text of the values that differ — including
+adding or removing items in compact one-object-per-line lists — so the file's
 formatting, entry order, and key order survive. `preparePublicationSources`
 returns the whole updated file, so Git-on-publish commits it.
+
+## Entry IDs and sub-folders
+
+Entry IDs may contain `/` segments for content organized in sub-folders (for
+example `src/content/blog/en/post-1.md` has the ID `en/post-1`, and
+`guides/index.md` has the ID `guides`, matching Astro). Every segment follows
+the single-segment rule (lowercase letters, digits, `-`, and `_`, starting with
+a letter or digit), so an ID cannot escape its collection root or contain `.` or
+`..`. `ENTRY_ID_RE` in `@caretcms/core/contracts` is the authoritative grammar.
+
+Custom `StorageAdapter` implementations should accept IDs containing `/` across
+`getEntry`, `writeEntry`, `deleteEntry`, `listEntryIds`, revision, and history
+methods (creating parent folders as needed for file-backed stores). The built-in
+filesystem, Markdown, in-memory, and Cloudflare adapters handle path IDs.
 
 ## Collection read baseline
 

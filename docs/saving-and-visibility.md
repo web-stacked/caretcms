@@ -108,13 +108,17 @@ and lets an editor take a change back without the Studio.
   refuses when the page changed after your publish (another publish, or a
   developer editing the file), while you have newer changes to the same page,
   and for a publish that changed Markdown body text (Undo isn't offered for
-  those). Restore them from History in the Studio. **Undo last publish** stays
-  in the status panel for 30 minutes.
-- **Tools → Page history** is a slider over the times this page's content was
-  published. Dragging it shows what text and images said then, on the page
-  itself, with what differs from today outlined. **Restore this version** saves
-  it as a draft to publish like any other; on a site that saves live it goes
-  live at once. Markdown body text keeps today's version.
+  those — restore them from Page history or History in the Studio). **Undo last
+  publish** stays in the status panel for 30 minutes.
+- **Tools → Page history** is a slider with a notch for each time this page's
+  content was published. Clicking a notch or dragging shows what text, rich
+  text, images, and Markdown body paragraphs said then, on the page itself, with
+  what differs from today outlined (paragraphs added since are hidden and
+  removed ones are shown again). **Restore this version** saves field-only
+  changes as a draft on a site with drafts, or publishes them straight onto a
+  site that saves live. When the restored version's Markdown body text differs,
+  it restores that version's source file straight to the site — on a site with
+  drafts, the panel says so before you click.
 - **Tools → How editing works** shows the short explanation a new editor sees on
   their first sign-in in a browser.
 
