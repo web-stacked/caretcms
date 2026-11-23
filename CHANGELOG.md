@@ -13,8 +13,12 @@ Versions track the publishable `@caretcms/core` package.
 - Installing the repo as a dependency from a Git URL (`npm install
   github:web-stacked/caretcms`) no longer fails. The `prepare` hook ran
   `git config`, which exits 128 when the extracted tarball has no `.git`
-  directory, taking the whole installation with it. The hook now sets the
-  hooks path only inside a real clone.
+  directory, taking the whole installation with it. The hook now runs a small
+  Node script (`scripts/prepare-hooks.mjs`) that sets `core.hooksPath` only
+  when both `.git` and `.githooks` exist in the current directory — keeping it
+  cross-platform (Windows included), worktree-safe, and unable to overwrite a
+  parent repository's hooks. Thanks to [@devskale](https://github.com/devskale)
+  for the report and PR #17.
 
 ## [0.7.2] - 2026-11-22
 
