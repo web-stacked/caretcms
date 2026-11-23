@@ -86,7 +86,7 @@ function etagFor(path: string, body: string): string {
   return tag;
 }
 
-function sanitizePath(raw: string): string | null {
+export function sanitizePath(raw: string): string | null {
   const normalized = raw.replace(/\\/g, "/");
   if (normalized.includes("..") || normalized.includes("\0")) return null;
   if (/[^a-zA-Z0-9_./-]/.test(normalized)) return null;
