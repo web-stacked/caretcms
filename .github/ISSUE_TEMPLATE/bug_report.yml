@@ -1,0 +1,73 @@
+name: Bug report
+description: Report broken behavior, a regression, or an unexpected error in CaretCMS
+title: "[bug]: "
+labels: ["bug", "inbox"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! For security vulnerabilities (auth, XSS/sanitization, path traversal, uploads), please use [GitHub Security Advisories](https://github.com/web-stacked/caretcms/security/advisories/new) instead of a public issue.
+
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      options:
+        - "@caretcms/core"
+        - "@caretcms/caretize"
+        - "@caretcms/cloudflare"
+        - "@caretcms/zod"
+        - "Docs / website"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: CaretCMS version, Astro version, and Node version
+      placeholder: "@caretcms/core 0.7.2, astro 7.2.4, node 22.12.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: delivery
+    attributes:
+      label: Delivery & storage mode
+      options:
+        - "Static delivery (Markdown / JSON)"
+        - "Server delivery — Node"
+        - "Server delivery — Cloudflare (Durable Objects / KV / R2)"
+        - "Dev mode only"
+        - "Not applicable"
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you expected to happen instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, config snippet, or link to a reproduction repo.
+      placeholder: |
+        1. Configure `caret()` with ...
+        2. Open `/admin` and edit ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or error output
+      render: shell
+    validations:
+      required: false

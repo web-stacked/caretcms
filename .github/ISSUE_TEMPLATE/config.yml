@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/web-stacked/caretcms/security/advisories/new
+    about: Privately report security issues (auth, sanitization, uploads, file writes)
+  - name: Documentation
+    url: https://caretcms.com/docs
+    about: Setup guides, storage adapters, static delivery, and API reference

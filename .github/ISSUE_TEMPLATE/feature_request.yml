@@ -1,0 +1,47 @@
+name: Feature request or idea
+description: Suggest a capability, improvement, or DX refinement for CaretCMS
+title: "[idea]: "
+labels: ["enhancement", "inbox"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        All new ideas land in the **inbox** lane first. Once scoped and prioritized, they move to **ready** on the public roadmap.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the workflow friction or use case you hit.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: How should this work for editors or developers?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - "Inline editor / Studio UI"
+        - "Markdown / JSON storage & diffs"
+        - "CLI (@caretcms/caretize)"
+        - "Cloudflare / adapters"
+        - "Auth / permissions / deployment"
+        - "Docs / website"
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links, screenshots, or related Astro patterns.
+    validations:
+      required: false
