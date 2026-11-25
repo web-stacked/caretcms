@@ -30,10 +30,12 @@ CARET_EDIT_PASSWORD=your-password npm run dev:starter
 | Path | What it is |
 |---|---|
 | `packages/core` | The reusable, platform-neutral package (`@caretcms/core`). Most changes land here. |
-| `packages/cloudflare` | Cloudflare KV/R2 storage and upload adapters. |
+| `packages/cloudflare` | Cloudflare Durable Objects, KV, and R2 storage/upload adapters (`@caretcms/cloudflare`). |
+| `packages/caretize` | Interactive CLI and verified codemod for tagging Astro projects (`@caretcms/caretize`). |
+| `packages/zod` | Optional Zod → JSON Schema bridge (`@caretcms/zod`). |
 | `examples/` | Adoption assets and integration fixtures (`starter`, `content-site`, `demo`). Also the targets for end-to-end tests. |
-| `tests/unit` | Vitest unit tests. |
-| `tests/e2e` | Playwright end-to-end tests (drive the inline editor in a real browser). |
+| `tests/unit` | Vitest unit, property-based (`fast-check`), and contract-parity tests. |
+| `tests/e2e` | Playwright end-to-end tests (drive the inline editor and Studio in a real browser). |
 
 `packages/core` must stay free of platform-specific imports — anything
 platform-bound belongs behind the `StorageAdapter` / `UploadHandler`
